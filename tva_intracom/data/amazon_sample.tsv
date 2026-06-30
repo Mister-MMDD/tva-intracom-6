@@ -1,0 +1,11 @@
+transaction_type	transaction_event_id	activity_transaction_id	tax_calculation_date	departure_country	arrival_country	seller_depart_vat_number_country	buyer_vat_number	buyer_vat_number_country	total_activity_value_amt_vat_excl	price_of_items_amt_vat_excl	total_ship_charge_amt_vat_excl	total_gift_wrap_amt_vat_excl	qty	marketplace	seller_sku	asin	item_description	price_of_items_vat_rate_percent	total_price_of_items_vat_amt
+SALE	EVT001	ORD-2024-001	2024-03-15	FR	FR	FR			50.00	45.00	5.00	0.00	1	Amazon.fr	SKU001	B001234	Widget Pro	20	10.00
+SALE	EVT002	ORD-2024-002	2024-03-15	FR	DE	FR			100.00	90.00	10.00	0.00	1	Amazon.de	SKU002	B001235	Gadget Plus	19	19.00
+SALE	EVT003	ORD-2024-003	2024-03-16	FR	DE	FR	DE123456789	DE	200.00	180.00	20.00	0.00	2	Amazon.de	SKU003	B001236	Pro Kit	0	0.00
+SALE	EVT004	ORD-2024-004	2024-03-16	DE	DE	DE			80.00	75.00	5.00	0.00	1	Amazon.de	SKU004	B001237	Mini Outil	19	15.20
+SALE	EVT005	ORD-2024-005	2024-03-17	PL	PL	PL			60.00	55.00	5.00	0.00	3	Amazon.pl	SKU005	B001238	Pack Eco	23	13.80
+SALE	EVT006	ORD-2024-006	2024-03-17	FR	ES	FR			120.00	110.00	10.00	0.00	1	Amazon.es	SKU006	B001239	Deluxe Set	21	25.20
+REFUND	EVT007	ORD-2024-002	2024-03-20	FR	DE	FR			50.00	45.00	5.00	0.00	1	Amazon.de	SKU002	B001235	Gadget Plus	19	9.50
+FC_TRANSFER	EVT008	TRF-2024-001	2024-03-10	FR	DE	FR			0.00	0.00	0.00	0.00	10	Amazon.de	SKU001	B001234	Widget Pro		
+FC_TRANSFER	EVT009	TRF-2024-002	2024-03-11	FR	PL	FR			0.00	0.00	0.00	0.00	5	Amazon.pl	SKU005	B001238	Pack Eco		
+INBOUND	EVT010	INB-2024-001	2024-03-01	FR	FR	FR			0.00	0.00	0.00	0.00	50	Amazon.fr	SKU001	B001234	Widget Pro		

@@ -1,0 +1,11 @@
+order_id,ship_to_country,amount,currency,ship_from_country,order_date,status,platform
+AE-10001,FR,25.00,EUR,CN,2024-03-15,completed,aliexpress
+AE-10002,DE,45.00,EUR,CN,2024-03-15,completed,aliexpress
+AE-10003,ES,12.99,EUR,CN,2024-03-16,completed,aliexpress
+AE-10004,IT,89.00,EUR,CN,2024-03-16,completed,aliexpress
+AE-10005,FR,155.00,EUR,CN,2024-03-17,completed,aliexpress
+AE-10006,PL,30.00,EUR,CN,2024-03-17,completed,temu
+AE-10007,NL,18.50,EUR,CN,2024-03-18,completed,temu
+AE-10008,DE,200.00,EUR,CN,2024-03-18,cancelled,ebay
+AE-10009,BE,75.00,EUR,CN,2024-03-19,completed,ebay
+AE-10010,FR,42.00,EUR,FR,2024-03-19,completed,ebay

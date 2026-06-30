@@ -1,0 +1,12 @@
+sale_id,amount_ht,buyer_type,stock_country,buyer_country,seller_country,buyer_vat_valid,buyer_vat_number,quantity
+V001,100.00,B2C,FR,FR,FR,,,1
+V002,100.00,B2C,FR,DE,FR,,,1
+V003,200.00,B2B,FR,DE,FR,true,DE129273398,2
+V004,200.00,B2B,FR,DE,FR,false,DE000000000,1
+V005,100.00,B2C,DE,DE,FR,,,1
+V006,80.00,B2C,PL,PL,FR,,,3
+V007,50.00,B2C,CN,FR,FR,,,1
+V008,300.00,B2C,CN,FR,FR,,,1
+V009,100.00,B2C,FR,GB,FR,,,1
+V010,150.00,B2B,FR,FR,FR,true,FR82542065479,1
+V011,100.00,B2C,FR,DE,US,,,1

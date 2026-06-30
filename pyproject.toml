@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tva-intracom"
+version = "0.1.0"
+description = "Moteur de calcul de la TVA intracommunautaire pour les ventes marketplace (Amazon)."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Matthieu" }]
+dependencies = ["openpyxl>=3.1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+web = ["streamlit>=1.30"]
+
+[project.scripts]
+tva-intracom = "tva_intracom.cli:main"
+
+[tool.setuptools]
+packages = ["tva_intracom"]
+
+[tool.setuptools.package-data]
+tva_intracom = ["data/*.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,11 @@
+order_id;country;total_ht;currency;status;date;company;vat_number
+WC-1001;FR;200.00;EUR;completed;15/03/2024;;
+WC-1002;DE;150.00;PLN;completed;15/03/2024;;
+WC-1003;ES;80.00;EUR;completed;16/03/2024;;
+WC-1004;IT;300.00;PLN;completed;16/03/2024;Firma Srl;IT12345678901
+WC-1005;FR;95.00;PLN;completed;17/03/2024;;
+WC-1006;BE;120.00;PLN;completed;17/03/2024;;
+WC-1007;PL;60.00;PLN;cancelled;18/03/2024;;
+WC-1008;NL;175.00;EUR;completed;18/03/2024;;
+WC-1009;AT;45.00;EUR;completed;19/03/2024;;
+WC-1010;DE;220.00;EUR;completed;19/03/2024;GmbH Berlin;DE123456789
