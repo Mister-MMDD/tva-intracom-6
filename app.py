@@ -1415,6 +1415,7 @@ if uploaded_files:
                     )
 
         # ── 6. VISUALISATIONS (repliées) ──────────────────────────────────────
+        vat_by_country: dict[str, float] = {}
         with tab_viz:
             vat_by_country = {}
             if summary.fr_domestic_vat > 0: vat_by_country["FR"] = float(summary.fr_domestic_vat)
