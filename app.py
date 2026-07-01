@@ -27,6 +27,7 @@ from tva_intracom.rates import EU_COUNTRIES
 from tva_intracom.report import build_report, render_report
 from tva_intracom.oss_export import build_oss_excel, build_oss_csv
 from tva_intracom.tva_intracom_ca3_generator_v2 import generate_ca3_html_report_v2  # (et autres imports nécessaires)
+from tva_intracom.tva_intracom_ca3_generator_v3 import generate_ca3_html_report_v3
 from tva_intracom.oss_xml import generate_oss_xml
 
 _ZERO = Decimal("0.00")
@@ -1401,11 +1402,37 @@ if uploaded_files:
                             st.error(f"⛔ {_xml_err}")
                 with col_html:
                     st.markdown("**🇫🇷 Déclaration CA3 (HTML)**")
-                    st.caption("Rapport préparatoire ventilé par taux (20 %, 10 %, 5,5 %, 2,1 %)")
-                    ca3_html = generate_ca3_html_report_v2(
+                    st.caption(
+                        "Rapport préparatoire ventilé par taux (20 %, 10 %, 5,5 %, 2,1 %), "
+                        "ligne 08 AIC (transferts FBA) et solde net."
+                    )
+                    with st.expander("Paramètres déductions (optionnel)", expanded=False):
+                        st.caption(
+                            "Non calculables depuis les fichiers Amazon (données d'achats "
+                            "indisponibles) — à saisir manuellement si vous voulez un solde net."
+                        )
+                        _c1, _c2, _c3 = st.columns(3)
+                        _tva_ded_immo = _c1.number_input(
+                            "TVA déd. immobilisations (€)", min_value=0.0, value=0.0, step=10.0,
+                            key="ca3_ded_immo",
+                        )
+                        _tva_ded_autres = _c2.number_input(
+                            "TVA déd. autres biens/services (€)", min_value=0.0, value=0.0, step=10.0,
+                            key="ca3_ded_autres",
+                        )
+                        _credit_prec = _c3.number_input(
+                            "Crédit période précédente (€)", min_value=0.0, value=0.0, step=10.0,
+                            key="ca3_credit_prec",
+                        )
+                    ca3_html = generate_ca3_html_report_v3(
                         results=results_net,
                         company_name=nom_entreprise, siren=siren_entreprise,
                         period_label=period_label,
+                        all_fc_transfers=all_fc_transfers,
+                        tva_deductible_immos=Decimal(str(_tva_ded_immo)),
+                        tva_deductible_autres=Decimal(str(_tva_ded_autres)),
+                        credit_periode_precedente=Decimal(str(_credit_prec)),
+                        seller_country="FR",
                     )
                     st.download_button(
                         "📥 Rapport CA3 (HTML)", data=ca3_html.encode("utf-8"),

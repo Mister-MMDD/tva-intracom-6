@@ -235,65 +235,132 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
 
 
 def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None) -> None:
-    """Onglet Audit Ecarts Amazon : lignes ou TVA Amazon != TVA moteur.
+    """Onglet Audit — deux sections :
 
-    3 categories :
-    - "Risque VIES" : ventes B2B cross-border dont le resultat fiscal a ete
-      determine par le statut VIES (numero invalide confirme ou non verifie).
-      C'est le SEUL cas ou l'ecart vient reellement de VIES.
-    - "Autoliquidation nationale (art.194)" : ventes B2B domestiques dans un
-      pays ayant adopte le reverse charge national (ES, IT, PL, CZ...) —
-      Amazon collecte la TVA mais le moteur ne le fait pas (acheteur assujetti).
-    - "Ecart de Taux / Divers" : tout le reste (B2C, ecarts de taux, etc.).
+    1. Réconciliation agrégée : sous-totaux par (nature, pays destination) avec
+       écart absolu et % — identifie les catégories systématiquement décalées.
+    2. Détail ligne par ligne : chaque vente avec écart > 0.05 € (ou flux GB).
     """
-    vies_affected_sale_ids = vies_affected_sale_ids or set()
+    from collections import defaultdict
 
-    # Index des ventes en autoliquidation nationale depuis vies_summary
+    vies_affected_sale_ids = vies_affected_sale_ids or set()
     domestic_rc_sale_ids: set[str] = set()
     if vies_summary and hasattr(vies_summary, "reclassifications"):
         for rc in vies_summary.reclassifications:
             if getattr(rc, "is_domestic_reverse_charge", False):
                 domestic_rc_sale_ids.add(rc.sale_id)
 
-    _set_header(ws, 1, ["ID Vente", "Nature", "Flux", "Scenario",
-                         "HT (EUR)", "TVA Amazon (EUR)", "TVA Moteur (EUR)", "Ecart (EUR)"])
-    ws.row_dimensions[1].height = 22
-    row = 2
-    for r in results:
-        tva_amazon = float(getattr(r.sale, "amazon_vat_amount", Decimal("0")))
-        tva_moteur = float(r.vat_amount)
-        ecart = tva_amazon - tva_moteur
+    def _nature(r) -> str:
         dep = getattr(r.sale, "stock_country", "")
         arr = getattr(r.sale, "buyer_country", "")
-        is_gb = dep == "GB" or arr == "GB"
+        sid = str(r.sale.sale_id)
+        tva_amazon = float(getattr(r.sale, "amazon_vat_amount", Decimal("0")))
+        tva_moteur = float(r.vat_amount)
+        if dep == "GB" or arr == "GB":
+            return "GB — Flux post-Brexit"
+        if id(r.sale) in vies_affected_sale_ids and tva_amazon == 0:
+            return "Risque VIES"
+        if sid in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):
+            return "Autoliquidation nationale (art.194)"
+        return "Écart de taux / Divers"
 
-        # GB/UK : toujours inclus dans l'audit (informatif, même si écart = 0)
-        # pour permettre à l'utilisateur de vérifier les flux post-Brexit.
-        # Les autres lignes sont filtrées si l'écart est inférieur à 0.05€.
-        if not is_gb and abs(ecart) <= 0.05:
-            continue
+    # ── Section 1 : Réconciliation agrégée ──────────────────────────────
+    ws.title = "Audit & Réconciliation"
+    ws.cell(row=1, column=1,
+            value="RÉCONCILIATION AGRÉGÉE — Amazon vs Moteur").font = _TITLE_FONT
+    ws.row_dimensions[1].height = 24
+    ws.cell(row=2, column=1,
+            value="Agrégation par nature d'écart et pays de destination. "
+                  "Écart % = (Amazon − Moteur) / Moteur. "
+                  "Les catégories > 5% d'écart moyen méritent une vérification paramétrage.").font = Font(italic=True, size=9, color="595959")
+    ws.row_dimensions[2].height = 18
+    ws.row_dimensions[3].height = 8
 
-        sale_id = str(r.sale.sale_id)
-        if is_gb:
-            nature = "GB Spécifique UK (post-Brexit)"
-        elif id(r.sale) in vies_affected_sale_ids and tva_amazon == 0:
-            nature = "Risque VIES"
-        elif sale_id in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):
-            nature = "Autoliquidation nationale (art.194)"
-        else:
-            nature = "Ecart de Taux"
-        ws.cell(row=row, column=1, value=sale_id)
-        ws.cell(row=row, column=2, value=nature)
-        ws.cell(row=row, column=3, value=f"{dep}->{arr}")
-        ws.cell(row=row, column=4, value=str(r.scenario.value))
-        ws.cell(row=row, column=5, value=float(r.sale.amount_ht)).number_format = _EUR_FORMAT
-        ws.cell(row=row, column=6, value=round(tva_amazon, 2)).number_format = _EUR_FORMAT
-        ws.cell(row=row, column=7, value=round(tva_moteur, 2)).number_format = _EUR_FORMAT
-        ws.cell(row=row, column=8, value=round(ecart, 2)).number_format = _EUR_FORMAT
+    agg: dict[tuple[str, str], dict] = defaultdict(lambda: {
+        "n": 0, "ht": Decimal("0"), "amz": Decimal("0"), "mot": Decimal("0")
+    })
+    detail_rows = []
+
+    for r in results:
+        dep = getattr(r.sale, "stock_country", "")
+        arr = getattr(r.sale, "buyer_country", "")
+        tva_amz = Decimal(str(round(float(getattr(r.sale, "amazon_vat_amount", Decimal("0"))), 2)))
+        tva_mot = Decimal(str(round(float(r.vat_amount), 2)))
+        ecart   = tva_amz - tva_mot
+        is_gb   = dep == "GB" or arr == "GB"
+        nat     = _nature(r)
+
+        if is_gb or abs(float(ecart)) > 0.05:
+            agg[(nat, arr)]["n"]   += 1
+            agg[(nat, arr)]["ht"]  += r.sale.amount_ht
+            agg[(nat, arr)]["amz"] += tva_amz
+            agg[(nat, arr)]["mot"] += tva_mot
+            detail_rows.append((r, nat, dep, arr, tva_amz, tva_mot, ecart))
+
+    _set_header(ws, 4, [
+        "Nature d'écart", "Pays destination",
+        "Nb lignes", "CA HT total (€)",
+        "TVA Amazon (€)", "TVA Moteur (€)",
+        "Écart (€)", "Écart %", "Niveau de risque",
+    ], fill=_ORANGE_HEADER_FILL)
+    ws.row_dimensions[4].height = 22
+
+    row = 5
+    for (nat, arr), d in sorted(agg.items()):
+        ecart_abs = d["amz"] - d["mot"]
+        pct = (ecart_abs / d["mot"] * 100) if d["mot"] != 0 else Decimal("0")
+        risque = ("🔴 Élevé" if abs(float(pct)) > 10
+                  else "🟡 Moyen" if abs(float(pct)) > 3
+                  else "🟢 Faible")
+        ws.cell(row=row, column=1, value=nat)
+        ws.cell(row=row, column=2, value=f"{_COUNTRY_NAMES_XL.get(arr, arr)} ({arr})")
+        ws.cell(row=row, column=3, value=d["n"])
+        ws.cell(row=row, column=4, value=float(d["ht"])).number_format = _EUR_FORMAT
+        ws.cell(row=row, column=5, value=float(d["amz"])).number_format = _EUR_FORMAT
+        ws.cell(row=row, column=6, value=float(d["mot"])).number_format = _EUR_FORMAT
+        c_e = ws.cell(row=row, column=7, value=float(ecart_abs))
+        c_e.number_format = _EUR_FORMAT
+        c_e.font = Font(bold=True, color="C00000" if float(ecart_abs) > 1 else "000000")
+        c_p = ws.cell(row=row, column=8, value=float(_round(pct)))
+        c_p.number_format = '0.0"%"'
+        ws.cell(row=row, column=9, value=risque)
         ws.row_dimensions[row].height = 18
         row += 1
-    if row == 2:
-        ws.cell(row=2, column=1, value="Aucun ecart detecte.")
+
+    if row == 5:
+        ws.cell(row=5, column=1, value="Aucun écart détecté — Amazon et le moteur sont en accord.").font = Font(italic=True)
+        row = 6
+
+    # ── Section 2 : Détail ligne par ligne ──────────────────────────────
+    row += 2
+    ws.cell(row=row, column=1,
+            value="DÉTAIL LIGNE PAR LIGNE").font = Font(bold=True, size=11, color="1F497D")
+    ws.row_dimensions[row].height = 20
+    row += 1
+    _set_header(ws, row, [
+        "ID Vente", "Nature", "Flux",
+        "Scénario", "HT (€)",
+        "TVA Amazon (€)", "TVA Moteur (€)", "Écart (€)",
+    ])
+    ws.row_dimensions[row].height = 22
+    row += 1
+
+    for r, nat, dep, arr, tva_amz, tva_mot, ecart in detail_rows:
+        ws.cell(row=row, column=1, value=str(r.sale.sale_id))
+        ws.cell(row=row, column=2, value=nat)
+        ws.cell(row=row, column=3, value=f"{dep}→{arr}")
+        ws.cell(row=row, column=4, value=str(r.scenario.value))
+        ws.cell(row=row, column=5, value=float(r.sale.amount_ht)).number_format = _EUR_FORMAT
+        ws.cell(row=row, column=6, value=float(tva_amz)).number_format = _EUR_FORMAT
+        ws.cell(row=row, column=7, value=float(tva_mot)).number_format = _EUR_FORMAT
+        c = ws.cell(row=row, column=8, value=float(ecart))
+        c.number_format = _EUR_FORMAT
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    if not detail_rows:
+        ws.cell(row=row, column=1, value="Aucune ligne en écart.").font = Font(italic=True)
+
     _auto_width(ws)
 
 
@@ -409,8 +476,56 @@ def _write_intrastat_tab(
         flux[key]["nb"]           += 1
         flux[key]["designation"]  = flux[key]["designation"] or designation
 
-    # ── Onglet introductions (UE → seller_country) ──────────────────────
+    # ── Jauge de seuil annuel (460 000 €) ───────────────────────────────
+    # Cumul par année civile et par sens (intro/expé), toutes ASIN confondus,
+    # pour anticiper le franchissement de l'obligation déclarative Intrastat.
+    _SEUIL_INTRASTAT = Decimal("460000.00")
+    seuil_par_annee: dict[str, dict] = defaultdict(lambda: {"intro": Decimal("0"), "expe": Decimal("0")})
+    for (dep, arr, asin, mois), data in flux.items():
+        annee = mois[:4] if mois and mois != "—" else "—"
+        avg = asin_avg.get(asin, Decimal("0"))
+        valeur = _round(Decimal(str(data["qty"])) * avg) if avg else Decimal("0")
+        if arr == seller_country:
+            seuil_par_annee[annee]["intro"] += valeur
+        if dep == seller_country:
+            seuil_par_annee[annee]["expe"] += valeur
+
     current_row = 4
+    if seuil_par_annee:
+        ws.cell(row=current_row, column=1,
+                value="SUIVI DU SEUIL ANNUEL (460 000 € — obligation statistique)").font = Font(bold=True, size=11, color="C00000")
+        current_row += 1
+        _set_header(ws, current_row, [
+            "Année", "Sens", "Valeur cumulée estimée (€)", "% du seuil", "Statut",
+        ], fill=PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"))
+        current_row += 1
+        for annee in sorted(seuil_par_annee):
+            for sens_label, key_sens in [("Introductions", "intro"), ("Expéditions", "expe")]:
+                cumul = seuil_par_annee[annee][key_sens]
+                pct = float(cumul / _SEUIL_INTRASTAT * 100) if _SEUIL_INTRASTAT else 0.0
+                statut = ("🔴 SEUIL DÉPASSÉ" if pct >= 100
+                          else "🟡 Proche du seuil (>80%)" if pct >= 80
+                          else "🟢 Sous le seuil")
+                ws.cell(row=current_row, column=1, value=annee)
+                ws.cell(row=current_row, column=2, value=sens_label)
+                c_v = ws.cell(row=current_row, column=3, value=float(cumul))
+                c_v.number_format = _EUR_FORMAT
+                c_p = ws.cell(row=current_row, column=4, value=round(pct, 1))
+                c_p.number_format = '0.0"%"'
+                c_p.font = Font(bold=True, color="C00000" if pct >= 100 else ("ED7D31" if pct >= 80 else "375623"))
+                ws.cell(row=current_row, column=5, value=statut)
+                ws.row_dimensions[current_row].height = 18
+                current_row += 1
+        cap = ws.cell(row=current_row, column=1,
+                value="⚠ Valeurs estimées (prix vente moyen HT × qté) — à recouper avec la valeur d'achat réelle.")
+        cap.font = Font(italic=True, size=9, color="7f7f7f")
+        current_row += 2
+    else:
+        ws.cell(row=current_row, column=1,
+                value="Aucun transfert de stock détecté — suivi de seuil non applicable.").font = Font(italic=True)
+        current_row += 2
+
+    # ── Détail introductions / expéditions (UE → seller_country) ────────
     for flow_label, is_intro in [
         (f"INTRODUCTIONS — flux entrant vers {seller_country} depuis UE", True),
         (f"EXPÉDITIONS  — flux sortant de {seller_country} vers UE", False),
