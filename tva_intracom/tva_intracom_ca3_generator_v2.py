@@ -1,7 +1,7 @@
 """
-Module CA3 v3 — Déclaration nationale française TVA (Cerfa n°3310-CA3-SD).
+Module CA3 v2 — Déclaration nationale française TVA (Cerfa n°3310-CA3-SD).
 
-Améliorations v3 vs v2 :
+Améliorations v2 vs v2 :
 - Ligne 08 : Acquisitions intracommunautaires assimilées (AIC FBA, art. 17
   Dir. 2006/112/CE) calculées depuis les mouvements de stock FC Transfer.
 - Section C : Déductions — TVA déductible sur immobilisations (ligne 20 ded.),
@@ -91,7 +91,7 @@ def _compute_aic_from_fc_transfers(
 # Calcul des lignes Cerfa
 # ---------------------------------------------------------------------------
 
-def compute_ca3_lines_v3(
+def compute_ca3_lines_v2(
     results: List[VatResult],
     refund_results: Optional[List[VatResult]] = None,
     all_fc_transfers: Optional[list] = None,
@@ -155,7 +155,7 @@ def compute_ca3_lines_v3(
             elif rate in (Decimal("10"), Decimal("10.00")):
                 lines["25_base_ht"] += amt; lines["25_tva_due"] += tva
             else:
-                logger.warning("CA3 v3 : taux %.2f%% non mappé (sale_id=%s) → ligne 20.",
+                logger.warning("CA3 v2 : taux %.2f%% non mappé (sale_id=%s) → ligne 20.",
                                float(rate), res.sale.sale_id)
                 lines["20_base_ht"] += amt; lines["20_tva_due"] += tva
 
@@ -186,7 +186,7 @@ def compute_ca3_lines_v3(
 # Génération HTML
 # ---------------------------------------------------------------------------
 
-def generate_ca3_html_report_v3(
+def generate_ca3_html_report_v2(
     results: List[VatResult],
     company_name: str,
     siren: str,
@@ -200,7 +200,7 @@ def generate_ca3_html_report_v3(
 ) -> str:
     """Génère le rapport HTML de contrôle CA3 — version 3 (multi-taux + AIC + déductions)."""
 
-    lines = compute_ca3_lines_v3(
+    lines = compute_ca3_lines_v2(
         results, refund_results,
         all_fc_transfers=all_fc_transfers,
         tva_deductible_immos=tva_deductible_immos,
@@ -407,12 +407,12 @@ def generate_ca3_html_report_v3(
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Rapport CA3 v3 — {company_name} — {period_label}</title>
+    <title>Rapport CA3 v2 — {company_name} — {period_label}</title>
     <style>{CSS}</style>
 </head>
 <body>
     <div class="hdr-banner">
-        <h1 class="title">Rapport de Contrôle TVA — Déclaration CA3 v3</h1>
+        <h1 class="title">Rapport de Contrôle TVA — Déclaration CA3 v2</h1>
         <p class="subtitle">Pré-remplissage Cerfa n°3310-CA3-SD — Marché national {seller_country}</p>
     </div>
 
