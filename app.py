@@ -27,7 +27,6 @@ from tva_intracom.rates import EU_COUNTRIES
 from tva_intracom.report import build_report, render_report
 from tva_intracom.oss_export import build_oss_excel, build_oss_csv
 from tva_intracom.tva_intracom_ca3_generator_v2 import generate_ca3_html_report_v2  # (et autres imports nécessaires)
-from tva_intracom.tva_intracom_ca3_generator_v3 import generate_ca3_html_report_v3
 from tva_intracom.oss_xml import generate_oss_xml
 
 _ZERO = Decimal("0.00")
@@ -1424,7 +1423,7 @@ if uploaded_files:
                             "Crédit période précédente (€)", min_value=0.0, value=0.0, step=10.0,
                             key="ca3_credit_prec",
                         )
-                    ca3_html = generate_ca3_html_report_v3(
+                    ca3_html = generate_ca3_html_report_v2(
                         results=results_net,
                         company_name=nom_entreprise, siren=siren_entreprise,
                         period_label=period_label,
