@@ -46,21 +46,28 @@ Projet
   ├── vies.py            Validation VIES : cache SQLite (WAL), historique append-only, overrides manuels,
   │                      retry exponentiel, batch degradation detection, 3 états (valid/invalid/unverified)
   ├── ecb_rates.py       Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle,
-  │                      convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194)
-  ├── oss_export.py      Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF
+  │                      convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194),
+  │                      retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires
+  ├── oss_export.py      Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF,
+  │                      détection des soldes négatifs (find_oss_negative_buckets)
   ├── oss_xml.py         Génération XML OSS officiel (Règl. UE 2021/965), validation période,
-  │                      détection des soldes négatifs (CorrectionsOfVatReturns)
+  │                      garde-fou soldes négatifs (CorrectionsOfVatReturns)
+  ├── ca3_report.py      Génération du rapport CA3 (HTML) : compute_ca3_lines_v2, AIC ligne 08
+  │                      (transferts FBA), déductions manuelles, calcul du solde net,
+  │                      generate_ca3_html_report_v2
   ├── excel_report.py    Export Excel multi-onglets (voir détail onglets ci-dessous)
-  ├── report.py          ReportSummary, build_report, render_report
-  ├── amazon/
-     └
-      ├── loader.py      Point d'entrée : load_amazon_report(), AmazonImportResult
-      ├── detect.py      Détection format (1–5) et séparateur CSV, normalisation headers
-      ├── parsers.py     Parsers par format (Format1–5Parser) — extraction champs bruts
-      ├── classify.py    Classification acheteur (B2B/B2C), conversion devise, Sale builder
-      ├── aggregate.py   Pré-agrégation multi-juridictions format V5
-      └── constants.py   Constantes, SALE_TYPES, REFUND_TYPES, EU_VAT_PREFIXES, safe_decimal
-└── app.py             Interface Streamlit
+  ├── report.py          ReportSummary, build_report, render_report — ventilation HT exhaustive
+  │                      par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne
+  ├── parsers/
+  │   └── amazon/
+  │       ├── loader.py      Point d'entrée : load_amazon_report(), AmazonImportResult,
+  │       │                  progress_callback optionnel pour suivi d'avancement (UI)
+  │       ├── detect.py      Détection format (1–5) et séparateur CSV, normalisation headers
+  │       ├── parsers.py     Parsers par format (Format1–5Parser) — extraction champs bruts
+  │       ├── classify.py    Classification acheteur (B2B/B2C), conversion devise, Sale builder
+  │       ├── aggregate.py   Pré-agrégation multi-juridictions format V5
+  │       └── constants.py   Constantes, SALE_TYPES, REFUND_TYPES, EU_VAT_PREFIXES, safe_decimal
+  └── app.py             Interface Streamlit
 ```
 
 ---
@@ -152,7 +159,20 @@ transaction) avant traitement.
 - **Garde-fou soldes négatifs** : lève une erreur explicite si un couple (pays/taux)
   ressort en négatif (montants négatifs non acceptés dans le corps OSS — à traiter
   comme `CorrectionsOfVatReturns` sur le portail si l'avoir se rapporte à une période
-  antérieure).
+  antérieure). Dans l'UI Streamlit, cette détection (`find_oss_negative_buckets`) est
+  effectuée en amont du clic sur le bouton de génération, avec un bloc d'alerte
+  explicatif affiché avant toute tentative.
+
+### Interface Streamlit — contrôles complémentaires
+
+- **Barre de progression** sur le parsing des rapports Amazon volumineux, via le
+  paramètre `progress_callback` de `load_amazon_report()`.
+- **Contrôle de cohérence comptable** : ventilation exhaustive et mutuellement
+  exclusive du CA HT par canal fiscal (`ReportSummary.ht_by_bucket` dans `report.py`),
+  recalculée indépendamment du total global. Un écart révèle un scénario de vente non
+  couvert par la classification plutôt qu'une erreur silencieuse. Ce contrôle vérifie
+  la cohérence *interne* du moteur — il ne remplace pas un rapprochement avec le
+  relevé de règlements Amazon (commissions, frais, remises non couverts).
 
 ---
 
@@ -240,12 +260,13 @@ print(render_report(build_report(resultats)))
 ### Import d'un fichier Amazon
 
 ```python
-from tva_intracom.amazon.v2.loader import load_amazon_report
+from tva_intracom.parsers.amazon import load_amazon_report
 
 result = load_amazon_report(
     "rapport_amazon.csv",
     seller_country="FR",
     convert_currencies=True,   # conversion BCE automatique
+    # progress_callback=lambda done, total: print(f"{done}/{total}"),  # optionnel
 )
 print(f"Format détecté : {result.detected_format}")
 print(f"Ventes : {len(result.sales)}, Remboursements : {len(result.refunds)}")
