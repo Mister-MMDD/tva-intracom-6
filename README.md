@@ -37,27 +37,29 @@ dans le calendrier fiscal, indépendamment du seuil OSS.
 ## Architecture du projet
 
 ```
-tva_intracom/
-├── models.py          Dataclasses : Sale, VatResult, Scenario, BuyerType, Channel, Collector
-├── engine.py          Moteur de classification fiscale (compute_vat, compute_all, compute_all_with_vies)
-├── rates.py           Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils
-├── vies.py            Validation VIES : cache SQLite (WAL), historique append-only, overrides manuels,
-│                      retry exponentiel, batch degradation detection, 3 états (valid/invalid/unverified)
-├── ecb_rates.py       Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle,
-│                      convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194)
-├── oss_export.py      Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF
-├── oss_xml.py         Génération XML OSS officiel (Règl. UE 2021/965), validation période,
-│                      détection des soldes négatifs (CorrectionsOfVatReturns)
-├── excel_report.py    Export Excel multi-onglets (voir détail onglets ci-dessous)
-├── report.py          ReportSummary, build_report, render_report
-├── amazon/
-│   └── v2/
-│       ├── loader.py      Point d'entrée : load_amazon_report(), AmazonImportResult
-│       ├── detect.py      Détection format (1–5) et séparateur CSV, normalisation headers
-│       ├── parsers.py     Parsers par format (Format1–5Parser) — extraction champs bruts
-│       ├── classify.py    Classification acheteur (B2B/B2C), conversion devise, Sale builder
-│       ├── aggregate.py   Pré-agrégation multi-juridictions format V5
-│       └── constants.py   Constantes, SALE_TYPES, REFUND_TYPES, EU_VAT_PREFIXES, safe_decimal
+Projet
+└─  
+  tva_intracom/
+  ├── models.py          Dataclasses : Sale, VatResult, Scenario, BuyerType, Channel, Collector
+  ├── engine.py          Moteur de classification fiscale (compute_vat, compute_all, compute_all_with_vies)
+  ├── rates.py           Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils
+  ├── vies.py            Validation VIES : cache SQLite (WAL), historique append-only, overrides manuels,
+  │                      retry exponentiel, batch degradation detection, 3 états (valid/invalid/unverified)
+  ├── ecb_rates.py       Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle,
+  │                      convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194)
+  ├── oss_export.py      Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF
+  ├── oss_xml.py         Génération XML OSS officiel (Règl. UE 2021/965), validation période,
+  │                      détection des soldes négatifs (CorrectionsOfVatReturns)
+  ├── excel_report.py    Export Excel multi-onglets (voir détail onglets ci-dessous)
+  ├── report.py          ReportSummary, build_report, render_report
+  ├── amazon/
+     └
+      ├── loader.py      Point d'entrée : load_amazon_report(), AmazonImportResult
+      ├── detect.py      Détection format (1–5) et séparateur CSV, normalisation headers
+      ├── parsers.py     Parsers par format (Format1–5Parser) — extraction champs bruts
+      ├── classify.py    Classification acheteur (B2B/B2C), conversion devise, Sale builder
+      ├── aggregate.py   Pré-agrégation multi-juridictions format V5
+      └── constants.py   Constantes, SALE_TYPES, REFUND_TYPES, EU_VAT_PREFIXES, safe_decimal
 └── app.py             Interface Streamlit
 ```
 

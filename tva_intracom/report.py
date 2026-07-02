@@ -40,6 +40,17 @@ class ReportSummary:
     # Cas 4 : pays ou le stock reside et qui imposent une immatriculation locale.
     stock_countries_requiring_registration: Set[str] = field(default_factory=set)
 
+    # Ventilation HT EXHAUSTIVE par "seau" de traitement fiscal (ventes, hors
+    # remboursements). Chaque VatResult tombe dans exactement un seau — la
+    # classification est construite à partir de (channel, collector, scenario)
+    # de façon à ce que la somme des seaux égale TOUJOURS total_ht par
+    # construction. Sert de test d'intégrité (Contrôle de Cohérence Comptable
+    # dans app.py) : si un scénario futur n'était pas couvert par les branches
+    # ci-dessous, il tomberait dans "Autre / non classé" et rendrait l'écart
+    # visible plutôt que silencieux.
+    ht_by_bucket: Dict[str, Decimal] = field(default_factory=dict)
+    refund_ht_by_bucket: Dict[str, Decimal] = field(default_factory=dict)
+
     @property
     def oss_total(self) -> Decimal:
         return sum(self.oss_by_country.values(), _ZERO)
@@ -88,10 +99,55 @@ class ReportSummary:
         """TVA totale nette a reverser (ventes - remboursements)."""
         return self.net_fr_domestic_vat + self.net_oss_total + self.net_local_total
 
+    @property
+    def net_ht_by_bucket(self) -> Dict[str, Decimal]:
+        """CA HT net (ventes - remboursements) par seau de traitement fiscal."""
+        all_buckets = set(self.ht_by_bucket) | set(self.refund_ht_by_bucket)
+        return {
+            b: self.ht_by_bucket.get(b, _ZERO) + self.refund_ht_by_bucket.get(b, _ZERO)
+            for b in sorted(all_buckets)
+        }
+
+    @property
+    def net_ht_total(self) -> Decimal:
+        """CA HT net total, recalculé à partir des seaux (doit égaler
+        total_ht + refund_total_ht — sert de test d'intégrité)."""
+        return sum(self.net_ht_by_bucket.values(), _ZERO)
+
+
+def _bucket_label(r: "VatResult") -> str:
+    """Classe un VatResult dans un seau HT exhaustif et mutuellement exclusif.
+
+    L'ordre des tests reflète l'ordre de priorité utilisé par compute_vat()
+    dans engine.py — à maintenir synchronisé si de nouveaux scenarios/canaux
+    y sont ajoutés.
+    """
+    if r.channel == Channel.IOSS:
+        return "Guichet IOSS (vendeur)"
+    if r.collector == Collector.AMAZON:
+        return "Deemed supplier (Amazon)"
+    if r.scenario == Scenario.B2B_REVERSE_CHARGE:
+        return "B2B exonéré (autoliquidation)"
+    if r.channel == Channel.OSS:
+        return "Guichet OSS"
+    if r.channel == Channel.FR_DOMESTIC:
+        return "TVA domestique France (CA3)"
+    if r.channel == Channel.LOCAL_REGISTRATION:
+        return "Immatriculation TVA locale"
+    if r.scenario == Scenario.EXPORT:
+        return "Export hors UE"
+    if r.scenario == Scenario.IMPORT_STANDARD:
+        return "Import (TVA douane, hors IOSS)"
+    return "Autre / non classé"
+
 
 def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = False) -> None:
     """Ventile un VatResult dans le bon canal du summary."""
     ht = r.sale.amount_ht  # déjà négatif pour les remboursements
+
+    bucket = _bucket_label(r)
+    target = summary.refund_ht_by_bucket if is_refund else summary.ht_by_bucket
+    target[bucket] = target.get(bucket, _ZERO) + ht
 
     if is_refund:
         summary.refund_total_ht += ht

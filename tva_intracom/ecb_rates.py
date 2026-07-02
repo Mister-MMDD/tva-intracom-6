@@ -18,6 +18,7 @@ import logging
 import pathlib
 import re
 import threading
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -92,10 +93,19 @@ _load_disk_cache()
 # Requête HTTP
 # ------------------------------------------------------------------
 
+# Backoff exponentiel sur erreurs réseau/HTTP transitoires (dont HTTP 429).
+# Ne couvre PAS les réponses malformées (JSON invalide, structure inattendue) :
+# une réponse mal formée n'est pas transitoire, la retenter ne change rien.
+_FETCH_MAX_ATTEMPTS = 3
+_FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
+
+
 def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
     """Interroge l'API ECB pour EUR/{currency} à une date donnée.
 
     Élargit la fenêtre à 7 jours pour couvrir weekends/jours fériés.
+    Retente jusqu'à _FETCH_MAX_ATTEMPTS fois avec un délai exponentiel
+    (1s / 2s / 4s) en cas d'erreur réseau ou HTTP transitoire (429, 5xx…).
     """
     currency = currency.upper()
     if currency == "EUR":
@@ -113,14 +123,32 @@ def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
     )
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
 
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
-        logger.warning("ECB API indisponible pour %s au %s : %s", currency, target_date, exc)
-        return None
-    except (json.JSONDecodeError, ValueError) as exc:
-        logger.warning("Réponse ECB non parsable : %s", exc)
+    data = None
+    for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            break  # succès, on sort de la boucle de retry
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            is_last_attempt = attempt >= _FETCH_MAX_ATTEMPTS
+            if is_last_attempt:
+                logger.warning(
+                    "ECB API indisponible pour %s au %s après %d tentative(s) : %s",
+                    currency, target_date, attempt, exc,
+                )
+                return None
+            delay = _FETCH_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+            logger.debug(
+                "ECB API échec pour %s au %s (tentative %d/%d) : %s — retry dans %.0fs",
+                currency, target_date, attempt, _FETCH_MAX_ATTEMPTS, exc, delay,
+            )
+            time.sleep(delay)
+        except (json.JSONDecodeError, ValueError) as exc:
+            # Non transitoire : inutile de retenter.
+            logger.warning("Réponse ECB non parsable : %s", exc)
+            return None
+
+    if data is None:
         return None
 
     try:

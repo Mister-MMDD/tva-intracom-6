@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Callable, List, Optional, Set
 
 from ...models import BuyerType, Sale
 from ...vies import _normalize_vat_id as normalize_vat
@@ -76,6 +76,8 @@ def _process_rows(
     convert_currencies: bool,
     asin_to_category: Optional[dict[str, str]],
     result: AmazonImportResult,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    progress_step: int = 500,
 ) -> None:
     """Traite chaque ligne agrégée et alimente result.sales / result.refunds.
 
@@ -86,8 +88,25 @@ def _process_rows(
       4. Vérification territoire TVA exception (Canaries, DOM-TOM…)
       5. Conversion devise BCE si demandée
       6. Construction du Sale et routage vers sales ou refunds
+
+    Args:
+        progress_callback: callable(processed, total) optionnel, appelé tous les
+            `progress_step` lignes (et une fois à la fin) pour permettre à l'appelant
+            (ex: app.py / st.progress) de suivre l'avancement sur un gros fichier.
+            N'est jamais appelé si None (comportement par défaut inchangé).
+        progress_step: fréquence d'appel du callback, en nombre de lignes.
     """
-    for line_no, row in rows_to_process:
+    total = len(rows_to_process)
+    for processed, (line_no, row) in enumerate(rows_to_process, start=1):
+        if progress_callback is not None and (
+            processed % progress_step == 0 or processed == total
+        ):
+            try:
+                progress_callback(processed, total)
+            except Exception:
+                # Le callback ne doit jamais interrompre le parsing (ex: erreur
+                # d'affichage Streamlit si le composant a été démonté entre-temps).
+                logger.debug("progress_callback a levé une exception, ignorée.", exc_info=True)
 
         tx_type = parser.tx_type(row)
 
@@ -273,11 +292,21 @@ def load_amazon_report(
     encoding: str = "utf-8",
     convert_currencies: bool = False,
     asin_to_category: Optional[dict[str, str]] = None,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> AmazonImportResult:
     """Charge un fichier Amazon VAT Transactions Report (formats 1 à 5).
 
     La détection du format est automatique sur le header.
-    Interface publique identique à l'ancienne version monolithique.
+    Interface publique identique à l'ancienne version monolithique
+    (le nouveau paramètre progress_callback est optionnel, valeur par
+    défaut None → aucun changement de comportement pour les appelants
+    existants).
+
+    Args:
+        progress_callback: callable(processed, total) optionnel, appelé
+            périodiquement pendant le traitement ligne par ligne (utile
+            pour afficher une barre de progression sur un gros fichier,
+            ex: st.progress dans app.py).
     """
     path = Path(path)
     result = AmazonImportResult(
@@ -379,6 +408,7 @@ def load_amazon_report(
         convert_currencies=convert_currencies,
         asin_to_category=asin_to_category,
         result=result,
+        progress_callback=progress_callback,
     )
 
     logger.info(

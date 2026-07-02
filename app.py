@@ -26,8 +26,9 @@ from tva_intracom.models import Scenario
 from tva_intracom.rates import EU_COUNTRIES
 from tva_intracom.report import build_report, render_report
 from tva_intracom.oss_export import build_oss_excel, build_oss_csv
-from tva_intracom.tva_intracom_ca3_generator_v2 import generate_ca3_html_report_v2  # (et autres imports nécessaires)
+from tva_intracom.ca3_report import generate_ca3_html_report_v2  # (et autres imports nécessaires)
 from tva_intracom.oss_xml import generate_oss_xml
+from tva_intracom.oss_export import aggregate_oss_results, find_oss_negative_buckets
 
 _ZERO = Decimal("0.00")
 from tva_intracom.rates import (
@@ -362,8 +363,24 @@ if uploaded_files:
         try:
             parse_result = None
             if "Amazon" in file_format:
+                # Barre de progression : utile sur les gros rapports Amazon
+                # (des centaines de milliers de lignes) où le parsing peut
+                # sembler figer l'interface. Widgets détruits après usage.
+                _progress_bar = st.progress(0.0, text=f"Analyse de {uploaded_file.name}…")
+
+                def _on_parse_progress(processed: int, total: int, _fname=uploaded_file.name) -> None:
+                    pct = processed / total if total else 1.0
+                    _progress_bar.progress(
+                        min(pct, 1.0),
+                        text=f"Analyse de {_fname} : {processed:,} / {total:,} lignes".replace(",", " "),
+                    )
+
                 parse_result = parser_amazon.load_amazon_report(
-                    tmp_path, encoding=encoding, convert_currencies=convert_fx, asin_to_category=asin_to_category)
+                    tmp_path, encoding=encoding, convert_currencies=convert_fx,
+                    asin_to_category=asin_to_category,
+                    progress_callback=_on_parse_progress,
+                )
+                _progress_bar.empty()
             elif "Mirakl" in file_format:
                 parse_result = parser_mirakl.parse(tmp_path, encoding=encoding, convert_currencies=convert_fx)
             elif "Shopify" in file_format:
@@ -688,6 +705,48 @@ if uploaded_files:
 
             if summary.refund_count:
                 st.info(f"🔄 **{summary.refund_count} remboursement(s)** — HT : {float(summary.refund_total_ht):,.2f} €")
+
+            # ── Contrôle de Cohérence Comptable ─────────────────────────────
+            # Rapproche le CA HT net déclaré (total_ht - remboursements) avec
+            # la somme du CA HT ventilé par canal fiscal (ht_by_bucket dans
+            # report.py). Les deux sont calculés indépendamment (l'un lors de
+            # l'agrégation globale, l'autre lors de la classification par
+            # canal) donc un écart révèle un scénario non couvert par la
+            # ventilation plutôt qu'une simple tautologie.
+            #
+            # ⚠️ Ceci ne rapproche PAS avec le relevé Amazon (commissions,
+            # frais, remises promo non détaillées ici) : c'est un test
+            # d'intégrité interne du moteur, pas un lettrage bancaire complet.
+            _declared_net_ht = summary.total_ht + summary.refund_total_ht
+            _bucket_net_ht = summary.net_ht_total
+            _coherence_delta = _declared_net_ht - _bucket_net_ht
+            with st.expander("🧮 Contrôle de cohérence comptable", expanded=abs(_coherence_delta) > Decimal("0.01")):
+                _bucket_rows = [
+                    {"Canal fiscal": b, "CA HT net (EUR)": float(v)}
+                    for b, v in summary.net_ht_by_bucket.items() if v != 0
+                ]
+                if _bucket_rows:
+                    st.dataframe(pd.DataFrame(_bucket_rows), use_container_width=True, hide_index=True,
+                        column_config={"CA HT net (EUR)": _money_col("CA HT net (EUR)")})
+                c1, c2, c3 = st.columns(3)
+                c1.metric("CA HT net déclaré", f"{float(_declared_net_ht):,.2f} €")
+                c2.metric("CA HT net (somme des canaux)", f"{float(_bucket_net_ht):,.2f} €")
+                c3.metric("Écart", f"{float(_coherence_delta):,.2f} €")
+                if abs(_coherence_delta) > Decimal("0.01"):
+                    st.error(
+                        "⛔ Écart détecté entre le CA HT déclaré et la somme des canaux fiscaux — "
+                        "un scénario de vente échappe probablement à la ventilation par canal "
+                        "(voir « Autre / non classé » ci-dessus si présent). À investiguer avant "
+                        "de considérer les déclarations comme fiables."
+                    )
+                else:
+                    st.success("✅ Cohérence interne vérifiée : le CA HT déclaré correspond à la somme des canaux fiscaux.")
+                st.caption(
+                    "Ce contrôle vérifie la cohérence interne du calcul (aucune vente perdue "
+                    "entre les canaux). Il ne remplace pas un rapprochement avec votre relevé "
+                    "de règlements Amazon, qui inclut des éléments hors périmètre de cet outil "
+                    "(commissions, frais logistiques, remises)."
+                )
 
             # Immatriculations requises
             pay_eu = {r.vat_country for r in results
@@ -1387,6 +1446,33 @@ if uploaded_files:
                     if not period_label or not period_label.strip():
                         st.warning("⚠️ Renseignez la période dans le panneau latéral (ex : 2026-T1)")
                     else:
+                        # ── Détection en amont des soldes OSS négatifs ──────────
+                        # generate_oss_xml() bloque déjà avec un ValueError détaillé,
+                        # mais on détecte ici AVANT le clic pour afficher un bloc rouge
+                        # explicatif visible immédiatement, sans nécessiter un essai
+                        # de génération raté au préalable.
+                        _oss_agg_preview = aggregate_oss_results(results_net, period=period_label)
+                        _negative_buckets = find_oss_negative_buckets(_oss_agg_preview)
+                        if _negative_buckets:
+                            _neg_lines = "\n".join(
+                                f"- {_country_label(b.departure)} → {_country_label(b.arrival)} "
+                                f"({b.vat_rate}%) : HT {float(b.base_ht):,.2f} € · "
+                                f"TVA {float(b.vat_amount):,.2f} €"
+                                for b in _negative_buckets
+                            )
+                            st.error(
+                                "⛔ **Solde OSS négatif détecté pour cette période.** "
+                                "L'URSSAF / le portail OSS n'accepte pas de montant négatif "
+                                "dans le corps de la déclaration.\n\n"
+                                f"{_neg_lines}\n\n"
+                                "**Cela signifie généralement** que des remboursements de la "
+                                "période dépassent les ventes du même couple pays/taux — "
+                                "souvent parce qu'ils se rapportent à une vente d'une **période "
+                                "déjà déclarée**. Dans ce cas, ne les incluez pas dans cette "
+                                "déclaration : reportez-les manuellement comme correction de la "
+                                "période d'origine sur le portail OSS "
+                                "(rubrique *Corrections de déclarations antérieures*)."
+                            )
                         try:
                             oss_xml_bytes = generate_oss_xml(
                                 results=results_net, seller_vat=tva_fr, period=period_label
