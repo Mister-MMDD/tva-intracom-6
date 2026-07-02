@@ -127,7 +127,16 @@ def _bucket_label(r: "VatResult") -> str:
     if r.collector == Collector.AMAZON:
         return "Deemed supplier (Amazon)"
     if r.scenario == Scenario.B2B_REVERSE_CHARGE:
-        return "B2B exonéré (autoliquidation)"
+        return "B2B exonéré (autoliquidation intracom)"
+    # Autoliquidation nationale B2B domestique hors FR (engine.py ~L239-257) :
+    # vente B2B entre assujettis dans un même pays UE (hors FR) relevant
+    # d'un régime national de reverse charge. Distinct de B2B_REVERSE_CHARGE
+    # (qui ne couvre que l'intracommunautaire cross-border) : ici
+    # scenario=DOMESTIC mais collector=BUYER / channel=NONE, donc ce cas
+    # échapperait aux tests channel FR_DOMESTIC/LOCAL_REGISTRATION plus bas
+    # sans ce test explicite.
+    if r.scenario == Scenario.DOMESTIC and r.collector == Collector.BUYER:
+        return "Autoliquidation nationale B2B (hors FR)"
     if r.channel == Channel.OSS:
         return "Guichet OSS"
     if r.channel == Channel.FR_DOMESTIC:

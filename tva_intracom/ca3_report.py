@@ -407,12 +407,12 @@ def generate_ca3_html_report_v2(
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Rapport CA3 v2 — {company_name} — {period_label}</title>
+    <title>Rapport CA3 — {company_name} — {period_label}</title>
     <style>{CSS}</style>
 </head>
 <body>
     <div class="hdr-banner">
-        <h1 class="title">Rapport de Contrôle TVA — Déclaration CA3 v2</h1>
+        <h1 class="title">Rapport de Contrôle TVA — Déclaration CA3 </h1>
         <p class="subtitle">Pré-remplissage Cerfa n°3310-CA3-SD — Marché national {seller_country}</p>
     </div>
 
