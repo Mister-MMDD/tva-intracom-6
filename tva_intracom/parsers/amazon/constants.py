@@ -16,6 +16,12 @@ SALE_TYPES     : frozenset[str] = frozenset({"sale", "shipment"})
 REFUND_TYPES   : frozenset[str] = frozenset({"refund", "return", "adjustment"})
 TRANSFER_TYPES : frozenset[str] = frozenset({"fc_transfer", "fc transfer"})
 INBOUND_TYPES  : frozenset[str] = frozenset({"inbound"})
+# Écritures de facturation pure Amazon (régularisations de facture, avoirs
+# administratifs) — distinctes des SALE_TYPES/REFUND_TYPES : comptées à
+# part pour visibilité (voir loader.py), jamais assimilées à une vente ou
+# un remboursement.
+INVOICE_TYPES     : frozenset[str] = frozenset({"invoice"})
+CREDIT_NOTE_TYPES : frozenset[str] = frozenset({"credit_note"})
 
 # ---------------------------------------------------------------------------
 # TVA — placeholders et préfixes UE

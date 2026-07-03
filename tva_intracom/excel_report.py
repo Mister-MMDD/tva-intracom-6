@@ -165,6 +165,61 @@ def _write_recap(ws, summary: ReportSummary) -> None:
     net_total_due.fill = _ORANGE_HEADER_FILL
     ws.row_dimensions[current_row].height = 20
 
+    # ── Contrôle de cohérence comptable (ht_by_bucket) ─────────────────────
+    # Miroir de l'encart Streamlit (app.py) : ventilation HT exhaustive et
+    # mutuellement exclusive par canal fiscal (report.py::ht_by_bucket),
+    # calculée indépendamment du total ci-dessus. Permet au cabinet
+    # comptable de retrouver le même contrôle d'intégrité dans le livrable
+    # Excel, sans avoir accès à l'interface Streamlit.
+    current_row += 3
+    ws.cell(row=current_row, column=1, value="CONTRÔLE DE COHÉRENCE COMPTABLE (CA HT par canal fiscal)").font = _TITLE_FONT
+    ws.row_dimensions[current_row].height = 22
+    current_row += 1
+    ws.cell(row=current_row, column=1,
+        value="Vérifie qu'aucune vente n'échappe à la ventilation par canal (test d'intégrité interne, "
+              "ne remplace pas un rapprochement avec le relevé de règlements Amazon).")
+    current_row += 2
+
+    _bucket_header_row = current_row
+    _set_header(ws, _bucket_header_row, ["Canal fiscal", "CA HT net (EUR)"], fill=_BLUE_HEADER_FILL)
+    current_row += 1
+    _bucket_first_data_row = current_row
+    net_ht_by_bucket = getattr(summary, "net_ht_by_bucket", {})
+    for _bucket_label_, _bucket_val in net_ht_by_bucket.items():
+        if _bucket_val == 0:
+            continue
+        ws.cell(row=current_row, column=1, value=_bucket_label_)
+        _c_bucket = ws.cell(row=current_row, column=2, value=float(_bucket_val))
+        _c_bucket.number_format = _EUR_FORMAT
+        # Signale visuellement le seau générique s'il contient un montant :
+        # un scénario échappe à la classification connue de report.py.
+        if _bucket_label_ == "Autre / non classé":
+            ws.cell(row=current_row, column=1).font = _BOLD_FONT
+            _c_bucket.fill = _ORANGE_HEADER_FILL
+        current_row += 1
+    _bucket_last_data_row = max(current_row - 1, _bucket_first_data_row)
+
+    current_row += 1
+    ws.cell(row=current_row, column=1, value="Total (somme des canaux)").font = _BOLD_FONT
+    _c_bucket_total = ws.cell(
+        row=current_row, column=2,
+        value=f"=SUM(B{_bucket_first_data_row}:B{_bucket_last_data_row})",
+    )
+    _c_bucket_total.number_format = _EUR_FORMAT
+    _c_bucket_total.font = _BOLD_FONT
+
+    current_row += 1
+    ws.cell(row=current_row, column=1, value="CA HT net déclaré (référence, cf. ligne 1 ci-dessus)")
+    _declared_net_ht = float(summary.total_ht + summary.refund_total_ht)
+    _c_declared = ws.cell(row=current_row, column=2, value=_declared_net_ht)
+    _c_declared.number_format = _EUR_FORMAT
+
+    current_row += 1
+    ws.cell(row=current_row, column=1, value="Écart (doit être 0,00 €)").font = _BOLD_FONT
+    _c_delta = ws.cell(row=current_row, column=2, value=f"=B{current_row - 1}-B{current_row - 2}")
+    _c_delta.number_format = _EUR_FORMAT
+    _c_delta.font = _BOLD_FONT
+
     _auto_width(ws)
 
 
@@ -543,6 +598,12 @@ def _write_intrastat_tab(
         current_row += 1
 
         rows_written = 0
+        # BUGFIX : `sens` ne dépend que de `is_intro` (invariant de boucle), pas
+        # des variables de la boucle. Défini ici plutôt qu'à l'intérieur du for :
+        # sinon, si `flux` ne contient aucune entrée pour ce sens (aucun transfert
+        # FC détecté), le corps de boucle ne s'exécute jamais et la référence à
+        # `sens` plus bas (bloc "Aucun transfert détecté") lève UnboundLocalError.
+        sens = "Intro" if is_intro else "Expé"
         for (dep, arr, asin, mois), data in sorted(flux.items()):
             if is_intro and arr != seller_country:
                 continue
@@ -553,7 +614,6 @@ def _write_intrastat_tab(
             desc   = data["designation"][:80] if data["designation"] else ""
             avg    = asin_avg.get(asin, Decimal("0"))
             valeur = _round(Decimal(str(qty)) * avg) if avg else Decimal("0")
-            sens   = "Intro" if is_intro else "Expé"
 
             ws.cell(row=current_row, column=1,  value=mois)
             ws.cell(row=current_row, column=2,  value=f"{_COUNTRY_NAMES_XL.get(dep, dep)} ({dep})")

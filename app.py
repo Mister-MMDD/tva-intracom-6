@@ -407,16 +407,20 @@ if uploaded_files:
 
     platform_name = all_platforms[0] if all_platforms else file_format.split("(")[0].strip()
     unique_platforms = list(dict.fromkeys(all_platforms))
-    _total_returns = sum(getattr(pr, "return_rows", 0) for pr in _parse_results)
-    _total_skipped = sum(getattr(pr, "skipped_rows", 0) for pr in _parse_results)
+    _total_returns      = sum(getattr(pr, "return_rows", 0) for pr in _parse_results)
+    _total_invoice      = sum(getattr(pr, "invoice_rows", 0) for pr in _parse_results)
+    _total_credit_note  = sum(getattr(pr, "credit_note_rows", 0) for pr in _parse_results)
+    _total_skipped      = sum(getattr(pr, "skipped_rows", 0) for pr in _parse_results)
 
     # Résumé import
     if len(uploaded_files) == 1:
         fs = file_summaries[0]
-        _return_part = f", {_total_returns} retours physiques sans montant" if _total_returns else ""
-        _skip_part   = f", {_total_skipped} ignorées" if _total_skipped else ""
+        _return_part  = f", {_total_returns} retours physiques sans montant" if _total_returns else ""
+        _invoice_part = f", {_total_invoice} invoice" if _total_invoice else ""
+        _credit_part  = f", {_total_credit_note} credit_note" if _total_credit_note else ""
+        _skip_part    = f", {_total_skipped} ignorées" if _total_skipped else ""
         st.info(f"**Import {platform_name}** : {fs['Ventes']} ventes, {fs['Remboursements']} remb., "
-                f"{len(all_fc_transfers)} transferts FBA{_return_part}{_skip_part}.")
+                f"{len(all_fc_transfers)} transferts FBA{_return_part}{_invoice_part}{_credit_part}{_skip_part}.")
     else:
         st.success(f"**{len(uploaded_files)} fichiers agrégés** — {len(all_sales)} ventes + "
                    f"{len(all_refunds)} remboursements ({total_rows_sum} lignes).")
@@ -972,7 +976,12 @@ if uploaded_files:
 
                 # Overrides manuels en base (toujours accessible, replié par défaut)
                 try:
-                    from tva_intracom.vies import set_manual_override as _smo_edit, CACHE_DB_FILE as _VIES_DB_B
+                    from tva_intracom.vies import (
+                        set_manual_override as _smo_edit,
+                        CACHE_DB_FILE as _VIES_DB_B,
+                        CACHE_TTL_DAYS as _VIES_TTL_B,
+                        _is_expired as _vies_is_expired_b,
+                    )
                     import sqlite3 as _sqlite3b
                     _conn_b = _sqlite3b.connect(_VIES_DB_B)
                     _cur_b = _conn_b.cursor()
@@ -981,21 +990,38 @@ if uploaded_files:
                     _conn_b.close()
                 except Exception:
                     _existing_overrides_b = []
+                    _VIES_TTL_B = 90
 
                 if _existing_overrides_b:
-                    with st.expander(f"🖊️ Classifications manuelles enregistrées ({len(_existing_overrides_b)})", expanded=False):
-                        st.caption("Ces classifications persistent entre les sessions. "
-                            "Modifiez ou supprimez chaque entrée pour corriger une erreur.")
+                    _nb_expired_b = sum(
+                        1 for _v, _iv, _sa in _existing_overrides_b if _vies_is_expired_b(_sa)
+                    )
+                    with st.expander(
+                        f"🖊️ Classifications manuelles enregistrées ({len(_existing_overrides_b)})"
+                        + (f" — ⚠️ {_nb_expired_b} expirée(s)" if _nb_expired_b else ""),
+                        expanded=bool(_nb_expired_b),
+                    ):
+                        st.caption(
+                            "Ces classifications persistent entre les sessions. Modifiez ou "
+                            "supprimez chaque entrée pour corriger une erreur. Un override posé "
+                            f"il y a plus de {_VIES_TTL_B} jours (même délai que le cache VIES) "
+                            "n'est plus appliqué automatiquement au calcul — le moteur revient à "
+                            "une validation VIES normale. Revalidez-le (bouton 💾) pour le "
+                            "réactiver."
+                        )
                         for _ov_vat2, _ov_valid2, _ov_date2 in _existing_overrides_b:
                             _ov_date_str2 = (_ov_date2 or "")[:10]
+                            _ov_expired2 = _vies_is_expired_b(_ov_date2)
                             _oc1b, _oc2b, _oc3b, _oc4b = st.columns([3, 2, 1, 1])
-                            _oc1b.markdown(f"**{_ov_vat2}**  \n<small style='color:grey'>{_ov_date_str2}</small>",
+                            _ov_badge2 = " · <b style='color:#d97706'>⚠️ expiré, ignoré</b>" if _ov_expired2 else ""
+                            _oc1b.markdown(
+                                f"**{_ov_vat2}**  \n<small style='color:grey'>{_ov_date_str2}{_ov_badge2}</small>",
                                 unsafe_allow_html=True)
                             _ov_new2 = _oc2b.selectbox("Statut",
                                 options=["✅ Valide (B2B)", "❌ Invalide (B2C)"],
                                 index=0 if _ov_valid2 else 1,
                                 key=f"edit_override_b_{_ov_vat2}", label_visibility="collapsed")
-                            if _oc3b.button("💾", key=f"save_override_b_{_ov_vat2}", help="Enregistrer"):
+                            if _oc3b.button("💾", key=f"save_override_b_{_ov_vat2}", help="Enregistrer (revalide et réinitialise le délai)"):
                                 _smo_edit(_ov_vat2, valid=(_ov_new2 == "✅ Valide (B2B)"))
                                 st.session_state.pop("_calc_key", None)
                                 st.success(f"{_ov_vat2} → {_ov_new2}")

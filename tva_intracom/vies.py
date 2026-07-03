@@ -954,19 +954,44 @@ def set_manual_override(full_vat: str, valid: bool) -> None:
     logger.info("Override manuel VIES : %s → %s", full_vat, "VALIDE" if valid else "INVALIDE")
 
 
-def get_manual_overrides() -> dict[str, bool]:
-    """Retourne tous les overrides manuels enregistrés.
+def get_manual_overrides(include_expired: bool = False) -> dict[str, bool]:
+    """Retourne les overrides manuels enregistrés.
+
+    Args:
+        include_expired: si False (par défaut), exclut les overrides dont
+            `set_at` dépasse CACHE_TTL_DAYS — la même condition d'âge que
+            celle utilisée pour l'expiration du cache VIES classique
+            (_is_expired). Un override posé il y a plus de CACHE_TTL_DAYS
+            jours est traité comme n'importe quelle entrée de cache expirée :
+            il ne doit plus écraser silencieusement le résultat du moteur.
+            Passer True pour l'affichage en UI (ex: liste des overrides dans
+            app.py), où l'on veut voir les entrées expirées pour pouvoir les
+            revalider ou les supprimer, mais où elles ne doivent pas encore
+            être appliquées au calcul.
 
     Returns:
-        Dict ``{full_vat: is_valid}`` — vide si aucun override ou table absente.
+        Dict ``{full_vat: is_valid}`` — vide si aucun override valide/actif
+        ou table absente.
     """
     try:
         _ensure_manual_override_table()
         conn = _get_connection()
         rows = conn.execute(
-            "SELECT full_vat, is_valid FROM vies_manual_overrides"
+            "SELECT full_vat, is_valid, set_at FROM vies_manual_overrides"
         ).fetchall()
-        return {row["full_vat"]: bool(row["is_valid"]) for row in rows}
+        if include_expired:
+            return {row["full_vat"]: bool(row["is_valid"]) for row in rows}
+        result: dict[str, bool] = {}
+        for row in rows:
+            if _is_expired(row["set_at"]):
+                logger.info(
+                    "Override manuel VIES expiré (> %d j), ignoré au calcul : %s "
+                    "(posé le %s). Repasse en validation VIES normale.",
+                    CACHE_TTL_DAYS, row["full_vat"], row["set_at"],
+                )
+                continue
+            result[row["full_vat"]] = bool(row["is_valid"])
+        return result
     except Exception:
         return {}
 

@@ -26,7 +26,14 @@ from .classify import (
     convert_amazon_vat,
     convert_currency,
 )
-from .constants import INBOUND_TYPES, REFUND_TYPES, SALE_TYPES, TRANSFER_TYPES
+from .constants import (
+    CREDIT_NOTE_TYPES,
+    INBOUND_TYPES,
+    INVOICE_TYPES,
+    REFUND_TYPES,
+    SALE_TYPES,
+    TRANSFER_TYPES,
+)
 from .detect import EXPECTED_COLUMNS, detect_format, detect_separator, normalize_header
 from .parsers import PARSERS
 
@@ -52,6 +59,11 @@ class AmazonImportResult:
     # Distinct de skipped_rows : les RETURN sont normaux, le flux financier
     # est dans le REFUND jumeau.
     return_rows: int = 0
+    # Écritures de facturation pure Amazon (régularisations de facture,
+    # avoirs administratifs) : ni vente ni remboursement, comptées à part
+    # pour visibilité — distinct de skipped_rows (type vraiment inconnu).
+    invoice_rows: int = 0
+    credit_note_rows: int = 0
     # Format 5 uniquement : Tax Reporting Scheme par sale_id
     # "VCS_EU_OSS" = déclarable OSS ; "" = domestique / hors OSS
     tax_scheme_by_sale_id: dict = field(default_factory=dict)
@@ -121,6 +133,16 @@ def _process_rows(
             result.fc_transfers.append(row)
             continue
 
+        # --- Écritures de facturation pure (INVOICE / CREDIT_NOTE) ---
+        # Ni vente ni remboursement : comptées à part, jamais dans skipped_rows
+        # (qui doit rester réservé aux types vraiment inconnus).
+        if tx_type in INVOICE_TYPES:
+            result.invoice_rows += 1
+            continue
+        if tx_type in CREDIT_NOTE_TYPES:
+            result.credit_note_rows += 1
+            continue
+
         # --- Filtrage type inconnu ---
         if tx_type not in SALE_TYPES and tx_type not in REFUND_TYPES:
             if tx_type:
@@ -162,12 +184,25 @@ def _process_rows(
             continue
 
         # --- Montant nul ---
+        # Un montant à 0 ne change pas le type de la ligne (sale/refund) :
+        # on la classe quand même (elle passera dans sales/refunds plus bas
+        # comme toute autre ligne), avec une alerte pour vérification
+        # manuelle plutôt qu'une exclusion silencieuse. Seul RETURN reste
+        # traité à part (mouvement physique sans montant, cas normal —
+        # le flux financier est porté par le REFUND jumeau).
         if amount_ht == 0:
             if tx_type == "return":
                 result.return_rows += 1
-            else:
-                result.skipped_rows += 1
-            continue
+                continue
+            order_ref = (
+                row.get("order_id", "")
+                or row.get("vat_invoice_number", "")
+                or f"L{line_no}"
+            )
+            result.warnings.append(
+                f"Ligne {line_no} ({order_ref}) : {tx_type} à montant nul (0 €) — "
+                "conservée dans le rapport, à vérifier."
+            )
 
         # --- Signe remboursements ---
         if tx_type in REFUND_TYPES:
@@ -413,11 +448,15 @@ def load_amazon_report(
 
     logger.info(
         "Import Amazon (format %d) : %d ventes, %d remboursements, "
-        "%d transferts FC, %d ignorées",
+        "%d transferts FC, %d retours physiques, %d invoice, %d credit_note, "
+        "%d ignorées",
         result.detected_format,
         len(result.sales),
         len(result.refunds),
         len(result.fc_transfers),
+        result.return_rows,
+        result.invoice_rows,
+        result.credit_note_rows,
         result.skipped_rows,
     )
     return result
