@@ -1,7 +1,6 @@
 {
   "functions": {
     "vercel_webhook/api/stripe_webhook.py": {
-      "runtime": "python3.12",
       "includeFiles": "tva_intracom/billing.py"
     }
   }
