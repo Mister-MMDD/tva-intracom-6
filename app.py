@@ -1445,42 +1445,49 @@ if uploaded_files:
                 _current_user.id, period_label
             )
 
+            def _get_payg_checkout_url():
+                """Crée la session Stripe Checkout une seule fois par période/session
+                (mise en cache dans session_state) et retourne son URL. Un
+                st.link_button pointant directement vers cette URL redirige au
+                premier clic — contrairement à un st.button + on_click, qui se
+                contente d'écrire dans session_state et nécessite un second clic
+                après le rerun pour afficher le vrai lien."""
+                _cache_key = f"_stripe_checkout_url::{period_label}"
+                if _cache_key not in st.session_state:
+                    try:
+                        st.session_state[_cache_key] = tva_billing.create_payg_checkout_session(
+                            user_id=_current_user.id,
+                            email=_current_user.email,
+                            period_label=period_label,
+                            success_url="https://tva-intracom-ue.streamlit.app/?export_ok=1",
+                            cancel_url="https://tva-intracom-ue.streamlit.app/",
+                        )
+                    except Exception as _billing_err:
+                        st.session_state[_cache_key] = None
+                        st.session_state[f"_stripe_checkout_error::{period_label}"] = str(_billing_err)
+                return st.session_state.get(_cache_key)
+
             def _gated_download(label, data, file_name, mime, **kwargs):
                 """Remplace st.download_button : affiche le vrai bouton si crédit
-                disponible pour la période, sinon un CTA d'achat Stripe Checkout."""
+                disponible pour la période, sinon un lien direct vers Stripe Checkout."""
                 if _can_export:
                     st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
                     return
-                st.button(f"🔒 {label} — débloquer (15 €)", disabled=False,
-                          key=f"unlock_{file_name}",
-                          use_container_width=kwargs.get("use_container_width", False),
-                          on_click=_start_payg_checkout)
-
-            def _start_payg_checkout():
-                try:
-                    url = tva_billing.create_payg_checkout_session(
-                        user_id=_current_user.id,
-                        email=_current_user.email,
-                        period_label=period_label,
-                        success_url="https://votre-domaine.example/?export_ok=1",
-                        cancel_url="https://votre-domaine.example/",
-                    )
-                    st.session_state["_stripe_checkout_url"] = url
-                except Exception as _billing_err:
-                    st.session_state["_stripe_checkout_error"] = str(_billing_err)
+                _url = _get_payg_checkout_url()
+                if _url:
+                    st.link_button(f"🔒 {label} — débloquer (15 €)", _url,
+                                    use_container_width=kwargs.get("use_container_width", False))
+                else:
+                    _err = st.session_state.get(f"_stripe_checkout_error::{period_label}", "erreur inconnue")
+                    st.error(f"🔒 {label} — paiement indisponible : {_err}")
 
             if not _can_export and period_label:
                 st.warning(
                     f"🔒 Les exports de la période **{period_label}** ne sont pas encore "
-                    "débloqués. Cliquez sur un bouton d'export ci-dessous pour lancer le "
-                    "paiement (15 € / déclaration), ou passez par un abonnement pour un "
-                    "accès illimité."
+                    "débloqués. Cliquez sur un bouton d'export ci-dessous pour être "
+                    "redirigé directement vers le paiement Stripe (15 € / déclaration), "
+                    "ou passez par un abonnement pour un accès illimité."
                 )
-                if st.session_state.get("_stripe_checkout_url"):
-                    st.link_button("💳 Continuer vers le paiement Stripe",
-                                    st.session_state["_stripe_checkout_url"])
-                if st.session_state.get("_stripe_checkout_error"):
-                    st.error(f"Paiement indisponible : {st.session_state['_stripe_checkout_error']}")
 
             st.subheader("📥 Téléchargements")
             with st.container():
