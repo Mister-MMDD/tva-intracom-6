@@ -22,6 +22,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.pool
+import streamlit as st
 
 MAGIC_LINK_TTL_SECONDS = 15 * 60
 
@@ -31,7 +32,8 @@ _pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
 def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
     global _pool
     if _pool is None:
-        dsn = os.environ.get("SUPABASE_DB_URL")
+        dsn = st.secrets.get("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+        
         if not dsn:
             raise RuntimeError(
                 "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
