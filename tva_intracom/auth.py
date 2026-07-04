@@ -22,6 +22,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.pool
+import requests
 import streamlit as st
 
 MAGIC_LINK_TTL_SECONDS = 15 * 60
@@ -119,6 +120,45 @@ def create_magic_link(email: str) -> str:
     finally:
         pool.putconn(conn)
     return token
+
+
+def send_magic_link_email(email: str, login_url: str) -> None:
+    """Envoie l'e-mail contenant le lien de connexion via l'API Resend
+    (https://resend.com/docs/api-reference/emails/send-email).
+
+    Nécessite deux secrets/variables d'environnement :
+        RESEND_API_KEY    — clé API Resend
+        RESEND_FROM_EMAIL — adresse d'expédition vérifiée dans Resend
+                            (ex: "TVA Intracom <connexion@tondomaine.fr>")
+
+    Utilise `requests`, déjà présent dans requirements.txt — aucune nouvelle
+    dépendance nécessaire (pas besoin du SDK officiel `resend`).
+    """
+    api_key = os.environ.get("RESEND_API_KEY") or st.secrets.get("RESEND_API_KEY")
+    from_email = os.environ.get("RESEND_FROM_EMAIL") or st.secrets.get("RESEND_FROM_EMAIL")
+    if not api_key or not from_email:
+        raise RuntimeError(
+            "RESEND_API_KEY / RESEND_FROM_EMAIL non configurés — impossible d'envoyer "
+            "le lien de connexion par e-mail."
+        )
+    response = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "from": from_email,
+            "to": [email],
+            "subject": "Votre lien de connexion — TVA Intracom",
+            "html": (
+                "<p>Bonjour,</p>"
+                "<p>Voici votre lien de connexion au moteur de TVA intracommunautaire "
+                "(valable 15 minutes) :</p>"
+                f'<p><a href="{login_url}">{login_url}</a></p>'
+                "<p>Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.</p>"
+            ),
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
 
 
 def consume_magic_link(token: str) -> Optional[User]:

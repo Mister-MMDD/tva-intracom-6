@@ -162,11 +162,16 @@ if st.session_state["auth_user"] is None:
     if st.button("Recevoir un lien de connexion", key="btn_send_magic_link"):
         if _login_email and "@" in _login_email:
             _token = tva_auth.create_magic_link(_login_email)
-            # TODO(billing infra) : envoi effectif du lien par e-mail (Resend/Postmark/SMTP).
-            # En attendant le branchement de l'envoi, le lien est affiché ici pour test.
-            st.success("✅ Lien envoyé. (Mode test : lien affiché ci-dessous en attendant "
-                       "le branchement de l'envoi e-mail.)")
-            st.code(f"?login_token={_token}")
+            # URL de base de l'app — à définir dans st.secrets["APP_BASE_URL"] si elle
+            # change un jour. Valeur par défaut = domaine Streamlit Cloud actuel.
+            _base_url = st.secrets.get("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+            _login_url = f"{_base_url}/?login_token={_token}"
+            try:
+                tva_auth.send_magic_link_email(_login_email, _login_url)
+                st.success(f"✅ Lien de connexion envoyé à {_login_email}. Vérifiez votre boîte mail "
+                           "(et les spams).")
+            except Exception as _mail_err:
+                st.error(f"⛔ Échec de l'envoi de l'e-mail : {_mail_err}")
         else:
             st.warning("Adresse e-mail invalide.")
     st.stop()
@@ -1444,6 +1449,22 @@ if uploaded_files:
             _can_export = bool(period_label) and tva_billing.has_export_credit(
                 _current_user.id, period_label
             )
+
+            # DEBUG TEMPORAIRE — à retirer une fois le blocage résolu.
+            with st.expander("🔧 Debug billing (temporaire)", expanded=True):
+                st.write("user_id utilisé :", repr(_current_user.id))
+                st.write("email utilisé :", repr(_current_user.email))
+                st.write("period_label utilisé :", repr(period_label))
+                try:
+                    _debug_has_credit = tva_billing.has_export_credit(_current_user.id, period_label)
+                    st.write("has_export_credit() → ", _debug_has_credit)
+                except Exception as _debug_err:
+                    st.error(f"Exception dans has_export_credit() : {_debug_err!r}")
+                try:
+                    _debug_sub = tva_billing.get_subscription_status(_current_user.id)
+                    st.write("get_subscription_status() → ", _debug_sub)
+                except Exception as _debug_err2:
+                    st.error(f"Exception dans get_subscription_status() : {_debug_err2!r}")
 
             def _get_payg_checkout_url():
                 """Crée la session Stripe Checkout une seule fois par période/session
