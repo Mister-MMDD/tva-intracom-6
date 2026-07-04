@@ -24,6 +24,16 @@ PRICE_SUB_CABINET = os.environ.get("STRIPE_PRICE_SUB_CABINET", "")
 _pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
 
 
+def _safe_get(obj, key, default=None):
+    """Accès sécurisé à une clé, compatible dict classique ET objets Stripe
+    (stripe.stripe_object.StripeObject des versions récentes du SDK, qui ne
+    supportent pas .get() comme un dict — provoque AttributeError: get)."""
+    try:
+        return obj[key]
+    except (KeyError, TypeError):
+        return default
+
+
 def _stripe_configured() -> bool:
     key = os.environ.get("STRIPE_SECRET_KEY")
     if not key or stripe is None:
@@ -109,12 +119,12 @@ def get_subscription_status(user_id: str) -> SubscriptionStatus:
                 row = cur.fetchone()
         finally:
             pool.putconn(conn)
-        
+
         if row:
             status, plan, period_end = row
             active = status in ("active", "trialing") and period_end > time.time()
             return SubscriptionStatus(active=active, plan=plan, current_period_end=period_end)
-            
+
     return SubscriptionStatus(active=False)
 
 
@@ -184,10 +194,10 @@ def _get_or_create_stripe_customer(user_id: str, email: str) -> str:
             row = cur.fetchone()
             if row:
                 return row[0]
-            
+
             if not _stripe_configured():
                 raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
-            
+
             customer = stripe.Customer.create(email=email, metadata={"user_id": user_id})
             cur.execute(
                 "INSERT INTO tva_customers (user_id, stripe_customer_id) VALUES (%s, %s)",
@@ -207,7 +217,7 @@ def create_payg_checkout_session(user_id: str, email: str, period_label: str, su
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
     if not PRICE_PAYG_EXPORT:
         raise RuntimeError("STRIPE_PRICE_PAYG_EXPORT non défini.")
-    
+
     customer_id = _get_or_create_stripe_customer(user_id, email)
     session = stripe.checkout.Session.create(
         mode="payment",
@@ -223,11 +233,11 @@ def create_payg_checkout_session(user_id: str, email: str, period_label: str, su
 def create_subscription_checkout_session(user_id: str, email: str, plan: str, success_url: str, cancel_url: str) -> str:
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
-    
+
     price_id = {"business": PRICE_SUB_BUSINESS, "cabinet": PRICE_SUB_CABINET}.get(plan)
     if not price_id:
         raise RuntimeError(f"Plan inconnu ou prix non configuré : {plan}")
-        
+
     customer_id = _get_or_create_stripe_customer(user_id, email)
     session = stripe.checkout.Session.create(
         mode="subscription",
@@ -250,12 +260,12 @@ def create_billing_portal_session(user_id: str, return_url: str) -> str:
             row = cur.fetchone()
     finally:
         pool.putconn(conn)
-        
+
     if not row:
         raise RuntimeError("Aucun client Stripe pour cet utilisateur.")
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
-        
+
     portal = stripe.billing_portal.Session.create(customer=row[0], return_url=return_url)
     return portal.url
 
@@ -278,25 +288,29 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     if not webhook_secret:
         raise RuntimeError("STRIPE_WEBHOOK_SECRET non définie.")
-        
+
     event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
     etype = event["type"]
     data = event["data"]["object"]
 
     if etype == "checkout.session.completed":
-        metadata = data.get("metadata", {}) or {}
-        user_id = metadata.get("user_id")
+        metadata = _safe_get(data, "metadata", {}) or {}
+        user_id = _safe_get(metadata, "user_id")
         if not user_id:
             return
-        if metadata.get("kind") == "payg_export":
-            grant_export_credit(user_id, metadata.get("period_label", ""), data.get("payment_intent", ""))
+        if _safe_get(metadata, "kind") == "payg_export":
+            grant_export_credit(
+                user_id,
+                _safe_get(metadata, "period_label", ""),
+                _safe_get(data, "payment_intent", ""),
+            )
 
     elif etype in ("customer.subscription.created", "customer.subscription.updated"):
-        customer_id = data["customer"]
+        customer_id = _safe_get(data, "customer")
         user_id = _user_id_for_stripe_customer(customer_id)
         if not user_id:
             return
-        plan = (data.get("metadata") or {}).get("plan", "unknown")
+        plan = _safe_get(_safe_get(data, "metadata") or {}, "plan", "unknown")
         pool = _get_pool()
         conn = pool.getconn()
         try:
@@ -313,8 +327,8 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
                         current_period_end = EXCLUDED.current_period_end,
                         updated_at = EXCLUDED.updated_at
                     """,
-                    (user_id, data["id"], data["status"], plan,
-                     float(data["current_period_end"]), time.time()),
+                    (user_id, _safe_get(data, "id"), _safe_get(data, "status"), plan,
+                     float(_safe_get(data, "current_period_end")), time.time()),
                 )
                 conn.commit()
         except Exception:
@@ -324,7 +338,7 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
             pool.putconn(conn)
 
     elif etype == "customer.subscription.deleted":
-        customer_id = data["customer"]
+        customer_id = _safe_get(data, "customer")
         user_id = _user_id_for_stripe_customer(customer_id)
         if not user_id:
             return
