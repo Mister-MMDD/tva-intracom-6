@@ -1445,22 +1445,6 @@ if uploaded_files:
                 _current_user.id, period_label
             )
 
-            # DEBUG TEMPORAIRE — à retirer une fois le blocage résolu.
-            with st.expander("🔧 Debug billing (temporaire)", expanded=True):
-                st.write("user_id utilisé :", repr(_current_user.id))
-                st.write("email utilisé :", repr(_current_user.email))
-                st.write("period_label utilisé :", repr(period_label))
-                try:
-                    _debug_has_credit = tva_billing.has_export_credit(_current_user.id, period_label)
-                    st.write("has_export_credit() → ", _debug_has_credit)
-                except Exception as _debug_err:
-                    st.error(f"Exception dans has_export_credit() : {_debug_err!r}")
-                try:
-                    _debug_sub = tva_billing.get_subscription_status(_current_user.id)
-                    st.write("get_subscription_status() → ", _debug_sub)
-                except Exception as _debug_err2:
-                    st.error(f"Exception dans get_subscription_status() : {_debug_err2!r}")
-
             def _get_payg_checkout_url():
                 """Crée la session Stripe Checkout une seule fois par période/session
                 (mise en cache dans session_state) et retourne son URL. Un
