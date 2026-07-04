@@ -1,7 +1,16 @@
 {
-  "functions": {
-    "vercel_webhook/api/stripe_webhook.py": {
-      "includeFiles": "tva_intracom/billing.py"
+  "version": 2,
+  "builds": [
+    {
+      "src": "vercel_webhook/api/stripe_webhook.py",
+      "use": "@vercel/python",
+      "config": { "includeFiles": "tva_intracom/billing.py" }
     }
-  }
+  ],
+  "routes": [
+    {
+      "src": "/api/stripe_webhook",
+      "dest": "vercel_webhook/api/stripe_webhook.py"
+    }
+  ]
 }
