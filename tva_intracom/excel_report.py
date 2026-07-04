@@ -38,6 +38,8 @@ _BOLD_FONT = Font(bold=True, size=11)
 _BLUE_HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
 _ORANGE_HEADER_FILL = PatternFill(start_color="ED7D31", end_color="ED7D31", fill_type="solid")
 _LIGHT_GRAY_FILL = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+_ALERT_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+_ALERT_FONT = Font(bold=True, color="9C0006")
 
 _EUR_FORMAT = '#,##0.00 "EUR"'
 _PCT_FORMAT = '0.##"%"'
@@ -1226,27 +1228,48 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
     _auto_width(ws)
 
 
-def _write_local_tab(ws, summary: ReportSummary) -> None:
-    """Onglet TVA locale par pays (immatriculation locale hors OSS)."""
+def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None) -> None:
+    """Onglet TVA locale par pays (immatriculation locale hors OSS).
+
+    countries_with_vat : liste des pays où le vendeur a déclaré être
+    immatriculé (paramètres UI). Sert uniquement à un marquage visuel
+    d'alerte ici — n'affecte aucun calcul de TVA (voir engine.py, la
+    classification OSS/local ne dépend que de stock_country vs
+    buyer_country, jamais de cette liste).
+    """
     ws.title = "TVA Locale par pays"
+    countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
 
     ws.cell(row=1, column=1, value="TVA LOCALE — IMMATRICULATION LOCALE PAR PAYS").font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
-
-    headers = ["Pays", "Code", "TVA due (ventes)", "Remboursements TVA", "TVA Nette"]
-    _set_header(ws, 3, headers, fill=_ORANGE_HEADER_FILL)
-    ws.row_dimensions[3].height = 22
 
     _z = Decimal("0.00")
     local = summary.local_by_country or {}
     refund_local = getattr(summary, "refund_local_by_country", {}) or {}
     all_countries = sorted(set(local) | set(refund_local))
+    unregistered = [c for c in all_countries if c not in countries_with_vat]
 
-    row = 4
+    header_row = 3
+    if unregistered:
+        ws.cell(row=2, column=1, value=(
+            "⚠️ Immatriculation non confirmée dans les paramètres pour : "
+            + ", ".join(unregistered)
+            + " — vérifiez que la déclaration TVA locale correspondante est "
+            "bien effectuée dans ces pays avant de considérer ce rapport comme définitif."
+        )).font = _ALERT_FONT
+        ws.cell(row=2, column=1).fill = _ALERT_FILL
+        ws.row_dimensions[2].height = 18
+
+    headers = ["Pays", "Code", "TVA due (ventes)", "Remboursements TVA", "TVA Nette", "Statut immatriculation"]
+    _set_header(ws, header_row, headers, fill=_ORANGE_HEADER_FILL)
+    ws.row_dimensions[header_row].height = 22
+
+    row = header_row + 1
     for country in all_countries:
         brut   = local.get(country, _z)
         refund = refund_local.get(country, _z)
         net    = brut + refund
+        is_registered = country in countries_with_vat
 
         ws.cell(row=row, column=1, value=_COUNTRY_NAMES_XL.get(country, country))
         ws.cell(row=row, column=2, value=country)
@@ -1260,17 +1283,93 @@ def _write_local_tab(ws, summary: ReportSummary) -> None:
         c_net.font = _BOLD_FONT
         c_net.fill = _LIGHT_GRAY_FILL
 
+        c_status = ws.cell(
+            row=row, column=6,
+            value="✅ Immatriculé (déclaré)" if is_registered else "🚨 Non confirmé — à vérifier",
+        )
+        if not is_registered:
+            c_status.font = _ALERT_FONT
+            c_status.fill = _ALERT_FILL
+
         ws.row_dimensions[row].height = 18
         row += 1
 
     # Total
     row += 1
     ws.cell(row=row, column=1, value="TOTAL LOCAL").font = _BOLD_FONT
-    for col, formula in [(3, f"=SUM(C4:C{row-2})"), (4, f"=SUM(D4:D{row-2})"), (5, f"=C{row}+D{row}")]:
+    for col, formula in [(3, f"=SUM(C{header_row+1}:C{row-2})"), (4, f"=SUM(D{header_row+1}:D{row-2})"), (5, f"=C{row}+D{row}")]:
         c = ws.cell(row=row, column=col, value=formula)
         c.number_format = _EUR_FORMAT
         c.font = _HEADER_FONT_WHITE
         c.fill = _ORANGE_HEADER_FILL
+    ws.row_dimensions[row].height = 20
+
+    _auto_width(ws)
+
+
+def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
+    """Onglet INVOICE / CREDIT_NOTE — écritures de facturation Amazon hors
+    vente/remboursement (SALES_CHANNEL=AMAZON_FEE : commissions, FBA,
+    éco-contribution EPR, services de compte…), listées pour traçabilité
+    et rapprochement comptable (TVA potentiellement autoliquidée) — non
+    intégrées au calcul de TVA sur les ventes.
+    """
+    ws.title = "INVOICE & CREDIT_NOTE"
+
+    ws.cell(row=1, column=1, value="ÉCRITURES INVOICE / CREDIT_NOTE (hors ventes/remboursements)").font = _TITLE_FONT
+    ws.row_dimensions[1].height = 25
+    ws.cell(row=2, column=1, value=(
+        "Lignes du rapport Amazon de type INVOICE ou CREDIT_NOTE : ni vente ni "
+        "remboursement client, exclues du calcul de TVA sur les ventes. Listées "
+        "ici pour rapprochement comptable — vérifier le traitement TVA "
+        "applicable (souvent autoliquidation sur prestations de services "
+        "Amazon, art. 283-2 CGI)."
+    ))
+    ws.row_dimensions[2].height = 18
+
+    headers = ["Type", "Date", "Marketplace", "Programme", "Référence", "Montant HT", "TVA", "Devise"]
+    _set_header(ws, 4, headers, fill=_BLUE_HEADER_FILL)
+    ws.row_dimensions[4].height = 22
+
+    if not invoice_credit_notes:
+        ws.cell(row=5, column=1, value="Aucune écriture INVOICE / CREDIT_NOTE détectée.")
+        _auto_width(ws)
+        return
+
+    row = 5
+    total_ht = Decimal("0.00")
+    total_vat = Decimal("0.00")
+    for entry in invoice_credit_notes:
+        ws.cell(row=row, column=1, value=entry.get("kind", ""))
+        ws.cell(row=row, column=2, value=entry.get("date", ""))
+        ws.cell(row=row, column=3, value=entry.get("marketplace", ""))
+        ws.cell(row=row, column=4, value=entry.get("program_type", ""))
+        ws.cell(row=row, column=5, value=entry.get("reference", ""))
+
+        amount_ht = entry.get("amount_ht", Decimal("0")) or Decimal("0")
+        vat_amount = entry.get("vat_amount", Decimal("0")) or Decimal("0")
+
+        c_ht = ws.cell(row=row, column=6, value=float(amount_ht))
+        c_ht.number_format = _EUR_FORMAT
+        c_vat = ws.cell(row=row, column=7, value=float(vat_amount))
+        c_vat.number_format = _EUR_FORMAT
+        ws.cell(row=row, column=8, value=entry.get("currency", "EUR"))
+
+        total_ht += amount_ht
+        total_vat += vat_amount
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    row += 1
+    ws.cell(row=row, column=1, value="TOTAL").font = _BOLD_FONT
+    c_ht = ws.cell(row=row, column=6, value=float(_round(total_ht)))
+    c_ht.number_format = _EUR_FORMAT
+    c_ht.font = _HEADER_FONT_WHITE
+    c_ht.fill = _BLUE_HEADER_FILL
+    c_vat = ws.cell(row=row, column=7, value=float(_round(total_vat)))
+    c_vat.number_format = _EUR_FORMAT
+    c_vat.font = _HEADER_FONT_WHITE
+    c_vat.fill = _BLUE_HEADER_FILL
     ws.row_dimensions[row].height = 20
 
     _auto_width(ws)
@@ -1287,6 +1386,7 @@ def export_xlsx(
     countries_with_vat: list[str] | None = None,
     period: str = "",
     seller_country: str = "FR",
+    invoice_credit_notes: list | None = None,
 ) -> Path:
     """Genere le fichier Excel complet avec tous les onglets."""
     
@@ -1343,7 +1443,7 @@ def export_xlsx(
     # 7. Onglet TVA locale par pays
     if summary.local_by_country or getattr(summary, "refund_local_by_country", None):
         ws_local = wb.create_sheet()
-        _write_local_tab(ws_local, summary)
+        _write_local_tab(ws_local, summary, countries_with_vat)
 
     # 8. Onglet Audit Ecarts Amazon
     ws_audit = wb.create_sheet("Audit Ecarts Amazon")
@@ -1364,6 +1464,11 @@ def export_xlsx(
     # 11. Onglet Intrastat / DEB (aide au remplissage)
     ws_intrastat = wb.create_sheet("Intrastat (DEB)")
     _write_intrastat_tab(ws_intrastat, all_fc_transfers or [], results, seller_country=seller_country)
+
+    # 11bis. Onglet INVOICE / CREDIT_NOTE (écritures Amazon hors ventes)
+    if invoice_credit_notes:
+        ws_inv_cn = wb.create_sheet()
+        _write_invoice_creditnote_tab(ws_inv_cn, invoice_credit_notes)
 
     # 12. Onglet Calendrier fiscal (échéances déduites des données)
     ws_cal = wb.create_sheet("Calendrier Fiscal")

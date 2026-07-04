@@ -33,6 +33,7 @@ from .constants import (
     REFUND_TYPES,
     SALE_TYPES,
     TRANSFER_TYPES,
+    safe_decimal,
 )
 from .detect import EXPECTED_COLUMNS, detect_format, detect_separator, normalize_header
 from .parsers import PARSERS
@@ -64,6 +65,10 @@ class AmazonImportResult:
     # pour visibilité — distinct de skipped_rows (type vraiment inconnu).
     invoice_rows: int = 0
     credit_note_rows: int = 0
+    # Lignes brutes INVOICE / CREDIT_NOTE conservées pour l'onglet Excel dédié
+    # (voir excel_report.py). Champs extraits via le parser du format détecté
+    # + quelques colonnes brutes directement lues sur la ligne normalisée.
+    invoice_credit_notes: List[dict] = field(default_factory=list)
     # Format 5 uniquement : Tax Reporting Scheme par sale_id
     # "VCS_EU_OSS" = déclarable OSS ; "" = domestique / hors OSS
     tax_scheme_by_sale_id: dict = field(default_factory=dict)
@@ -136,11 +141,32 @@ def _process_rows(
         # --- Écritures de facturation pure (INVOICE / CREDIT_NOTE) ---
         # Ni vente ni remboursement : comptées à part, jamais dans skipped_rows
         # (qui doit rester réservé aux types vraiment inconnus).
-        if tx_type in INVOICE_TYPES:
-            result.invoice_rows += 1
-            continue
-        if tx_type in CREDIT_NOTE_TYPES:
-            result.credit_note_rows += 1
+        if tx_type in INVOICE_TYPES or tx_type in CREDIT_NOTE_TYPES:
+            try:
+                amount = parser.amount_ht(row)
+            except Exception:
+                amount = Decimal("0")
+            try:
+                tx_date_val = parser.tx_date(row)
+            except Exception:
+                tx_date_val = ""
+            result.invoice_credit_notes.append({
+                "kind": "INVOICE" if tx_type in INVOICE_TYPES else "CREDIT_NOTE",
+                "date": tx_date_val,
+                "marketplace": row.get("marketplace", "").strip(),
+                "program_type": row.get("program_type", "").strip(),
+                "reference": (
+                    row.get("vat_inv_number", "").strip()
+                    or row.get("transaction_event_id", "").strip()
+                ),
+                "amount_ht": amount,
+                "vat_amount": safe_decimal(row.get("total_activity_value_vat_amt", "")),
+                "currency": row.get("transaction_currency_code", "").strip() or "EUR",
+            })
+            if tx_type in INVOICE_TYPES:
+                result.invoice_rows += 1
+            else:
+                result.credit_note_rows += 1
             continue
 
         # --- Filtrage type inconnu ---

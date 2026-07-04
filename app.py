@@ -29,6 +29,8 @@ from tva_intracom.oss_export import build_oss_excel, build_oss_csv
 from tva_intracom.ca3_report import generate_ca3_html_report_v2  # (et autres imports nécessaires)
 from tva_intracom.oss_xml import generate_oss_xml
 from tva_intracom.oss_export import aggregate_oss_results, find_oss_negative_buckets
+from tva_intracom import auth as tva_auth
+from tva_intracom import billing as tva_billing
 
 _ZERO = Decimal("0.00")
 from tva_intracom.rates import (
@@ -139,6 +141,40 @@ if "_malformed_vies_purged" not in st.session_state:
 st.title("\U0001f1ea\U0001f1fa Moteur de TVA Intracommunautaire")
 
 # =============================================================================
+# AUTHENTIFICATION — magic link par e-mail (voir tva_intracom/auth.py)
+# =============================================================================
+if "auth_user" not in st.session_state:
+    st.session_state["auth_user"] = None
+
+_qp_token = st.query_params.get("login_token")
+if _qp_token and st.session_state["auth_user"] is None:
+    _u = tva_auth.consume_magic_link(_qp_token)
+    if _u is not None:
+        st.session_state["auth_user"] = _u
+        st.query_params.clear()
+        st.rerun()
+    else:
+        st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
+
+if st.session_state["auth_user"] is None:
+    st.info("🔐 Connectez-vous pour utiliser le moteur de TVA.")
+    _login_email = st.text_input("Adresse e-mail", key="login_email_input")
+    if st.button("Recevoir un lien de connexion", key="btn_send_magic_link"):
+        if _login_email and "@" in _login_email:
+            _token = tva_auth.create_magic_link(_login_email)
+            # TODO(billing infra) : envoi effectif du lien par e-mail (Resend/Postmark/SMTP).
+            # En attendant le branchement de l'envoi, le lien est affiché ici pour test.
+            st.success("✅ Lien envoyé. (Mode test : lien affiché ci-dessous en attendant "
+                       "le branchement de l'envoi e-mail.)")
+            st.code(f"?login_token={_token}")
+        else:
+            st.warning("Adresse e-mail invalide.")
+    st.stop()
+
+_current_user = st.session_state["auth_user"]
+st.caption(f"Connecté : {_current_user.email}")
+
+# =============================================================================
 # SIDEBAR — en accordéon par thème
 # =============================================================================
 with st.sidebar:
@@ -209,8 +245,10 @@ with st.sidebar:
             ),
         )
         countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local :",
-            options=sorted(list(EU_COUNTRIES)),
-            help="Incluez tous les pays où vous êtes immatriculé, y compris la France si applicable.")
+            options=sorted(list(EU_COUNTRIES)), default=["FR"],
+            help="Incluez tous les pays où vous êtes immatriculé. La France est "
+                 "cochée par défaut (établissement du vendeur) — décochez-la si "
+                 "ce n'est pas votre cas.")
         encoding = st.selectbox("Encodage du fichier", ["utf-8","latin-1","cp1252"], index=0)
 
     # ── Catalogue Produits ────────────────────────────────────────────────────
@@ -350,6 +388,7 @@ if uploaded_files:
     uploaded_files = _deduped
 
     all_sales, all_refunds, all_fc_transfers = [], [], []
+    all_invoice_credit_notes = []
     all_stock_countries, all_warnings, all_platforms = set(), [], []
     total_rows_sum = skipped_rows_sum = 0
     file_summaries, tmp_paths, _parse_results = [], [], []
@@ -393,6 +432,7 @@ if uploaded_files:
                 platform = parse_result.platform or file_format.split("(")[0].strip()
                 all_sales.extend(parse_result.sales); all_refunds.extend(parse_result.refunds)
                 all_fc_transfers.extend(parse_result.fc_transfers)
+                all_invoice_credit_notes.extend(getattr(parse_result, "invoice_credit_notes", []))
                 all_stock_countries |= parse_result.stock_countries
                 all_warnings.extend(parse_result.warnings); all_platforms.append(platform)
                 total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
@@ -587,9 +627,14 @@ if uploaded_files:
                     f"TVA OSS nette due : **{_oss_gross_vat:,.2f} €**."
                 )
         
-        unregistered = (all_stock_countries - {"FR"}) - set(countries_with_vat)
+        unregistered = all_stock_countries - set(countries_with_vat)
         if unregistered:
-            st.warning(f"⚠️ **Pays de stock non enregistrés : {', '.join(sorted(unregistered))}** — Immatriculation TVA requise.")
+            st.warning(
+                f"⚠️ **Stock Amazon détecté sans immatriculation confirmée : "
+                f"{', '.join(sorted(unregistered))}** — présence de stock "
+                "(transferts FBA et/ou expéditions), à vérifier même en l'absence "
+                "de vente domestique constatée sur cette période."
+            )
         if seller_is_importer:
             _ddp_unrg = {r.vat_country for r in results
                 if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"
@@ -597,6 +642,20 @@ if uploaded_files:
             if _ddp_unrg:
                 st.error(f"🚨 **DDP actif — Immatriculation TVA requise dans : "
                     f"{', '.join(_country_label(c)+' ('+c+')' for c in sorted(_ddp_unrg))}**")
+                
+        # Immatriculations requises
+        pay_eu = {r.vat_country for r in results
+            if r.channel.value == "LOCAL" and r.vat_country}
+        if pay_eu:
+            unregistered_local = pay_eu - set(countries_with_vat)
+            if unregistered_local:
+                _local_list = ", ".join(f"**{_country_label(p)} ({p})**" for p in sorted(unregistered_local))
+                st.warning(
+                    "⚠️ Immatriculation TVA locale requise (ventes domestiques "
+                    f"constatées sur cette période) dans : {_local_list}"
+                    " — distinct de l'alerte stock ci-dessus : ici, des ventes "
+                    "taxables réelles ont été calculées dans ces pays."
+                )
 
         # =====================================================================
         # KPIs — toujours visibles
@@ -751,15 +810,6 @@ if uploaded_files:
                     "de règlements Amazon, qui inclut des éléments hors périmètre de cet outil "
                     "(commissions, frais logistiques, remises)."
                 )
-
-            # Immatriculations requises
-            pay_eu = {r.vat_country for r in results
-                if r.channel.value == "LOCAL" and r.vat_country and r.vat_country != "FR"}
-            if pay_eu:
-                unregistered_local = pay_eu - set(countries_with_vat)
-                if unregistered_local:
-                    st.warning(f"⚠️ Immatriculation TVA requise dans : "
-                        + ", ".join(f"**{_country_label(p)} ({p})**" for p in sorted(unregistered_local)))
 
         # ── 2. DÉTAIL VENTES ──────────────────────────────────────────────────
         with tab_detail:
@@ -1388,6 +1438,50 @@ if uploaded_files:
             else:
                 period_label = oss_period
 
+            # ── Gate billing : un export = un crédit payé pour cette période,
+            # ou abonnement actif (voir tva_intracom/billing.py). L'analyse et
+            # la visualisation restent gratuites — seul le téléchargement est gaté.
+            _can_export = bool(period_label) and tva_billing.has_export_credit(
+                _current_user.id, period_label
+            )
+
+            def _gated_download(label, data, file_name, mime, **kwargs):
+                """Remplace st.download_button : affiche le vrai bouton si crédit
+                disponible pour la période, sinon un CTA d'achat Stripe Checkout."""
+                if _can_export:
+                    st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
+                    return
+                st.button(f"🔒 {label} — débloquer (15 €)", disabled=False,
+                          key=f"unlock_{file_name}",
+                          use_container_width=kwargs.get("use_container_width", False),
+                          on_click=_start_payg_checkout)
+
+            def _start_payg_checkout():
+                try:
+                    url = tva_billing.create_payg_checkout_session(
+                        user_id=_current_user.id,
+                        email=_current_user.email,
+                        period_label=period_label,
+                        success_url="https://votre-domaine.example/?export_ok=1",
+                        cancel_url="https://votre-domaine.example/",
+                    )
+                    st.session_state["_stripe_checkout_url"] = url
+                except Exception as _billing_err:
+                    st.session_state["_stripe_checkout_error"] = str(_billing_err)
+
+            if not _can_export and period_label:
+                st.warning(
+                    f"🔒 Les exports de la période **{period_label}** ne sont pas encore "
+                    "débloqués. Cliquez sur un bouton d'export ci-dessous pour lancer le "
+                    "paiement (15 € / déclaration), ou passez par un abonnement pour un "
+                    "accès illimité."
+                )
+                if st.session_state.get("_stripe_checkout_url"):
+                    st.link_button("💳 Continuer vers le paiement Stripe",
+                                    st.session_state["_stripe_checkout_url"])
+                if st.session_state.get("_stripe_checkout_error"):
+                    st.error(f"Paiement indisponible : {st.session_state['_stripe_checkout_error']}")
+
             st.subheader("📥 Téléchargements")
             with st.container():
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
@@ -1396,7 +1490,8 @@ if uploaded_files:
                         refund_results=refund_results, all_fc_transfers=all_fc_transfers,
                         vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
                         countries_with_vat=countries_with_vat,
-                        period=period_label, seller_country="FR")
+                        period=period_label, seller_country="FR",
+                        invoice_credit_notes=all_invoice_credit_notes)
                 with open(xlsx_path,"rb") as f: xlsx_bytes = f.read()
 
                 # ── ZONE TÉLÉCHARGEMENTS ──────────────────────────────────────
@@ -1406,7 +1501,7 @@ if uploaded_files:
                 st.markdown("#### 📦 Rapport principal")
                 r1, r2 = st.columns([2, 1])
                 with r1:
-                    st.download_button(
+                    _gated_download(
                         "📊 Rapport complet (.xlsx)",
                         data=xlsx_bytes,
                         file_name="rapport_tva_intracommunautaire.xlsx",
@@ -1414,7 +1509,7 @@ if uploaded_files:
                         type="primary", use_container_width=True,
                     )
                 with r2:
-                    st.download_button(
+                    _gated_download(
                         "📝 Rapport texte (.txt)",
                         data=render_report(summary).encode("utf-8"),
                         file_name="rapport_tva_intracommunautaire.txt",
@@ -1434,7 +1529,7 @@ if uploaded_files:
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as oss_tmp:
                                 oss_xlsx_path = build_oss_excel(results_net, oss_tmp.name, period=period_label)
                             with open(oss_xlsx_path,"rb") as f: oss_xlsx_bytes = f.read()
-                            st.download_button(
+                            _gated_download(
                                 "📊 État OSS (.xlsx)", data=oss_xlsx_bytes,
                                 file_name="etat_recapitulatif_oss.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1444,7 +1539,7 @@ if uploaded_files:
                     with o2:
                         if oss_results_dl:
                             oss_csv_bytes, _ = build_oss_csv(results_net, period=period_label)
-                            st.download_button(
+                            _gated_download(
                                 "📄 OSS URSSAF (.csv)", data=oss_csv_bytes,
                                 file_name="oss_urssaf.csv", mime="text/csv",
                                 use_container_width=True,
@@ -1452,7 +1547,7 @@ if uploaded_files:
                     with o3:
                         if b2b_results_dl:
                             _, b2b_csv_bytes = build_oss_csv(results_net, period=period_label)
-                            st.download_button(
+                            _gated_download(
                                 "🤝 B2B Recap (.csv)", data=b2b_csv_bytes,
                                 file_name="b2b_recap.csv", mime="text/csv",
                                 use_container_width=True,
@@ -1469,6 +1564,16 @@ if uploaded_files:
                 with col_xml:
                     st.markdown("**🇪🇺 Guichet Unique OSS (XML)**")
                     st.caption("Fichier prêt au téléversement sur impots.gouv.fr")
+                    if unregistered:
+                        st.info(
+                            "ℹ️ Rappel : stock détecté sans immatriculation confirmée dans "
+                            f"{', '.join(sorted(unregistered))} (voir alerte en haut de page). "
+                            "Cela n'affecte pas le contenu de ce XML — seules les ventes "
+                            "transfrontalières B2C y figurent, jamais les ventes domestiques "
+                            "du pays de stock, qu'elles soient immatriculées ou non. Vérifiez "
+                            "simplement que la déclaration locale correspondante est bien "
+                            "déposée dans ces pays, en plus de cet OSS."
+                        )
                     if not period_label or not period_label.strip():
                         st.warning("⚠️ Renseignez la période dans le panneau latéral (ex : 2026-T1)")
                     else:
@@ -1503,7 +1608,7 @@ if uploaded_files:
                             oss_xml_bytes = generate_oss_xml(
                                 results=results_net, seller_vat=tva_fr, period=period_label
                             )
-                            st.download_button(
+                            _gated_download(
                                 "📥 XML OSS officiel", data=oss_xml_bytes,
                                 file_name=f"oss_declaration_{period_label}.xml",
                                 mime="application/xml", use_container_width=True,
@@ -1545,7 +1650,7 @@ if uploaded_files:
                         credit_periode_precedente=Decimal(str(_credit_prec)),
                         seller_country="FR",
                     )
-                    st.download_button(
+                    _gated_download(
                         "📥 Rapport CA3 (HTML)", data=ca3_html.encode("utf-8"),
                         file_name=f"rapport_ca3_{period_label}.html",
                         mime="text/html", use_container_width=True,
