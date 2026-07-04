@@ -24,6 +24,7 @@ Réglages Vercel nécessaires :
       SUPABASE_DB_URL.
 """
 import importlib.util
+import sys
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -33,6 +34,11 @@ _BILLING_PATH = _REPO_ROOT / "tva_intracom" / "billing.py"
 
 _spec = importlib.util.spec_from_file_location("tva_intracom_billing", _BILLING_PATH)
 _billing = importlib.util.module_from_spec(_spec)
+# IMPORTANT : le module doit être enregistré dans sys.modules AVANT exec_module().
+# Sans cette ligne, @dataclass (utilisé dans billing.py) ne retrouve pas son
+# module via sys.modules[cls.__module__] et plante avec
+# "AttributeError: 'NoneType' object has no attribute '__dict__'".
+sys.modules[_spec.name] = _billing
 _spec.loader.exec_module(_billing)
 
 handle_stripe_webhook_event = _billing.handle_stripe_webhook_event
