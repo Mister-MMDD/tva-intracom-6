@@ -25,6 +25,7 @@ Réglages Vercel nécessaires :
 """
 import importlib.util
 import sys
+import traceback
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -52,13 +53,15 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             handle_stripe_webhook_event(payload, sig_header)
-        except Exception as exc:
-            # Stripe retente automatiquement en cas d'échec — on renvoie 400
-            # pour déclencher le retry plutôt que d'avaler l'erreur silencieusement.
+        except Exception:
+            # DEBUG TEMPORAIRE : traceback complet dans la réponse pour diagnostiquer
+            # l'erreur 400 constatée. À retirer une fois le bug identifié — ne pas
+            # laisser un traceback complet exposé publiquement en production.
+            tb = traceback.format_exc()
             self.send_response(400)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
-            self.wfile.write(f"Webhook error: {exc}".encode("utf-8"))
+            self.wfile.write(tb.encode("utf-8"))
             return
 
         self.send_response(200)
