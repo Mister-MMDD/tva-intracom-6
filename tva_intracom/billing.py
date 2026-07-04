@@ -1,19 +1,6 @@
 """Facturation & quotas Stripe — tva_intracom.
 
-Backend Postgres (Supabase) — voir auth.py pour la justification : cette base
-est partagée entre l'app Streamlit Cloud (lecture des crédits/abonnements) et
-la fonction serverless Vercel qui reçoit les webhooks Stripe (écriture des
-crédits/abonnements après paiement confirmé). Aucune des deux ne doit utiliser
-un SQLite local pour ces données.
-
-Connexion : variable d'environnement SUPABASE_DB_URL (identique à auth.py).
-Dépendance ajoutée à requirements.txt : psycopg2-binary, stripe
-
-Modèle métier inchangé par rapport à la v1 SQLite :
-- PAYG : un crédit = une période fiscale (`period_label`) débloquée pour un
-  utilisateur donné. Re-générer le même export pour la même période ne recoûte
-  rien.
-- Abonnement : déverrouille tous les exports tant qu'actif.
+Backend Postgres (Supabase).
 """
 from __future__ import annotations
 
@@ -27,7 +14,7 @@ import psycopg2.pool
 
 try:
     import stripe  # type: ignore
-except ImportError:  # pragma: no cover
+except ImportError:
     stripe = None
 
 PRICE_PAYG_EXPORT = os.environ.get("STRIPE_PRICE_PAYG_EXPORT", "")
@@ -51,8 +38,7 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
         dsn = os.environ.get("SUPABASE_DB_URL")
         if not dsn:
             raise RuntimeError(
-                "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
-                "de facturation. Configurez ce secret côté Streamlit Cloud et Vercel."
+                "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
             )
         _pool = psycopg2.pool.SimpleConnectionPool(1, 5, dsn)
         _init_schema()
@@ -60,7 +46,8 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
 
 
 def _init_schema() -> None:
-    conn = _pool.getconn()
+    pool = _get_pool()
+    conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
@@ -94,8 +81,12 @@ def _init_schema() -> None:
                 )
                 """
             )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
-        _pool.putconn(conn)
+        pool.putconn(conn)
 
 
 @dataclass
@@ -106,26 +97,47 @@ class SubscriptionStatus:
 
 
 def get_subscription_status(user_id: str) -> SubscriptionStatus:
+    if has_active_subscription_direct(user_id):
+        pool = _get_pool()
+        conn = pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT status, plan, current_period_end FROM tva_subscriptions WHERE user_id=%s",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+        finally:
+            pool.putconn(conn)
+        
+        if row:
+            status, plan, period_end = row
+            active = status in ("active", "trialing") and period_end > time.time()
+            return SubscriptionStatus(active=active, plan=plan, current_period_end=period_end)
+            
+    return SubscriptionStatus(active=False)
+
+
+def has_active_subscription_direct(user_id: str) -> bool:
     pool = _get_pool()
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT status, plan, current_period_end FROM tva_subscriptions WHERE user_id=%s",
+                "SELECT status, current_period_end FROM tva_subscriptions WHERE user_id=%s",
                 (user_id,),
             )
             row = cur.fetchone()
+            if row:
+                status, period_end = row
+                return status in ("active", "trialing") and period_end > time.time()
+            return False
     finally:
         pool.putconn(conn)
-    if not row:
-        return SubscriptionStatus(active=False)
-    status, plan, period_end = row
-    active = status in ("active", "trialing") and period_end > time.time()
-    return SubscriptionStatus(active=active, plan=plan, current_period_end=period_end)
 
 
 def has_export_credit(user_id: str, period_label: str) -> bool:
-    if get_subscription_status(user_id).active:
+    if has_active_subscription_direct(user_id):
         return True
     pool = _get_pool()
     conn = pool.getconn()
@@ -141,8 +153,6 @@ def has_export_credit(user_id: str, period_label: str) -> bool:
 
 
 def grant_export_credit(user_id: str, period_label: str, payment_intent_id: str = "") -> None:
-    """Débloque un export pour une période — appelé uniquement depuis le
-    webhook Stripe après confirmation de paiement, jamais depuis l'UI."""
     pool = _get_pool()
     conn = pool.getconn()
     try:
@@ -157,6 +167,10 @@ def grant_export_credit(user_id: str, period_label: str, payment_intent_id: str 
                 """,
                 (user_id, period_label, time.time(), payment_intent_id),
             )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         pool.putconn(conn)
 
@@ -170,14 +184,20 @@ def _get_or_create_stripe_customer(user_id: str, email: str) -> str:
             row = cur.fetchone()
             if row:
                 return row[0]
+            
             if not _stripe_configured():
                 raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
+            
             customer = stripe.Customer.create(email=email, metadata={"user_id": user_id})
             cur.execute(
                 "INSERT INTO tva_customers (user_id, stripe_customer_id) VALUES (%s, %s)",
                 (user_id, customer.id),
             )
+            conn.commit()
             return customer.id
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         pool.putconn(conn)
 
@@ -187,6 +207,7 @@ def create_payg_checkout_session(user_id: str, email: str, period_label: str, su
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
     if not PRICE_PAYG_EXPORT:
         raise RuntimeError("STRIPE_PRICE_PAYG_EXPORT non défini.")
+    
     customer_id = _get_or_create_stripe_customer(user_id, email)
     session = stripe.checkout.Session.create(
         mode="payment",
@@ -202,9 +223,11 @@ def create_payg_checkout_session(user_id: str, email: str, period_label: str, su
 def create_subscription_checkout_session(user_id: str, email: str, plan: str, success_url: str, cancel_url: str) -> str:
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
+    
     price_id = {"business": PRICE_SUB_BUSINESS, "cabinet": PRICE_SUB_CABINET}.get(plan)
     if not price_id:
         raise RuntimeError(f"Plan inconnu ou prix non configuré : {plan}")
+        
     customer_id = _get_or_create_stripe_customer(user_id, email)
     session = stripe.checkout.Session.create(
         mode="subscription",
@@ -227,10 +250,12 @@ def create_billing_portal_session(user_id: str, return_url: str) -> str:
             row = cur.fetchone()
     finally:
         pool.putconn(conn)
+        
     if not row:
-        raise RuntimeError("Aucun client Stripe pour cet utilisateur — aucun achat effectué.")
+        raise RuntimeError("Aucun client Stripe pour cet utilisateur.")
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
+        
     portal = stripe.billing_portal.Session.create(customer=row[0], return_url=return_url)
     return portal.url
 
@@ -248,13 +273,12 @@ def _user_id_for_stripe_customer(stripe_customer_id: str) -> Optional[str]:
 
 
 def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
-    """Point d'entrée unique appelé par la fonction serverless Vercel
-    (voir vercel_webhook/api/stripe_webhook.py)."""
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     if not webhook_secret:
         raise RuntimeError("STRIPE_WEBHOOK_SECRET non définie.")
+        
     event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
     etype = event["type"]
     data = event["data"]["object"]
@@ -292,6 +316,10 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
                     (user_id, data["id"], data["status"], plan,
                      float(data["current_period_end"]), time.time()),
                 )
+                conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             pool.putconn(conn)
 
@@ -308,5 +336,9 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
                     "UPDATE tva_subscriptions SET status='canceled', updated_at=%s WHERE user_id=%s",
                     (time.time(), user_id),
                 )
+                conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             pool.putconn(conn)
