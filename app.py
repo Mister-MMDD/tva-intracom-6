@@ -406,13 +406,18 @@ if uploaded_files:
                 # Barre de progression : utile sur les gros rapports Amazon
                 # (des centaines de milliers de lignes) où le parsing peut
                 # sembler figer l'interface. Widgets détruits après usage.
-                _progress_bar = st.progress(0.0, text=f"Analyse de {uploaded_file.name}…")
+                _progress_label = (
+                    f"Analyse de {uploaded_file.name} (conversion devises BCE incluse)…"
+                    if convert_fx else f"Analyse de {uploaded_file.name}…"
+                )
+                _progress_bar = st.progress(0.0, text=_progress_label)
 
                 def _on_parse_progress(processed: int, total: int, _fname=uploaded_file.name) -> None:
                     pct = processed / total if total else 1.0
+                    _suffix = " (conv. BCE incluse)" if convert_fx else ""
                     _progress_bar.progress(
                         min(pct, 1.0),
-                        text=f"Analyse de {_fname} : {processed:,} / {total:,} lignes".replace(",", " "),
+                        text=f"Analyse de {_fname} : {processed:,} / {total:,} lignes{_suffix}".replace(",", " "),
                     )
 
                 parse_result = parser_amazon.load_amazon_report(

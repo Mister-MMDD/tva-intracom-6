@@ -204,6 +204,7 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
 def prefetch_rates(
     currency_dates: list[tuple[str, date]],
     max_workers: int = 8,
+    progress_callback=None,
 ) -> None:
     """Pré-charge en parallèle les taux BCE pour une liste de (devise, date).
 
@@ -214,6 +215,12 @@ def prefetch_rates(
     Args:
         currency_dates: liste de tuples (devise, date).
         max_workers: threads parallèles (défaut 8, limité par l'API BCE).
+        progress_callback: optionnel, callable(done: int, total: int) appelé
+            après chaque taux traité, depuis le thread principal (sûr avec
+            les widgets Streamlit type st.progress appelés par app.py).
+            `total` correspond au nombre de taux réellement à récupérer
+            (paires déjà en cache exclues) — si tout est déjà en cache,
+            le callback n'est jamais appelé.
     """
     # Dédupliquer + ignorer ce qui est déjà en cache.
     # HRK exclu : taux fixe irrévocable depuis le 01/01/2023, pas d'appel BCE nécessaire.
@@ -242,6 +249,8 @@ def prefetch_rates(
         currency, d = args
         return _cache_key(currency, d), _fetch_ecb_rate(currency, d)
 
+    total = len(to_fetch)
+    done = 0
     loaded = 0
     with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as pool:
         futures = {pool.submit(_fetch_one, item): item for item in to_fetch}
@@ -251,6 +260,12 @@ def prefetch_rates(
                 with _cache_lock:
                     _rate_cache[key] = rate
                 loaded += 1
+            done += 1
+            if progress_callback is not None:
+                try:
+                    progress_callback(done, total)
+                except Exception:
+                    pass
 
     if loaded:
         _save_disk_cache()
