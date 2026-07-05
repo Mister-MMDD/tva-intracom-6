@@ -571,6 +571,7 @@ class ViesValidationSummary:
 
 def compute_all_with_vies(
     sales: list[Sale],
+    scope_id: str,
     asin_to_category: dict[str, str] = None,
     on_invalid: str = "reclassify",
     marketplace_name: str = "Amazon",
@@ -581,6 +582,10 @@ def compute_all_with_vies(
     """Calcule la TVA avec validation VIES en gérant le seuil de 10 000 € OSS.
     
     Args:
+        scope_id: portée de cache VIES du compte appelant (voir
+                  vies.resolve_scope_id) — isole le cache et l'historique
+                  d'audit entre comptes/domaines, transmise telle quelle à
+                  validate_vat_numbers_parallel et get_manual_overrides.
         refunds: liste des remboursements (montants négatifs). S'ils sont fournis,
                  leur montant OSS-éligible est déduit du cumul pour que le seuil
                  affiché reflète le CA OSS net (conformément à l'art. 59 ter directive TVA).
@@ -632,7 +637,7 @@ def compute_all_with_vies(
     checked_vats: dict = {}
     if vats_to_check:
         try:
-            checked_vats = validate_vat_numbers_parallel(vats_to_check)
+            checked_vats = validate_vat_numbers_parallel(scope_id, vats_to_check)
         except Exception as exc_parallel:
             logger.warning(
                 "validate_vat_numbers_parallel a échoué (%s) — "
@@ -641,7 +646,7 @@ def compute_all_with_vies(
             )
             try:
                 from .vies import validate_vat_numbers
-                checked_vats = validate_vat_numbers(vats_to_check)
+                checked_vats = validate_vat_numbers(scope_id, vats_to_check)
             except Exception as exc_seq:
                 logger.error(
                     "Validation VIES entièrement indisponible (%s). "
@@ -657,7 +662,7 @@ def compute_all_with_vies(
     try:
         from .vies import get_manual_overrides
         from types import SimpleNamespace as _SN
-        for _fv, _is_valid in get_manual_overrides().items():
+        for _fv, _is_valid in get_manual_overrides(scope_id).items():
             # On surcharge même si le numéro n'était pas dans le batch
             # (cas où l'override a été posé avant l'upload du fichier)
             if _fv in checked_vats or _fv in vat_seen:

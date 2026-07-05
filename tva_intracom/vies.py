@@ -1,13 +1,40 @@
 """Verification des numeros de TVA intracommunautaire via le service VIES.
 
-Optimisations :
-  - validate_vat_numbers_parallel() : N numéros en parallèle (ThreadPoolExecutor)
-  - Cache SQLite persistant avec TTL configurable : les numéros vérifiés sont
-    sauvegardés dans une base SQLite locale avec leur date de dernière vérification.
-    Les entrées sont automatiquement revalidées après CACHE_TTL_DAYS jours.
-  - Migration automatique depuis l'ancien cache JSON si présent.
-  - Vitesse absolue : après le premier traitement, les lancements suivants sont
-    quasi-instantanés pour les numéros encore frais.
+Backend Postgres (Supabase) — remplace l'ancien cache SQLite local (fichier
+unique partagé de facto par tous les comptes, non persistant entre
+redéploiements Streamlit Cloud — même défaut que l'ancien auth.py avant sa
+migration Postgres).
+
+Architecture à trois niveaux, pour isoler les comptes/cabinets entre eux tout
+en mutualisant les vérifications automatiques (utile en cas d'indisponibilité
+du serveur VIES de l'UE) :
+
+  1. vies_scope_cache      — cache PRIVÉ par "scope" (compte isolé pour une
+                              adresse e-mail personnelle, ou domaine partagé
+                              pour une adresse professionnelle). Consulté en
+                              premier.
+  2. vies_global_cache     — cache PARTAGÉ entre tous les scopes, alimenté
+                              UNIQUEMENT par les vérifications automatiques
+                              réussies. Sert de filet de sécurité mutualisé.
+  3. API VIES (ec.europa.eu) — dernier recours, en cas d'absence dans les
+                              deux caches ci-dessus.
+
+  vies_manual_overrides    — classifications manuelles saisies par
+                              l'utilisateur. Strictement scopées
+                              (scope_id, full_vat). NE REMONTENT JAMAIS dans
+                              vies_global_cache : une classification manuelle
+                              d'un cabinet ne doit jamais influencer le calcul
+                              d'un autre compte.
+  vies_check_history        — piste d'audit append-only, elle aussi scopée :
+                              chaque scope conserve sa propre preuve de la
+                              date à laquelle IL a eu connaissance d'un statut
+                              VIES, même quand la donnée provient du cache
+                              global (mutualisée mais horodatée localement).
+
+Connexion : variable d'environnement SUPABASE_DB_URL — même base Postgres que
+tva_intracom/auth.py et tva_intracom/billing.py. Jamais en dur dans le code.
+
+Dépendance : psycopg2-binary (déjà présente dans requirements.txt pour auth.py).
 """
 
 from __future__ import annotations
@@ -16,7 +43,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import threading
 import time
 import urllib.error
@@ -26,19 +52,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import psycopg2
+import psycopg2.pool
+import streamlit as st
+
 logger = logging.getLogger(__name__)
 
 VIES_REST_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
 DEFAULT_TIMEOUT = 10
-
-from pathlib import Path as _Path
-
-# Chemin de la base SQLite (remplace l'ancien vies_disk_cache.json)
-# Résolu de manière absolue par rapport à l'emplacement de ce fichier,
-# pour éviter que le CWD au moment du lancement change l'emplacement réel.
-CACHE_DB_FILE = str(_Path(__file__).parent / "vies_cache.db")
-# Ancien fichier JSON : migré automatiquement au premier démarrage puis ignoré
-_LEGACY_JSON_FILE = str(_Path(__file__).parent / "vies_disk_cache.json")
 
 # TTL du cache : durée en jours avant qu'un numéro soit revalidé auprès de VIES.
 # Valeur par défaut : 90 jours. Modifiable via set_cache_ttl().
@@ -46,15 +67,53 @@ CACHE_TTL_DAYS: int = 90
 
 # Retry backoff pour erreurs temporaires VIES (serveur UE instable)
 _RETRY_MAX_ATTEMPTS = 3
-_RETRY_BASE_DELAY   = 1.0   # secondes, doublé à chaque tentative (1 → 2 → 4)
+_RETRY_BASE_DELAY = 1.0  # secondes, doublé à chaque tentative (1 → 2 → 4)
 
-# Verrou global pour les accès SQLite depuis plusieurs threads
-_db_lock = threading.Lock()   # conservé pour rétrocompatibilité interne
-# En mode WAL, chaque thread possède sa propre connexion (threading.local) et
-# SQLite garantit la cohérence des lectures concurrentes sans verrou applicatif.
-# Seules les écritures (INSERT/UPDATE/DELETE + COMMIT) nécessitent une sérialisation
-# pour éviter les erreurs "database is locked" entre threads workers.
-_write_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Résolution de la portée (scope) de cache par compte
+# ---------------------------------------------------------------------------
+# Liste fixe (décision produit) : domaines de messagerie personnelle, jamais
+# traités comme un "domaine d'entreprise" partagé — chaque compte reste isolé
+# même si, par accident, deux clients du même webmail existaient.
+PERSONAL_EMAIL_DOMAINS = {
+    "gmail.com", "googlemail.com",
+    "outlook.com", "outlook.fr", "hotmail.com", "hotmail.fr",
+    "live.com", "live.fr", "msn.com",
+    "yahoo.com", "yahoo.fr", "yahoo.co.uk",
+    "icloud.com", "me.com", "mac.com",
+    "aol.com",
+    "gmx.com", "gmx.fr", "gmx.net",
+    "laposte.net",
+    "orange.fr", "wanadoo.fr",
+    "free.fr", "sfr.fr", "bbox.fr", "neuf.fr", "numericable.fr", "aliceadsl.fr",
+    "protonmail.com", "proton.me", "pm.me",
+    "yandex.com", "yandex.ru",
+    "mail.com", "zoho.com",
+}
+
+
+def resolve_scope_id(email: str) -> str:
+    """Détermine la portée (scope) de cache VIES pour un compte utilisateur.
+
+    - adresse sur un domaine de messagerie personnelle (gmail.com, outlook.com,
+      free.fr...) → scope isolé par compte : ``"user:<email>"``.
+    - adresse sur un domaine professionnel/entreprise → scope partagé par
+      domaine (ex: tous les collaborateurs d'un cabinet en
+      ``@cabinet-untel.fr`` partagent le même cache VIES) : ``"domain:<domaine>"``.
+
+    Appelée une fois par session depuis app.py juste après authentification,
+    et transmise à toutes les fonctions de ce module ainsi qu'à
+    ``engine.compute_all_with_vies``.
+    """
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        # Ne devrait pas arriver (auth.py exige un e-mail) — filet de sécurité.
+        return f"user:{email or 'inconnu'}"
+    domain = email.rsplit("@", 1)[1]
+    if domain in PERSONAL_EMAIL_DOMAINS:
+        return f"user:{email}"
+    return f"domain:{domain}"
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +131,7 @@ class ViesResult:
 
 
 # ---------------------------------------------------------------------------
-# Helpers TTL
+# Helpers TTL / dates
 # ---------------------------------------------------------------------------
 
 def set_cache_ttl(days: int) -> None:
@@ -82,410 +141,394 @@ def set_cache_ttl(days: int) -> None:
     logger.info("Cache VIES : TTL mis à jour à %d jours.", CACHE_TTL_DAYS)
 
 
-def _now_utc() -> str:
-    """Timestamp ISO UTC actuel, stocké tel quel dans SQLite."""
-    return datetime.now(timezone.utc).isoformat()
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def _is_expired(checked_at_iso: str) -> bool:
-    """Retourne True si l'entrée dépasse le TTL configuré."""
-    try:
-        checked_at = datetime.fromisoformat(checked_at_iso)
-        # Assure la comparaison timezone-aware
-        if checked_at.tzinfo is None:
-            checked_at = checked_at.replace(tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) - checked_at > timedelta(days=CACHE_TTL_DAYS)
-    except (ValueError, TypeError):
-        return True  # date invalide → considérée expirée
+def _is_expired(checked_at) -> bool:
+    """Retourne True si l'entrée dépasse le TTL configuré.
 
-
-# ---------------------------------------------------------------------------
-# Initialisation SQLite
-# ---------------------------------------------------------------------------
-
-_local = threading.local()
-
-
-def _get_connection() -> sqlite3.Connection:
-    """Retourne la connexion SQLite du thread courant (une par thread, réutilisée).
-
-    Stratégie :
-      - threading.local() : chaque thread possède sa propre connexion → pas de
-        contention entre threads lors des lectures parallèles (phase 1 du batch).
-      - WAL (Write-Ahead Logging) : les lectures ne bloquent pas les écritures et
-        vice-versa. Activé une seule fois à la création de la connexion.
-      - check_same_thread=False : requis car sqlite3 vérifie l'origine du thread
-        par défaut ; ici la sécurité est assurée par threading.local + _db_lock.
+    Accepte un datetime (valeur normale renvoyée par psycopg2 pour une
+    colonne TIMESTAMPTZ) ou, par prudence, une chaîne ISO.
     """
-    conn = getattr(_local, "conn", None)
-    if conn is None:
-        conn = sqlite3.connect(
-            CACHE_DB_FILE,
-            check_same_thread=False,
-            timeout=30,  # délai d'attente max si la DB est verrouillée (multi-processus)
-        )
-        conn.row_factory = sqlite3.Row
-        # WAL : lectures et écritures en parallèle sans blocage mutuel.
-        # Crucial pour le ThreadPoolExecutor (25 threads) qui lit le cache en phase 1.
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")   # durabilité suffisante, moins d'I/O
-        _local.conn = conn
-    return conn
-
-
-def _close_thread_connection() -> None:
-    """Ferme et supprime la connexion du thread courant (fin de thread worker).
-
-    À appeler via un wrapper dans validate_vat_numbers_parallel() pour que
-    les threads du ThreadPoolExecutor libèrent leurs connexions proprement.
-    """
-    conn = getattr(_local, "conn", None)
-    if conn is not None:
+    if checked_at is None:
+        return True
+    if isinstance(checked_at, str):
         try:
-            conn.close()
-        except Exception:
-            pass
-        _local.conn = None
+            checked_at = datetime.fromisoformat(checked_at)
+        except ValueError:
+            return True
+    if checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=timezone.utc)
+    return _now_utc() - checked_at > timedelta(days=CACHE_TTL_DAYS)
 
 
-def _init_db() -> None:
-    """Crée les tables et index si ils n'existent pas encore."""
-    with _write_lock:
-        conn = _get_connection()
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS vies_cache (
-                vat_id        TEXT PRIMARY KEY,   -- numéro normalisé (ex: FR12345678901)
-                valid         INTEGER NOT NULL,   -- 1=valide, 0=invalide
-                country_code  TEXT NOT NULL,
-                vat_number    TEXT NOT NULL,
-                name          TEXT DEFAULT '',
-                address       TEXT DEFAULT '',
-                error         TEXT DEFAULT '',
-                checked_at    TEXT NOT NULL       -- ISO UTC timestamp
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_checked_at ON vies_cache(checked_at)
-        """)
-        # ------------------------------------------------------------------
-        # Historique append-only des vérifications VIES.
-        #
-        # vies_cache (ci-dessus) est un cache TTL : chaque revérification
-        # ÉCRASE l'entrée précédente (UPSERT). Pour la piste d'audit fiscale,
-        # on a besoin de l'inverse : savoir ce que VIES répondait à une date
-        # donnée dans le passé, même après une revérification ultérieure
-        # qui aurait changé le statut (ex: client valide en janvier, radié
-        # en décembre — il faut pouvoir prouver qu'au moment de la vente de
-        # janvier, le numéro était bien valide selon VIES).
-        #
-        # Chaque appel à _db_set() insère une ligne ici en plus de l'UPSERT
-        # dans vies_cache — jamais de DELETE ni d'UPDATE sur cette table.
-        # ------------------------------------------------------------------
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS vies_check_history (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                vat_id        TEXT NOT NULL,
-                valid         INTEGER NOT NULL,
-                country_code  TEXT NOT NULL,
-                vat_number    TEXT NOT NULL,
-                name          TEXT DEFAULT '',
-                address       TEXT DEFAULT '',
-                error         TEXT DEFAULT '',
-                checked_at    TEXT NOT NULL       -- ISO UTC timestamp de CETTE vérification
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_history_vat_id ON vies_check_history(vat_id, checked_at)
-        """)
-        conn.commit()
+def _parse_flexible_date(s: str) -> datetime:
+    """Parse 'YYYY-MM-DD' ou une date ISO complète en datetime UTC tz-aware.
 
-
-def _row_to_result(row: sqlite3.Row) -> ViesResult:
-    return ViesResult(
-        valid=bool(row["valid"]),
-        country_code=row["country_code"],
-        vat_number=row["vat_number"],
-        name=row["name"] or "",
-        address=row["address"] or "",
-        error=row["error"] or "",
-    )
-
-
-def _db_get(vat_id: str) -> tuple[ViesResult | None, bool]:
-    """Récupère une entrée du cache.
-
-    Retourne (result, is_fresh) :
-      - result=None si absent
-      - is_fresh=False si présent mais expiré (TTL dépassé)
-
-    Pas de verrou : en mode WAL, chaque thread a sa propre connexion
-    (threading.local) et SQLite garantit la cohérence des lectures concurrentes.
+    Une date seule ('YYYY-MM-DD') est interprétée comme minuit UTC ce jour-là,
+    pour retrouver le comportement de get_vies_status_as_of() : « statut connu
+    strictement avant cette date » quand seule la date de vente est fournie.
     """
-    conn = _get_connection()
-    row = conn.execute(
-        "SELECT * FROM vies_cache WHERE vat_id = ?", (vat_id,)
-    ).fetchone()
+    s = (s or "").strip()
+    try:
+        if len(s) == 10:
+            return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return _now_utc()
 
+
+# ---------------------------------------------------------------------------
+# Pool Postgres (Supabase) — même base que auth.py / billing.py
+# ---------------------------------------------------------------------------
+
+_pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                dsn = st.secrets.get("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+                if not dsn:
+                    raise RuntimeError(
+                        "SUPABASE_DB_URL non définie — impossible de se connecter à la "
+                        "base du cache VIES. Configurez ce secret côté Streamlit Cloud "
+                        "(même valeur que pour auth.py / billing.py)."
+                    )
+                pool = psycopg2.pool.SimpleConnectionPool(1, 25, dsn)
+                _init_schema(pool)
+                _pool = pool
+    return _pool
+
+
+def _init_schema(pool: psycopg2.pool.SimpleConnectionPool) -> None:
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS vies_global_cache (
+                    vat_id       TEXT PRIMARY KEY,
+                    valid        BOOLEAN NOT NULL,
+                    country_code TEXT NOT NULL,
+                    vat_number   TEXT NOT NULL,
+                    name         TEXT DEFAULT '',
+                    address      TEXT DEFAULT '',
+                    error        TEXT DEFAULT '',
+                    checked_at   TIMESTAMPTZ NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS vies_scope_cache (
+                    scope_id     TEXT NOT NULL,
+                    vat_id       TEXT NOT NULL,
+                    valid        BOOLEAN NOT NULL,
+                    country_code TEXT NOT NULL,
+                    vat_number   TEXT NOT NULL,
+                    name         TEXT DEFAULT '',
+                    address      TEXT DEFAULT '',
+                    error        TEXT DEFAULT '',
+                    checked_at   TIMESTAMPTZ NOT NULL,
+                    PRIMARY KEY (scope_id, vat_id)
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scope_cache_checked_at
+                    ON vies_scope_cache(checked_at)
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS vies_check_history (
+                    id           BIGSERIAL PRIMARY KEY,
+                    scope_id     TEXT NOT NULL,
+                    vat_id       TEXT NOT NULL,
+                    valid        BOOLEAN NOT NULL,
+                    country_code TEXT NOT NULL,
+                    vat_number   TEXT NOT NULL,
+                    name         TEXT DEFAULT '',
+                    address      TEXT DEFAULT '',
+                    error        TEXT DEFAULT '',
+                    checked_at   TIMESTAMPTZ NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_history_scope_vat
+                    ON vies_check_history(scope_id, vat_id, checked_at)
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS vies_manual_overrides (
+                    scope_id  TEXT NOT NULL,
+                    full_vat  TEXT NOT NULL,
+                    is_valid  BOOLEAN NOT NULL,
+                    set_at    TIMESTAMPTZ NOT NULL,
+                    PRIMARY KEY (scope_id, full_vat)
+                )
+            """)
+    finally:
+        pool.putconn(conn)
+
+
+class _ConnCtx:
+    """Emprunte une connexion au pool et la restitue systématiquement, y
+    compris en cas d'exception — pattern répété par toutes les fonctions
+    de ce module (remplace le threading.local() de l'ancienne version
+    SQLite, devenu inutile avec le pool psycopg2)."""
+
+    def __enter__(self):
+        self._pool = _get_pool()
+        self._conn = self._pool.getconn()
+        return self._conn
+
+    def __exit__(self, exc_type, exc, tb):
+        self._pool.putconn(self._conn)
+        return False
+
+
+def _conn() -> _ConnCtx:
+    return _ConnCtx()
+
+
+# ---------------------------------------------------------------------------
+# Lecture / écriture cache scope + cache global
+# ---------------------------------------------------------------------------
+
+def _row_to_result(row) -> ViesResult:
+    valid, cc, num, name, addr, err = row
+    return ViesResult(valid=bool(valid), country_code=cc, vat_number=num,
+                       name=name or "", address=addr or "", error=err or "")
+
+
+def _db_get_scope(scope_id: str, vat_id: str) -> tuple[Optional[ViesResult], bool]:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT valid, country_code, vat_number, name, address, error, checked_at "
+            "FROM vies_scope_cache WHERE scope_id=%s AND vat_id=%s",
+            (scope_id, vat_id),
+        )
+        row = cur.fetchone()
     if row is None:
         return None, False
-    result = _row_to_result(row)
-    fresh = not _is_expired(row["checked_at"])
-    return result, fresh
+    result = _row_to_result(row[:6])
+    return result, not _is_expired(row[6])
 
 
-def _db_set(vat_id: str, result: ViesResult) -> None:
-    """Insère ou met à jour une entrée dans le cache SQLite, et journalise
-    la vérification dans l'historique append-only (piste d'audit)."""
-    with _write_lock:
-        conn = _get_connection()
-        checked_at = _now_utc()
-        conn.execute("""
-            INSERT INTO vies_cache
-                (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(vat_id) DO UPDATE SET
-                valid        = excluded.valid,
-                country_code = excluded.country_code,
-                vat_number   = excluded.vat_number,
-                name         = excluded.name,
-                address      = excluded.address,
-                error        = excluded.error,
-                checked_at   = excluded.checked_at
-        """, (
-            vat_id,
-            1 if result.valid else 0,
-            result.country_code,
-            result.vat_number,
-            result.name,
-            result.address,
-            result.error,
-            checked_at,
-        ))
-        conn.execute("""
-            INSERT INTO vies_check_history
-                (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            vat_id,
-            1 if result.valid else 0,
-            result.country_code,
-            result.vat_number,
-            result.name,
-            result.address,
-            result.error,
-            checked_at,
-        ))
+def _db_get_global(vat_id: str) -> tuple[Optional[ViesResult], bool]:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT valid, country_code, vat_number, name, address, error, checked_at "
+            "FROM vies_global_cache WHERE vat_id=%s",
+            (vat_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None, False
+    result = _row_to_result(row[:6])
+    return result, not _is_expired(row[6])
+
+
+def _db_set_scope(scope_id: str, vat_id: str, result: ViesResult, log_history: bool = True) -> None:
+    """Écrit dans le cache PRIVÉ du scope et journalise dans son historique
+    d'audit. N'écrit jamais dans vies_global_cache (voir _db_set_global)."""
+    checked_at = _now_utc()
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO vies_scope_cache
+                (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (scope_id, vat_id) DO UPDATE SET
+                valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
+                vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
+                address=EXCLUDED.address, error=EXCLUDED.error,
+                checked_at=EXCLUDED.checked_at
+        """, (scope_id, vat_id, result.valid, result.country_code, result.vat_number,
+              result.name, result.address, result.error, checked_at))
+        if log_history:
+            cur.execute("""
+                INSERT INTO vies_check_history
+                    (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (scope_id, vat_id, result.valid, result.country_code, result.vat_number,
+                  result.name, result.address, result.error, checked_at))
         conn.commit()
 
 
-def get_vies_history(full_vat: str) -> list[dict]:
-    """Retourne tout l'historique des vérifications VIES pour un numéro,
-    de la plus ancienne à la plus récente — pour preuve de bonne foi en cas
-    de contrôle fiscal (chaque vérification, jamais écrasée ni supprimée).
-    """
-    conn = _get_connection()
-    rows = conn.execute(
-        "SELECT * FROM vies_check_history WHERE vat_id = ? ORDER BY checked_at ASC",
-        (full_vat,),
-    ).fetchall()
+def _db_set_global(vat_id: str, result: ViesResult) -> None:
+    """Écrit UNIQUEMENT dans le cache global mutualisé. Appelée seulement à
+    la suite d'une vérification AUTOMATIQUE réussie contre l'API VIES —
+    jamais depuis set_manual_override()."""
+    checked_at = _now_utc()
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO vies_global_cache
+                (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (vat_id) DO UPDATE SET
+                valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
+                vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
+                address=EXCLUDED.address, error=EXCLUDED.error,
+                checked_at=EXCLUDED.checked_at
+        """, (vat_id, result.valid, result.country_code, result.vat_number,
+              result.name, result.address, result.error, checked_at))
+        conn.commit()
+
+
+def get_vies_history(scope_id: str, full_vat: str) -> list[dict]:
+    """Historique des vérifications VIES pour un numéro, DANS LE SCOPE
+    courant — de la plus ancienne à la plus récente. Piste d'audit propre à
+    ce compte/cabinet, même pour les entrées obtenues via le cache global."""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT checked_at, valid, country_code, vat_number, name, address, error
+            FROM vies_check_history WHERE scope_id=%s AND vat_id=%s
+            ORDER BY checked_at ASC
+        """, (scope_id, full_vat))
+        rows = cur.fetchall()
     return [
         {
-            "checked_at": row["checked_at"],
-            "valid": bool(row["valid"]),
-            "country_code": row["country_code"],
-            "vat_number": row["vat_number"],
-            "name": row["name"] or "",
-            "address": row["address"] or "",
-            "error": row["error"] or "",
+            "checked_at": r[0].isoformat() if r[0] else "",
+            "valid": bool(r[1]), "country_code": r[2], "vat_number": r[3],
+            "name": r[4] or "", "address": r[5] or "", "error": r[6] or "",
         }
-        for row in rows
+        for r in rows
     ]
 
 
-def get_vies_status_as_of(full_vat: str, as_of_date_iso: str) -> dict | None:
-    """Retourne le statut VIES tel qu'il était connu À UNE DATE DONNÉE
-    (ex: la date d'une vente), en cherchant la dernière vérification
-    antérieure ou égale à `as_of_date_iso` (format 'YYYY-MM-DD' ou ISO complet).
-
-    Utile pour justifier une exonération B2B lors d'un contrôle portant sur
-    une vente ancienne, même si le numéro a été revérifié depuis avec un
-    statut différent (ex: client radié après la vente).
-
-    Retourne None si aucune vérification n'a été faite avant cette date —
-    dans ce cas, le statut au moment de la vente n'est pas prouvable et le
-    statut courant ne doit pas être présenté comme rétroactif.
-    """
-    conn = _get_connection()
-    row = conn.execute(
-        """
-        SELECT * FROM vies_check_history
-        WHERE vat_id = ? AND checked_at <= ?
-        ORDER BY checked_at DESC LIMIT 1
-        """,
-        (full_vat, as_of_date_iso),
-    ).fetchone()
+def get_vies_status_as_of(scope_id: str, full_vat: str, as_of_date_iso: str) -> Optional[dict]:
+    """Statut VIES tel que connu par CE scope à une date donnée (ex: date
+    d'une vente), pour justifier une exonération B2B lors d'un contrôle
+    fiscal. Retourne None si ce scope n'avait aucune vérification
+    antérieure à cette date."""
+    as_of = _parse_flexible_date(as_of_date_iso)
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT checked_at, valid, country_code, vat_number, name, address, error
+            FROM vies_check_history
+            WHERE scope_id=%s AND vat_id=%s AND checked_at <= %s
+            ORDER BY checked_at DESC LIMIT 1
+        """, (scope_id, full_vat, as_of))
+        row = cur.fetchone()
     if row is None:
         return None
     return {
-        "checked_at": row["checked_at"],
-        "valid": bool(row["valid"]),
-        "country_code": row["country_code"],
-        "vat_number": row["vat_number"],
-        "name": row["name"] or "",
-        "address": row["address"] or "",
-        "error": row["error"] or "",
+        "checked_at": row[0].isoformat() if row[0] else "",
+        "valid": bool(row[1]), "country_code": row[2], "vat_number": row[3],
+        "name": row[4] or "", "address": row[5] or "", "error": row[6] or "",
     }
 
 
-def _db_delete_expired() -> int:
-    """Purge les entrées expirées ET les erreurs transitoires stockées par erreur.
-    Retourne le nombre de lignes supprimées."""
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=CACHE_TTL_DAYS)
-    ).isoformat()
-    with _write_lock:
-        conn = _get_connection()
-        cur = conn.execute(
-            "DELETE FROM vies_cache WHERE checked_at < ?", (cutoff,)
+def _db_delete_expired_scope(scope_id: str) -> int:
+    """Purge les entrées expirées ET les erreurs transitoires du scope
+    courant. N'affecte jamais le cache global (mutualisé, purgé
+    indépendamment par purge_expired_global_cache())."""
+    cutoff = _now_utc() - timedelta(days=CACHE_TTL_DAYS)
+    transient_patterns = [
+        "%ms_unavailable%", "%service_unavailable%",
+        "%ms_max_concurrent_req%", "%global_max_concurrent_req%",
+        "%timeout%", "%erreur de connexion%",
+        "%erreur http 500%", "%erreur http 502%",
+        "%erreur http 503%", "%erreur http 504%",
+        "%non concluante%",
+    ]
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM vies_scope_cache WHERE scope_id=%s AND checked_at < %s",
+            (scope_id, cutoff),
         )
-        deleted_ttl = cur.rowcount
-        transient_patterns = [
-            "%ms_unavailable%", "%service_unavailable%",
-            "%ms_max_concurrent_req%", "%global_max_concurrent_req%",
-            "%timeout%", "%erreur de connexion%",
-            "%erreur http 500%", "%erreur http 502%",
-            "%erreur http 503%", "%erreur http 504%",
-            "%non concluante%",
-        ]
-        deleted_transient = 0
+        deleted = cur.rowcount
         for pat in transient_patterns:
-            cur = conn.execute(
-                "DELETE FROM vies_cache WHERE LOWER(error) LIKE ?", (pat,)
+            cur.execute(
+                "DELETE FROM vies_scope_cache WHERE scope_id=%s AND LOWER(error) LIKE %s",
+                (scope_id, pat),
             )
-            deleted_transient += cur.rowcount
+            deleted += cur.rowcount
         conn.commit()
-    total = deleted_ttl + deleted_transient
-    if total:
-        logger.info(
-            "Cache VIES SQLite : %d entrée(s) expirées (TTL), "
-            "%d erreur(s) transitoires purgées.",
-            deleted_ttl, deleted_transient,
-        )
-    return total
+    if deleted:
+        logger.info("Cache VIES [%s] : %d entrée(s) purgée(s).", scope_id, deleted)
+    return deleted
 
 
-def get_cache_stats() -> dict:
-    """Retourne des statistiques sur le cache SQLite (pour affichage dans app.py)."""
-    conn = _get_connection()
-    total = conn.execute("SELECT COUNT(*) FROM vies_cache").fetchone()[0]
-    valid = conn.execute(
-        "SELECT COUNT(*) FROM vies_cache WHERE valid = 1"
-    ).fetchone()[0]
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=CACHE_TTL_DAYS)
-    ).isoformat()
-    expired = conn.execute(
-        "SELECT COUNT(*) FROM vies_cache WHERE checked_at < ?", (cutoff,)
-    ).fetchone()[0]
-    oldest = conn.execute(
-        "SELECT MIN(checked_at) FROM vies_cache"
-    ).fetchone()[0]
-    newest = conn.execute(
-        "SELECT MAX(checked_at) FROM vies_cache"
-    ).fetchone()[0]
-    try:
-        manual_total = conn.execute(
-            "SELECT COUNT(*) FROM vies_manual_overrides"
-        ).fetchone()[0]
-        manual_valid = conn.execute(
-            "SELECT COUNT(*) FROM vies_manual_overrides WHERE is_valid = 1"
-        ).fetchone()[0]
-    except Exception:
-        manual_total = 0
-        manual_valid = 0
+def purge_malformed_entries() -> int:
+    """Purge administrative, une fois par session (appelée depuis app.py) :
+    supprime les entrées vat_id mal préfixées par un bug historique (double
+    préfixe pays, ex. "DEIT123..."). Opère sur les DEUX tables (scope +
+    global) car le bug était antérieur à la scopisation."""
+    _EU_CC = {"AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
+              "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"}
+    deleted = 0
+    with _conn() as conn, conn.cursor() as cur:
+        for table in ("vies_global_cache", "vies_scope_cache"):
+            cur.execute(f"SELECT DISTINCT vat_id FROM {table}")
+            to_delete = [
+                r[0] for r in cur.fetchall()
+                if len(r[0]) >= 4 and r[0][:2].upper() in _EU_CC
+                and r[0][2:4].upper() in _EU_CC and r[0][:2].upper() != r[0][2:4].upper()
+            ]
+            for vat_id in to_delete:
+                cur.execute(f"DELETE FROM {table} WHERE vat_id=%s", (vat_id,))
+                deleted += cur.rowcount
+        conn.commit()
+    return deleted
+
+
+def purge_expired_global_cache() -> int:
+    """Purge administrative du cache global mutualisé (pas exposée dans
+    l'UI Streamlit standard — appel manuel/CLI si besoin)."""
+    cutoff = _now_utc() - timedelta(days=CACHE_TTL_DAYS)
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM vies_global_cache WHERE checked_at < %s", (cutoff,))
+        deleted = cur.rowcount
+        conn.commit()
+    return deleted
+
+
+def get_cache_stats(scope_id: str) -> dict:
+    """Statistiques pour l'affichage app.py : compteurs du scope courant
+    + taille du cache global mutualisé (lecture seule, jamais modifié par
+    les actions du scope)."""
+    cutoff = _now_utc() - timedelta(days=CACHE_TTL_DAYS)
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT COUNT(*),
+                   COUNT(*) FILTER (WHERE valid),
+                   COUNT(*) FILTER (WHERE checked_at < %s),
+                   MIN(checked_at), MAX(checked_at)
+            FROM vies_scope_cache WHERE scope_id=%s
+        """, (cutoff, scope_id))
+        total, valid, expired, oldest, newest = cur.fetchone()
+
+        cur.execute("SELECT COUNT(*) FROM vies_global_cache")
+        global_total = cur.fetchone()[0]
+
+        cur.execute("""
+            SELECT COUNT(*), COUNT(*) FILTER (WHERE is_valid)
+            FROM vies_manual_overrides WHERE scope_id=%s
+        """, (scope_id,))
+        manual_total, manual_valid = cur.fetchone()
+
+    total = total or 0
+    valid = valid or 0
+    expired = expired or 0
+    manual_total = manual_total or 0
+    manual_valid = manual_valid or 0
     return {
-        "total":          total,
-        "valid":          valid,
-        "invalid":        total - valid,
-        "expired":        expired,
-        "fresh":          total - expired,
-        "oldest_check":   oldest,
-        "newest_check":   newest,
-        "ttl_days":       CACHE_TTL_DAYS,
-        "manual_total":   manual_total,
-        "manual_valid":   manual_valid,
+        "total": total,
+        "valid": valid,
+        "invalid": total - valid,
+        "expired": expired,
+        "fresh": total - expired,
+        "oldest_check": oldest.isoformat() if oldest else None,
+        "newest_check": newest.isoformat() if newest else None,
+        "ttl_days": CACHE_TTL_DAYS,
+        "manual_total": manual_total,
+        "manual_valid": manual_valid,
         "manual_invalid": manual_total - manual_valid,
+        "global_total": global_total,
     }
-
-
-# ---------------------------------------------------------------------------
-# Migration JSON → SQLite
-# ---------------------------------------------------------------------------
-
-def _migrate_json_to_sqlite() -> int:
-    """Importe l'ancien cache JSON dans SQLite si le fichier existe.
-
-    Chaque entrée migrée reçoit un checked_at = maintenant - (TTL/2) pour
-    forcer une revalidation progressive dans la moitié du TTL, sans invalider
-    d'un coup toute la base. Les erreurs transitoires sont ignorées.
-
-    Retourne le nombre d'entrées migrées.
-    """
-    if not os.path.exists(_LEGACY_JSON_FILE):
-        return 0
-
-    try:
-        with open(_LEGACY_JSON_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as exc:
-        logger.warning("Migration JSON→SQLite : lecture impossible (%s).", exc)
-        return 0
-
-    # Timestamp fictif : moitié du TTL dans le passé pour forcer revalidation douce
-    half_ttl_ago = (
-        datetime.now(timezone.utc) - timedelta(days=CACHE_TTL_DAYS // 2)
-    ).isoformat()
-
-    migrated = 0
-    transient_skipped = 0
-
-    with _write_lock:
-        conn = _get_connection()
-        for vat_id, res in data.items():
-            error = res.get("error", "")
-            if _is_transient(error):
-                transient_skipped += 1
-                continue
-            conn.execute("""
-                INSERT OR IGNORE INTO vies_cache
-                    (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                vat_id,
-                1 if res.get("valid", False) else 0,
-                res.get("country_code", ""),
-                res.get("vat_number", vat_id),
-                res.get("name", ""),
-                res.get("address", ""),
-                error,
-                half_ttl_ago,
-            ))
-            migrated += 1
-        conn.commit()
-
-    if migrated or transient_skipped:
-        logger.info(
-            "Migration JSON→SQLite : %d numéros importés, %d erreurs transitoires ignorées.",
-            migrated, transient_skipped,
-        )
-        # Renommer le JSON pour éviter de remigrer au prochain démarrage
-        try:
-            os.rename(_LEGACY_JSON_FILE, _LEGACY_JSON_FILE + ".migrated")
-            logger.info("Ancien cache JSON renommé en %s.migrated", _LEGACY_JSON_FILE)
-        except OSError as exc:
-            logger.warning("Impossible de renommer l'ancien cache JSON : %s", exc)
-
-    return migrated
 
 
 # ---------------------------------------------------------------------------
@@ -500,7 +543,7 @@ _TRANSIENT_ERRORS = {
 }
 
 
-def _is_transient(error: str | None) -> bool:
+def _is_transient(error: Optional[str]) -> bool:
     return any(t in (error or "").lower() for t in _TRANSIENT_ERRORS)
 
 
@@ -527,15 +570,6 @@ def _is_downgrade(previous: ViesResult, new_result: ViesResult) -> bool:
         and not new_result.valid
         and not new_result.error
     )
-
-
-# ---------------------------------------------------------------------------
-# Initialisation au démarrage du module
-# ---------------------------------------------------------------------------
-
-_init_db()
-_migrate_json_to_sqlite()
-_db_delete_expired()
 
 
 # ---------------------------------------------------------------------------
@@ -577,23 +611,20 @@ def normalize_full_vat(buyer_vat: str, buyer_country: str) -> str:
     """
     _ALIASES = {"EL": "GR", "UK": "GB"}
     EU_CC = {
-        "AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU",
-        "IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE",
+        "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
+        "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
     }
     raw = buyer_vat.strip().upper()
     clean = raw.replace(" ", "").replace("-", "").replace(".", "")
     if not clean:
         return clean
 
-    # Normaliser les alias connus dans le préfixe du numéro lui-même
     if clean[:2] in _ALIASES:
         clean = _ALIASES[clean[:2]] + clean[2:]
 
-    # Si le numéro commence déjà par un préfixe pays EU reconnu → le garder
     if clean[:2] in EU_CC:
         return clean
 
-    # Sinon ajouter le préfixe du pays de destination (normalisé aussi)
     cc = buyer_country.strip().upper() if buyer_country else ""
     cc = _ALIASES.get(cc, cc)
     if cc:
@@ -602,7 +633,7 @@ def normalize_full_vat(buyer_vat: str, buyer_country: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Appel VIES (inchangé)
+# Appel VIES (inchangé — pur appel réseau, aucune notion de scope ici)
 # ---------------------------------------------------------------------------
 
 def check_vat(country_code: str, vat_number: str, timeout: int = DEFAULT_TIMEOUT) -> ViesResult:
@@ -671,7 +702,7 @@ def check_vat_with_retry(
 ) -> ViesResult:
     """Appelle check_vat avec retry backoff exponentiel sur erreurs transitoires."""
     delay = base_delay
-    last_result: ViesResult | None = None
+    last_result: Optional[ViesResult] = None
     for attempt in range(1, max_attempts + 1):
         result = check_vat(country_code, vat_number, timeout=timeout)
         if not _is_unreliable(result) and not _is_empty_response(result):
@@ -693,38 +724,43 @@ def check_vat_with_retry(
 
 
 # ---------------------------------------------------------------------------
-# Validation unitaire avec cache SQLite
+# Validation unitaire avec cache scope → global → API
 # ---------------------------------------------------------------------------
 
-def check_vat_raw(raw: str, timeout: int = DEFAULT_TIMEOUT) -> ViesResult:
-    """Validation d'un numéro unique avec gestion du cache SQLite + TTL."""
+def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> ViesResult:
+    """Validation d'un numéro unique via la cascade scope → global → API."""
     try:
         norm = _normalize_vat_id(raw)
     except ValueError as exc:
         return ViesResult(valid=False, country_code="", vat_number=raw, error=str(exc))
 
-    # Cache hit frais
-    cached, is_fresh = _db_get(norm)
+    # 1) Cache privé du scope, frais
+    cached, is_fresh = _db_get_scope(scope_id, norm)
     if cached is not None and is_fresh:
         return cached
 
-    # Cache hit expiré : on loggue pour info mais on revalide quand même
-    if cached is not None and not is_fresh:
-        logger.info("Cache VIES : %s expiré (TTL=%dd), revalidation.", norm, CACHE_TTL_DAYS)
+    # 2) Cache global mutualisé, frais — copié dans le scope + historisé
+    #    pour CE scope (mutualisation, mais preuve d'audit propre au compte).
+    global_cached, global_fresh = _db_get_global(norm)
+    if global_cached is not None and global_fresh:
+        _db_set_scope(scope_id, norm, global_cached, log_history=True)
+        return global_cached
 
+    if cached is not None and not is_fresh:
+        logger.info("Cache VIES [%s] : %s expiré (TTL=%dj), revalidation.", scope_id, norm, CACHE_TTL_DAYS)
+
+    # 3) API VIES
     try:
         cc, num = _clean_vat_number(raw)
         res = check_vat_with_retry(cc, num, timeout=timeout)
 
         if _is_unreliable(res):
-            # Erreur transitoire : on retourne le résultat en cache (même expiré)
-            # plutôt que de pénaliser le vendeur sur un problème serveur UE.
-            if cached is not None:
+            fallback = cached if cached is not None else global_cached
+            if fallback is not None:
                 logger.info("VIES instable pour %s — résultat en cache conservé.", norm)
-                return cached
+                return fallback
             return res
 
-        # Protection anti-downgrade
         if cached is not None and _is_downgrade(cached, res):
             logger.warning(
                 "VIES : %s précédemment VALIDE reçoit une réponse vide — "
@@ -732,34 +768,42 @@ def check_vat_raw(raw: str, timeout: int = DEFAULT_TIMEOUT) -> ViesResult:
             )
             return cached
 
-        _db_set(norm, res)
+        # Vérification automatique fiable → mutualisée dans le cache global
+        # ET dans le cache privé du scope (jamais l'inverse pour les overrides
+        # manuels, voir set_manual_override).
+        _db_set_global(norm, res)
+        _db_set_scope(scope_id, norm, res)
         return res
     except Exception as exc:
         return ViesResult(valid=False, country_code="", vat_number=raw, error=str(exc))
 
 
 # ---------------------------------------------------------------------------
-# Validation en lot parallèle avec cache SQLite
+# Validation en lot parallèle avec cache scope → global → API
 # ---------------------------------------------------------------------------
 
 def validate_vat_numbers_parallel(
+    scope_id: str,
     vat_ids: list[str],
     max_workers: int = 25,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> dict[str, ViesResult]:
-    """Valide plusieurs numéros de TVA en parallèle avec cache SQLite + TTL.
+    """Valide plusieurs numéros de TVA en parallèle.
 
     Logique :
-      1. Numéros frais en cache → réponse immédiate (0 requête réseau)
-      2. Numéros absents OU expirés → requête VIES parallèle
-      3. Résultats fiables → écriture en cache (mise à jour du checked_at)
-      4. Erreurs transitoires → résultat en cache expiré si disponible, sinon inconclusif
+      1. Numéros frais dans le cache du SCOPE → réponse immédiate.
+      2. Sinon, frais dans le cache GLOBAL mutualisé → copié dans le scope
+         (avec entrée d'historique propre au scope) → réponse immédiate.
+      3. Sinon → requête VIES parallèle. Résultat fiable → écrit dans le
+         cache global ET dans le cache du scope.
+      4. Erreurs transitoires → repli sur la meilleure entrée en cache
+         disponible (scope expiré, sinon global), sinon inconclusif.
     """
-    to_fetch: dict[str, str] = {}       # norm → raw original
+    to_fetch: dict[str, str] = {}
     results: dict[str, ViesResult] = {}
-    expired_cache: dict[str, ViesResult] = {}  # fallback si VIES instable
+    fallback_cache: dict[str, ViesResult] = {}  # secours si VIES instable
 
-    # --- Phase 1 : tri cache frais / à revalider ---
+    # --- Phase 1 : tri cache scope frais / cache global frais / à revalider ---
     for vat_id in vat_ids:
         try:
             norm = _normalize_vat_id(vat_id)
@@ -770,14 +814,24 @@ def validate_vat_numbers_parallel(
             )
             continue
 
-        cached, is_fresh = _db_get(norm)
-        if cached is not None and is_fresh:
+        cached, fresh = _db_get_scope(scope_id, norm)
+        if cached is not None and fresh:
             results[vat_id] = cached
-        else:
-            if cached is not None:
-                expired_cache[norm] = cached  # fallback en cas d'instabilité VIES
-                logger.debug("Cache VIES expiré pour %s, revalidation.", norm)
-            to_fetch[norm] = vat_id
+            continue
+
+        global_cached, global_fresh = _db_get_global(norm)
+        if global_cached is not None and global_fresh:
+            _db_set_scope(scope_id, norm, global_cached, log_history=True)
+            results[vat_id] = global_cached
+            continue
+
+        if cached is not None:
+            fallback_cache[norm] = cached
+            logger.debug("Cache VIES [%s] expiré pour %s, revalidation.", scope_id, norm)
+        elif global_cached is not None:
+            fallback_cache[norm] = global_cached
+
+        to_fetch[norm] = vat_id
 
     # --- Phase 2 : requêtes réseau parallèles pour les numéros à revalider ---
     batch_results: dict[str, ViesResult] = {}
@@ -785,19 +839,13 @@ def validate_vat_numbers_parallel(
     if to_fetch:
         def _check_one(item: tuple[str, str]) -> tuple[str, ViesResult]:
             norm_id, orig = item
-            try:
-                country_code, number = _clean_vat_number(orig)
-                result = check_vat_with_retry(country_code, number, timeout=timeout)
-                return norm_id, result
-            finally:
-                # Ferme la connexion SQLite du thread worker après chaque tâche.
-                # Les threads du ThreadPoolExecutor sont recyclés : sans cette ligne,
-                # chaque thread accumulerait une connexion ouverte indéfiniment.
-                _close_thread_connection()
+            country_code, number = _clean_vat_number(orig)
+            result = check_vat_with_retry(country_code, number, timeout=timeout)
+            return norm_id, result
 
         workers = min(max_workers, len(to_fetch))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_check_one, item): item for item in to_fetch.items()}
+        with ThreadPoolExecutor(max_workers=workers) as pool_exec:
+            futures = {pool_exec.submit(_check_one, item): item for item in to_fetch.items()}
             for future in as_completed(futures):
                 norm_id, result = future.result()
                 batch_results[norm_id] = result
@@ -817,235 +865,203 @@ def validate_vat_numbers_parallel(
                 len(empty_results), len(invalid_results),
             )
 
-        # --- Phase 3 : écriture cache + construction réponse finale ---
+        # --- Phase 3 : écriture cache (global + scope) + réponse finale ---
         for norm_id, result in batch_results.items():
             orig_id = to_fetch[norm_id]
 
-            # Erreurs transitoires : jamais en cache
             if _is_unreliable(result):
-                # Fallback sur l'entrée expirée si disponible
-                fallback = expired_cache.get(norm_id)
-                if fallback is not None:
+                fb = fallback_cache.get(norm_id)
+                if fb is not None:
                     logger.info(
-                        "VIES instable pour %s — entrée expirée en cache utilisée "
-                        "comme fallback.", norm_id,
+                        "VIES instable pour %s — entrée en cache utilisée comme repli.", norm_id,
                     )
-                    results[orig_id] = fallback
+                    results[orig_id] = fb
                 else:
                     results[orig_id] = ViesResult(
-                        valid=False,
-                        country_code=result.country_code,
+                        valid=False, country_code=result.country_code,
                         vat_number=result.vat_number,
                         error=result.error or "Réponse VIES non concluante (à revérifier)",
                     )
                 continue
 
-            # Réponse vide en contexte de dégradation serveur : pas en cache
             if server_degraded and _is_empty_response(result):
-                fallback = expired_cache.get(norm_id)
-                if fallback is not None:
-                    results[orig_id] = fallback
+                fb = fallback_cache.get(norm_id)
+                if fb is not None:
+                    results[orig_id] = fb
                 else:
                     results[orig_id] = ViesResult(
-                        valid=False,
-                        country_code=result.country_code,
+                        valid=False, country_code=result.country_code,
                         vat_number=result.vat_number,
                         error="Réponse VIES non concluante (à revérifier)",
                     )
                 continue
 
-            # Protection anti-downgrade
-            prev = expired_cache.get(norm_id)
+            prev = fallback_cache.get(norm_id)
             if prev is not None and _is_downgrade(prev, result):
                 logger.warning(
                     "VIES : %s précédemment VALIDE reçoit une réponse vide — "
                     "résultat ignoré, ancienne valeur conservée.", norm_id,
                 )
                 results[orig_id] = prev
-                # On ne met PAS à jour le cache pour ne pas perdre la valeur valide
                 continue
 
-            # Résultat fiable → mise en cache (checked_at rafraîchi)
-            _db_set(norm_id, result)
+            _db_set_global(norm_id, result)
+            _db_set_scope(scope_id, norm_id, result)
             results[orig_id] = result
 
     return results
 
 
 def validate_vat_numbers(
+    scope_id: str,
     vat_ids: list[str],
     timeout: int = DEFAULT_TIMEOUT,
 ) -> dict[str, ViesResult]:
-    """Compatibilité descendante."""
-    return validate_vat_numbers_parallel(vat_ids, max_workers=10, timeout=timeout)
+    """Compatibilité descendante (version séquentielle-friendly, même cascade)."""
+    return validate_vat_numbers_parallel(scope_id, vat_ids, max_workers=10, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
 # Utilitaires d'administration (appelables depuis app.py)
 # ---------------------------------------------------------------------------
 
-def purge_expired_cache() -> int:
-    """Purge manuellement les entrées expirées. Retourne le nombre supprimé."""
-    return _db_delete_expired()
+def purge_expired_cache(scope_id: str) -> int:
+    """Purge manuellement les entrées expirées DU SCOPE COURANT.
+
+    N'affecte jamais le cache global mutualisé — voir
+    purge_expired_global_cache() pour une purge administrative globale.
+    """
+    return _db_delete_expired_scope(scope_id)
 
 
-def force_revalidate(vat_ids: list[str]) -> None:
-    """Force la revalidation de numéros spécifiques en supprimant leur entrée en cache."""
-    with _write_lock:
-        conn = _get_connection()
+def force_revalidate(scope_id: str, vat_ids: list[str]) -> None:
+    """Force la revalidation de numéros spécifiques pour CE scope, en
+    supprimant leur entrée du cache privé du scope. N'affecte pas le cache
+    global (un autre scope continuera de bénéficier de la valeur mutualisée
+    tant qu'elle est fraîche)."""
+    with _conn() as conn, conn.cursor() as cur:
         for vat_id in vat_ids:
             try:
                 norm = _normalize_vat_id(vat_id)
-                conn.execute("DELETE FROM vies_cache WHERE vat_id = ?", (norm,))
             except ValueError:
-                pass
+                continue
+            cur.execute(
+                "DELETE FROM vies_scope_cache WHERE scope_id=%s AND vat_id=%s",
+                (scope_id, norm),
+            )
         conn.commit()
-    logger.info("Revalidation forcée pour %d numéro(s).", len(vat_ids))
+    logger.info("Revalidation forcée [%s] pour %d numéro(s).", scope_id, len(vat_ids))
+
 
 # ---------------------------------------------------------------------------
 # Classification manuelle des numéros non vérifiables (inconclusifs)
 # ---------------------------------------------------------------------------
-# Stockage dans la même base SQLite que le cache VIES (CACHE_DB_FILE).
-# Table : vies_manual_overrides
-#   full_vat  TEXT PK  — numéro complet normalisé (ex: "DE123456789")
-#   is_valid  INTEGER  — 1 = Valide (B2B exonéré), 0 = Invalide (B2C, TVA due)
-#   set_at    TEXT     — timestamp ISO UTC de la saisie
+# Table vies_manual_overrides, clé (scope_id, full_vat). Ces classifications
+# sont volontairement exclues de toute mutualisation : elles ne sont JAMAIS
+# écrites dans vies_global_cache, et un scope ne voit jamais les overrides
+# d'un autre scope.
 # ---------------------------------------------------------------------------
 
-def _ensure_manual_override_table() -> None:
-    """Crée la table des overrides manuels si elle n'existe pas encore."""
-    with _write_lock:
-        conn = _get_connection()
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS vies_manual_overrides (
-                full_vat  TEXT PRIMARY KEY,
-                is_valid  INTEGER NOT NULL,
-                set_at    TEXT NOT NULL
-            )
-        """)
-        conn.commit()
-
-
-def set_manual_override(full_vat: str, valid: bool) -> None:
-    """Enregistre une classification manuelle pour un numéro TVA inconclusif.
-
-    Le résultat est stocké dans la même base SQLite que le cache VIES.
-    Il écrase le résultat VIES lors du prochain calcul dans engine.py.
+def set_manual_override(scope_id: str, full_vat: str, valid: bool) -> None:
+    """Enregistre une classification manuelle pour un numéro TVA inconclusif,
+    strictement dans le scope courant.
 
     Args:
+        scope_id: portée du compte/domaine appelant (jamais partagée).
         full_vat: numéro complet normalisé (ex: "DE123456789").
         valid:    True → considéré valide (B2B, autoliquidation) ;
                   False → considéré invalide (B2C, TVA OSS due).
     """
-    _ensure_manual_override_table()
-    with _write_lock:
-        conn = _get_connection()
-        conn.execute(
-            """
-            INSERT INTO vies_manual_overrides (full_vat, is_valid, set_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(full_vat) DO UPDATE SET
-                is_valid = excluded.is_valid,
-                set_at   = excluded.set_at
-            """,
-            (full_vat.upper().strip(), 1 if valid else 0, _now_utc()),
-        )
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO vies_manual_overrides (scope_id, full_vat, is_valid, set_at)
+            VALUES (%s,%s,%s,%s)
+            ON CONFLICT (scope_id, full_vat) DO UPDATE SET
+                is_valid=EXCLUDED.is_valid, set_at=EXCLUDED.set_at
+        """, (scope_id, full_vat.upper().strip(), valid, _now_utc()))
         conn.commit()
-    logger.info("Override manuel VIES : %s → %s", full_vat, "VALIDE" if valid else "INVALIDE")
+    logger.info("Override manuel VIES [%s] : %s → %s", scope_id, full_vat,
+                "VALIDE" if valid else "INVALIDE")
 
 
-def get_manual_overrides(include_expired: bool = False) -> dict[str, bool]:
-    """Retourne les overrides manuels enregistrés.
+def get_manual_overrides(scope_id: str, include_expired: bool = False) -> dict[str, bool]:
+    """Retourne les overrides manuels du scope courant.
 
     Args:
+        scope_id: portée du compte/domaine appelant.
         include_expired: si False (par défaut), exclut les overrides dont
-            `set_at` dépasse CACHE_TTL_DAYS — la même condition d'âge que
-            celle utilisée pour l'expiration du cache VIES classique
-            (_is_expired). Un override posé il y a plus de CACHE_TTL_DAYS
-            jours est traité comme n'importe quelle entrée de cache expirée :
-            il ne doit plus écraser silencieusement le résultat du moteur.
-            Passer True pour l'affichage en UI (ex: liste des overrides dans
-            app.py), où l'on veut voir les entrées expirées pour pouvoir les
-            revalider ou les supprimer, mais où elles ne doivent pas encore
-            être appliquées au calcul.
+            `set_at` dépasse CACHE_TTL_DAYS — même condition d'âge que
+            l'expiration du cache VIES classique. Passer True pour
+            l'affichage en UI (liste des overrides, y compris expirés, pour
+            pouvoir les revalider ou les supprimer).
 
     Returns:
-        Dict ``{full_vat: is_valid}`` — vide si aucun override valide/actif
-        ou table absente.
+        Dict ``{full_vat: is_valid}`` scopé au compte/domaine appelant.
     """
     try:
-        _ensure_manual_override_table()
-        conn = _get_connection()
-        rows = conn.execute(
-            "SELECT full_vat, is_valid, set_at FROM vies_manual_overrides"
-        ).fetchall()
-        if include_expired:
-            return {row["full_vat"]: bool(row["is_valid"]) for row in rows}
-        result: dict[str, bool] = {}
-        for row in rows:
-            if _is_expired(row["set_at"]):
-                logger.info(
-                    "Override manuel VIES expiré (> %d j), ignoré au calcul : %s "
-                    "(posé le %s). Repasse en validation VIES normale.",
-                    CACHE_TTL_DAYS, row["full_vat"], row["set_at"],
-                )
-                continue
-            result[row["full_vat"]] = bool(row["is_valid"])
-        return result
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT full_vat, is_valid, set_at FROM vies_manual_overrides WHERE scope_id=%s",
+                (scope_id,),
+            )
+            rows = cur.fetchall()
     except Exception:
         return {}
+    if include_expired:
+        return {r[0]: bool(r[1]) for r in rows}
+    result: dict[str, bool] = {}
+    for full_vat, is_valid, set_at in rows:
+        if _is_expired(set_at):
+            logger.info(
+                "Override manuel VIES [%s] expiré (> %d j), ignoré au calcul : %s.",
+                scope_id, CACHE_TTL_DAYS, full_vat,
+            )
+            continue
+        result[full_vat] = bool(is_valid)
+    return result
 
 
-def clear_manual_overrides() -> None:
-    """Supprime tous les overrides manuels (bouton Réinitialiser dans app.py)."""
+def clear_manual_overrides(scope_id: str) -> None:
+    """Supprime tous les overrides manuels DU SCOPE COURANT (bouton
+    Réinitialiser dans app.py). N'affecte pas les autres scopes."""
     try:
-        _ensure_manual_override_table()
-        with _write_lock:
-            conn = _get_connection()
-            conn.execute("DELETE FROM vies_manual_overrides")
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM vies_manual_overrides WHERE scope_id=%s", (scope_id,))
             conn.commit()
-        logger.info("Overrides manuels VIES supprimés.")
+        logger.info("Overrides manuels VIES supprimés pour le scope [%s].", scope_id)
     except Exception:
         pass
 
-def delete_manual_override(full_vat: str) -> None:
-    """Supprime l'override manuel d'un seul numéro TVA.
 
-    Après suppression, le numéro repasse par le résultat VIES normal
-    lors du prochain calcul.
-
-    Args:
-        full_vat: numéro complet normalisé (ex: "DE123456789").
-    """
+def delete_manual_override(scope_id: str, full_vat: str) -> None:
+    """Supprime l'override manuel d'un seul numéro TVA, dans le scope courant."""
     try:
-        _ensure_manual_override_table()
-        with _write_lock:
-            conn = _get_connection()
-            conn.execute(
-                "DELETE FROM vies_manual_overrides WHERE full_vat = ?",
-                (full_vat.upper().strip(),),
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM vies_manual_overrides WHERE scope_id=%s AND full_vat=%s",
+                (scope_id, full_vat.upper().strip()),
             )
             conn.commit()
-        logger.info("Override manuel VIES supprimé : %s", full_vat)
+        logger.info("Override manuel VIES [%s] supprimé : %s", scope_id, full_vat)
     except Exception as exc:
-        logger.warning("Erreur suppression override %s : %s", full_vat, exc)
+        logger.warning("Erreur suppression override [%s] %s : %s", scope_id, full_vat, exc)
         raise
 
 
-def get_manual_overrides_full() -> list[tuple[str, bool, str]]:
-    """Retourne tous les overrides manuels avec leur date, pour l'affichage UI.
+def get_manual_overrides_full(scope_id: str) -> list[tuple[str, bool, str]]:
+    """Overrides manuels du scope courant avec leur date, pour l'affichage UI.
 
     Returns:
         Liste de tuples ``(full_vat, is_valid, set_at)`` triés du plus récent
         au plus ancien. ``set_at`` est une chaîne ISO 8601 UTC.
     """
     try:
-        _ensure_manual_override_table()
-        conn = _get_connection()
-        rows = conn.execute(
-            "SELECT full_vat, is_valid, set_at "
-            "FROM vies_manual_overrides ORDER BY set_at DESC"
-        ).fetchall()
-        return [(row["full_vat"], bool(row["is_valid"]), row["set_at"] or "") for row in rows]
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT full_vat, is_valid, set_at FROM vies_manual_overrides
+                WHERE scope_id=%s ORDER BY set_at DESC
+            """, (scope_id,))
+            rows = cur.fetchall()
+        return [(r[0], bool(r[1]), r[2].isoformat() if r[2] else "") for r in rows]
     except Exception:
         return []

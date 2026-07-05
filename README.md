@@ -34,41 +34,120 @@ dans le calendrier fiscal, indépendamment du seuil OSS.
 
 ---
 
-## Architecture du projet
+## Arborescence du dépôt
+
+Arborescence réelle du dépôt (monorepo — inclut le moteur fiscal `tva_intracom/`,
+l'app Streamlit, et la fonction serverless `vercel_webhook/` du webhook Stripe) :
 
 ```
-Projet
-└─  
-  tva_intracom/
-  ├── models.py          Dataclasses : Sale, VatResult, Scenario, BuyerType, Channel, Collector
-  ├── engine.py          Moteur de classification fiscale (compute_vat, compute_all, compute_all_with_vies)
-  ├── rates.py           Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils
-  ├── vies.py            Validation VIES : cache SQLite (WAL), historique append-only, overrides manuels,
-  │                      retry exponentiel, batch degradation detection, 3 états (valid/invalid/unverified)
-  ├── ecb_rates.py       Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle,
-  │                      convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194),
-  │                      retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires
-  ├── oss_export.py      Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF,
-  │                      détection des soldes négatifs (find_oss_negative_buckets)
-  ├── oss_xml.py         Génération XML OSS officiel (Règl. UE 2021/965), validation période,
-  │                      garde-fou soldes négatifs (CorrectionsOfVatReturns)
-  ├── ca3_report.py      Génération du rapport CA3 (HTML) : compute_ca3_lines_v2, AIC ligne 08
-  │                      (transferts FBA), déductions manuelles, calcul du solde net,
-  │                      generate_ca3_html_report_v2
-  ├── excel_report.py    Export Excel multi-onglets (voir détail onglets ci-dessous)
-  ├── report.py          ReportSummary, build_report, render_report — ventilation HT exhaustive
-  │                      par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne
-  ├── parsers/
-  │   └── amazon/
-  │       ├── loader.py      Point d'entrée : load_amazon_report(), AmazonImportResult,
-  │       │                  progress_callback optionnel pour suivi d'avancement (UI)
-  │       ├── detect.py      Détection format (1–5) et séparateur CSV, normalisation headers
-  │       ├── parsers.py     Parsers par format (Format1–5Parser) — extraction champs bruts
-  │       ├── classify.py    Classification acheteur (B2B/B2C), conversion devise, Sale builder
-  │       ├── aggregate.py   Pré-agrégation multi-juridictions format V5
-  │       └── constants.py   Constantes, SALE_TYPES, REFUND_TYPES, EU_VAT_PREFIXES, safe_decimal
-  └── app.py             Interface Streamlit
+tva-intracom/
+├── .devcontainer/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                    Pipeline CI (pytest sur push/PR)
+├── data/
+├── tests/
+├── tva_intracom/
+│   ├── data/
+│   ├── parsers/
+│   │   ├── amazon/                   Sous-package d'import Amazon (formats 1-5)
+│   │   │   ├── __init__.py
+│   │   │   ├── aggregate.py          Pré-agrégation multi-juridictions format V5
+│   │   │   ├── classify.py           Classification acheteur (B2B/B2C), conversion devise
+│   │   │   ├── constants.py          Constantes, SALE_TYPES, REFUND_TYPES, EU_VAT_PREFIXES
+│   │   │   ├── detect.py             Détection format (1–5) et séparateur CSV
+│   │   │   ├── loader.py             Point d'entrée : load_amazon_report()
+│   │   │   └── parsers.py            Parsers par format (Format1–5Parser)
+│   │   ├── __init__.py
+│   │   ├── aliexpress.py             Parser marketplace AliExpress
+│   │   ├── mirakl.py                 Parser marketplace Mirakl
+│   │   ├── shopify.py                Parser Shopify
+│   │   └── woocommerce.py            Parser WooCommerce
+│   ├── __init__.py
+│   ├── amazon_adapter.py
+│   ├── auth.py                       Authentification magic link (Postgres/Supabase),
+│   │                                 envoi d'e-mail via l'API Resend
+│   ├── billing.py                    Facturation Stripe (Checkout PAYG + abonnements,
+│   │                                 Customer Portal, traitement des webhooks, quotas
+│   │                                 d'export en base Postgres/Supabase)
+│   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
+│   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
+│   ├── cli.py
+│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
+│   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
+│   ├── excel_report.py               Export Excel multi-onglets
+│   ├── historical_rates_widget.py
+│   ├── models.py                     Dataclasses : Sale, VatResult, Scenario, BuyerType…
+│   ├── oss_export.py                 Agrégation OSS partagée, exports Excel + CSV URSSAF
+│   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
+│   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
+│   ├── report.py                     ReportSummary, build_report, render_report
+│   ├── vies.py                       Validation VIES (cache SQLite WAL, historique append-only)
+│   └── vies_cache.db
+├── vercel_webhook/
+│   └── api/
+│       ├── requirements.txt          Dépendances de la fonction serverless (stripe, psycopg2-binary)
+│       └── stripe_webhook.py         Endpoint webhook Stripe, déployé sur Vercel — charge
+│                                     tva_intracom/billing.py par chemin de fichier (monorepo)
+├── .gitignore
+├── app.py                            Interface Streamlit (auth, calcul, exports gatés par abonnement)
+├── conftest.py
+├── generer_donnees_10k.py
+├── generer_donnees_multian.py
+├── pyproject.toml
+├── README.md
+├── requirements.txt
+└── vercel.json                       Config Vercel (includeFiles vers tva_intracom/billing.py)
 ```
+
+> `amazon_adapter.py`, `cli.py` et `historical_rates_widget.py` sont présents dans le
+> dépôt ; leur rôle exact par rapport au sous-package `parsers/amazon/` n'est pas
+> documenté ici — se référer directement à leur code.
+
+---
+
+## Architecture du moteur fiscal (`tva_intracom/`)
+
+| Module | Rôle |
+|---|---|
+| `models.py` | Dataclasses : Sale, VatResult, Scenario, BuyerType, Channel, Collector |
+| `engine.py` | Moteur de classification fiscale (compute_vat, compute_all, compute_all_with_vies) |
+| `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
+| `vies.py` | Validation VIES : cache SQLite (WAL), historique append-only, overrides manuels, retry exponentiel, batch degradation detection, 3 états (valid/invalid/unverified) |
+| `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle, convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194), retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires |
+| `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
+| `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965), validation période, garde-fou soldes négatifs (CorrectionsOfVatReturns) |
+| `ca3_report.py` | Génération du rapport CA3 (HTML) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
+| `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
+| `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
+| `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
+| `auth.py` | Authentification par magic link (Postgres/Supabase), envoi d'e-mail via l'API Resend |
+| `billing.py` | Facturation Stripe : Checkout PAYG (un export = une période fiscale débloquée) et abonnements récurrents, Customer Portal, traitement des webhooks (`checkout.session.completed`, `customer.subscription.*`), quotas stockés en Postgres/Supabase |
+| `app.py` | Interface Streamlit (racine du dépôt, pas dans `tva_intracom/`) |
+
+---
+
+## Couche monétisation (SaaS)
+
+- **Auth** : connexion par lien magique envoyé par e-mail (API Resend), jeton à usage
+  unique valable 15 minutes, comptes stockés dans Supabase (table `tva_users`).
+- **Facturation** : Stripe Checkout, deux modes —
+  - **Pay-as-you-go** : un crédit d'export correspond à une période fiscale
+    (`period_label`, ex. `2026-Q2`) débloquée pour un utilisateur donné. Le
+    déblocage est indépendant du nom de fichier ou du contenu exact du CSV
+    importé : seule la période détectée dans les transactions compte. Un même
+    fichier renommé, ou un fichier légèrement corrigé pour la même période,
+    reste débloqué sans nouveau paiement.
+  - **Abonnement récurrent** : déverrouille tous les exports tant qu'actif
+    (avec période d'essai de 14 jours).
+- **Webhook Stripe** : fonction serverless Vercel (`vercel_webhook/api/stripe_webhook.py`)
+  qui reçoit les événements Stripe et met à jour Supabase via `tva_intracom/billing.py`,
+  chargé directement par chemin de fichier (`importlib`) pour éviter de dupliquer le
+  code entre les deux environnements de déploiement (Streamlit Cloud + Vercel).
+- **Base de données partagée** : Postgres (Supabase), accessible à la fois depuis
+  Streamlit Cloud (lecture des crédits/abonnements) et depuis la fonction serverless
+  Vercel (écriture après paiement confirmé) — un SQLite local ne conviendrait pas
+  puisque les deux environnements ne partagent aucun disque.
 
 ---
 
@@ -232,7 +311,9 @@ Python ≥ 3.10 requis.
 pip install -e ".[dev]"
 ```
 
-Dépendances principales : `streamlit`, `openpyxl`, `pandas`, `plotly`.
+Dépendances principales : `streamlit`, `openpyxl`, `pandas`, `plotly`, `psycopg2-binary`
+(base Postgres/Supabase pour l'auth et la facturation), `stripe` (paiements),
+`requests` (appels à l'API Resend pour l'envoi des liens de connexion).
 
 ### Interface Streamlit
 

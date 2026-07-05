@@ -19,7 +19,13 @@ logging.basicConfig(
 )
 
 from tva_intracom.ecb_rates import cache_info as ecb_cache_info
-from tva_intracom.vies import get_cache_stats as vies_cache_stats, purge_expired_cache, set_cache_ttl
+from tva_intracom.vies import (
+    get_cache_stats as vies_cache_stats,
+    purge_expired_cache,
+    set_cache_ttl,
+    resolve_scope_id as _vies_resolve_scope_id,
+    purge_malformed_entries as _vies_purge_malformed_entries,
+)
 from tva_intracom.engine import ViesValidationSummary, compute_all, compute_all_with_vies
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.models import Scenario
@@ -120,20 +126,7 @@ st.set_page_config(page_title="TVA Intracommunautaire", page_icon="\U0001f1ea\U0
 
 if "_malformed_vies_purged" not in st.session_state:
     try:
-        import sqlite3 as _sq
-        from tva_intracom.vies import CACHE_DB_FILE as _VIES_DB
-        _EU_CC_P = {"AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU",
-                    "IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"}
-        _cn = _sq.connect(_VIES_DB)
-        _cu = _cn.cursor()
-        _cu.execute("SELECT vat_id FROM vies_cache")
-        _to_delete = [r[0] for r in _cu.fetchall()
-            if len(r[0]) >= 4 and r[0][:2].upper() in _EU_CC_P
-            and r[0][2:4].upper() in _EU_CC_P and r[0][:2].upper() != r[0][2:4].upper()]
-        if _to_delete:
-            _cu.executemany("DELETE FROM vies_cache WHERE vat_id=?", [(_v,) for _v in _to_delete])
-            _cn.commit()
-        _cn.close()
+        _vies_purge_malformed_entries()
     except Exception:
         pass
     st.session_state["_malformed_vies_purged"] = True
@@ -179,6 +172,9 @@ if st.session_state["auth_user"] is None:
 _current_user = st.session_state["auth_user"]
 st.caption(f"Connecté : {_current_user.email}")
 
+# Portée du cache VIES (isolation compte/domaine — voir tva_intracom/vies.py)
+_vies_scope_id = _vies_resolve_scope_id(_current_user.email)
+
 # =============================================================================
 # SIDEBAR — en accordéon par thème
 # =============================================================================
@@ -203,9 +199,9 @@ with st.sidebar:
                     + (f" — {', '.join(info['currencies'])}" if info["currencies"] else ""))
 
     # ── Cache VIES ────────────────────────────────────────────────────────────
-    with st.expander("\U0001f5c4\ufe0f Cache VIES (SQLite)", expanded=False):
+    with st.expander("\U0001f5c4\ufe0f Cache VIES (Postgres — privé + mutualisé)", expanded=False):
         try:
-            _cs = vies_cache_stats()
+            _cs = vies_cache_stats(_vies_scope_id)
             _ttl_days = st.slider("TTL du cache (jours)", min_value=7, max_value=365,
                 value=_cs["ttl_days"], step=7,
                 help="Durée avant revalidation automatique d'un numéro de TVA auprès de VIES.")
@@ -213,21 +209,24 @@ with st.sidebar:
                 set_cache_ttl(_ttl_days)
                 st.rerun()
             _c1, _c2, _c3 = st.columns(3)
-            _c1.metric("Total", _cs["total"])
+            _c1.metric("Total (votre compte)", _cs["total"])
             _c2.metric("✅ Frais", _cs["fresh"])
             _c3.metric("⏳ Expirés", _cs["expired"])
             if _cs["total"] > 0:
                 st.caption(
                     f"Valides : {_cs['valid']} · Invalides : {_cs['invalid']} · "
                     f"Vérifié au plus tôt : {(_cs['oldest_check'] or '—')[:10]}")
+            st.caption(
+                f"🌍 Cache mutualisé (tous comptes, vérifications automatiques uniquement) : "
+                f"{_cs['global_total']} numéro(s).")
             if _cs.get("manual_total", 0) > 0:
-                st.markdown("**🖊️ Classifications manuelles**")
+                st.markdown("**🖊️ Classifications manuelles (votre compte uniquement)**")
                 _m1, _m2 = st.columns(2)
                 _m1.metric("✅ Valides (B2B)", _cs["manual_valid"])
                 _m2.metric("❌ Invalides (B2C)", _cs["manual_invalid"])
             if _cs["expired"] > 0:
                 if st.button(f"🗑️ Purger {_cs['expired']} entrée(s) expirée(s)", key="purge_vies_cache"):
-                    n = purge_expired_cache()
+                    n = purge_expired_cache(_vies_scope_id)
                     st.success(f"{n} entrée(s) supprimée(s).")
                     st.rerun()
         except Exception as _e:
@@ -552,7 +551,7 @@ if uploaded_files:
             with st.spinner("Calcul TVA en cours..."):
                 if enable_vies:
                     results, vies_summary, oss_summary = compute_all_with_vies(
-                        sales, asin_to_category=asin_to_category,
+                        sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
                         on_invalid=on_invalid_behavior, marketplace_name=platform_name,
                         apply_fr_under_threshold=apply_fr_under_threshold,
                         refunds=refunds if refunds else None)
@@ -1015,7 +1014,7 @@ if uploaded_files:
                             if _pending and st.button("💾 Appliquer les classifications et recalculer", type="primary"):
                                 from tva_intracom.vies import set_manual_override as _smo_apply
                                 for _vat_key, _choice_val in _pending.items():
-                                    _smo_apply(_vat_key, valid=(_choice_val == "✅ Valide (B2B)"))
+                                    _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == "✅ Valide (B2B)"))
                                 st.session_state.pop("_vies_manual_overrides", None)
                                 st.session_state.pop("_calc_key", None)
                                 st.success("Classification appliquée — recalcul en cours…")
@@ -1033,16 +1032,12 @@ if uploaded_files:
                 try:
                     from tva_intracom.vies import (
                         set_manual_override as _smo_edit,
-                        CACHE_DB_FILE as _VIES_DB_B,
+                        delete_manual_override as _dmo_edit,
+                        get_manual_overrides_full as _gmo_full,
                         CACHE_TTL_DAYS as _VIES_TTL_B,
                         _is_expired as _vies_is_expired_b,
                     )
-                    import sqlite3 as _sqlite3b
-                    _conn_b = _sqlite3b.connect(_VIES_DB_B)
-                    _cur_b = _conn_b.cursor()
-                    _cur_b.execute("SELECT full_vat, is_valid, set_at FROM vies_manual_overrides ORDER BY set_at DESC")
-                    _existing_overrides_b = _cur_b.fetchall()
-                    _conn_b.close()
+                    _existing_overrides_b = _gmo_full(_vies_scope_id)
                 except Exception:
                     _existing_overrides_b = []
                     _VIES_TTL_B = 90
@@ -1077,15 +1072,13 @@ if uploaded_files:
                                 index=0 if _ov_valid2 else 1,
                                 key=f"edit_override_b_{_ov_vat2}", label_visibility="collapsed")
                             if _oc3b.button("💾", key=f"save_override_b_{_ov_vat2}", help="Enregistrer (revalide et réinitialise le délai)"):
-                                _smo_edit(_ov_vat2, valid=(_ov_new2 == "✅ Valide (B2B)"))
+                                _smo_edit(_vies_scope_id, _ov_vat2, valid=(_ov_new2 == "✅ Valide (B2B)"))
                                 st.session_state.pop("_calc_key", None)
                                 st.success(f"{_ov_vat2} → {_ov_new2}")
                                 st.rerun()
                             if _oc4b.button("🗑️", key=f"del_override_b_{_ov_vat2}", help="Supprimer (retour VIES)"):
                                 try:
-                                    _conn_del = _sqlite3b.connect(_VIES_DB_B)
-                                    _conn_del.execute("DELETE FROM vies_manual_overrides WHERE full_vat = ?", (_ov_vat2,))
-                                    _conn_del.commit(); _conn_del.close()
+                                    _dmo_edit(_vies_scope_id, _ov_vat2)
                                     st.session_state.pop("_calc_key", None)
                                     st.success(f"Override supprimé pour {_ov_vat2}.")
                                     st.rerun()
