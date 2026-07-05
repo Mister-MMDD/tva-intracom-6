@@ -28,20 +28,36 @@ try:
 except ImportError:
     stripe = None
 
+try:
+    # Disponible sur Streamlit Cloud, absent côté fonction serverless Vercel
+    # (voir stripe_webhook.py, qui charge ce module par chemin sans Streamlit
+    # installé) — l'import doit donc rester optionnel.
+    import streamlit as _st
+except ImportError:
+    _st = None
+
+
+def _env(key: str, default: str = "") -> str:
+    """Lit une variable de configuration : priorité à st.secrets (Streamlit
+    Cloud), repli sur os.environ (Vercel, ou variable d'env classique).
+    Contrairement à des constantes calculées une fois à l'import du module,
+    cette fonction est appelée à chaque usage pour éviter de figer une valeur
+    lue vide si le module a été importé avant que le secret soit disponible."""
+    if _st is not None:
+        try:
+            val = _st.secrets.get(key)
+            if val:
+                return val
+        except Exception:
+            pass
+    return os.environ.get(key, default)
+
+
 PRICE_PAYG_EXPORT = os.environ.get("STRIPE_PRICE_PAYG_EXPORT", "")
 
-# Abonnements : 1 price_id par (plan, intervalle).
-PRICE_SUB_BUSINESS_MONTHLY = os.environ.get("STRIPE_PRICE_SUB_BUSINESS_MONTHLY", "")
-PRICE_SUB_BUSINESS_YEARLY = os.environ.get("STRIPE_PRICE_SUB_BUSINESS_YEARLY", "")
-PRICE_SUB_CABINET_MONTHLY = os.environ.get("STRIPE_PRICE_SUB_CABINET_MONTHLY", "")
-PRICE_SUB_CABINET_YEARLY = os.environ.get("STRIPE_PRICE_SUB_CABINET_YEARLY", "")
-
-_SUB_PRICE_IDS = {
-    ("business", "month"): PRICE_SUB_BUSINESS_MONTHLY,
-    ("business", "year"): PRICE_SUB_BUSINESS_YEARLY,
-    ("cabinet", "month"): PRICE_SUB_CABINET_MONTHLY,
-    ("cabinet", "year"): PRICE_SUB_CABINET_YEARLY,
-}
+# Abonnements : 1 price_id par (plan, intervalle). Résolus dynamiquement via
+# _env() au moment de l'appel (voir create_subscription_checkout_session),
+# et non figés ici à l'import du module.
 
 # Quota de SIREN distincts pour le plan "business" (Pro). Le quota du plan
 # "cabinet" est dynamique : il vaut la quantité Stripe achetée
@@ -264,16 +280,20 @@ def list_registered_sirens(user_id: str) -> list[dict]:
 
 
 def get_siren_quota(user_id: str) -> Optional[int]:
-    """Retourne le quota de SIREN distincts pour ce compte, ou None si aucune
-    limite technique ne s'applique (pas d'abonnement actif → PAYG)."""
+    """Retourne le quota de SIREN distincts pour ce compte.
+
+    - Pas d'abonnement actif (PAYG) : 1 SIREN, comme le forfait Pro.
+    - Pro ("business") : 1 SIREN.
+    - Cabinet ("cabinet") : quantité Stripe achetée (`siren_quantity`).
+    """
     sub = get_subscription_status(user_id)
     if not sub.active:
-        return None
+        return _BUSINESS_SIREN_QUOTA
     if sub.plan == "business":
         return _BUSINESS_SIREN_QUOTA
     if sub.plan == "cabinet":
         return sub.siren_quantity or 1
-    return None
+    return _BUSINESS_SIREN_QUOTA
 
 
 def can_register_new_siren(user_id: str) -> tuple[bool, str]:
@@ -350,14 +370,14 @@ def _get_or_create_stripe_customer(user_id: str, email: str) -> str:
 def create_payg_checkout_session(user_id: str, email: str, period_label: str, success_url: str, cancel_url: str) -> str:
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
-    if not PRICE_PAYG_EXPORT:
+    if not _env("STRIPE_PRICE_PAYG_EXPORT"):
         raise RuntimeError("STRIPE_PRICE_PAYG_EXPORT non défini.")
 
     customer_id = _get_or_create_stripe_customer(user_id, email)
     session = stripe.checkout.Session.create(
         mode="payment",
         customer=customer_id,
-        line_items=[{"price": PRICE_PAYG_EXPORT, "quantity": 1}],
+        line_items=[{"price": _env("STRIPE_PRICE_PAYG_EXPORT"), "quantity": 1}],
         success_url=success_url,
         cancel_url=cancel_url,
         metadata={"user_id": user_id, "period_label": period_label, "kind": "payg_export"},
@@ -390,11 +410,18 @@ def create_subscription_checkout_session(
     if interval not in ("month", "year"):
         raise RuntimeError(f"Intervalle de facturation inconnu : {interval}")
 
-    price_id = _SUB_PRICE_IDS.get((plan, interval))
+    _sub_price_env_keys = {
+        ("business", "month"): "STRIPE_PRICE_SUB_BUSINESS_MONTHLY",
+        ("business", "year"): "STRIPE_PRICE_SUB_BUSINESS_YEARLY",
+        ("cabinet", "month"): "STRIPE_PRICE_SUB_CABINET_MONTHLY",
+        ("cabinet", "year"): "STRIPE_PRICE_SUB_CABINET_YEARLY",
+    }
+    env_key = _sub_price_env_keys[(plan, interval)]
+    price_id = _env(env_key)
     if not price_id:
         raise RuntimeError(
             f"Aucun price_id Stripe configuré pour ({plan}, {interval}) — "
-            "vérifiez les variables d'environnement STRIPE_PRICE_SUB_*."
+            f"vérifiez la variable {env_key} (secrets Streamlit ou variable d'environnement)."
         )
 
     effective_quantity = quantity if plan == "cabinet" else 1
