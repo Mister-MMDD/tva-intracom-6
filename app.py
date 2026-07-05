@@ -1508,15 +1508,16 @@ if uploaded_files:
 
             st.subheader("📥 Téléchargements")
             with st.container():
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
-                    _vies_ids = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
-                    xlsx_path = export_xlsx(results, xlsx_tmp.name, scope_id=_vies_scope_id, summary=summary,
-                        refund_results=refund_results, all_fc_transfers=all_fc_transfers,
-                        vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
-                        countries_with_vat=countries_with_vat,
-                        period=period_label, seller_country="FR",
-                        invoice_credit_notes=all_invoice_credit_notes)
-                with open(xlsx_path,"rb") as f: xlsx_bytes = f.read()
+                with st.spinner("Génération du fichier Excel (tous onglets)…"):
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
+                        _vies_ids = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
+                        xlsx_path = export_xlsx(results, xlsx_tmp.name, scope_id=_vies_scope_id, summary=summary,
+                            refund_results=refund_results, all_fc_transfers=all_fc_transfers,
+                            vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
+                            countries_with_vat=countries_with_vat,
+                            period=period_label, seller_country="FR",
+                            invoice_credit_notes=all_invoice_credit_notes)
+                    with open(xlsx_path,"rb") as f: xlsx_bytes = f.read()
 
                 # ── ZONE TÉLÉCHARGEMENTS ──────────────────────────────────────
                 st.divider()

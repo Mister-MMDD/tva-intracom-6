@@ -82,8 +82,8 @@ tva-intracom/
 │   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
 │   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
 │   ├── report.py                     ReportSummary, build_report, render_report
-│   ├── vies.py                       Validation VIES (cache SQLite WAL, historique append-only)
-│   └── vies_cache.db
+│   ├── vies.py                       Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
+│   
 ├── vercel_webhook/
 │   └── api/
 │       ├── requirements.txt          Dépendances de la fonction serverless (stripe, psycopg2-binary)
@@ -113,7 +113,7 @@ tva-intracom/
 | `models.py` | Dataclasses : Sale, VatResult, Scenario, BuyerType, Channel, Collector |
 | `engine.py` | Moteur de classification fiscale (compute_vat, compute_all, compute_all_with_vies) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
-| `vies.py` | Validation VIES : cache SQLite (WAL), historique append-only, overrides manuels, retry exponentiel, batch degradation detection, 3 états (valid/invalid/unverified) |
+| `vies.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
 | `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle, convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194), retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires |
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
 | `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965), validation période, garde-fou soldes négatifs (CorrectionsOfVatReturns) |
@@ -186,19 +186,23 @@ transaction) avant traitement.
 
 ### Validation VIES
 
-- Cache SQLite en mode WAL + `threading.local()` pour les appels parallèles.
-- Table `vies_cache` : TTL configurable, UPSERT.
-- Table `vies_check_history` : **append-only**, jamais écrasée — chaque vérification
-  est journalisée avec horodatage UTC pour constituer une piste d'audit (preuve de
-  bonne foi en cas de contrôle fiscal).
-- Overrides manuels (`vies_manual_overrides`) : permet de forcer le statut d'un
-  numéro VIES indisponible temporairement (serveur UE saturé).
-- Purge au démarrage des entrées de cache malformées.
-- 25 workers `ThreadPoolExecutor` en parallèle.
-- Batch degradation detection + retry exponentiel.
-- 3 états UI : valide / invalide / non vérifié.
-- Normalisation `_normalize_full_vat()` : évite les faux rejets quand le préfixe
-  EU diffère du pays de destination (ex: vente FR→DE avec numéro TVA IT).
+Le module s'appuie sur une architecture résiliente à trois niveaux pour interroger le service officiel de la Commission Européenne (VIES), optimiser les temps de réponse et garantir la continuité de service même en cas de panne du serveur de l'UE.
+
+*   **Backend Postgres (Supabase)** : Remplace définitivement l'ancien cache SQLite local (qui n'était pas persistant entre deux redéploiements sur Streamlit Cloud). Il utilise le pool de connexions `psycopg2-binary` et partage la variable d'environnement `SUPABASE_DB_URL` avec les modules d'authentification et de facturation.
+*   **Architecture à trois niveaux (Cascade de cache)** :
+    1.  **vies_scope_cache** : Cache PRIVÉ par "scope" (compte isolé ou domaine d'entreprise). Consulté en premier pour garantir une isolation stricte des données de tes clients ou cabinets.
+    2.  **vies_global_cache** : Cache PARTAGÉ entre tous les comptes du SaaS, alimenté uniquement par les vérifications automatiques réussies auprès de l'UE. Sert de filet de sécurité mutualisé ultra-rapide.
+    3.  **API VIES (ec.europa.eu)** : Interrogée en dernier recours si le numéro est inconnu ou expiré dans les deux caches précédents.
+*   **Résolution intelligente de la portée (Scope ID)** :
+    *   *Messageries grand public* (`@gmail.com`, `@outlook.fr`, etc.) : Le cache est strictement isolé par utilisateur (`user:<email>`).
+    *   *Domaines professionnels* (`@cabinet-comptable.fr`) : Le cache est partagé entre tous les collaborateurs d'une même structure (`domain:<domaine>`).
+*   **Piste d'audit (vies_check_history)** : Table au format *append-only* (jamais écrasée). Chaque scope conserve sa propre preuve horodatée de la date à laquelle il a validé un statut VIES (y compris s'il l'a récupéré via le cache global), indispensable pour justifier une exonération B2B lors d'un contrôle fiscal.
+*   **Classifications manuelles (vies_manual_overrides)** : Permet à l'utilisateur de forcer le statut d'un numéro indisponible ou inconclusif. Ces overrides sont strictement privés, ont une durée de vie indexée sur le TTL global, et **ne remontent jamais** dans le cache global pour ne pas polluer les calculs des autres comptes.
+*   **Performances et résilience** : 
+    *   Validation en lot via 25 workers `ThreadPoolExecutor` en parallèle avec barre de progression.
+    *   Système de retry avec *backoff exponentiel* (1s ➔ 2s ➔ 4s) sur erreurs transitoires.
+    *   *Batch degradation detection* : Si le serveur de l'UE renvoie trop de réponses vides sous forte charge, le moteur bascule sur le dernier état valide en cache (mode dégradé) au lieu d'invalider à tort les clients B2B.
+*   **Normalisation native** : La fonction `normalize_full_vat()` évite les faux rejets et gère les structures complexes (ex: Espagne NIF/CIF, alias EL/GR, ou ventes transfrontalières avec numéro d'un tiers pays).
 
 ### Conversion devises
 

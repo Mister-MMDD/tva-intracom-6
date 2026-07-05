@@ -442,7 +442,7 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
     seules les vérifications appartenant au scope_id du compte courant sont
     affichées, même quand la donnée provenait à l'origine du cache mutualisé.
     """
-    from .vies import get_vies_history
+    from .vies import get_vies_history_bulk
 
     _set_header(ws, 1, [
         "N° TVA", "Date vérification (UTC)", "Statut", "Pays", "Raison sociale", "Erreur"
@@ -455,9 +455,11 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
         if vat:
             seen_vats.add(vat)
 
+    history_by_vat = get_vies_history_bulk(scope_id, sorted(seen_vats))
+
     row = 2
     for vat in sorted(seen_vats):
-        history = get_vies_history(scope_id, vat)
+        history = history_by_vat.get(vat, [])
         if not history:
             continue
         for entry in history:

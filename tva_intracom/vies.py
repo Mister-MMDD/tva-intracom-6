@@ -54,6 +54,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.pool
+from psycopg2.extras import execute_values
 import streamlit as st
 
 logger = logging.getLogger(__name__)
@@ -377,6 +378,104 @@ def _db_set_global(vat_id: str, result: ViesResult) -> None:
         conn.commit()
 
 
+# ---------------------------------------------------------------------------
+# Variantes BATCH — un seul aller-retour réseau pour N numéros, au lieu de N
+# allers-retours séquentiels. Utilisées uniquement par
+# validate_vat_numbers_parallel (le chemin utilisé pour tout traitement de
+# fichier) ; check_vat_raw (vérification isolée d'un seul numéro) continue
+# d'utiliser les fonctions unitaires ci-dessus, qui restent nécessaires.
+# ---------------------------------------------------------------------------
+
+def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool]]:
+    """Une seule requête pour tous les vat_ids d'un coup."""
+    if not vat_ids:
+        return {}
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT vat_id, valid, country_code, vat_number, name, address, error, checked_at "
+            "FROM vies_scope_cache WHERE scope_id=%s AND vat_id = ANY(%s)",
+            (scope_id, list(vat_ids)),
+        )
+        rows = cur.fetchall()
+    out: dict[str, tuple[ViesResult, bool]] = {}
+    for row in rows:
+        vat_id, checked_at = row[0], row[7]
+        out[vat_id] = (_row_to_result(row[1:7]), not _is_expired(checked_at))
+    return out
+
+
+def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool]]:
+    """Une seule requête pour tous les vat_ids d'un coup."""
+    if not vat_ids:
+        return {}
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT vat_id, valid, country_code, vat_number, name, address, error, checked_at "
+            "FROM vies_global_cache WHERE vat_id = ANY(%s)",
+            (list(vat_ids),),
+        )
+        rows = cur.fetchall()
+    out: dict[str, tuple[ViesResult, bool]] = {}
+    for row in rows:
+        vat_id, checked_at = row[0], row[7]
+        out[vat_id] = (_row_to_result(row[1:7]), not _is_expired(checked_at))
+    return out
+
+
+def _db_set_scope_batch(scope_id: str, items: list[tuple[str, ViesResult]], log_history: bool = True) -> None:
+    """Upsert en lot dans vies_scope_cache + insertion en lot dans
+    vies_check_history — un aller-retour réseau au lieu de N."""
+    if not items:
+        return
+    checked_at = _now_utc()
+    scope_rows = [
+        (scope_id, vat_id, r.valid, r.country_code, r.vat_number, r.name, r.address, r.error, checked_at)
+        for vat_id, r in items
+    ]
+    with _conn() as conn, conn.cursor() as cur:
+        execute_values(cur, """
+            INSERT INTO vies_scope_cache
+                (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+            VALUES %s
+            ON CONFLICT (scope_id, vat_id) DO UPDATE SET
+                valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
+                vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
+                address=EXCLUDED.address, error=EXCLUDED.error,
+                checked_at=EXCLUDED.checked_at
+        """, scope_rows)
+        if log_history:
+            execute_values(cur, """
+                INSERT INTO vies_check_history
+                    (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+                VALUES %s
+            """, scope_rows)
+        conn.commit()
+
+
+def _db_set_global_batch(items: list[tuple[str, ViesResult]]) -> None:
+    """Upsert en lot dans vies_global_cache — un aller-retour réseau au lieu
+    de N. N'écrit jamais depuis un chemin lié aux overrides manuels."""
+    if not items:
+        return
+    checked_at = _now_utc()
+    rows = [
+        (vat_id, r.valid, r.country_code, r.vat_number, r.name, r.address, r.error, checked_at)
+        for vat_id, r in items
+    ]
+    with _conn() as conn, conn.cursor() as cur:
+        execute_values(cur, """
+            INSERT INTO vies_global_cache
+                (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+            VALUES %s
+            ON CONFLICT (vat_id) DO UPDATE SET
+                valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
+                vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
+                address=EXCLUDED.address, error=EXCLUDED.error,
+                checked_at=EXCLUDED.checked_at
+        """, rows)
+        conn.commit()
+
+
 def get_vies_history(scope_id: str, full_vat: str) -> list[dict]:
     """Historique des vérifications VIES pour un numéro, DANS LE SCOPE
     courant — de la plus ancienne à la plus récente. Piste d'audit propre à
@@ -396,6 +495,29 @@ def get_vies_history(scope_id: str, full_vat: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def get_vies_history_bulk(scope_id: str, full_vats: list[str]) -> dict[str, list[dict]]:
+    """Comme get_vies_history(), mais pour plusieurs numéros en une seule
+    requête. Utilisée par excel_report._write_vies_history_tab pour éviter
+    une requête Postgres par numéro de TVA unique dans le fichier traité."""
+    if not full_vats:
+        return {}
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT vat_id, checked_at, valid, country_code, vat_number, name, address, error
+            FROM vies_check_history WHERE scope_id=%s AND vat_id = ANY(%s)
+            ORDER BY vat_id ASC, checked_at ASC
+        """, (scope_id, list(full_vats)))
+        rows = cur.fetchall()
+    result: dict[str, list[dict]] = {}
+    for r in rows:
+        result.setdefault(r[0], []).append({
+            "checked_at": r[1].isoformat() if r[1] else "",
+            "valid": bool(r[2]), "country_code": r[3], "vat_number": r[4],
+            "name": r[5] or "", "address": r[6] or "", "error": r[7] or "",
+        })
+    return result
 
 
 def get_vies_status_as_of(scope_id: str, full_vat: str, as_of_date_iso: str) -> Optional[dict]:
@@ -813,47 +935,61 @@ def validate_vat_numbers_parallel(
     total = len(vat_ids)
     done = 0
 
-    def _tick():
+    def _tick(n: int = 1):
         nonlocal done
-        done += 1
+        done += n
         if progress_callback is not None:
             try:
                 progress_callback(done, total)
             except Exception:
                 pass
 
-    # --- Phase 1 : tri cache scope frais / cache global frais / à revalider ---
+    # --- Normalisation ---
+    norm_map: dict[str, str] = {}  # vat_id original -> normalisé
     for vat_id in vat_ids:
         try:
-            norm = _normalize_vat_id(vat_id)
+            norm_map[vat_id] = _normalize_vat_id(vat_id)
         except ValueError:
             results[vat_id] = ViesResult(
                 valid=False, country_code="", vat_number=vat_id,
                 error="Normalisation impossible"
             )
             _tick()
-            continue
 
-        cached, fresh = _db_get_scope(scope_id, norm)
-        if cached is not None and fresh:
-            results[vat_id] = cached
+    all_norms = list(norm_map.values())
+
+    # --- Phase 1 : DEUX requêtes batch au lieu de 2×N requêtes séquentielles ---
+    scope_cache_map = _db_get_scope_batch(scope_id, all_norms)
+    global_cache_map = _db_get_global_batch(all_norms)
+
+    to_copy_from_global: list[tuple[str, ViesResult]] = []
+
+    for vat_id, norm in norm_map.items():
+        scope_entry = scope_cache_map.get(norm)
+        if scope_entry is not None and scope_entry[1]:  # (result, fresh)
+            results[vat_id] = scope_entry[0]
             _tick()
             continue
 
-        global_cached, global_fresh = _db_get_global(norm)
-        if global_cached is not None and global_fresh:
-            _db_set_scope(scope_id, norm, global_cached, log_history=True)
-            results[vat_id] = global_cached
+        global_entry = global_cache_map.get(norm)
+        if global_entry is not None and global_entry[1]:
+            results[vat_id] = global_entry[0]
+            to_copy_from_global.append((norm, global_entry[0]))
             _tick()
             continue
 
-        if cached is not None:
-            fallback_cache[norm] = cached
+        if scope_entry is not None:
+            fallback_cache[norm] = scope_entry[0]
             logger.debug("Cache VIES [%s] expiré pour %s, revalidation.", scope_id, norm)
-        elif global_cached is not None:
-            fallback_cache[norm] = global_cached
+        elif global_entry is not None:
+            fallback_cache[norm] = global_entry[0]
 
         to_fetch[norm] = vat_id
+
+    # Une seule requête pour copier tous les hits du cache global vers le scope
+    # (+ historique) au lieu d'une requête par numéro.
+    if to_copy_from_global:
+        _db_set_scope_batch(scope_id, to_copy_from_global, log_history=True)
 
     # --- Phase 2 : requêtes réseau parallèles pour les numéros à revalider ---
     batch_results: dict[str, ViesResult] = {}
@@ -888,7 +1024,11 @@ def validate_vat_numbers_parallel(
                 len(empty_results), len(invalid_results),
             )
 
-        # --- Phase 3 : écriture cache (global + scope) + réponse finale ---
+        # --- Phase 3 : classification, puis DEUX écritures batch au lieu de
+        #     2×N écritures séquentielles ---
+        to_write_global: list[tuple[str, ViesResult]] = []
+        to_write_scope: list[tuple[str, ViesResult]] = []
+
         for norm_id, result in batch_results.items():
             orig_id = to_fetch[norm_id]
 
@@ -928,9 +1068,13 @@ def validate_vat_numbers_parallel(
                 results[orig_id] = prev
                 continue
 
-            _db_set_global(norm_id, result)
-            _db_set_scope(scope_id, norm_id, result)
+            to_write_global.append((norm_id, result))
+            to_write_scope.append((norm_id, result))
             results[orig_id] = result
+
+        # Deux allers-retours réseau pour tout le lot, au lieu de 2×N.
+        _db_set_global_batch(to_write_global)
+        _db_set_scope_batch(scope_id, to_write_scope, log_history=True)
 
     return results
 
