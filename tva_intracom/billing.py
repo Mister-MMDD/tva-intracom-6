@@ -569,23 +569,33 @@ def _user_id_for_stripe_customer(stripe_customer_id: str) -> Optional[str]:
         pool.putconn(conn)
 
 
-def _extract_subscription_item_details(data) -> tuple[int, Optional[str]]:
-    """Extrait (quantity, interval) depuis l'objet Subscription Stripe.
+def _extract_subscription_item_details(data) -> tuple[int, Optional[str], Optional[float]]:
+    """Extrait (quantity, interval, current_period_end) depuis l'objet
+    Subscription Stripe.
 
-    `data` est `event["data"]["object"]` pour un event
-    customer.subscription.created/updated — un objet Subscription complet,
-    avec `items.data[0]` contenant la ligne (price + quantity) souscrite.
+    `data` est soit `event["data"]["object"]` pour un event
+    customer.subscription.created/updated, soit le résultat de
+    stripe.Subscription.retrieve() — un objet Subscription complet, avec
+    `items.data[0]` contenant la ligne (price + quantity) souscrite.
+
+    Sur les versions récentes de l'API Stripe, `current_period_end` n'est
+    plus porté par l'objet Subscription lui-même mais par chaque
+    SubscriptionItem (`items.data[0].current_period_end`) — on essaie donc
+    l'item en premier, avec repli sur l'ancien emplacement pour compatibilité.
     """
     items = _safe_get(data, "items", {}) or {}
     items_data = _safe_get(items, "data", []) or []
     if not items_data:
-        return 1, None
+        return 1, None, _safe_get(data, "current_period_end")
     first_item = items_data[0]
     quantity = _safe_get(first_item, "quantity", 1) or 1
     price_obj = _safe_get(first_item, "price", {}) or {}
     recurring = _safe_get(price_obj, "recurring", {}) or {}
     interval = _safe_get(recurring, "interval")
-    return int(quantity), interval
+    period_end = _safe_get(first_item, "current_period_end")
+    if period_end is None:
+        period_end = _safe_get(data, "current_period_end")
+    return int(quantity), interval, period_end
 
 
 def _upsert_subscription(
@@ -662,13 +672,18 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
             # session de Checkout contient déjà l'ID, il suffit d'aller
             # chercher quantité/intervalle/statut/période directement.
             subscription = stripe.Subscription.retrieve(subscription_id)
-            quantity, interval = _extract_subscription_item_details(subscription)
+            quantity, interval, period_end = _extract_subscription_item_details(subscription)
+            if period_end is None:
+                raise RuntimeError(
+                    f"current_period_end introuvable (ni sur l'item, ni sur la Subscription "
+                    f"{subscription_id}) — vérifier un éventuel changement de schéma côté API Stripe."
+                )
             _upsert_subscription(
                 user_id=user_id,
                 stripe_subscription_id=subscription_id,
                 status=_safe_get(subscription, "status"),
                 plan=plan,
-                current_period_end=float(_safe_get(subscription, "current_period_end")),
+                current_period_end=float(period_end),
                 billing_interval=interval,
                 siren_quantity=quantity,
             )
@@ -679,13 +694,18 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
         if not user_id:
             return
         plan = _safe_get(_safe_get(data, "metadata") or {}, "plan", "unknown")
-        quantity, interval = _extract_subscription_item_details(data)
+        quantity, interval, period_end = _extract_subscription_item_details(data)
+        if period_end is None:
+            raise RuntimeError(
+                f"current_period_end introuvable (ni sur l'item, ni sur la Subscription "
+                f"{_safe_get(data, 'id')}) — vérifier un éventuel changement de schéma côté API Stripe."
+            )
         _upsert_subscription(
             user_id=user_id,
             stripe_subscription_id=_safe_get(data, "id"),
             status=_safe_get(data, "status"),
             plan=plan,
-            current_period_end=float(_safe_get(data, "current_period_end")),
+            current_period_end=float(period_end),
             billing_interval=interval,
             siren_quantity=quantity,
         )
