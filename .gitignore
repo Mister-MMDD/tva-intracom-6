@@ -8,3 +8,4 @@ dist/
 .venv/
 venv/
 .env
+.streamlit/
