@@ -787,6 +787,7 @@ def validate_vat_numbers_parallel(
     vat_ids: list[str],
     max_workers: int = 25,
     timeout: int = DEFAULT_TIMEOUT,
+    progress_callback=None,
 ) -> dict[str, ViesResult]:
     """Valide plusieurs numéros de TVA en parallèle.
 
@@ -798,10 +799,28 @@ def validate_vat_numbers_parallel(
          cache global ET dans le cache du scope.
       4. Erreurs transitoires → repli sur la meilleure entrée en cache
          disponible (scope expiré, sinon global), sinon inconclusif.
+
+    Args:
+        progress_callback: optionnel, callable(done: int, total: int)
+            appelé après chaque numéro traité (cache immédiat compris),
+            depuis le thread principal — sûr à utiliser avec les widgets
+            Streamlit (st.progress, etc.) appelés par app.py.
     """
     to_fetch: dict[str, str] = {}
     results: dict[str, ViesResult] = {}
     fallback_cache: dict[str, ViesResult] = {}  # secours si VIES instable
+
+    total = len(vat_ids)
+    done = 0
+
+    def _tick():
+        nonlocal done
+        done += 1
+        if progress_callback is not None:
+            try:
+                progress_callback(done, total)
+            except Exception:
+                pass
 
     # --- Phase 1 : tri cache scope frais / cache global frais / à revalider ---
     for vat_id in vat_ids:
@@ -812,17 +831,20 @@ def validate_vat_numbers_parallel(
                 valid=False, country_code="", vat_number=vat_id,
                 error="Normalisation impossible"
             )
+            _tick()
             continue
 
         cached, fresh = _db_get_scope(scope_id, norm)
         if cached is not None and fresh:
             results[vat_id] = cached
+            _tick()
             continue
 
         global_cached, global_fresh = _db_get_global(norm)
         if global_cached is not None and global_fresh:
             _db_set_scope(scope_id, norm, global_cached, log_history=True)
             results[vat_id] = global_cached
+            _tick()
             continue
 
         if cached is not None:
@@ -849,6 +871,7 @@ def validate_vat_numbers_parallel(
             for future in as_completed(futures):
                 norm_id, result = future.result()
                 batch_results[norm_id] = result
+                _tick()
 
         # --- Détection dégradation globale du serveur VIES ---
         invalid_results = [r for r in batch_results.values() if not r.valid]
@@ -916,9 +939,12 @@ def validate_vat_numbers(
     scope_id: str,
     vat_ids: list[str],
     timeout: int = DEFAULT_TIMEOUT,
+    progress_callback=None,
 ) -> dict[str, ViesResult]:
     """Compatibilité descendante (version séquentielle-friendly, même cascade)."""
-    return validate_vat_numbers_parallel(scope_id, vat_ids, max_workers=10, timeout=timeout)
+    return validate_vat_numbers_parallel(
+        scope_id, vat_ids, max_workers=10, timeout=timeout, progress_callback=progress_callback
+    )
 
 
 # ---------------------------------------------------------------------------

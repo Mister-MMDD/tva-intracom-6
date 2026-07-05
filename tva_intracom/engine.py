@@ -578,6 +578,7 @@ def compute_all_with_vies(
     check_vies_func=None,  # Conservé pour ne pas faire planter app.py
     apply_fr_under_threshold: bool = False,
     refunds: list[Sale] | None = None,
+    vies_progress_callback=None,
 ) -> tuple[list[VatResult], ViesValidationSummary, OssThresholdSummary]:
     """Calcule la TVA avec validation VIES en gérant le seuil de 10 000 € OSS.
     
@@ -586,6 +587,9 @@ def compute_all_with_vies(
                   vies.resolve_scope_id) — isole le cache et l'historique
                   d'audit entre comptes/domaines, transmise telle quelle à
                   validate_vat_numbers_parallel et get_manual_overrides.
+        vies_progress_callback: optionnel, callable(done: int, total: int)
+                  appelé pendant la validation VIES en lot, pour afficher
+                  une progression côté app.py (ex: st.progress).
         refunds: liste des remboursements (montants négatifs). S'ils sont fournis,
                  leur montant OSS-éligible est déduit du cumul pour que le seuil
                  affiché reflète le CA OSS net (conformément à l'art. 59 ter directive TVA).
@@ -637,7 +641,9 @@ def compute_all_with_vies(
     checked_vats: dict = {}
     if vats_to_check:
         try:
-            checked_vats = validate_vat_numbers_parallel(scope_id, vats_to_check)
+            checked_vats = validate_vat_numbers_parallel(
+                scope_id, vats_to_check, progress_callback=vies_progress_callback
+            )
         except Exception as exc_parallel:
             logger.warning(
                 "validate_vat_numbers_parallel a échoué (%s) — "
@@ -646,7 +652,9 @@ def compute_all_with_vies(
             )
             try:
                 from .vies import validate_vat_numbers
-                checked_vats = validate_vat_numbers(scope_id, vats_to_check)
+                checked_vats = validate_vat_numbers(
+                    scope_id, vats_to_check, progress_callback=vies_progress_callback
+                )
             except Exception as exc_seq:
                 logger.error(
                     "Validation VIES entièrement indisponible (%s). "

@@ -199,7 +199,7 @@ with st.sidebar:
                     + (f" — {', '.join(info['currencies'])}" if info["currencies"] else ""))
 
     # ── Cache VIES ────────────────────────────────────────────────────────────
-    with st.expander("\U0001f5c4\ufe0f Cache VIES (Postgres — privé + mutualisé)", expanded=False):
+    with st.expander("\U0001f5c4\ufe0f Cache VIES", expanded=False):
         try:
             _cs = vies_cache_stats(_vies_scope_id)
             _ttl_days = st.slider("TTL du cache (jours)", min_value=7, max_value=365,
@@ -209,18 +209,15 @@ with st.sidebar:
                 set_cache_ttl(_ttl_days)
                 st.rerun()
             _c1, _c2, _c3 = st.columns(3)
-            _c1.metric("Total (votre compte)", _cs["total"])
+            _c1.metric("Total", _cs["total"])
             _c2.metric("✅ Frais", _cs["fresh"])
             _c3.metric("⏳ Expirés", _cs["expired"])
             if _cs["total"] > 0:
                 st.caption(
                     f"Valides : {_cs['valid']} · Invalides : {_cs['invalid']} · "
                     f"Vérifié au plus tôt : {(_cs['oldest_check'] or '—')[:10]}")
-            st.caption(
-                f"🌍 Cache mutualisé (tous comptes, vérifications automatiques uniquement) : "
-                f"{_cs['global_total']} numéro(s).")
             if _cs.get("manual_total", 0) > 0:
-                st.markdown("**🖊️ Classifications manuelles (votre compte uniquement)**")
+                st.markdown("**🖊️ Classifications manuelles**")
                 _m1, _m2 = st.columns(2)
                 _m1.metric("✅ Valides (B2B)", _cs["manual_valid"])
                 _m2.metric("❌ Invalides (B2C)", _cs["manual_invalid"])
@@ -548,20 +545,37 @@ if uploaded_files:
         )
         if st.session_state.get("_calc_key") != _cache_key:
             vies_summary = None
-            with st.spinner("Calcul TVA en cours..."):
-                if enable_vies:
-                    results, vies_summary, oss_summary = compute_all_with_vies(
-                        sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
-                        on_invalid=on_invalid_behavior, marketplace_name=platform_name,
-                        apply_fr_under_threshold=apply_fr_under_threshold,
-                        refunds=refunds if refunds else None)
-                else:
+            if enable_vies:
+                _vies_progress_ph = st.empty()
+                _vies_bar = st.progress(0.0, text="Vérification des numéros de TVA (VIES)…")
+
+                def _vies_progress_cb(done: int, total: int) -> None:
+                    if total <= 0:
+                        return
+                    _vies_bar.progress(
+                        min(done / total, 1.0),
+                        text=f"Vérification VIES : {done}/{total}",
+                    )
+
+                results, vies_summary, oss_summary = compute_all_with_vies(
+                    sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
+                    on_invalid=on_invalid_behavior, marketplace_name=platform_name,
+                    apply_fr_under_threshold=apply_fr_under_threshold,
+                    refunds=refunds if refunds else None,
+                    vies_progress_callback=_vies_progress_cb)
+                _vies_bar.empty()
+                _vies_progress_ph.empty()
+                with st.spinner("Calcul TVA en cours..."):
+                    refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
+                    summary = build_report(results, refund_results=refund_results or None)
+            else:
+                with st.spinner("Calcul TVA en cours..."):
                     results, oss_summary = compute_all(
                         sales, marketplace_name=platform_name, asin_to_category=asin_to_category,
                         apply_fr_under_threshold=apply_fr_under_threshold,
                         refunds=refunds if refunds else None)
-                refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
-                summary = build_report(results, refund_results=refund_results or None)
+                    refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
+                    summary = build_report(results, refund_results=refund_results or None)
             st.session_state["_calc_key"]       = _cache_key
             st.session_state["_results"]        = results
             st.session_state["_refund_results"] = refund_results
@@ -1443,22 +1457,6 @@ if uploaded_files:
                 _current_user.id, period_label
             )
 
-            # DEBUG TEMPORAIRE — à retirer une fois le blocage résolu.
-            with st.expander("🔧 Debug billing (temporaire)", expanded=True):
-                st.write("user_id utilisé :", repr(_current_user.id))
-                st.write("email utilisé :", repr(_current_user.email))
-                st.write("period_label utilisé :", repr(period_label))
-                try:
-                    _debug_has_credit = tva_billing.has_export_credit(_current_user.id, period_label)
-                    st.write("has_export_credit() → ", _debug_has_credit)
-                except Exception as _debug_err:
-                    st.error(f"Exception dans has_export_credit() : {_debug_err!r}")
-                try:
-                    _debug_sub = tva_billing.get_subscription_status(_current_user.id)
-                    st.write("get_subscription_status() → ", _debug_sub)
-                except Exception as _debug_err2:
-                    st.error(f"Exception dans get_subscription_status() : {_debug_err2!r}")
-
             def _get_payg_checkout_url():
                 """Crée la session Stripe Checkout une seule fois par période/session
                 (mise en cache dans session_state) et retourne son URL. Un
@@ -1507,7 +1505,7 @@ if uploaded_files:
             with st.container():
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
                     _vies_ids = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
-                    xlsx_path = export_xlsx(results, xlsx_tmp.name, summary=summary,
+                    xlsx_path = export_xlsx(results, xlsx_tmp.name, scope_id=_vies_scope_id, summary=summary,
                         refund_results=refund_results, all_fc_transfers=all_fc_transfers,
                         vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
                         countries_with_vat=countries_with_vat,

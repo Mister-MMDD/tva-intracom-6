@@ -421,7 +421,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     _auto_width(ws)
 
 
-def _write_vies_history_tab(ws, results: list) -> None:
+def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
     """Onglet Historique VIES : piste d'audit de chaque vérification effectuée.
 
     S'appuie sur vies.get_vies_history() — table append-only jamais écrasée
@@ -437,6 +437,10 @@ def _write_vies_history_tab(ws, results: list) -> None:
     numéro n'a été vérifié qu'une fois (lors du traitement le plus récent),
     une seule ligne apparaîtra même s'il couvre des ventes étalées sur
     plusieurs mois.
+
+    L'historique est scopé par compte/domaine (voir tva_intracom/vies.py) :
+    seules les vérifications appartenant au scope_id du compte courant sont
+    affichées, même quand la donnée provenait à l'origine du cache mutualisé.
     """
     from .vies import get_vies_history
 
@@ -453,7 +457,7 @@ def _write_vies_history_tab(ws, results: list) -> None:
 
     row = 2
     for vat in sorted(seen_vats):
-        history = get_vies_history(vat)
+        history = get_vies_history(scope_id, vat)
         if not history:
             continue
         for entry in history:
@@ -1378,6 +1382,7 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
 def export_xlsx(
     results: List[VatResult],
     output_path: str | Path,
+    scope_id: str,
     summary: ReportSummary | None = None,
     refund_results: List[VatResult] | None = None,
     all_fc_transfers: list | None = None,
@@ -1388,7 +1393,13 @@ def export_xlsx(
     seller_country: str = "FR",
     invoice_credit_notes: list | None = None,
 ) -> Path:
-    """Genere le fichier Excel complet avec tous les onglets."""
+    """Genere le fichier Excel complet avec tous les onglets.
+
+    Args:
+        scope_id: portée de cache VIES du compte appelant (voir
+                  vies.resolve_scope_id) — transmise à l'onglet Historique
+                  VIES pour n'afficher que les vérifications de ce compte.
+    """
     
     if summary is None:
         summary = build_report(results)
@@ -1451,7 +1462,7 @@ def export_xlsx(
 
     # 8bis. Onglet Historique VIES (piste d'audit — preuve de bonne foi)
     ws_vies_hist = wb.create_sheet("Historique VIES")
-    _write_vies_history_tab(ws_vies_hist, results + (refund_results or []))
+    _write_vies_history_tab(ws_vies_hist, results + (refund_results or []), scope_id)
 
     # 9. Onglet Analyse AIC FBA (synthèse fiscale des transferts)
     ws_aic = wb.create_sheet("Analyse AIC FBA")
