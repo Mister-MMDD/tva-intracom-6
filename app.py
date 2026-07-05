@@ -143,15 +143,14 @@ if "auth_user" not in st.session_state:
 # Contrôlé par le secret LOCAL_DEV_BYPASS_AUTH, qui ne doit exister QUE dans
 # le fichier .streamlit/secrets.toml local (jamais commité, cf. .gitignore) —
 # jamais défini dans les secrets Streamlit Cloud de production. Permet de
-# développer sans dépendre de Resend (limité à une adresse en mode test).
+# développer sans dépendre de Resend (limité à une adresse en mode test),
+# tout en gardant la possibilité de tester plusieurs adresses/domaines
+# (utile pour la portée du cache VIES par domaine, et les quotas SIREN par
+# compte) : on saisit l'adresse de son choix, sans envoi réel de mail.
 try:
     _local_bypass = bool(st.secrets.get("LOCAL_DEV_BYPASS_AUTH", False))
 except Exception:
     _local_bypass = False
-if _local_bypass and st.session_state["auth_user"] is None:
-    _dev_email = st.secrets.get("LOCAL_DEV_BYPASS_EMAIL", "dev@localhost.test")
-    st.session_state["auth_user"] = tva_auth.get_or_create_user(_dev_email)
-    st.sidebar.warning("🛠️ Mode développement local — authentification court-circuitée.")
 
 _qp_token = st.query_params.get("login_token")
 if _qp_token and st.session_state["auth_user"] is None:
@@ -165,6 +164,18 @@ if _qp_token and st.session_state["auth_user"] is None:
 
 if st.session_state["auth_user"] is None:
     st.info("🔐 Connectez-vous pour utiliser le moteur de TVA.")
+
+    if _local_bypass:
+        st.warning("🛠️ Mode développement local — connexion directe, sans envoi de mail.")
+        _dev_email = st.text_input("Adresse e-mail (n'importe laquelle, pour test)", key="dev_login_email_input")
+        if st.button("Se connecter (dev)", key="btn_dev_login"):
+            if _dev_email and "@" in _dev_email:
+                st.session_state["auth_user"] = tva_auth.get_or_create_user(_dev_email)
+                st.rerun()
+            else:
+                st.warning("Adresse e-mail invalide.")
+        st.stop()
+
     _login_email = st.text_input("Adresse e-mail", key="login_email_input")
     if st.button("Recevoir un lien de connexion", key="btn_send_magic_link"):
         if _login_email and "@" in _login_email:
