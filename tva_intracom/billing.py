@@ -63,6 +63,7 @@ PRICE_PAYG_EXPORT = os.environ.get("STRIPE_PRICE_PAYG_EXPORT", "")
 # "cabinet" est dynamique : il vaut la quantité Stripe achetée
 # (tva_subscriptions.siren_quantity).
 _BUSINESS_SIREN_QUOTA = 1
+_CABINET_MIN_QUANTITY = 3
 
 _pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
 
@@ -432,6 +433,68 @@ def cancel_siren_removal(user_id: str, siren: str) -> None:
         pool.putconn(conn)
 
 
+def get_pricing_grid() -> dict:
+    """Récupère la grille tarifaire réelle depuis l'API Stripe (source de
+    vérité — jamais recopiée en dur ici, pour ne jamais diverger de ce qui
+    est effectivement configuré dans le Dashboard Stripe).
+
+    Retourne un dict :
+        {
+          "payg": {"amount": float, "currency": "eur"} | None,
+          "business": {"month": {...}, "year": {...}},
+          "cabinet": {"month": {"tiers": [...]}, "year": {"tiers": [...]}},
+        }
+    Les montants sont en unité principale (euros), pas en centimes.
+    Lève une exception si Stripe n'est pas configuré — à l'appelant de
+    l'attraper et d'afficher un message adapté.
+    """
+    if not _stripe_configured():
+        raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
+
+    def _amount(cents: Optional[int]) -> Optional[float]:
+        return (cents / 100) if cents is not None else None
+
+    grid: dict = {"payg": None, "business": {}, "cabinet": {}}
+
+    _payg_id = _env("STRIPE_PRICE_PAYG_EXPORT")
+    if _payg_id:
+        p = stripe.Price.retrieve(_payg_id)
+        grid["payg"] = {"amount": _amount(_safe_get(p, "unit_amount")), "currency": _safe_get(p, "currency", "eur")}
+
+    _biz_keys = {"month": "STRIPE_PRICE_SUB_BUSINESS_MONTHLY", "year": "STRIPE_PRICE_SUB_BUSINESS_YEARLY"}
+    for interval, env_key in _biz_keys.items():
+        price_id = _env(env_key)
+        if not price_id:
+            continue
+        p = stripe.Price.retrieve(price_id)
+        grid["business"][interval] = {
+            "amount": _amount(_safe_get(p, "unit_amount")),
+            "currency": _safe_get(p, "currency", "eur"),
+        }
+
+    _cab_keys = {"month": "STRIPE_PRICE_SUB_CABINET_MONTHLY", "year": "STRIPE_PRICE_SUB_CABINET_YEARLY"}
+    for interval, env_key in _cab_keys.items():
+        price_id = _env(env_key)
+        if not price_id:
+            continue
+        p = stripe.Price.retrieve(price_id, expand=["tiers"])
+        tiers_raw = _safe_get(p, "tiers", []) or []
+        tiers = []
+        for t in tiers_raw:
+            tiers.append({
+                "up_to": _safe_get(t, "up_to"),  # None = infini (dernier palier)
+                "unit_amount": _amount(_safe_get(t, "unit_amount")),
+                "flat_amount": _amount(_safe_get(t, "flat_amount")),
+            })
+        grid["cabinet"][interval] = {
+            "billing_scheme": _safe_get(p, "billing_scheme"),
+            "currency": _safe_get(p, "currency", "eur"),
+            "tiers": tiers,
+        }
+
+    return grid
+
+
 def _get_or_create_stripe_customer(user_id: str, email: str) -> str:
     pool = _get_pool()
     conn = pool.getconn()
@@ -517,6 +580,8 @@ def create_subscription_checkout_session(
         )
 
     effective_quantity = quantity if plan == "cabinet" else 1
+    if plan == "cabinet" and effective_quantity < _CABINET_MIN_QUANTITY:
+        effective_quantity = _CABINET_MIN_QUANTITY
     if effective_quantity < 1:
         effective_quantity = 1
 

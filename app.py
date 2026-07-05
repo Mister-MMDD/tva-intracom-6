@@ -212,7 +212,12 @@ if st.session_state["auth_user"] is None:
     st.stop()
 
 _current_user = st.session_state["auth_user"]
-st.caption(f"Connecté : {_current_user.email}")
+_col_user, _col_logout = st.columns([5, 1])
+_col_user.caption(f"Connecté : {_current_user.email}")
+if _col_logout.button("🚪 Déconnexion", key="btn_logout"):
+    st.session_state["auth_user"] = None
+    st.query_params.clear()
+    st.rerun()
 
 _APP_BASE_URL = st.secrets.get("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
 
@@ -566,6 +571,49 @@ with st.sidebar:
                 "Achat unique par déclaration, ou abonnement illimité — "
                 "mensuel ou annuel."
             )
+
+            with st.expander("📋 Voir la grille tarifaire", expanded=False):
+                try:
+                    _grid = tva_billing.get_pricing_grid()
+                except Exception as _grid_err:
+                    _grid = None
+                    st.caption(f"⚠️ Grille tarifaire indisponible : {_grid_err}")
+
+                if _grid:
+                    if _grid.get("payg"):
+                        st.markdown(f"**Achat unique** — {_grid['payg']['amount']:.2f} "
+                            f"{_grid['payg']['currency'].upper()} / déclaration")
+
+                    if _grid.get("business"):
+                        _biz_lines = []
+                        for _iv, _lbl in (("month", "mois"), ("year", "an")):
+                            _b = _grid["business"].get(_iv)
+                            if _b and _b["amount"] is not None:
+                                _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
+                        if _biz_lines:
+                            st.markdown("**Pro** (1 SIREN) — " + " · ".join(_biz_lines))
+
+                    if _grid.get("cabinet"):
+                        for _iv, _lbl in (("month", "Cabinet — mensuel"), ("year", "Cabinet — annuel")):
+                            _c = _grid["cabinet"].get(_iv)
+                            if not _c or not _c.get("tiers"):
+                                continue
+                            st.markdown(f"**{_lbl}** (min. 3 SIREN)")
+                            _rows = []
+                            _prev_bound = 0
+                            for _t in _c["tiers"]:
+                                _up_to = _t["up_to"]
+                                _range = f"{_prev_bound + 1} – {_up_to}" if _up_to is not None else f"{_prev_bound + 1}+"
+                                _price_txt = (
+                                    f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / SIREN"
+                                    if _t["unit_amount"] is not None else "—"
+                                )
+                                if _t.get("flat_amount") is not None:
+                                    _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} fixe)"
+                                _rows.append({"SIREN gérés": _range, "Tarif": _price_txt})
+                                _prev_bound = _up_to if _up_to is not None else _prev_bound
+                            st.dataframe(_rows, hide_index=True, use_container_width=True)
+
             _sub_interval = st.radio("Facturation", ["Mensuel", "Annuel"],
                 horizontal=True, key="sub_interval_choice")
             _interval_code = "month" if _sub_interval == "Mensuel" else "year"
@@ -583,11 +631,12 @@ with st.sidebar:
                 except Exception as _biz_err:
                     st.error(f"Erreur : {_biz_err}")
 
-            st.markdown("**Cabinet** — accès illimité, tarif dégressif par SIREN géré")
-            _cabinet_qty = st.number_input("Nombre de SIREN gérés", min_value=1, max_value=500,
+            st.markdown("**Cabinet** — accès illimité, tarif dégressif par SIREN géré (3 SIREN minimum)")
+            _cabinet_qty = st.number_input("Nombre de SIREN gérés", min_value=3, max_value=500,
                 value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
                 key="cabinet_siren_qty",
-                help="Doit couvrir au moins le nombre de SIREN déjà enregistrés sur ce compte.")
+                help="Minimum 3 SIREN pour le forfait Cabinet. Doit couvrir au moins "
+                     "le nombre de SIREN déjà enregistrés sur ce compte.")
             if st.button("S'abonner — Cabinet", key="btn_sub_cabinet"):
                 try:
                     _url = tva_billing.create_subscription_checkout_session(
@@ -1757,7 +1806,13 @@ if uploaded_files:
                 st.link_button pointant directement vers cette URL redirige au
                 premier clic — contrairement à un st.button + on_click, qui se
                 contente d'écrire dans session_state et nécessite un second clic
-                après le rerun pour afficher le vrai lien."""
+                après le rerun pour afficher le vrai lien.
+
+                Seul un succès est mis en cache : un échec (ex. secret Stripe pas
+                encore configuré) n'est jamais figé dans session_state, pour que
+                ça se rétablisse tout seul dès que la config est corrigée, sans
+                avoir à relancer le process Streamlit (qui garde sinon la même
+                session_state en mémoire indéfiniment)."""
                 _cache_key = f"_stripe_checkout_url::{period_label}"
                 if _cache_key not in st.session_state:
                     try:
@@ -1769,7 +1824,7 @@ if uploaded_files:
                             cancel_url=_stripe_cancel_url(),
                         )
                     except Exception as _billing_err:
-                        st.session_state[_cache_key] = None
+                        st.session_state.pop(_cache_key, None)
                         st.session_state[f"_stripe_checkout_error::{period_label}"] = str(_billing_err)
                 return st.session_state.get(_cache_key)
 
