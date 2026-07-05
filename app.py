@@ -350,9 +350,124 @@ with st.sidebar:
             # (voir plus bas dans tab_dl). Valeur temporaire ici.
             oss_period = "__auto__"
 
-        nom_entreprise   = st.text_input("Nom de l'entreprise", "Mon Entreprise E-commerce")
-        siren_entreprise = st.text_input("Numéro SIREN", "123456789")
-        tva_fr = st.text_input("Numéro de TVA FR (pour XML OSS)", "FR12345678901")
+        # ── Entreprise : sélection parmi les SIREN déjà enregistrés pour ce
+        # compte, dans la limite du quota du forfait (voir tva_intracom/billing.py).
+        # 1 client = 1 SIREN + 1 nom d'entreprise + 1 numéro de TVA.
+        st.markdown("**Entreprise**")
+        try:
+            _registered_sirens = tva_billing.list_registered_sirens(_current_user.id)
+        except Exception as _siren_list_err:
+            _registered_sirens = []
+            st.caption(f"⚠️ Liste des SIREN indisponible : {_siren_list_err}")
+
+        _siren_options = [r["siren"] for r in _registered_sirens]
+        _siren_choice = st.selectbox(
+            "SIREN client",
+            options=_siren_options + ["➕ Nouveau SIREN…"],
+            index=0 if _siren_options else 0,
+            help="Sélectionnez un SIREN déjà enregistré, ou ajoutez-en un nouveau "
+                 "dans la limite de votre forfait.",
+        ) if _siren_options else "➕ Nouveau SIREN…"
+
+        if _siren_choice == "➕ Nouveau SIREN…":
+            _can_add_siren, _siren_quota_msg = (True, "")
+            try:
+                _can_add_siren, _siren_quota_msg = tva_billing.can_register_new_siren(_current_user.id)
+            except Exception as _quota_err:
+                _can_add_siren, _siren_quota_msg = True, ""
+                st.caption(f"⚠️ Vérification du quota indisponible : {_quota_err}")
+
+            if not _can_add_siren:
+                st.error(f"🔒 {_siren_quota_msg}")
+                st.caption(
+                    "Ouvrez la section **💳 Abonnements & forfaits** ci-dessous pour "
+                    "passer à un forfait supérieur ou augmenter votre quantité Cabinet."
+                )
+                nom_entreprise = _registered_sirens[0]["company_name"] if _registered_sirens else ""
+                siren_entreprise = _registered_sirens[0]["siren"] if _registered_sirens else ""
+                tva_fr = _registered_sirens[0]["tva_number"] if _registered_sirens else ""
+            else:
+                nom_entreprise   = st.text_input("Nom de l'entreprise", "Mon Entreprise E-commerce")
+                siren_entreprise = st.text_input("Numéro SIREN", "123456789")
+                tva_fr = st.text_input("Numéro de TVA FR (pour XML OSS)", "FR12345678901")
+                if st.button("💾 Enregistrer ce SIREN", key="btn_register_siren"):
+                    if siren_entreprise.strip():
+                        try:
+                            tva_billing.register_siren(
+                                _current_user.id, siren_entreprise.strip(),
+                                nom_entreprise.strip(), tva_fr.strip(),
+                            )
+                            st.success("✅ SIREN enregistré.")
+                            st.rerun()
+                        except Exception as _reg_err:
+                            st.error(f"Erreur d'enregistrement : {_reg_err}")
+                    else:
+                        st.warning("Le numéro SIREN est requis.")
+        else:
+            _match = next((r for r in _registered_sirens if r["siren"] == _siren_choice), None)
+            nom_entreprise   = _match["company_name"] if _match else ""
+            siren_entreprise = _match["siren"] if _match else ""
+            tva_fr = _match["tva_number"] if _match else ""
+            st.caption(f"Nom : **{nom_entreprise}** · TVA : **{tva_fr}**")
+
+    # ── Abonnements & forfaits ────────────────────────────────────────────────
+    with st.expander("\U0001f4b3 Abonnements & forfaits", expanded=False):
+        _sub_status = None
+        try:
+            _sub_status = tva_billing.get_subscription_status(_current_user.id)
+        except Exception as _sub_err:
+            st.caption(f"⚠️ Statut d'abonnement indisponible : {_sub_err}")
+
+        if _sub_status and _sub_status.active:
+            _plan_label = {"business": "Pro", "cabinet": "Cabinet"}.get(_sub_status.plan, _sub_status.plan)
+            _interval_label = {"month": "mensuel", "year": "annuel"}.get(_sub_status.billing_interval, "")
+            st.success(f"✅ Abonnement **{_plan_label}** actif ({_interval_label})"
+                + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
+            try:
+                _portal_url = tva_billing.create_billing_portal_session(
+                    _current_user.id,
+                    return_url="https://tva-intracom-ue.streamlit.app/",
+                )
+                st.link_button("Gérer mon abonnement (Stripe)", _portal_url)
+            except Exception:
+                pass
+        else:
+            st.caption(
+                "Achat unique par déclaration, ou abonnement illimité — "
+                "mensuel ou annuel."
+            )
+            _sub_interval = st.radio("Facturation", ["Mensuel", "Annuel"],
+                horizontal=True, key="sub_interval_choice")
+            _interval_code = "month" if _sub_interval == "Mensuel" else "year"
+
+            st.markdown("**Pro** — accès illimité, 1 SIREN")
+            if st.button("S'abonner — Pro", key="btn_sub_business"):
+                try:
+                    _url = tva_billing.create_subscription_checkout_session(
+                        user_id=_current_user.id, email=_current_user.email,
+                        plan="business", interval=_interval_code,
+                        success_url="https://tva-intracom-ue.streamlit.app/?export_ok=1",
+                        cancel_url="https://tva-intracom-ue.streamlit.app/",
+                    )
+                    st.link_button("→ Continuer vers le paiement", _url)
+                except Exception as _biz_err:
+                    st.error(f"Erreur : {_biz_err}")
+
+            st.markdown("**Cabinet** — accès illimité, tarif dégressif par SIREN géré")
+            _cabinet_qty = st.number_input("Nombre de SIREN gérés", min_value=1, max_value=500,
+                value=5, step=1, key="cabinet_siren_qty")
+            if st.button("S'abonner — Cabinet", key="btn_sub_cabinet"):
+                try:
+                    _url = tva_billing.create_subscription_checkout_session(
+                        user_id=_current_user.id, email=_current_user.email,
+                        plan="cabinet", interval=_interval_code,
+                        quantity=int(_cabinet_qty),
+                        success_url="https://tva-intracom-ue.streamlit.app/?export_ok=1",
+                        cancel_url="https://tva-intracom-ue.streamlit.app/",
+                    )
+                    st.link_button("→ Continuer vers le paiement", _url)
+                except Exception as _cab_err:
+                    st.error(f"Erreur : {_cab_err}")
 
 # =============================================================================
 # UPLOAD
@@ -1461,6 +1576,27 @@ if uploaded_files:
             _can_export = bool(period_label) and tva_billing.has_export_credit(
                 _current_user.id, period_label
             )
+
+            # ── Gate SIREN : le SIREN sélectionné dans la sidebar doit faire
+            # partie des SIREN déjà enregistrés pour ce compte (donc dans la
+            # limite du quota du forfait au moment de leur enregistrement).
+            # Un SIREN non enregistré (ex. quota atteint et non sauvegardé)
+            # bloque l'export même si un crédit de période existe.
+            if _can_export and siren_entreprise:
+                try:
+                    _siren_ok = any(
+                        r["siren"] == siren_entreprise
+                        for r in tva_billing.list_registered_sirens(_current_user.id)
+                    )
+                except Exception:
+                    _siren_ok = True  # ne bloque pas l'export si la vérification échoue techniquement
+                if not _siren_ok:
+                    _can_export = False
+                    st.error(
+                        f"🔒 Le SIREN **{siren_entreprise}** n'est pas enregistré pour votre "
+                        "compte. Enregistrez-le dans la section « Période & entreprise », "
+                        "ou passez à un forfait supérieur si le quota est atteint."
+                    )
 
             def _get_payg_checkout_url():
                 """Crée la session Stripe Checkout une seule fois par période/session
