@@ -139,6 +139,20 @@ st.title("\U0001f1ea\U0001f1fa Moteur de TVA Intracommunautaire")
 if "auth_user" not in st.session_state:
     st.session_state["auth_user"] = None
 
+# ── Bypass d'authentification en développement local UNIQUEMENT ────────────
+# Contrôlé par le secret LOCAL_DEV_BYPASS_AUTH, qui ne doit exister QUE dans
+# le fichier .streamlit/secrets.toml local (jamais commité, cf. .gitignore) —
+# jamais défini dans les secrets Streamlit Cloud de production. Permet de
+# développer sans dépendre de Resend (limité à une adresse en mode test).
+try:
+    _local_bypass = bool(st.secrets.get("LOCAL_DEV_BYPASS_AUTH", False))
+except Exception:
+    _local_bypass = False
+if _local_bypass and st.session_state["auth_user"] is None:
+    _dev_email = st.secrets.get("LOCAL_DEV_BYPASS_EMAIL", "dev@localhost.test")
+    st.session_state["auth_user"] = tva_auth.get_or_create_user(_dev_email)
+    st.sidebar.warning("🛠️ Mode développement local — authentification court-circuitée.")
+
 _qp_token = st.query_params.get("login_token")
 if _qp_token and st.session_state["auth_user"] is None:
     _u = tva_auth.consume_magic_link(_qp_token)
@@ -356,9 +370,23 @@ with st.sidebar:
         st.markdown("**Entreprise**")
         try:
             _registered_sirens = tva_billing.list_registered_sirens(_current_user.id)
+            _siren_quota_status = tva_billing.get_siren_quota_status(_current_user.id)
         except Exception as _siren_list_err:
             _registered_sirens = []
+            _siren_quota_status = None
             st.caption(f"⚠️ Liste des SIREN indisponible : {_siren_list_err}")
+
+        # Sur-quota (ex. downgrade, ou SIREN enregistrés avant l'instauration
+        # du quota) : blocage total des exports tant que le compte n'est pas
+        # revenu à son quota — voir section Abonnements pour retirer un SIREN.
+        _siren_over_quota = bool(_siren_quota_status and _siren_quota_status.blocked)
+        if _siren_over_quota:
+            st.error(
+                f"🔒 Ce compte a {_siren_quota_status.registered_count} SIREN enregistrés "
+                f"pour un quota de {_siren_quota_status.quota}. Tous les exports sont "
+                f"bloqués tant que {_siren_quota_status.over_quota_by} SIREN n'ont pas été "
+                "retirés (section **💳 Abonnements & forfaits** ci-dessous)."
+            )
 
         _siren_options = [r["siren"] for r in _registered_sirens]
         _siren_choice = st.selectbox(
@@ -409,20 +437,48 @@ with st.sidebar:
             siren_entreprise = _match["siren"] if _match else ""
             tva_fr = _match["tva_number"] if _match else ""
             st.caption(f"Nom : **{nom_entreprise}** · TVA : **{tva_fr}**")
+            if _match and _match.get("pending_removal_at"):
+                import datetime as _dt
+                _eff_date = _dt.datetime.fromtimestamp(_match["pending_removal_at"]).strftime("%d/%m/%Y")
+                st.caption(f"⏳ Retrait programmé le {_eff_date}.")
+                if st.button("↩️ Annuler le retrait", key=f"btn_cancel_removal_{siren_entreprise}"):
+                    tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
+                    st.rerun()
 
     # ── Abonnements & forfaits ────────────────────────────────────────────────
-    with st.expander("\U0001f4b3 Abonnements & forfaits", expanded=False):
+    with st.expander("\U0001f4b3 Abonnements & forfaits", expanded=_siren_over_quota):
         _sub_status = None
         try:
             _sub_status = tva_billing.get_subscription_status(_current_user.id)
         except Exception as _sub_err:
             st.caption(f"⚠️ Statut d'abonnement indisponible : {_sub_err}")
 
+        _plan_label = {"business": "Pro", "cabinet": "Cabinet"}.get(
+            _sub_status.plan if _sub_status else None, _sub_status.plan if _sub_status else "—")
+        _interval_label = {"month": "mensuel", "year": "annuel"}.get(
+            _sub_status.billing_interval if _sub_status else None, "")
+
         if _sub_status and _sub_status.active:
-            _plan_label = {"business": "Pro", "cabinet": "Cabinet"}.get(_sub_status.plan, _sub_status.plan)
-            _interval_label = {"month": "mensuel", "year": "annuel"}.get(_sub_status.billing_interval, "")
             st.success(f"✅ Abonnement **{_plan_label}** actif ({_interval_label})"
                 + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
+
+            # Gestion des SIREN pour un abonnement Cabinet (ajout via la section
+            # Entreprise, retrait différé ici, effectif à la date anniversaire).
+            if _sub_status.plan == "cabinet" and _registered_sirens:
+                st.markdown("**SIREN gérés par cet abonnement**")
+                for _r in _registered_sirens:
+                    _c1, _c2 = st.columns([3, 1])
+                    _label = f"{_r['siren']} — {_r['company_name']}"
+                    if _r.get("pending_removal_at"):
+                        _c1.caption(f"{_label} · ⏳ retrait programmé")
+                    else:
+                        _c1.caption(_label)
+                        if _c2.button("Retirer", key=f"btn_remove_{_r['siren']}"):
+                            _eff = tva_billing.request_siren_removal(_current_user.id, _r["siren"])
+                            import datetime as _dt
+                            st.info(f"Retrait programmé le {_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')}.")
+                            st.rerun()
+
             try:
                 _portal_url = tva_billing.create_billing_portal_session(
                     _current_user.id,
@@ -432,6 +488,13 @@ with st.sidebar:
             except Exception:
                 pass
         else:
+            if _sub_status and _sub_status.status:
+                # Abonnement existant mais inactif (annulé/expiré) : état actuel
+                # affiché pour information, sans historique complet.
+                st.warning(f"⏹️ Dernier abonnement **{_plan_label}** — statut : {_sub_status.status}"
+                    + (f" (expiré le {__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y')})"
+                       if _sub_status.current_period_end else ""))
+
             st.caption(
                 "Achat unique par déclaration, ou abonnement illimité — "
                 "mensuel ou annuel."
@@ -455,7 +518,9 @@ with st.sidebar:
 
             st.markdown("**Cabinet** — accès illimité, tarif dégressif par SIREN géré")
             _cabinet_qty = st.number_input("Nombre de SIREN gérés", min_value=1, max_value=500,
-                value=5, step=1, key="cabinet_siren_qty")
+                value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
+                key="cabinet_siren_qty",
+                help="Doit couvrir au moins le nombre de SIREN déjà enregistrés sur ce compte.")
             if st.button("S'abonner — Cabinet", key="btn_sub_cabinet"):
                 try:
                     _url = tva_billing.create_subscription_checkout_session(
@@ -1596,6 +1661,24 @@ if uploaded_files:
                         f"🔒 Le SIREN **{siren_entreprise}** n'est pas enregistré pour votre "
                         "compte. Enregistrez-le dans la section « Période & entreprise », "
                         "ou passez à un forfait supérieur si le quota est atteint."
+                    )
+
+            # ── Gate sur-quota : compte au-dessus de son quota de SIREN (ex.
+            # abonnement Cabinet redescendu à une quantité inférieure au nombre
+            # de SIREN enregistrés). Blocage total de tous les exports tant que
+            # le compte n'est pas redescendu à son quota (voir section
+            # « Abonnements & forfaits » pour retirer un SIREN).
+            if _can_export:
+                try:
+                    _quota_status = tva_billing.get_siren_quota_status(_current_user.id)
+                except Exception:
+                    _quota_status = None
+                if _quota_status and _quota_status.blocked:
+                    _can_export = False
+                    st.error(
+                        f"🔒 Ce compte a {_quota_status.registered_count} SIREN enregistrés pour "
+                        f"un quota de {_quota_status.quota}. Retirez {_quota_status.over_quota_by} "
+                        "SIREN (section « 💳 Abonnements & forfaits ») pour débloquer les exports."
                     )
 
             def _get_payg_checkout_url():

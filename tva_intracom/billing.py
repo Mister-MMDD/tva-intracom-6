@@ -155,6 +155,13 @@ def _init_schema() -> None:
                 )
                 """
             )
+            # Retrait différé (lazy deletion) : un SIREN marqué en attente de
+            # retrait reste utilisable jusqu'à sa date d'échéance (date
+            # anniversaire de l'abonnement au moment de la demande), pour
+            # éviter les abus (ajout/retrait à volonté en cours de période).
+            cur.execute(
+                "ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS pending_removal_at DOUBLE PRECISION"
+            )
             conn.commit()
     except Exception:
         conn.rollback()
@@ -167,6 +174,7 @@ def _init_schema() -> None:
 class SubscriptionStatus:
     active: bool
     plan: Optional[str] = None
+    status: Optional[str] = None
     current_period_end: Optional[float] = None
     billing_interval: Optional[str] = None
     siren_quantity: Optional[int] = None
@@ -196,6 +204,7 @@ def get_subscription_status(user_id: str) -> SubscriptionStatus:
     return SubscriptionStatus(
         active=active,
         plan=plan,
+        status=status,
         current_period_end=period_end,
         billing_interval=billing_interval,
         siren_quantity=siren_quantity,
@@ -256,14 +265,37 @@ def grant_export_credit(user_id: str, period_label: str, payment_intent_id: str 
 #   - Cabinet ("cabinet"): jusqu'à `siren_quantity` (quantité Stripe achetée).
 
 
-def list_registered_sirens(user_id: str) -> list[dict]:
+def _purge_expired_siren_removals(user_id: str) -> None:
+    """Supprime définitivement les SIREN dont le retrait différé est arrivé à
+    échéance (lazy deletion : exécuté à chaque lecture, pas de tâche de fond)."""
     pool = _get_pool()
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT siren, company_name, tva_number, first_used_at
+                DELETE FROM tva_siren_registrations
+                WHERE user_id=%s AND pending_removal_at IS NOT NULL AND pending_removal_at <= %s
+                """,
+                (user_id, time.time()),
+            )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+
+
+def list_registered_sirens(user_id: str) -> list[dict]:
+    _purge_expired_siren_removals(user_id)
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT siren, company_name, tva_number, first_used_at, pending_removal_at
                 FROM tva_siren_registrations
                 WHERE user_id=%s
                 ORDER BY first_used_at ASC
@@ -274,12 +306,15 @@ def list_registered_sirens(user_id: str) -> list[dict]:
     finally:
         pool.putconn(conn)
     return [
-        {"siren": r[0], "company_name": r[1], "tva_number": r[2], "first_used_at": r[3]}
+        {
+            "siren": r[0], "company_name": r[1], "tva_number": r[2],
+            "first_used_at": r[3], "pending_removal_at": r[4],
+        }
         for r in rows
     ]
 
 
-def get_siren_quota(user_id: str) -> Optional[int]:
+def get_siren_quota(user_id: str) -> int:
     """Retourne le quota de SIREN distincts pour ce compte.
 
     - Pas d'abonnement actif (PAYG) : 1 SIREN, comme le forfait Pro.
@@ -296,17 +331,31 @@ def get_siren_quota(user_id: str) -> Optional[int]:
     return _BUSINESS_SIREN_QUOTA
 
 
+@dataclass
+class SirenQuotaStatus:
+    registered_count: int
+    quota: int
+    over_quota_by: int  # 0 si dans les clous
+
+    @property
+    def blocked(self) -> bool:
+        return self.over_quota_by > 0
+
+
+def get_siren_quota_status(user_id: str) -> SirenQuotaStatus:
+    quota = get_siren_quota(user_id)
+    count = len(list_registered_sirens(user_id))
+    return SirenQuotaStatus(registered_count=count, quota=quota, over_quota_by=max(0, count - quota))
+
+
 def can_register_new_siren(user_id: str) -> tuple[bool, str]:
     """Vérifie si le compte peut enregistrer un SIREN supplémentaire (celui-ci
     n'étant pas déjà dans sa liste). Ne s'applique pas à un SIREN déjà
     enregistré (mise à jour du nom/TVA toujours autorisée)."""
-    quota = get_siren_quota(user_id)
-    if quota is None:
-        return True, ""
-    current_count = len(list_registered_sirens(user_id))
-    if current_count >= quota:
+    status = get_siren_quota_status(user_id)
+    if status.registered_count >= status.quota:
         return False, (
-            f"Quota de {quota} SIREN atteint pour votre abonnement actuel. "
+            f"Quota de {status.quota} SIREN atteint pour votre abonnement actuel. "
             "Passez à un forfait supérieur ou augmentez votre quantité Cabinet "
             "pour en enregistrer un de plus."
         )
@@ -331,6 +380,49 @@ def register_siren(user_id: str, siren: str, company_name: str = "", tva_number:
                               tva_number = EXCLUDED.tva_number
                 """,
                 (user_id, siren, company_name, tva_number, time.time()),
+            )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+
+
+def request_siren_removal(user_id: str, siren: str) -> float:
+    """Marque un SIREN "en attente de retrait". Le retrait est effectif à la
+    date anniversaire de l'abonnement en cours (current_period_end) pour
+    éviter les abus (retirer/ajouter un SIREN à volonté en cours de période).
+    Sans abonnement actif, le retrait est immédiat (pas de notion de période).
+    Retourne le timestamp d'échéance effective."""
+    sub = get_subscription_status(user_id)
+    effective_at = sub.current_period_end if (sub.active and sub.current_period_end) else time.time()
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tva_siren_registrations SET pending_removal_at=%s WHERE user_id=%s AND siren=%s",
+                (effective_at, user_id, siren),
+            )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+    return effective_at
+
+
+def cancel_siren_removal(user_id: str, siren: str) -> None:
+    """Annule une demande de retrait en attente."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tva_siren_registrations SET pending_removal_at=NULL WHERE user_id=%s AND siren=%s",
+                (user_id, siren),
             )
             conn.commit()
     except Exception:
@@ -436,7 +528,6 @@ def create_subscription_checkout_session(
         success_url=success_url,
         cancel_url=cancel_url,
         subscription_data={
-            "trial_period_days": 14,
             # Propagée sur l'objet Subscription (et pas seulement sur la
             # Session) pour que le webhook `customer.subscription.*` puisse
             # relire le plan/intervalle sans dépendre de la Session d'origine.
@@ -497,6 +588,45 @@ def _extract_subscription_item_details(data) -> tuple[int, Optional[str]]:
     return int(quantity), interval
 
 
+def _upsert_subscription(
+    user_id: str,
+    stripe_subscription_id: str,
+    status: str,
+    plan: str,
+    current_period_end: float,
+    billing_interval: Optional[str],
+    siren_quantity: int,
+) -> None:
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tva_subscriptions
+                    (user_id, stripe_subscription_id, status, plan, current_period_end,
+                     updated_at, billing_interval, siren_quantity)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+                    status = EXCLUDED.status,
+                    plan = EXCLUDED.plan,
+                    current_period_end = EXCLUDED.current_period_end,
+                    updated_at = EXCLUDED.updated_at,
+                    billing_interval = EXCLUDED.billing_interval,
+                    siren_quantity = EXCLUDED.siren_quantity
+                """,
+                (user_id, stripe_subscription_id, status, plan, current_period_end,
+                 time.time(), billing_interval, siren_quantity),
+            )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+
+
 def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
@@ -513,11 +643,34 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
         user_id = _safe_get(metadata, "user_id")
         if not user_id:
             return
+
         if _safe_get(metadata, "kind") == "payg_export":
             grant_export_credit(
                 user_id,
                 _safe_get(metadata, "period_label", ""),
                 _safe_get(data, "payment_intent", ""),
+            )
+
+        elif _safe_get(data, "mode") == "subscription":
+            subscription_id = _safe_get(data, "subscription")
+            plan = _safe_get(metadata, "plan", "unknown")
+            if not subscription_id:
+                return
+            # On récupère l'abonnement complet plutôt que de dépendre des
+            # événements customer.subscription.created/updated séparés
+            # (qui peuvent ne pas être cochés sur l'endpoint Stripe) : la
+            # session de Checkout contient déjà l'ID, il suffit d'aller
+            # chercher quantité/intervalle/statut/période directement.
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            quantity, interval = _extract_subscription_item_details(subscription)
+            _upsert_subscription(
+                user_id=user_id,
+                stripe_subscription_id=subscription_id,
+                status=_safe_get(subscription, "status"),
+                plan=plan,
+                current_period_end=float(_safe_get(subscription, "current_period_end")),
+                billing_interval=interval,
+                siren_quantity=quantity,
             )
 
     elif etype in ("customer.subscription.created", "customer.subscription.updated"):
@@ -527,35 +680,15 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
             return
         plan = _safe_get(_safe_get(data, "metadata") or {}, "plan", "unknown")
         quantity, interval = _extract_subscription_item_details(data)
-        pool = _get_pool()
-        conn = pool.getconn()
-        try:
-            with conn, conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO tva_subscriptions
-                        (user_id, stripe_subscription_id, status, plan, current_period_end,
-                         updated_at, billing_interval, siren_quantity)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (user_id) DO UPDATE SET
-                        stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-                        status = EXCLUDED.status,
-                        plan = EXCLUDED.plan,
-                        current_period_end = EXCLUDED.current_period_end,
-                        updated_at = EXCLUDED.updated_at,
-                        billing_interval = EXCLUDED.billing_interval,
-                        siren_quantity = EXCLUDED.siren_quantity
-                    """,
-                    (user_id, _safe_get(data, "id"), _safe_get(data, "status"), plan,
-                     float(_safe_get(data, "current_period_end")), time.time(),
-                     interval, quantity),
-                )
-                conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            pool.putconn(conn)
+        _upsert_subscription(
+            user_id=user_id,
+            stripe_subscription_id=_safe_get(data, "id"),
+            status=_safe_get(data, "status"),
+            plan=plan,
+            current_period_end=float(_safe_get(data, "current_period_end")),
+            billing_interval=interval,
+            siren_quantity=quantity,
+        )
 
     elif etype == "customer.subscription.deleted":
         customer_id = _safe_get(data, "customer")
