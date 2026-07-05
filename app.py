@@ -2,6 +2,8 @@
 from __future__ import annotations
 import tempfile, re
 import logging
+import time
+import os
 from decimal import Decimal
 from pathlib import Path
 import plotly.express as px
@@ -157,10 +159,23 @@ if _qp_token and st.session_state["auth_user"] is None:
     _u = tva_auth.consume_magic_link(_qp_token)
     if _u is not None:
         st.session_state["auth_user"] = _u
+        # Jeton de session longue durée (réutilisable, 30 jours) porté dans
+        # l'URL pour survivre à un rafraîchissement de page ou à une
+        # redirection externe (paiement Stripe) sans reconsommer un lien
+        # magique à usage unique.
+        _new_session_token = tva_auth.create_session_token(_u.id)
         st.query_params.clear()
+        st.query_params["session_token"] = _new_session_token
         st.rerun()
     else:
         st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
+
+# ── Restauration de session via jeton persistant (URL ?session_token=...) ──
+_qp_session_token = st.query_params.get("session_token")
+if _qp_session_token and st.session_state["auth_user"] is None:
+    _restored_user = tva_auth.get_user_by_session_token(_qp_session_token)
+    if _restored_user is not None:
+        st.session_state["auth_user"] = _restored_user
 
 if st.session_state["auth_user"] is None:
     st.info("🔐 Connectez-vous pour utiliser le moteur de TVA.")
@@ -170,7 +185,9 @@ if st.session_state["auth_user"] is None:
         _dev_email = st.text_input("Adresse e-mail (n'importe laquelle, pour test)", key="dev_login_email_input")
         if st.button("Se connecter (dev)", key="btn_dev_login"):
             if _dev_email and "@" in _dev_email:
-                st.session_state["auth_user"] = tva_auth.get_or_create_user(_dev_email)
+                _dev_user = tva_auth.get_or_create_user(_dev_email)
+                st.session_state["auth_user"] = _dev_user
+                st.query_params["session_token"] = tva_auth.create_session_token(_dev_user.id)
                 st.rerun()
             else:
                 st.warning("Adresse e-mail invalide.")
@@ -196,6 +213,26 @@ if st.session_state["auth_user"] is None:
 
 _current_user = st.session_state["auth_user"]
 st.caption(f"Connecté : {_current_user.email}")
+
+_APP_BASE_URL = st.secrets.get("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+
+
+def _stripe_success_url(extra_qs: str = "") -> str:
+    """URL de retour post-paiement Stripe, avec le jeton de session courant
+    pour éviter une déconnexion (voir tva_intracom/auth.py :
+    create_session_token / get_user_by_session_token). Sans ça, la
+    redirection Stripe (navigation complète du navigateur) fait perdre la
+    session Streamlit et forcerait à redemander un lien de connexion."""
+    _tok = st.query_params.get("session_token", "")
+    _qs = f"session_token={_tok}" if _tok else ""
+    if extra_qs:
+        _qs = f"{_qs}&{extra_qs}" if _qs else extra_qs
+    return f"{_APP_BASE_URL}/?{_qs}" if _qs else f"{_APP_BASE_URL}/"
+
+
+def _stripe_cancel_url() -> str:
+    _tok = st.query_params.get("session_token", "")
+    return f"{_APP_BASE_URL}/?session_token={_tok}" if _tok else f"{_APP_BASE_URL}/"
 
 # Portée du cache VIES (isolation compte/domaine — voir tva_intracom/vies.py)
 _vies_scope_id = _vies_resolve_scope_id(_current_user.email)
@@ -400,10 +437,16 @@ with st.sidebar:
             )
 
         _siren_options = [r["siren"] for r in _registered_sirens]
+        _siren_label_by_value = {
+            r["siren"]: f"{r['company_name'] or '(sans nom)'} — {r['siren']}"
+            for r in _registered_sirens
+        }
+        _siren_label_by_value["➕ Nouveau SIREN…"] = "➕ Nouveau SIREN…"
         _siren_choice = st.selectbox(
             "SIREN client",
             options=_siren_options + ["➕ Nouveau SIREN…"],
             index=0 if _siren_options else 0,
+            format_func=lambda v: _siren_label_by_value.get(v, v),
             help="Sélectionnez un SIREN déjà enregistré, ou ajoutez-en un nouveau "
                  "dans la limite de votre forfait.",
         ) if _siren_options else "➕ Nouveau SIREN…"
@@ -455,6 +498,19 @@ with st.sidebar:
                 if st.button("↩️ Annuler le retrait", key=f"btn_cancel_removal_{siren_entreprise}"):
                     tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
                     st.rerun()
+            elif _match and len(_registered_sirens) > 1:
+                # Retrait disponible dès qu'il y a plus d'un SIREN enregistré,
+                # quel que soit le forfait (Pro, Cabinet, ou sans abonnement).
+                # Immédiat si pas d'abonnement actif, différé à la date
+                # anniversaire sinon (voir tva_intracom/billing.py).
+                if st.button("🗑️ Retirer ce SIREN", key=f"btn_remove_entreprise_{siren_entreprise}"):
+                    _eff = tva_billing.request_siren_removal(_current_user.id, siren_entreprise)
+                    import datetime as _dt
+                    if _eff <= time.time() + 5:
+                        st.success("✅ SIREN retiré.")
+                    else:
+                        st.info(f"Retrait programmé le {_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')}.")
+                    st.rerun()
 
     # ── Abonnements & forfaits ────────────────────────────────────────────────
     with st.expander("\U0001f4b3 Abonnements & forfaits", expanded=_siren_over_quota):
@@ -479,7 +535,7 @@ with st.sidebar:
                 st.markdown("**SIREN gérés par cet abonnement**")
                 for _r in _registered_sirens:
                     _c1, _c2 = st.columns([3, 1])
-                    _label = f"{_r['siren']} — {_r['company_name']}"
+                    _label = f"{_r['company_name'] or '(sans nom)'} — {_r['siren']}"
                     if _r.get("pending_removal_at"):
                         _c1.caption(f"{_label} · ⏳ retrait programmé")
                     else:
@@ -493,7 +549,7 @@ with st.sidebar:
             try:
                 _portal_url = tva_billing.create_billing_portal_session(
                     _current_user.id,
-                    return_url="https://tva-intracom-ue.streamlit.app/",
+                    return_url=_stripe_cancel_url(),
                 )
                 st.link_button("Gérer mon abonnement (Stripe)", _portal_url)
             except Exception:
@@ -520,8 +576,8 @@ with st.sidebar:
                     _url = tva_billing.create_subscription_checkout_session(
                         user_id=_current_user.id, email=_current_user.email,
                         plan="business", interval=_interval_code,
-                        success_url="https://tva-intracom-ue.streamlit.app/?export_ok=1",
-                        cancel_url="https://tva-intracom-ue.streamlit.app/",
+                        success_url=_stripe_success_url("export_ok=1"),
+                        cancel_url=_stripe_cancel_url(),
                     )
                     st.link_button("→ Continuer vers le paiement", _url)
                 except Exception as _biz_err:
@@ -538,8 +594,8 @@ with st.sidebar:
                         user_id=_current_user.id, email=_current_user.email,
                         plan="cabinet", interval=_interval_code,
                         quantity=int(_cabinet_qty),
-                        success_url="https://tva-intracom-ue.streamlit.app/?export_ok=1",
-                        cancel_url="https://tva-intracom-ue.streamlit.app/",
+                        success_url=_stripe_success_url("export_ok=1"),
+                        cancel_url=_stripe_cancel_url(),
                     )
                     st.link_button("→ Continuer vers le paiement", _url)
                 except Exception as _cab_err:
@@ -1653,6 +1709,14 @@ if uploaded_files:
                 _current_user.id, period_label
             )
 
+            # Statut de quota SIREN, calculé indépendamment du gate d'export
+            # ci-dessous : sert aussi à bloquer le paiement PAYG lui-même en
+            # sur-quota (inutile de laisser payer si ça ne débloquera rien).
+            try:
+                _quota_status = tva_billing.get_siren_quota_status(_current_user.id)
+            except Exception:
+                _quota_status = None
+
             # ── Gate SIREN : le SIREN sélectionné dans la sidebar doit faire
             # partie des SIREN déjà enregistrés pour ce compte (donc dans la
             # limite du quota du forfait au moment de leur enregistrement).
@@ -1679,18 +1743,13 @@ if uploaded_files:
             # de SIREN enregistrés). Blocage total de tous les exports tant que
             # le compte n'est pas redescendu à son quota (voir section
             # « Abonnements & forfaits » pour retirer un SIREN).
-            if _can_export:
-                try:
-                    _quota_status = tva_billing.get_siren_quota_status(_current_user.id)
-                except Exception:
-                    _quota_status = None
-                if _quota_status and _quota_status.blocked:
-                    _can_export = False
-                    st.error(
-                        f"🔒 Ce compte a {_quota_status.registered_count} SIREN enregistrés pour "
-                        f"un quota de {_quota_status.quota}. Retirez {_quota_status.over_quota_by} "
-                        "SIREN (section « 💳 Abonnements & forfaits ») pour débloquer les exports."
-                    )
+            if _can_export and _quota_status and _quota_status.blocked:
+                _can_export = False
+                st.error(
+                    f"🔒 Ce compte a {_quota_status.registered_count} SIREN enregistrés pour "
+                    f"un quota de {_quota_status.quota}. Retirez {_quota_status.over_quota_by} "
+                    "SIREN (section « 💳 Abonnements & forfaits ») pour débloquer les exports."
+                )
 
             def _get_payg_checkout_url():
                 """Crée la session Stripe Checkout une seule fois par période/session
@@ -1706,8 +1765,8 @@ if uploaded_files:
                             user_id=_current_user.id,
                             email=_current_user.email,
                             period_label=period_label,
-                            success_url="https://tva-intracom-ue.streamlit.app/?export_ok=1",
-                            cancel_url="https://tva-intracom-ue.streamlit.app/",
+                            success_url=_stripe_success_url("export_ok=1"),
+                            cancel_url=_stripe_cancel_url(),
                         )
                     except Exception as _billing_err:
                         st.session_state[_cache_key] = None
@@ -1716,9 +1775,19 @@ if uploaded_files:
 
             def _gated_download(label, data, file_name, mime, **kwargs):
                 """Remplace st.download_button : affiche le vrai bouton si crédit
-                disponible pour la période, sinon un lien direct vers Stripe Checkout."""
+                disponible pour la période, sinon un lien direct vers Stripe Checkout.
+                En sur-quota SIREN, le paiement est bloqué en amont (payer ne
+                débloquerait rien tant que le SIREN en trop n'est pas retiré)."""
                 if _can_export:
                     st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
+                    return
+                if _quota_status and _quota_status.blocked:
+                    st.error(
+                        f"🔒 {label} — paiement indisponible : ce compte a "
+                        f"{_quota_status.registered_count} SIREN enregistrés pour un quota de "
+                        f"{_quota_status.quota}. Retirez {_quota_status.over_quota_by} SIREN "
+                        "(section « 💳 Abonnements & forfaits ») avant de payer."
+                    )
                     return
                 _url = _get_payg_checkout_url()
                 if _url:

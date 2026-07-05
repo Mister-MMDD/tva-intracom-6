@@ -78,7 +78,7 @@ def _safe_get(obj, key, default=None):
 
 
 def _stripe_configured() -> bool:
-    key = os.environ.get("STRIPE_SECRET_KEY")
+    key = _env("STRIPE_SECRET_KEY")
     if not key or stripe is None:
         return False
     stripe.api_key = key
@@ -88,7 +88,7 @@ def _stripe_configured() -> bool:
 def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
     global _pool
     if _pool is None:
-        dsn = os.environ.get("SUPABASE_DB_URL")
+        dsn = _env("SUPABASE_DB_URL")
         if not dsn:
             raise RuntimeError(
                 "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
@@ -630,7 +630,7 @@ def _upsert_subscription(
 def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
-    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    webhook_secret = _env("STRIPE_WEBHOOK_SECRET")
     if not webhook_secret:
         raise RuntimeError("STRIPE_WEBHOOK_SECRET non définie.")
 

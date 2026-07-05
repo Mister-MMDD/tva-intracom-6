@@ -27,6 +27,15 @@ import streamlit as st
 
 MAGIC_LINK_TTL_SECONDS = 15 * 60
 
+# Jeton de session : distinct du lien magique. Contrairement à celui-ci
+# (usage unique, 15 min, consommé par create_magic_link/consume_magic_link),
+# ce jeton reste valable plusieurs jours et n'est PAS à usage unique — il sert
+# uniquement à restaurer la session (st.session_state) après une navigation
+# complète du navigateur (redirection Stripe post-paiement, F5), qui fait
+# perdre la session Streamlit en mémoire. Il est porté dans l'URL
+# (?session_token=...) et ne doit jamais être envoyé par e-mail.
+SESSION_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
+
 _pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
 
 
@@ -67,6 +76,15 @@ def _init_schema() -> None:
                     email TEXT NOT NULL,
                     created_at DOUBLE PRECISION NOT NULL,
                     consumed BOOLEAN NOT NULL DEFAULT FALSE
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tva_session_tokens (
+                    token TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    created_at DOUBLE PRECISION NOT NULL
                 )
                 """
             )
@@ -181,3 +199,58 @@ def consume_magic_link(token: str) -> Optional[User]:
     finally:
         pool.putconn(conn)
     return get_or_create_user(email)
+
+
+def create_session_token(user_id: str) -> str:
+    """Génère un jeton de session longue durée (30 jours), réutilisable
+    (contrairement au lien magique), destiné à être porté dans l'URL pour
+    restaurer la connexion après une redirection externe (paiement Stripe)
+    ou un rafraîchissement de page — sans consommer un nouveau lien magique
+    à usage unique (limité côté Resend en mode test)."""
+    token = secrets.token_urlsafe(32)
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO tva_session_tokens (token, user_id, created_at) VALUES (%s, %s, %s)",
+                (token, user_id, time.time()),
+            )
+    finally:
+        pool.putconn(conn)
+    return token
+
+
+def get_user_by_session_token(token: str) -> Optional[User]:
+    """Retourne l'utilisateur associé à un jeton de session valide (non
+    expiré), sans le consommer — il reste utilisable jusqu'à expiration."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id, created_at FROM tva_session_tokens WHERE token=%s",
+                (token,),
+            )
+            row = cur.fetchone()
+    finally:
+        pool.putconn(conn)
+    if not row:
+        return None
+    user_id, created_at = row
+    if (time.time() - created_at) > SESSION_TOKEN_TTL_SECONDS:
+        return None
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email, is_cabinet, cabinet_parent_id FROM tva_users WHERE id=%s",
+                (user_id,),
+            )
+            urow = cur.fetchone()
+    finally:
+        pool.putconn(conn)
+    if not urow:
+        return None
+    return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3])
