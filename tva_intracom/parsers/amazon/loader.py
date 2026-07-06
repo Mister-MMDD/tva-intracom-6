@@ -190,6 +190,7 @@ def _process_rows(
         row_asin     = parser.asin(row)
         currency     = parser.currency(row)
         arrival_pc   = parser.arrival_post_code(row)
+        tx_event_id  = parser.transaction_event_id(row)
 
         product_category = "STANDARD"
         if asin_to_category and row_asin in asin_to_category:
@@ -305,6 +306,7 @@ def _process_rows(
             asin=row_asin,
             amazon_vat_amount=amazon_vat_amt,
             arrival_post_code=postal_code,
+            transaction_event_id=tx_event_id,
         )
 
         # --- Écart de période commande / expédition (fait générateur) ---

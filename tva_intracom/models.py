@@ -120,10 +120,6 @@ class Sale:
     transaction_date: str = ""        # Fait générateur de la TVA (date d'expédition/
                                        # facturation si disponible — art. 65/66 Dir. TVA —
                                        # sinon date de commande en repli).
-    order_date: str = ""              # Date de commande brute, si distincte de
-                                       # transaction_date. Vide si non disponible ou si
-                                       # identique à transaction_date. Sert uniquement au
-                                       # rapport de réconciliation des écarts de période.
     product_category: str = "STANDARD"
     asin: str = ""
     amazon_vat_amount: Decimal = Decimal("0.00")
@@ -139,6 +135,7 @@ class Sale:
                                        # Dir. 2006/112/CE). Champ informatif/audit : permet
                                        # de détecter et signaler les commandes à cheval sur
                                        # deux périodes de déclaration (voir loader.py).
+    transaction_event_id: str = ""     # pour l'affichage des tableau
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "stock_country", self.stock_country.upper())

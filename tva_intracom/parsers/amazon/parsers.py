@@ -67,6 +67,9 @@ class _RowParser:
     def asin(self, row: dict) -> str:
         raise NotImplementedError
 
+    def transaction_event_id(self, row: dict) -> str:
+        """Retourne l'identifiant de l'événement de transaction brut."""
+        return row.get("transaction_event_id", "").strip()
 
 # ---------------------------------------------------------------------------
 # Format 1 — Ancien format

@@ -1359,7 +1359,7 @@ if uploaded_files:
                 elif sort_yours == "Taux": your_results.sort(key=lambda r: -r.vat_rate)
                 else: your_results.sort(key=lambda r: -r.sale.amount_ht)
                 _your_rows = [{
-                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":r.sale.transaction_event_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Taux %":float(r.vat_rate),
                     "TVA (EUR)":float(r.vat_amount), "Canal":r.channel.value,
                     "Devise":r.sale.original_currency if r.sale.original_currency != "EUR" else "",
@@ -1382,7 +1382,7 @@ if uploaded_files:
                 st.caption("Ventes dont Amazon ou la douane collecte la TVA.")
                 third_results = [r for r in results if r.collector.value != "SELLER"]
                 _third_rows = [{
-                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":r.sale.transaction_event_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                     "Collecteur":r.collector.value}
                     for r in third_results]
@@ -1396,7 +1396,7 @@ if uploaded_files:
                 all_sorted = sorted(results,
                     key=lambda r: r.vat_country if sort_all=="Pays" else (-r.vat_rate if sort_all=="Taux" else -r.sale.amount_ht))
                 _all_rows = [{
-                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":r.sale.transaction_event_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                     "Taux %":float(r.vat_rate), "TVA (EUR)":float(r.vat_amount),
                     "Canal":r.channel.value,
@@ -1461,7 +1461,7 @@ if uploaded_files:
                     ref_sorted = sorted(refund_results,
                         key=lambda r: r.vat_country if sort_ref=="Pays" else (-r.vat_rate if sort_ref=="Taux" else r.sale.amount_ht))
                     _ref_rows = [{
-                        "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                        "ID":r.sale.transaction_event_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                         "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                         "Taux %":float(r.vat_rate), "TVA (EUR)":float(r.vat_amount),
                         "Canal":r.channel.value}
@@ -1708,7 +1708,7 @@ if uploaded_files:
                         tva_moteur = float(r.vat_amount)
                         if tva_amazon==0 and tva_moteur==0: continue
                         ecart = tva_amazon - tva_moteur
-                        row_d = {"ID vente":r.sale.sale_id,
+                        row_d = {"ID vente":r.sale.transaction_event_id,
                             "Stock→Dest":f"{r.sale.stock_country}→{r.sale.buyer_country}",
                             "Scénario":r.scenario.value,"HT (EUR)":float(r.sale.amount_ht),
                             "TVA Amazon (EUR)":round(tva_amazon,2),"TVA moteur (EUR)":round(tva_moteur,2),
