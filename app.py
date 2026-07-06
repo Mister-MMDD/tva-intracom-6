@@ -9,6 +9,7 @@ from pathlib import Path
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import math
 import pandas as pd
 import sys
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
@@ -110,6 +111,32 @@ def _smart_money_df(df: "pd.DataFrame", money_cols: list[str], pct_cols: list[st
             cfg[col] = st.column_config.TextColumn(col, width="large",
                 help="Explication du calcul (survol pour voir le texte complet)")
     return cfg
+
+
+def _gated_preview_table(df: "pd.DataFrame", can_export: bool, column_config: dict | None = None,
+                          pct: float = 0.15, min_rows: int = 1,
+                          unlock_hint: str = "🔒 Aperçu limité avant paiement/abonnement.") -> None:
+    """Affiche un tableau de résultats, avec deux comportements :
+
+    - Compte débloqué pour la période (`can_export=True`) : st.dataframe complet,
+      avec sa barre d'outils native (recherche, export CSV, plein écran).
+    - Sinon : aperçu statique via st.table (pas de barre d'outils, donc pas de
+      bouton d'export CSV en un clic), limité à `pct` % des lignes (minimum
+      `min_rows`), pour ne pas exposer la valeur commerciale complète du
+      détail avant paiement. Le contenu visible reste copiable à la souris
+      (aucune techno web n'empêche ça complètement) — l'objectif ici est de
+      retirer l'export en un clic et de limiter le volume, pas d'empêcher
+      toute copie manuelle d'un aperçu volontairement partiel.
+    """
+    n = len(df)
+    if can_export or n == 0:
+        st.dataframe(df, use_container_width=True, hide_index=True, column_config=column_config or {})
+        return
+    n_visible = max(min_rows, math.ceil(n * pct))
+    st.table(df.head(n_visible))
+    _hidden = n - n_visible
+    if _hidden > 0:
+        st.caption(f"{unlock_hint} {_hidden} ligne(s) supplémentaire(s) sur {n} au total.")
 # =============================================================================
 # SIDEBAR
 # =============================================================================
@@ -1000,6 +1027,156 @@ if uploaded_files:
                 st.metric("✅ Concordance Amazon", "0 €")
 
         # =====================================================================
+        # GATING BILLING — calculé AVANT les onglets (et non plus seulement
+        # dans « Téléchargements ») car l'onglet « Déclarations » a aussi
+        # besoin de savoir si le compte est débloqué, pour limiter l'aperçu
+        # gratuit au détail par pays (voir plus bas dans tab_decl).
+        # =====================================================================
+        def _detect_period_label(_results, _oss_period):
+            """Calcule le period_label sans effet de bord (pas de st.info ici)
+            — la même logique que l'auto-détection historique, extraite pour
+            être appelable avant l'affichage des onglets. Retourne
+            (period_label, (date_min, date_max) | None)."""
+            if _oss_period != "__auto__":
+                return _oss_period, None
+            _dates = sorted(
+                r.sale.transaction_date for r in _results
+                if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
+            )
+            if not _dates:
+                return "", None
+            from datetime import datetime as _dt
+            _d_min = _dt.fromisoformat(_dates[0][:10])
+            _d_max = _dt.fromisoformat(_dates[-1][:10])
+            _y_min, _m_min = _d_min.year, _d_min.month
+            _y_max, _m_max = _d_max.year, _d_max.month
+            if _y_min != _y_max:
+                _lbl = f"{_y_min}-{_y_max}"
+            elif _m_min == 1 and _m_max == 12:
+                _lbl = str(_y_min)
+            elif _m_min == 1 and _m_max == 6:
+                _lbl = f"{_y_min}-S1"
+            elif _m_min == 7 and _m_max == 12:
+                _lbl = f"{_y_min}-S2"
+            else:
+                _q_min = (_m_min - 1) // 3 + 1
+                _q_max = (_m_max - 1) // 3 + 1
+                _lbl = f"{_y_min}-Q{_q_min}" if _q_min == _q_max else f"{_y_min}-Q{_q_min}_Q{_q_max}"
+            return _lbl, (_dates[0][:10], _dates[-1][:10])
+
+        period_label, _period_detected_range = _detect_period_label(results, oss_period)
+
+        # ── Gate billing : un export = un crédit payé pour cette période,
+        # ou abonnement actif (voir tva_intracom/billing.py). L'analyse et
+        # la visualisation restent gratuites — seul le téléchargement (et,
+        # désormais, le détail par pays des déclarations) est gaté.
+        _can_export = bool(period_label) and tva_billing.has_export_credit(
+            _current_user.id, period_label
+        )
+
+        # Réutilise le statut de quota déjà calculé dans la sidebar (section
+        # Entreprise) plutôt que de refaire un appel base de données identique.
+        _quota_status = _siren_quota_status
+
+        # ── Gate SIREN : le SIREN sélectionné dans la sidebar doit faire
+        # partie des SIREN déjà enregistrés pour ce compte.
+        if _can_export and siren_entreprise:
+            try:
+                _siren_ok = any(
+                    r["siren"] == siren_entreprise
+                    for r in tva_billing.list_registered_sirens(_current_user.id)
+                )
+            except Exception:
+                _siren_ok = True
+            if not _siren_ok:
+                _can_export = False
+                st.error(
+                    f"🔒 Le SIREN **{siren_entreprise}** n'est pas enregistré pour votre "
+                    "compte. Enregistrez-le dans la section « Période & entreprise », "
+                    "ou passez à un forfait supérieur si le quota est atteint."
+                )
+
+        # ── Gate sur-quota : blocage total tant que le compte n'est pas
+        # redescendu à son quota de SIREN.
+        if _can_export and _quota_status and _quota_status.blocked:
+            _can_export = False
+            st.error(
+                f"🔒 Ce compte a {_quota_status.registered_count} SIREN enregistrés pour "
+                f"un quota de {_quota_status.quota}. Retirez {_quota_status.over_quota_by} "
+                "SIREN (section « 💳 Abonnements & forfaits ») pour débloquer les exports."
+            )
+
+        # Prix PAYG affiché sur les boutons verrouillés — récupéré depuis
+        # Stripe (jamais recopié en dur, cf. get_pricing_grid) pour ne jamais
+        # afficher un montant désynchronisé du tarif réellement facturé.
+        try:
+            _payg_price = tva_billing.get_pricing_grid().get("payg")
+        except Exception:
+            _payg_price = None
+        if _payg_price and _payg_price.get("amount") is not None:
+            _unlock_label_suffix = (
+                f"débloquer une période pour {_payg_price['amount']:.0f} "
+                f"{_payg_price['currency'].upper()} ou abonnez-vous"
+            )
+        else:
+            _unlock_label_suffix = "débloquer cette période ou vous abonner"
+
+        def _get_payg_checkout_url():
+            """Crée la session Stripe Checkout une seule fois par période/session
+            (mise en cache dans session_state) et retourne son URL. Un
+            st.link_button pointant directement vers cette URL redirige au
+            premier clic — contrairement à un st.button + on_click, qui se
+            contente d'écrire dans session_state et nécessite un second clic
+            après le rerun pour afficher le vrai lien.
+
+            Seul un succès est mis en cache : un échec (ex. secret Stripe pas
+            encore configuré) n'est jamais figé dans session_state, pour que
+            ça se rétablisse tout seul dès que la config est corrigée, sans
+            avoir à relancer le process Streamlit (qui garde sinon la même
+            session_state en mémoire indéfiniment)."""
+            _cache_key = f"_stripe_checkout_url::{period_label}"
+            if _cache_key not in st.session_state:
+                try:
+                    st.session_state[_cache_key] = tva_billing.create_payg_checkout_session(
+                        user_id=_current_user.id,
+                        email=_current_user.email,
+                        period_label=period_label,
+                        success_url=_stripe_success_url("export_ok=1"),
+                        cancel_url=_stripe_cancel_url(),
+                    )
+                except Exception as _billing_err:
+                    st.session_state.pop(_cache_key, None)
+                    st.session_state[f"_stripe_checkout_error::{period_label}"] = str(_billing_err)
+            return st.session_state.get(_cache_key)
+
+        def _gated_download(label, data, file_name, mime, **kwargs):
+            """Remplace st.download_button : affiche le vrai bouton si crédit
+            disponible pour la période, sinon un lien direct vers Stripe Checkout.
+            En sur-quota SIREN, le paiement est bloqué en amont (payer ne
+            débloquerait rien tant que le SIREN en trop n'est pas retiré).
+            Utilisable dans N'IMPORTE QUEL onglet (défini avant st.tabs) —
+            tous les exports CSV/XLSX, où qu'ils soient affichés, doivent
+            passer par cette fonction plutôt que st.download_button en direct."""
+            if _can_export:
+                st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
+                return
+            if _quota_status and _quota_status.blocked:
+                st.error(
+                    f"🔒 {label} — paiement indisponible : ce compte a "
+                    f"{_quota_status.registered_count} SIREN enregistrés pour un quota de "
+                    f"{_quota_status.quota}. Retirez {_quota_status.over_quota_by} SIREN "
+                    "(section « 💳 Abonnements & forfaits ») avant de payer."
+                )
+                return
+            _url = _get_payg_checkout_url()
+            if _url:
+                st.link_button(f"🔒 {label} — {_unlock_label_suffix}", _url,
+                                use_container_width=kwargs.get("use_container_width", False))
+            else:
+                _err = st.session_state.get(f"_stripe_checkout_error::{period_label}", "erreur inconnue")
+                st.error(f"🔒 {label} — paiement indisponible : {_err}")
+
+        # =====================================================================
         # ONGLETS PRINCIPAUX
         # =====================================================================
         tab_decl, tab_detail, tab_vies, tab_audit, tab_dl, tab_viz = st.tabs([
@@ -1010,6 +1187,7 @@ if uploaded_files:
             "📥 Téléchargements",
             "📊 Visualisations",
         ])
+
 
         # ── 1. DÉCLARATIONS ───────────────────────────────────────────────────
         with tab_decl:
@@ -1059,14 +1237,32 @@ if uploaded_files:
                 _recap_df,
                 money_cols=["Ventes (EUR)", "Remb. (EUR)", "Net (EUR)"],
             )
-            # Amélioration 3 : colonne Type pour distinguer totaux et sous-lignes pays
+            # Amélioration 3 : colonne Type pour distinguer totaux et sous-lignes
+            # pays — un "→" (OSS/local par pays) ou "📦" (DDP par pays) marque
+            # une ligne de détail par pays ; le reste (France CA3, OSS total,
+            # IOSS, Fisc local total) est une ligne agrégée.
             _recap_df.insert(0, "Type", _recap_df["Canal"].apply(
-                lambda c: "↳ Pays" if str(c).startswith("  →") else "Total"
+                lambda c: "↳ Pays" if str(c).startswith("  →") or str(c).startswith("📦") else "Total"
             ))
             _recap_cfg["Type"] = st.column_config.TextColumn("Type", width="small")
             _recap_cfg["Canal"] = st.column_config.TextColumn("Canal", width="large")
-            st.dataframe(_recap_df, use_container_width=True, hide_index=True,
-                         column_config=_recap_cfg)
+
+            if _can_export:
+                st.dataframe(_recap_df, use_container_width=True, hide_index=True,
+                             column_config=_recap_cfg)
+            else:
+                # Aperçu gratuit : uniquement les lignes agrégées (TVA domestique
+                # France, Guichet OSS total, Fisc local total…) — le détail par
+                # pays est réservé aux comptes débloqués (achat ou abonnement).
+                _recap_totals_only = _recap_df[_recap_df["Type"] == "Total"].drop(columns=["Type"])
+                st.table(_recap_totals_only)
+                _hidden_country_rows = len(_recap_df) - len(_recap_totals_only)
+                if _hidden_country_rows > 0:
+                    st.caption(
+                        f"🔒 Détail par pays masqué ({_hidden_country_rows} ligne(s)) — "
+                        "débloquez cette période (achat ou abonnement) pour voir la "
+                        "ventilation pays par pays."
+                    )
 
             # Barre de progression seuil OSS
             _oss_ht = float(oss_summary.total_oss_ht)
@@ -1108,7 +1304,7 @@ if uploaded_files:
                     for b, v in summary.net_ht_by_bucket.items() if v != 0
                 ]
                 if _bucket_rows:
-                    st.dataframe(pd.DataFrame(_bucket_rows), use_container_width=True, hide_index=True,
+                    _gated_preview_table(pd.DataFrame(_bucket_rows), _can_export,
                         column_config={"CA HT net (EUR)": _money_col("CA HT net (EUR)")})
                 c1, c2, c3 = st.columns(3)
                 c1.metric("CA HT net déclaré", f"{float(_declared_net_ht):,.2f} €")
@@ -1162,8 +1358,7 @@ if uploaded_files:
                     money_cols=["HT (EUR)", "TVA (EUR)", "Montant orig."],
                     pct_cols=["Taux %"],
                     note_cols=["Note"])
-                st.dataframe(_your_df, use_container_width=True, hide_index=True,
-                             column_config=_your_cfg)
+                _gated_preview_table(_your_df, _can_export, column_config=_your_cfg)
 
             with sub_b:
                 st.caption("Ventes dont Amazon ou la douane collecte la TVA.")
@@ -1175,8 +1370,7 @@ if uploaded_files:
                     for r in third_results]
                 _third_df = pd.DataFrame(_third_rows)
                 _third_cfg = _smart_money_df(_third_df, money_cols=["HT (EUR)"])
-                st.dataframe(_third_df, use_container_width=True, hide_index=True,
-                             column_config=_third_cfg)
+                _gated_preview_table(_third_df, _can_export, column_config=_third_cfg)
 
             with sub_c:
                 st.caption("Toutes les ventes, ligne par ligne.")
@@ -1233,8 +1427,7 @@ if uploaded_files:
                     money_cols=["HT (EUR)", "TVA (EUR)", "Montant orig."],
                     pct_cols=["Taux %"],
                     note_cols=["Note"])
-                st.dataframe(_all_df_page, use_container_width=True, hide_index=True,
-                             column_config=_all_cfg)
+                _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg)
 
             with sub_d:
                 if not refund_results:
@@ -1259,8 +1452,7 @@ if uploaded_files:
                     _ref_cfg = _smart_money_df(_ref_df,
                         money_cols=["HT (EUR)", "TVA (EUR)"],
                         pct_cols=["Taux %"])
-                    st.dataframe(_ref_df, use_container_width=True, hide_index=True,
-                                 column_config=_ref_cfg)
+                    _gated_preview_table(_ref_df, _can_export, column_config=_ref_cfg)
 
         # ── 3. VIES ───────────────────────────────────────────────────────────
         with tab_vies:
@@ -1437,8 +1629,7 @@ if uploaded_files:
                     _fraud_df = pd.DataFrame(display)
                     _fraud_cfg = _smart_money_df(_fraud_df,
                         money_cols=["HT (EUR)", "TVA récupérée (EUR)"])
-                    st.dataframe(_fraud_df, use_container_width=True, hide_index=True,
-                                 column_config=_fraud_cfg)
+                    _gated_preview_table(_fraud_df, _can_export, column_config=_fraud_cfg)
 
                     if avec_delta:
                         by_c = {}
@@ -1462,7 +1653,7 @@ if uploaded_files:
                         w.writerow([r.sale_id, r.buyer_vat_number, _country_label(r.buyer_country),
                             str(r.amount_ht).replace(".",","), str(r.vat_avoided).replace(".",","),
                             statut_csv, expl_csv])
-                    st.download_button("⬇️ Exporter rapport VIES (.csv)",
+                    _gated_download("⬇️ Exporter rapport VIES (.csv)",
                         data=("\ufeff"+buf.getvalue()).encode("utf-8"),
                         file_name="rapport_vies.csv", mime="text/csv")
                 elif vies_summary.total_inconclusive:
@@ -1526,7 +1717,7 @@ if uploaded_files:
                         _cfg = _smart_money_df(_df,
                             money_cols=["HT (EUR)", "TVA Amazon (EUR)", "TVA moteur (EUR)", "Écart (EUR)"],
                             pct_cols=["Taux Amazon (%)", "Taux moteur (%)"])
-                        st.dataframe(_df, use_container_width=True, hide_index=True, column_config=_cfg)
+                        _gated_preview_table(_df, _can_export, column_config=_cfg)
 
                     sub1, sub2, sub3, sub4, sub5 = st.tabs([
                         f"⚙️ Écarts de taux ({len(ecarts_autres_tab)})",
@@ -1602,11 +1793,11 @@ if uploaded_files:
                         "Statut":"✅ OK" if c in countries_with_vat else "🚨 Immatriculation requise"}
                         for c,d in by_c.items()])
                     _loc_cfg = _smart_money_df(_df_loc, money_cols=["Volume HT (EUR)"])
-                    st.dataframe(_df_loc, use_container_width=True, hide_index=True, column_config=_loc_cfg)
+                    _gated_preview_table(_df_loc, _can_export, column_config=_loc_cfg)
                 if all_fc_transfers:
                     st.caption(f"{len(all_fc_transfers)} transfert(s) FC détecté(s).")
                     with st.expander("Voir les transferts FBA"):
-                        st.dataframe(pd.DataFrame(all_fc_transfers[:200]), use_container_width=True, hide_index=True)
+                        _gated_preview_table(pd.DataFrame(all_fc_transfers[:200]), _can_export)
                         if len(all_fc_transfers) > 200:
                             st.caption(f"Affichage limité à 200 sur {len(all_fc_transfers)}.")
                 else:
@@ -1704,7 +1895,7 @@ if uploaded_files:
                         m1.metric(f"TVA due — {_country_label(export_country)}", f"{country_vat:,.2f} EUR")
                         m2.metric("Taux standard", meta_sel[3])
                         m3.metric("Taux réduit", meta_sel[4])
-                        st.download_button(f"⬇️ Déclaration {_country_label(export_country)} (.csv)",
+                        _gated_download(f"⬇️ Déclaration {_country_label(export_country)} (.csv)",
                             data=_build_local_csv(export_country),
                             file_name=f"declaration_tva_{export_country.lower()}_{oss_period or 'periode'}.csv",
                             mime="text/csv")
@@ -1714,150 +1905,20 @@ if uploaded_files:
         with tab_dl:
             results_net = results + (refund_results or [])
 
-            # ── Auto-détection de la période depuis les dates de transactions ──
-            if oss_period == "__auto__":
-                _dates = sorted(
-                    r.sale.transaction_date for r in results
-                    if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
-                )
-                if _dates:
-                    from datetime import datetime as _dt
-                    _d_min = _dt.fromisoformat(_dates[0][:10])
-                    _d_max = _dt.fromisoformat(_dates[-1][:10])
-                    _y_min, _m_min = _d_min.year, _d_min.month
-                    _y_max, _m_max = _d_max.year, _d_max.month
-                    if _y_min != _y_max:
-                        # Multi-année → afficher la plage
-                        period_label = f"{_y_min}-{_y_max}"
-                    elif _m_min == 1 and _m_max == 12:
-                        period_label = str(_y_min)                           # Annuel
-                    elif _m_min == 1 and _m_max == 6:
-                        period_label = f"{_y_min}-S1"                       # S1
-                    elif _m_min == 7 and _m_max == 12:
-                        period_label = f"{_y_min}-S2"                       # S2
-                    else:
-                        # Trimestre ou plage partielle → trouver le trimestre
-                        _q_min = (_m_min - 1) // 3 + 1
-                        _q_max = (_m_max - 1) // 3 + 1
-                        if _q_min == _q_max:
-                            period_label = f"{_y_min}-Q{_q_min}"            # 1 trimestre
-                        else:
-                            period_label = f"{_y_min}-Q{_q_min}_Q{_q_max}" # plage trimestrielle
-                    st.info(f"📅 Période auto-détectée : **{period_label}** "
-                            f"(transactions du {_dates[0][:10]} au {_dates[-1][:10]}). "
-                            "Modifiez via le panneau latéral si nécessaire.")
-                else:
-                    period_label = ""
-            else:
-                period_label = oss_period
-
-            # ── Gate billing : un export = un crédit payé pour cette période,
-            # ou abonnement actif (voir tva_intracom/billing.py). L'analyse et
-            # la visualisation restent gratuites — seul le téléchargement est gaté.
-            _can_export = bool(period_label) and tva_billing.has_export_credit(
-                _current_user.id, period_label
-            )
-
-            # Statut de quota SIREN, calculé indépendamment du gate d'export
-            # ci-dessous : sert aussi à bloquer le paiement PAYG lui-même en
-            # sur-quota (inutile de laisser payer si ça ne débloquera rien).
-            try:
-                _quota_status = tva_billing.get_siren_quota_status(_current_user.id)
-            except Exception:
-                _quota_status = None
-
-            # ── Gate SIREN : le SIREN sélectionné dans la sidebar doit faire
-            # partie des SIREN déjà enregistrés pour ce compte (donc dans la
-            # limite du quota du forfait au moment de leur enregistrement).
-            # Un SIREN non enregistré (ex. quota atteint et non sauvegardé)
-            # bloque l'export même si un crédit de période existe.
-            if _can_export and siren_entreprise:
-                try:
-                    _siren_ok = any(
-                        r["siren"] == siren_entreprise
-                        for r in tva_billing.list_registered_sirens(_current_user.id)
-                    )
-                except Exception:
-                    _siren_ok = True  # ne bloque pas l'export si la vérification échoue techniquement
-                if not _siren_ok:
-                    _can_export = False
-                    st.error(
-                        f"🔒 Le SIREN **{siren_entreprise}** n'est pas enregistré pour votre "
-                        "compte. Enregistrez-le dans la section « Période & entreprise », "
-                        "ou passez à un forfait supérieur si le quota est atteint."
-                    )
-
-            # ── Gate sur-quota : compte au-dessus de son quota de SIREN (ex.
-            # abonnement Cabinet redescendu à une quantité inférieure au nombre
-            # de SIREN enregistrés). Blocage total de tous les exports tant que
-            # le compte n'est pas redescendu à son quota (voir section
-            # « Abonnements & forfaits » pour retirer un SIREN).
-            if _can_export and _quota_status and _quota_status.blocked:
-                _can_export = False
-                st.error(
-                    f"🔒 Ce compte a {_quota_status.registered_count} SIREN enregistrés pour "
-                    f"un quota de {_quota_status.quota}. Retirez {_quota_status.over_quota_by} "
-                    "SIREN (section « 💳 Abonnements & forfaits ») pour débloquer les exports."
-                )
-
-            def _get_payg_checkout_url():
-                """Crée la session Stripe Checkout une seule fois par période/session
-                (mise en cache dans session_state) et retourne son URL. Un
-                st.link_button pointant directement vers cette URL redirige au
-                premier clic — contrairement à un st.button + on_click, qui se
-                contente d'écrire dans session_state et nécessite un second clic
-                après le rerun pour afficher le vrai lien.
-
-                Seul un succès est mis en cache : un échec (ex. secret Stripe pas
-                encore configuré) n'est jamais figé dans session_state, pour que
-                ça se rétablisse tout seul dès que la config est corrigée, sans
-                avoir à relancer le process Streamlit (qui garde sinon la même
-                session_state en mémoire indéfiniment)."""
-                _cache_key = f"_stripe_checkout_url::{period_label}"
-                if _cache_key not in st.session_state:
-                    try:
-                        st.session_state[_cache_key] = tva_billing.create_payg_checkout_session(
-                            user_id=_current_user.id,
-                            email=_current_user.email,
-                            period_label=period_label,
-                            success_url=_stripe_success_url("export_ok=1"),
-                            cancel_url=_stripe_cancel_url(),
-                        )
-                    except Exception as _billing_err:
-                        st.session_state.pop(_cache_key, None)
-                        st.session_state[f"_stripe_checkout_error::{period_label}"] = str(_billing_err)
-                return st.session_state.get(_cache_key)
-
-            def _gated_download(label, data, file_name, mime, **kwargs):
-                """Remplace st.download_button : affiche le vrai bouton si crédit
-                disponible pour la période, sinon un lien direct vers Stripe Checkout.
-                En sur-quota SIREN, le paiement est bloqué en amont (payer ne
-                débloquerait rien tant que le SIREN en trop n'est pas retiré)."""
-                if _can_export:
-                    st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
-                    return
-                if _quota_status and _quota_status.blocked:
-                    st.error(
-                        f"🔒 {label} — paiement indisponible : ce compte a "
-                        f"{_quota_status.registered_count} SIREN enregistrés pour un quota de "
-                        f"{_quota_status.quota}. Retirez {_quota_status.over_quota_by} SIREN "
-                        "(section « 💳 Abonnements & forfaits ») avant de payer."
-                    )
-                    return
-                _url = _get_payg_checkout_url()
-                if _url:
-                    st.link_button(f"🔒 {label} — débloquer (15 €)", _url,
-                                    use_container_width=kwargs.get("use_container_width", False))
-                else:
-                    _err = st.session_state.get(f"_stripe_checkout_error::{period_label}", "erreur inconnue")
-                    st.error(f"🔒 {label} — paiement indisponible : {_err}")
+            # period_label, _can_export, _gated_download et _get_payg_checkout_url
+            # sont tous calculés/définis plus haut (avant les onglets) — voir bloc
+            # « GATING BILLING » — pour être également utilisables dans les autres
+            # onglets (Déclarations, VIES, Audit Amazon).
+            if _period_detected_range:
+                st.info(f"📅 Période auto-détectée : **{period_label}** "
+                        f"(transactions du {_period_detected_range[0]} au {_period_detected_range[1]}). "
+                        "Modifiez via le panneau latéral si nécessaire.")
 
             if not _can_export and period_label:
                 st.warning(
                     f"🔒 Les exports de la période **{period_label}** ne sont pas encore "
-                    "débloqués. Cliquez sur un bouton d'export ci-dessous pour être "
-                    "redirigé directement vers le paiement Stripe (15 € / déclaration), "
-                    "ou passez par un abonnement pour un accès illimité."
+                    f"débloqués. Cliquez sur un bouton d'export ci-dessous pour être "
+                    f"redirigé directement vers le paiement Stripe ({_unlock_label_suffix})."
                 )
 
             st.subheader("📥 Téléchargements")

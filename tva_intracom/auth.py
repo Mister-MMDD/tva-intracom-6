@@ -54,6 +54,40 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
     return _pool
 
 
+def _run(fn):
+    """Exécute fn(conn, cur) avec une connexion prise dans le pool, avec un
+    retry unique si la connexion s'avère fermée côté serveur.
+
+    Contexte : le pool (`_pool`) est un objet global qui survit à toutes les
+    reruns du script tant que le process Python tourne (Streamlit local en
+    particulier). Le connecteur Supabase utilisé ici (port 6543, pooler
+    PgBouncer en mode transaction) recycle agressivement les connexions
+    inactives côté serveur — psycopg2.pool ne le détecte pas tant qu'on n'a
+    pas essayé de s'en servir, d'où `psycopg2.InterfaceError: connection
+    already closed` après un moment d'inactivité (typiquement après un F5 en
+    localhost, session Streamlit restée ouverte sans requête depuis un
+    moment). On jette alors tout le pool et on en recrée un pour retenter
+    une fois, plutôt que de laisser planter la page."""
+    global _pool
+    last_exc: Exception | None = None
+    for _attempt in range(2):
+        pool = _get_pool()
+        conn = pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                result = fn(conn, cur)
+            pool.putconn(conn)
+            return result
+        except (psycopg2.InterfaceError, psycopg2.OperationalError) as exc:
+            last_exc = exc
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            _pool = None  # force la recréation d'un pool neuf au prochain tour
+    raise last_exc
+
+
 def _init_schema() -> None:
     conn = _pool.getconn()
     try:
@@ -102,41 +136,38 @@ class User:
 
 def get_or_create_user(email: str) -> User:
     email = email.strip().lower()
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, email, is_cabinet, cabinet_parent_id FROM tva_users WHERE email=%s",
-                (email,),
-            )
-            row = cur.fetchone()
-            if row:
-                return User(id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3])
-            user_id = secrets.token_hex(12)
-            cur.execute(
-                "INSERT INTO tva_users (id, email, created_at) VALUES (%s, %s, %s)",
-                (user_id, email, time.time()),
-            )
-            return User(id=user_id, email=email)
-    finally:
-        pool.putconn(conn)
+
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT id, email, is_cabinet, cabinet_parent_id FROM tva_users WHERE email=%s",
+            (email,),
+        )
+        row = cur.fetchone()
+        if row:
+            return User(id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3])
+        user_id = secrets.token_hex(12)
+        cur.execute(
+            "INSERT INTO tva_users (id, email, created_at) VALUES (%s, %s, %s)",
+            (user_id, email, time.time()),
+        )
+        return User(id=user_id, email=email)
+
+    return _run(_fn)
 
 
 def create_magic_link(email: str) -> str:
     """Génère un jeton de connexion à usage unique. L'envoi de l'e-mail
     (provider transactionnel type Resend/Postmark) reste hors scope ici."""
     token = secrets.token_urlsafe(32)
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO tva_magic_links (token, email, created_at) VALUES (%s, %s, %s)",
-                (token, email.strip().lower(), time.time()),
-            )
-    finally:
-        pool.putconn(conn)
+    _email = email.strip().lower()
+
+    def _fn(conn, cur):
+        cur.execute(
+            "INSERT INTO tva_magic_links (token, email, created_at) VALUES (%s, %s, %s)",
+            (token, _email, time.time()),
+        )
+
+    _run(_fn)
     return token
 
 
@@ -181,23 +212,23 @@ def send_magic_link_email(email: str, login_url: str) -> None:
 
 def consume_magic_link(token: str) -> Optional[User]:
     """Valide un jeton de connexion. Retourne None si invalide, expiré, ou déjà utilisé."""
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT email, created_at, consumed FROM tva_magic_links WHERE token=%s",
-                (token,),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-            email, created_at, consumed = row
-            if consumed or (time.time() - created_at) > MAGIC_LINK_TTL_SECONDS:
-                return None
-            cur.execute("UPDATE tva_magic_links SET consumed=TRUE WHERE token=%s", (token,))
-    finally:
-        pool.putconn(conn)
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT email, created_at, consumed FROM tva_magic_links WHERE token=%s",
+            (token,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        email, created_at, consumed = row
+        if consumed or (time.time() - created_at) > MAGIC_LINK_TTL_SECONDS:
+            return None
+        cur.execute("UPDATE tva_magic_links SET consumed=TRUE WHERE token=%s", (token,))
+        return email
+
+    email = _run(_fn)
+    if not email:
+        return None
     return get_or_create_user(email)
 
 
@@ -208,49 +239,42 @@ def create_session_token(user_id: str) -> str:
     ou un rafraîchissement de page — sans consommer un nouveau lien magique
     à usage unique (limité côté Resend en mode test)."""
     token = secrets.token_urlsafe(32)
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO tva_session_tokens (token, user_id, created_at) VALUES (%s, %s, %s)",
-                (token, user_id, time.time()),
-            )
-    finally:
-        pool.putconn(conn)
+
+    def _fn(conn, cur):
+        cur.execute(
+            "INSERT INTO tva_session_tokens (token, user_id, created_at) VALUES (%s, %s, %s)",
+            (token, user_id, time.time()),
+        )
+
+    _run(_fn)
     return token
 
 
 def get_user_by_session_token(token: str) -> Optional[User]:
     """Retourne l'utilisateur associé à un jeton de session valide (non
     expiré), sans le consommer — il reste utilisable jusqu'à expiration."""
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT user_id, created_at FROM tva_session_tokens WHERE token=%s",
-                (token,),
-            )
-            row = cur.fetchone()
-    finally:
-        pool.putconn(conn)
+    def _fetch_token(conn, cur):
+        cur.execute(
+            "SELECT user_id, created_at FROM tva_session_tokens WHERE token=%s",
+            (token,),
+        )
+        return cur.fetchone()
+
+    row = _run(_fetch_token)
     if not row:
         return None
     user_id, created_at = row
     if (time.time() - created_at) > SESSION_TOKEN_TTL_SECONDS:
         return None
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, email, is_cabinet, cabinet_parent_id FROM tva_users WHERE id=%s",
-                (user_id,),
-            )
-            urow = cur.fetchone()
-    finally:
-        pool.putconn(conn)
+
+    def _fetch_user(conn, cur):
+        cur.execute(
+            "SELECT id, email, is_cabinet, cabinet_parent_id FROM tva_users WHERE id=%s",
+            (user_id,),
+        )
+        return cur.fetchone()
+
+    urow = _run(_fetch_user)
     if not urow:
         return None
     return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3])
