@@ -602,17 +602,34 @@ with st.sidebar:
 
                 if _grid:
                     if _grid.get("payg"):
-                        st.markdown(f"**Achat unique** — {_grid['payg']['amount']:.2f} "
-                            f"{_grid['payg']['currency'].upper()} / déclaration")
+                        _p = _grid["payg"]
+                        if _p.get("discounted_amount") is not None:
+                            st.markdown(
+                                f"**Achat unique** — "
+                                f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
+                                f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
+                                f"({_p['discount_label']}) / déclaration",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.markdown(f"**Achat unique** — {_p['amount']:.2f} "
+                                f"{_p['currency'].upper()} / déclaration")
 
                     if _grid.get("business"):
                         _biz_lines = []
                         for _iv, _lbl in (("month", "mois"), ("year", "an")):
                             _b = _grid["business"].get(_iv)
                             if _b and _b["amount"] is not None:
-                                _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
+                                if _b.get("discounted_amount") is not None:
+                                    _biz_lines.append(
+                                        f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
+                                        f"→ <span style='color:#2ca02c;font-weight:bold'>{_b['discounted_amount']:.2f} {_b['currency'].upper()}</span> "
+                                        f"({_b['discount_label']}) / {_lbl}"
+                                    )
+                                else:
+                                    _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
                         if _biz_lines:
-                            st.markdown("**Pro** (1 SIREN) — " + " · ".join(_biz_lines))
+                            st.markdown("**Pro** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
 
                     if _grid.get("cabinet"):
                         for _iv, _lbl in (("month", "Cabinet — mensuel"), ("year", "Cabinet — annuel")):
@@ -625,10 +642,17 @@ with st.sidebar:
                             for _t in _c["tiers"]:
                                 _up_to = _t["up_to"]
                                 _range = f"{_prev_bound + 1} – {_up_to}" if _up_to is not None else f"{_prev_bound + 1}+"
-                                _price_txt = (
-                                    f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / SIREN"
-                                    if _t["unit_amount"] is not None else "—"
-                                )
+                                if _t["unit_amount"] is not None:
+                                    if _t.get("discounted_unit_amount") is not None:
+                                        _price_txt = (
+                                            f"{_t['unit_amount']:.2f} {_c['currency'].upper()} → "
+                                            f"{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()} "
+                                            f"({_t['discount_label']}) / SIREN"
+                                        )
+                                    else:
+                                        _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / SIREN"
+                                else:
+                                    _price_txt = "—"
                                 if _t.get("flat_amount") is not None:
                                     _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} fixe)"
                                 _rows.append({"SIREN gérés": _range, "Tarif": _price_txt})

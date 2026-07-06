@@ -426,9 +426,17 @@ def get_pricing_grid() -> dict:
     vérité — jamais recopiée en dur ici, pour ne jamais diverger de ce qui
     est effectivement configuré dans le Dashboard Stripe).
 
+    Chaque entrée de prix expose en plus, si un coupon actif est configuré
+    (variable STRIPE_PROMO_COUPON_ID, coupon "W99Axvgb" par défaut) :
+        "discounted_amount": float | None  — montant après réduction
+        "discount_label": str | None       — ex. "-20%" ou "-5 EUR"
+    Le code n'applique JAMAIS automatiquement ce coupon à la session
+    Checkout (il reste au client de saisir le code promotionnel
+    correspondant) — ces champs ne servent qu'à l'affichage "prix barré".
+
     Retourne un dict :
         {
-          "payg": {"amount": float, "currency": "eur"} | None,
+          "payg": {"amount": float, "currency": "eur", "discounted_amount": float|None, "discount_label": str|None} | None,
           "business": {"month": {...}, "year": {...}},
           "cabinet": {"month": {"tiers": [...]}, "year": {"tiers": [...]}},
         }
@@ -442,12 +450,47 @@ def get_pricing_grid() -> dict:
     def _amount(cents: Optional[int]) -> Optional[float]:
         return (cents / 100) if cents is not None else None
 
+    # Coupon utilisé uniquement pour calculer le prix barré affiché — ne
+    # remplace pas la saisie du code promotionnel par le client au Checkout.
+    _coupon_id = _env("STRIPE_PROMO_COUPON_ID", "W99Axvgb")
+    _percent_off: Optional[float] = None
+    _amount_off_cents: Optional[int] = None
+    if _coupon_id:
+        try:
+            _coupon = stripe.Coupon.retrieve(_coupon_id)
+            if _safe_get(_coupon, "valid", True):
+                _percent_off = _safe_get(_coupon, "percent_off")
+                _amount_off_cents = _safe_get(_coupon, "amount_off")
+        except Exception:
+            # Coupon introuvable/expiré/désactivé : la grille reste affichée
+            # sans réduction plutôt que de faire échouer tout l'affichage.
+            pass
+
+    def _apply_discount(cents: Optional[int]) -> tuple[Optional[float], Optional[str]]:
+        """Retourne (montant_réduit, libellé) à partir d'un montant en centimes."""
+        if cents is None:
+            return None, None
+        if _percent_off is not None:
+            discounted = cents * (1 - _percent_off / 100.0) / 100
+            return round(discounted, 2), f"-{_percent_off:g}%"
+        if _amount_off_cents is not None:
+            discounted = max(0, cents - _amount_off_cents) / 100
+            return round(discounted, 2), f"-{_amount_off_cents / 100:.2f}"
+        return None, None
+
     grid: dict = {"payg": None, "business": {}, "cabinet": {}}
 
     _payg_id = _env("STRIPE_PRICE_PAYG_EXPORT")
     if _payg_id:
         p = stripe.Price.retrieve(_payg_id)
-        grid["payg"] = {"amount": _amount(_safe_get(p, "unit_amount")), "currency": _safe_get(p, "currency", "eur")}
+        _cents = _safe_get(p, "unit_amount")
+        _disc_amount, _disc_label = _apply_discount(_cents)
+        grid["payg"] = {
+            "amount": _amount(_cents),
+            "currency": _safe_get(p, "currency", "eur"),
+            "discounted_amount": _disc_amount,
+            "discount_label": _disc_label,
+        }
 
     _biz_keys = {"month": "STRIPE_PRICE_SUB_BUSINESS_MONTHLY", "year": "STRIPE_PRICE_SUB_BUSINESS_YEARLY"}
     for interval, env_key in _biz_keys.items():
@@ -455,9 +498,13 @@ def get_pricing_grid() -> dict:
         if not price_id:
             continue
         p = stripe.Price.retrieve(price_id)
+        _cents = _safe_get(p, "unit_amount")
+        _disc_amount, _disc_label = _apply_discount(_cents)
         grid["business"][interval] = {
-            "amount": _amount(_safe_get(p, "unit_amount")),
+            "amount": _amount(_cents),
             "currency": _safe_get(p, "currency", "eur"),
+            "discounted_amount": _disc_amount,
+            "discount_label": _disc_label,
         }
 
     _cab_keys = {"month": "STRIPE_PRICE_SUB_CABINET_MONTHLY", "year": "STRIPE_PRICE_SUB_CABINET_YEARLY"}
@@ -469,10 +516,14 @@ def get_pricing_grid() -> dict:
         tiers_raw = _safe_get(p, "tiers", []) or []
         tiers = []
         for t in tiers_raw:
+            _unit_cents = _safe_get(t, "unit_amount")
+            _disc_amount, _disc_label = _apply_discount(_unit_cents)
             tiers.append({
                 "up_to": _safe_get(t, "up_to"),  # None = infini (dernier palier)
-                "unit_amount": _amount(_safe_get(t, "unit_amount")),
+                "unit_amount": _amount(_unit_cents),
                 "flat_amount": _amount(_safe_get(t, "flat_amount")),
+                "discounted_unit_amount": _disc_amount,
+                "discount_label": _disc_label,
             })
         grid["cabinet"][interval] = {
             "billing_scheme": _safe_get(p, "billing_scheme"),
@@ -481,6 +532,7 @@ def get_pricing_grid() -> dict:
         }
 
     return grid
+
 
 
 def _get_or_create_stripe_customer(user_id: str, email: str) -> str:
@@ -541,6 +593,7 @@ def create_payg_checkout_session(user_id: str, email: str, period_label: str, su
         line_items=[{"price": _env("STRIPE_PRICE_PAYG_EXPORT"), "quantity": 1}],
         success_url=success_url,
         cancel_url=cancel_url,
+        allow_promotion_codes=True,
         metadata={"user_id": user_id, "period_label": period_label, "kind": "payg_export"},
     )
     return session.url
@@ -598,6 +651,7 @@ def create_subscription_checkout_session(
         line_items=[{"price": price_id, "quantity": effective_quantity}],
         success_url=success_url,
         cancel_url=cancel_url,
+        allow_promotion_codes=True,
         subscription_data={
             # Propagée sur l'objet Subscription (et pas seulement sur la
             # Session) pour que le webhook `customer.subscription.*` puisse
