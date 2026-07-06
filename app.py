@@ -285,12 +285,6 @@ with st.sidebar:
         on_invalid_behavior = "reclassify"
         convert_fx = st.checkbox("Convertir devises via taux BCE", value=True,
             help="Convertit automatiquement les montants non-EUR au taux BCE.")
-        if convert_fx:
-            info = ecb_cache_info()
-            if info["entries"] > 0:
-                st.caption(f"\U0001f4be Cache BCE : {info['entries']} taux"
-                    + (f" ({info['disk_size_kb']} Ko)" if info["disk_exists"] else "")
-                    + (f" — {', '.join(info['currencies'])}" if info["currencies"] else ""))
 
     # ── Cache VIES ────────────────────────────────────────────────────────────
     with st.expander("\U0001f5c4\ufe0f Cache VIES", expanded=False):

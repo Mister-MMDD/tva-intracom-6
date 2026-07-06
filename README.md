@@ -65,11 +65,11 @@ tva-intracom/
 │   │   └── woocommerce.py            Parser WooCommerce
 │   ├── __init__.py
 │   ├── amazon_adapter.py
-│   ├── auth.py                       Authentification magic link (Postgres/Supabase),
-│   │                                 envoi d'e-mail via l'API Resend
-│   ├── billing.py                    Facturation Stripe (Checkout PAYG + abonnements,
-│   │                                 Customer Portal, traitement des webhooks, quotas
-│   │                                 d'export en base Postgres/Supabase)
+│   ├── auth.py                       Authentification magic link + jeton de session
+│   │                                 (Postgres/Supabase), envoi d'e-mail via l'API Resend
+│   ├── billing.py                    Facturation Stripe (PAYG + Pro + Cabinet, Customer
+│   │                                 Portal, quotas SIREN, grille tarifaire, webhooks,
+│   │                                 quotas d'export en base Postgres/Supabase)
 │   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
 │   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
 │   ├── cli.py
@@ -122,7 +122,7 @@ tva-intracom/
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
 | `auth.py` | Authentification par magic link (Postgres/Supabase), envoi d'e-mail via l'API Resend |
-| `billing.py` | Facturation Stripe : Checkout PAYG (un export = une période fiscale débloquée) et abonnements récurrents, Customer Portal, traitement des webhooks (`checkout.session.completed`, `customer.subscription.*`), quotas stockés en Postgres/Supabase |
+| `billing.py` | Facturation Stripe : Checkout PAYG, Pro et Cabinet (mensuel/annuel, paliers dégressifs), Customer Portal, quotas SIREN par compte, grille tarifaire lue en direct sur Stripe, traitement des webhooks (`checkout.session.completed`, `customer.subscription.*`), quotas stockés en Postgres/Supabase, pool de connexions résilient aux coupures du pooler |
 | `app.py` | Interface Streamlit (racine du dépôt, pas dans `tva_intracom/`) |
 
 ---
@@ -131,23 +131,70 @@ tva-intracom/
 
 - **Auth** : connexion par lien magique envoyé par e-mail (API Resend), jeton à usage
   unique valable 15 minutes, comptes stockés dans Supabase (table `tva_users`).
-- **Facturation** : Stripe Checkout, deux modes —
+  Un jeton de session distinct (30 jours, réutilisable, porté dans l'URL
+  `?session_token=`) permet de rester connecté après une redirection externe
+  (paiement Stripe) ou un rafraîchissement de page, sans consommer un nouveau
+  lien magique à usage unique. En développement local uniquement, le secret
+  `LOCAL_DEV_BYPASS_AUTH` (jamais défini en production, à réserver au
+  `.streamlit/secrets.toml` local non commité) permet de se connecter avec
+  n'importe quelle adresse e-mail sans passer par Resend.
+- **Facturation** : Stripe Checkout, 3 forfaits —
   - **Pay-as-you-go** : un crédit d'export correspond à une période fiscale
     (`period_label`, ex. `2026-Q2`) débloquée pour un utilisateur donné. Le
     déblocage est indépendant du nom de fichier ou du contenu exact du CSV
     importé : seule la période détectée dans les transactions compte. Un même
     fichier renommé, ou un fichier légèrement corrigé pour la même période,
     reste débloqué sans nouveau paiement.
-  - **Abonnement récurrent** : déverrouille tous les exports tant qu'actif
-    (avec période d'essai de 14 jours).
+  - **Pro** : abonnement récurrent (mensuel ou annuel), accès illimité,
+    limité à 1 SIREN client par compte.
+  - **Cabinet** : abonnement récurrent (mensuel ou annuel), accès illimité,
+    quantité de SIREN choisie au Checkout (3 minimum), avec tarif dégressif
+    Stripe (tiered pricing) selon la quantité. La modification de quantité ou
+    de forfait sur un abonnement déjà actif se fait via le Portail client
+    Stripe (bouton "Gérer mon abonnement"), jamais via un nouveau Checkout —
+    ce qui créerait un second abonnement Stripe indépendant plutôt que de
+    modifier l'existant.
+  - Aucun essai gratuit sur les abonnements (retiré : faussait les tests de
+    bout en bout en environnement Stripe test, aucune transaction n'étant
+    générée avant la fin de la période d'essai).
+- **Quotas SIREN** : chaque compte enregistre les SIREN de ses clients
+  (nom d'entreprise, SIREN, n° de TVA) dans la limite de son forfait — 1 pour
+  PAYG/Pro, la quantité achetée pour Cabinet. Un compte au-dessus de son
+  quota (ex. abonnement Cabinet redescendu à une quantité inférieure) voit
+  tous ses exports bloqués tant qu'il n'est pas revenu dans les clous. Le
+  retrait d'un SIREN par un compte Cabinet est différé (lazy deletion) : il
+  reste utilisable jusqu'à la date anniversaire de l'abonnement en cours, pour
+  éviter les ajouts/retraits à volonté en cours de période.
+- **Grille tarifaire** : les montants affichés dans l'app (achat unique, Pro,
+  paliers Cabinet) sont récupérés en direct depuis l'API Stripe
+  (`billing.get_pricing_grid()`), jamais recopiés en dur, pour ne jamais
+  diverger du tarif réellement configuré dans le Dashboard Stripe.
+- **Contenu gratuit limité** : tant qu'une période n'est pas débloquée, les
+  tableaux de résultats affichent un aperçu limité à 15 % des lignes (minimum
+  1) via un rendu statique (sans bouton d'export CSV natif), et le détail par
+  pays des déclarations (OSS, TVA locale) reste masqué — seules les lignes
+  agrégées par canal restent visibles. Ceci limite la valeur d'un usage non
+  payant sans bloquer l'analyse ; ce n'est pas une protection technique
+  étanche (une sélection manuelle du texte affiché reste possible).
 - **Webhook Stripe** : fonction serverless Vercel (`vercel_webhook/api/stripe_webhook.py`)
   qui reçoit les événements Stripe et met à jour Supabase via `tva_intracom/billing.py`,
   chargé directement par chemin de fichier (`importlib`) pour éviter de dupliquer le
   code entre les deux environnements de déploiement (Streamlit Cloud + Vercel).
+  L'abonnement est enregistré dès l'événement `checkout.session.completed`
+  (récupération de l'abonnement complet via `stripe.Subscription.retrieve`)
+  plutôt que de dépendre uniquement des événements `customer.subscription.*`
+  séparés, qui peuvent ne pas être cochés sur l'endpoint selon la config
+  Stripe. Les erreurs de traitement sont loggées côté serveur (logs Vercel),
+  jamais renvoyées dans la réponse HTTP.
 - **Base de données partagée** : Postgres (Supabase), accessible à la fois depuis
   Streamlit Cloud (lecture des crédits/abonnements) et depuis la fonction serverless
   Vercel (écriture après paiement confirmé) — un SQLite local ne conviendrait pas
-  puisque les deux environnements ne partagent aucun disque.
+  puisque les deux environnements ne partagent aucun disque. Le pool de connexions
+  (`auth.py` et `billing.py`) retente automatiquement une fois en cas de connexion
+  fermée côté serveur par le pooler Supabase (PgBouncer, mode transaction, qui
+  recycle agressivement les connexions inactives) — situation la plus visible en
+  développement local, où le process Python (et donc le pool) survit longtemps
+  entre deux requêtes.
 
 ---
 

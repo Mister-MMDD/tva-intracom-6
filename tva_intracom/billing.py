@@ -99,76 +99,100 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
     return _pool
 
 
+def _run(fn):
+    """Exécute fn(conn, cur) avec une connexion prise dans le pool, avec un
+    retry unique si la connexion s'avère fermée côté serveur.
+
+    Même correctif que tva_intracom/auth.py : le pool global survit à toutes
+    les reruns tant que le process tourne, et le pooler Supabase (PgBouncer,
+    mode transaction) recycle agressivement les connexions inactives côté
+    serveur — d'où `psycopg2.InterfaceError: connection already closed`
+    après un moment d'inactivité. On jette le pool et on en recrée un neuf
+    pour retenter une fois plutôt que de laisser planter la requête."""
+    global _pool
+    last_exc: Exception | None = None
+    for _attempt in range(2):
+        pool = _get_pool()
+        conn = pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                result = fn(conn, cur)
+            pool.putconn(conn)
+            return result
+        except (psycopg2.InterfaceError, psycopg2.OperationalError) as exc:
+            last_exc = exc
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            _pool = None
+    raise last_exc
+
+
 def _init_schema() -> None:
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_customers (
-                    user_id TEXT PRIMARY KEY,
-                    stripe_customer_id TEXT UNIQUE NOT NULL
-                )
-                """
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tva_customers (
+                user_id TEXT PRIMARY KEY,
+                stripe_customer_id TEXT UNIQUE NOT NULL
             )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_subscriptions (
-                    user_id TEXT PRIMARY KEY,
-                    stripe_subscription_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    plan TEXT NOT NULL,
-                    current_period_end DOUBLE PRECISION NOT NULL,
-                    updated_at DOUBLE PRECISION NOT NULL
-                )
-                """
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tva_subscriptions (
+                user_id TEXT PRIMARY KEY,
+                stripe_subscription_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                plan TEXT NOT NULL,
+                current_period_end DOUBLE PRECISION NOT NULL,
+                updated_at DOUBLE PRECISION NOT NULL
             )
-            # Colonnes ajoutées pour les forfaits Pro/Cabinet (mensuel/annuel,
-            # quantité de SIREN pour le palier Cabinet). ADD COLUMN IF NOT
-            # EXISTS est idempotent — sûr à ré-exécuter à chaque déploiement.
-            cur.execute(
-                "ALTER TABLE tva_subscriptions ADD COLUMN IF NOT EXISTS billing_interval TEXT"
+            """
+        )
+        # Colonnes ajoutées pour les forfaits Pro/Cabinet (mensuel/annuel,
+        # quantité de SIREN pour le palier Cabinet). ADD COLUMN IF NOT
+        # EXISTS est idempotent — sûr à ré-exécuter à chaque déploiement.
+        cur.execute(
+            "ALTER TABLE tva_subscriptions ADD COLUMN IF NOT EXISTS billing_interval TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE tva_subscriptions ADD COLUMN IF NOT EXISTS siren_quantity INTEGER"
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tva_export_credits (
+                user_id TEXT NOT NULL,
+                period_label TEXT NOT NULL,
+                purchased_at DOUBLE PRECISION NOT NULL,
+                stripe_payment_intent_id TEXT,
+                PRIMARY KEY (user_id, period_label)
             )
-            cur.execute(
-                "ALTER TABLE tva_subscriptions ADD COLUMN IF NOT EXISTS siren_quantity INTEGER"
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tva_siren_registrations (
+                user_id TEXT NOT NULL,
+                siren TEXT NOT NULL,
+                company_name TEXT,
+                tva_number TEXT,
+                first_used_at DOUBLE PRECISION NOT NULL,
+                PRIMARY KEY (user_id, siren)
             )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_export_credits (
-                    user_id TEXT NOT NULL,
-                    period_label TEXT NOT NULL,
-                    purchased_at DOUBLE PRECISION NOT NULL,
-                    stripe_payment_intent_id TEXT,
-                    PRIMARY KEY (user_id, period_label)
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_siren_registrations (
-                    user_id TEXT NOT NULL,
-                    siren TEXT NOT NULL,
-                    company_name TEXT,
-                    tva_number TEXT,
-                    first_used_at DOUBLE PRECISION NOT NULL,
-                    PRIMARY KEY (user_id, siren)
-                )
-                """
-            )
-            # Retrait différé (lazy deletion) : un SIREN marqué en attente de
-            # retrait reste utilisable jusqu'à sa date d'échéance (date
-            # anniversaire de l'abonnement au moment de la demande), pour
-            # éviter les abus (ajout/retrait à volonté en cours de période).
-            cur.execute(
-                "ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS pending_removal_at DOUBLE PRECISION"
-            )
-            conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        pool.putconn(conn)
+            """
+        )
+        # Retrait différé (lazy deletion) : un SIREN marqué en attente de
+        # retrait reste utilisable jusqu'à sa date d'échéance (date
+        # anniversaire de l'abonnement au moment de la demande), pour
+        # éviter les abus (ajout/retrait à volonté en cours de période).
+        cur.execute(
+            "ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS pending_removal_at DOUBLE PRECISION"
+        )
+        conn.commit()
+
+    _run(_fn)
 
 
 @dataclass
@@ -182,20 +206,17 @@ class SubscriptionStatus:
 
 
 def get_subscription_status(user_id: str) -> SubscriptionStatus:
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT status, plan, current_period_end, billing_interval, siren_quantity
-                FROM tva_subscriptions WHERE user_id=%s
-                """,
-                (user_id,),
-            )
-            row = cur.fetchone()
-    finally:
-        pool.putconn(conn)
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            SELECT status, plan, current_period_end, billing_interval, siren_quantity
+            FROM tva_subscriptions WHERE user_id=%s
+            """,
+            (user_id,),
+        )
+        return cur.fetchone()
+
+    row = _run(_fn)
 
     if not row:
         return SubscriptionStatus(active=False)
@@ -219,40 +240,32 @@ def has_active_subscription_direct(user_id: str) -> bool:
 def has_export_credit(user_id: str, period_label: str) -> bool:
     if has_active_subscription_direct(user_id):
         return True
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM tva_export_credits WHERE user_id=%s AND period_label=%s",
-                (user_id, period_label),
-            )
-            return cur.fetchone() is not None
-    finally:
-        pool.putconn(conn)
+
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT 1 FROM tva_export_credits WHERE user_id=%s AND period_label=%s",
+            (user_id, period_label),
+        )
+        return cur.fetchone() is not None
+
+    return _run(_fn)
 
 
 def grant_export_credit(user_id: str, period_label: str, payment_intent_id: str = "") -> None:
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO tva_export_credits (user_id, period_label, purchased_at, stripe_payment_intent_id)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (user_id, period_label)
-                DO UPDATE SET purchased_at = EXCLUDED.purchased_at,
-                              stripe_payment_intent_id = EXCLUDED.stripe_payment_intent_id
-                """,
-                (user_id, period_label, time.time(), payment_intent_id),
-            )
-            conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        pool.putconn(conn)
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            INSERT INTO tva_export_credits (user_id, period_label, purchased_at, stripe_payment_intent_id)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id, period_label)
+            DO UPDATE SET purchased_at = EXCLUDED.purchased_at,
+                          stripe_payment_intent_id = EXCLUDED.stripe_payment_intent_id
+            """,
+            (user_id, period_label, time.time(), payment_intent_id),
+        )
+        conn.commit()
+
+    _run(_fn)
 
 
 # =============================================================================
@@ -269,43 +282,35 @@ def grant_export_credit(user_id: str, period_label: str, payment_intent_id: str 
 def _purge_expired_siren_removals(user_id: str) -> None:
     """Supprime définitivement les SIREN dont le retrait différé est arrivé à
     échéance (lazy deletion : exécuté à chaque lecture, pas de tâche de fond)."""
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                DELETE FROM tva_siren_registrations
-                WHERE user_id=%s AND pending_removal_at IS NOT NULL AND pending_removal_at <= %s
-                """,
-                (user_id, time.time()),
-            )
-            conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        pool.putconn(conn)
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            DELETE FROM tva_siren_registrations
+            WHERE user_id=%s AND pending_removal_at IS NOT NULL AND pending_removal_at <= %s
+            """,
+            (user_id, time.time()),
+        )
+        conn.commit()
+
+    _run(_fn)
 
 
 def list_registered_sirens(user_id: str) -> list[dict]:
     _purge_expired_siren_removals(user_id)
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT siren, company_name, tva_number, first_used_at, pending_removal_at
-                FROM tva_siren_registrations
-                WHERE user_id=%s
-                ORDER BY first_used_at ASC
-                """,
-                (user_id,),
-            )
-            rows = cur.fetchall()
-    finally:
-        pool.putconn(conn)
+
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            SELECT siren, company_name, tva_number, first_used_at, pending_removal_at
+            FROM tva_siren_registrations
+            WHERE user_id=%s
+            ORDER BY first_used_at ASC
+            """,
+            (user_id,),
+        )
+        return cur.fetchall()
+
+    rows = _run(_fn)
     return [
         {
             "siren": r[0], "company_name": r[1], "tva_number": r[2],
@@ -368,26 +373,20 @@ def register_siren(user_id: str, siren: str, company_name: str = "", tva_number:
     est déjà enregistré. Le contrôle de quota (`can_register_new_siren`) doit
     être fait par l'appelant AVANT d'appeler cette fonction pour un nouveau
     SIREN — cette fonction ne le revérifie pas elle-même."""
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO tva_siren_registrations (user_id, siren, company_name, tva_number, first_used_at)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (user_id, siren)
-                DO UPDATE SET company_name = EXCLUDED.company_name,
-                              tva_number = EXCLUDED.tva_number
-                """,
-                (user_id, siren, company_name, tva_number, time.time()),
-            )
-            conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        pool.putconn(conn)
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            INSERT INTO tva_siren_registrations (user_id, siren, company_name, tva_number, first_used_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (user_id, siren)
+            DO UPDATE SET company_name = EXCLUDED.company_name,
+                          tva_number = EXCLUDED.tva_number
+            """,
+            (user_id, siren, company_name, tva_number, time.time()),
+        )
+        conn.commit()
+
+    _run(_fn)
 
 
 def request_siren_removal(user_id: str, siren: str) -> float:
@@ -398,39 +397,28 @@ def request_siren_removal(user_id: str, siren: str) -> float:
     Retourne le timestamp d'échéance effective."""
     sub = get_subscription_status(user_id)
     effective_at = sub.current_period_end if (sub.active and sub.current_period_end) else time.time()
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "UPDATE tva_siren_registrations SET pending_removal_at=%s WHERE user_id=%s AND siren=%s",
-                (effective_at, user_id, siren),
-            )
-            conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        pool.putconn(conn)
+
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_siren_registrations SET pending_removal_at=%s WHERE user_id=%s AND siren=%s",
+            (effective_at, user_id, siren),
+        )
+        conn.commit()
+
+    _run(_fn)
     return effective_at
 
 
 def cancel_siren_removal(user_id: str, siren: str) -> None:
     """Annule une demande de retrait en attente."""
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                "UPDATE tva_siren_registrations SET pending_removal_at=NULL WHERE user_id=%s AND siren=%s",
-                (user_id, siren),
-            )
-            conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        pool.putconn(conn)
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_siren_registrations SET pending_removal_at=NULL WHERE user_id=%s AND siren=%s",
+            (user_id, siren),
+        )
+        conn.commit()
+
+    _run(_fn)
 
 
 def get_pricing_grid() -> dict:
@@ -496,30 +484,48 @@ def get_pricing_grid() -> dict:
 
 
 def _get_or_create_stripe_customer(user_id: str, email: str) -> str:
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE user_id=%s", (user_id,))
-            row = cur.fetchone()
-            if row:
-                return row[0]
+    """Récupère le stripe_customer_id existant, ou en crée un nouveau.
 
-            if not _stripe_configured():
-                raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
+    L'appel réseau à `stripe.Customer.create()` est fait EXACTEMENT une fois,
+    en dehors de toute logique de retry — contrairement à une version
+    précédente qui l'enfermait dans le même bloc retenté par `_run()` en cas
+    de connexion Postgres fermée par le pooler (cf. tva_intracom/auth.py) :
+    un retry aurait alors pu créer un second client Stripe pour le même
+    utilisateur. Les deux accès DB de part et d'autre restent, eux, sûrs à
+    retenter (SELECT, puis INSERT idempotent via ON CONFLICT DO NOTHING)."""
+    def _select(conn, cur):
+        cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE user_id=%s", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
 
-            customer = stripe.Customer.create(email=email, metadata={"user_id": user_id})
-            cur.execute(
-                "INSERT INTO tva_customers (user_id, stripe_customer_id) VALUES (%s, %s)",
-                (user_id, customer.id),
-            )
-            conn.commit()
-            return customer.id
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        pool.putconn(conn)
+    existing = _run(_select)
+    if existing:
+        return existing
+
+    if not _stripe_configured():
+        raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
+
+    customer = stripe.Customer.create(email=email, metadata={"user_id": user_id})
+
+    def _insert(conn, cur):
+        cur.execute(
+            """
+            INSERT INTO tva_customers (user_id, stripe_customer_id)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            (user_id, customer.id),
+        )
+        conn.commit()
+        # Relit la valeur réellement stockée : en cas de course avec un autre
+        # appel concurrent déjà passé, on renvoie le customer_id existant en
+        # base plutôt que celui qu'on vient de créer (qui serait alors orphelin
+        # côté Stripe — pas grave en soi, mais autant renvoyer la valeur
+        # canonique effectivement utilisée par l'application).
+        cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE user_id=%s", (user_id,))
+        return cur.fetchone()[0]
+
+    return _run(_insert)
 
 
 def create_payg_checkout_session(user_id: str, email: str, period_label: str, success_url: str, cancel_url: str) -> str:
@@ -604,14 +610,11 @@ def create_subscription_checkout_session(
 
 
 def create_billing_portal_session(user_id: str, return_url: str) -> str:
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE user_id=%s", (user_id,))
-            row = cur.fetchone()
-    finally:
-        pool.putconn(conn)
+    def _fn(conn, cur):
+        cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE user_id=%s", (user_id,))
+        return cur.fetchone()
+
+    row = _run(_fn)
 
     if not row:
         raise RuntimeError("Aucun client Stripe pour cet utilisateur.")
@@ -623,15 +626,12 @@ def create_billing_portal_session(user_id: str, return_url: str) -> str:
 
 
 def _user_id_for_stripe_customer(stripe_customer_id: str) -> Optional[str]:
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute("SELECT user_id FROM tva_customers WHERE stripe_customer_id=%s", (stripe_customer_id,))
-            row = cur.fetchone()
-            return row[0] if row else None
-    finally:
-        pool.putconn(conn)
+    def _fn(conn, cur):
+        cur.execute("SELECT user_id FROM tva_customers WHERE stripe_customer_id=%s", (stripe_customer_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    return _run(_fn)
 
 
 def _extract_subscription_item_details(data) -> tuple[int, Optional[str], Optional[float]]:
@@ -672,34 +672,28 @@ def _upsert_subscription(
     billing_interval: Optional[str],
     siren_quantity: int,
 ) -> None:
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO tva_subscriptions
-                    (user_id, stripe_subscription_id, status, plan, current_period_end,
-                     updated_at, billing_interval, siren_quantity)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET
-                    stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-                    status = EXCLUDED.status,
-                    plan = EXCLUDED.plan,
-                    current_period_end = EXCLUDED.current_period_end,
-                    updated_at = EXCLUDED.updated_at,
-                    billing_interval = EXCLUDED.billing_interval,
-                    siren_quantity = EXCLUDED.siren_quantity
-                """,
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            INSERT INTO tva_subscriptions
                 (user_id, stripe_subscription_id, status, plan, current_period_end,
-                 time.time(), billing_interval, siren_quantity),
-            )
-            conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        pool.putconn(conn)
+                 updated_at, billing_interval, siren_quantity)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+                status = EXCLUDED.status,
+                plan = EXCLUDED.plan,
+                current_period_end = EXCLUDED.current_period_end,
+                updated_at = EXCLUDED.updated_at,
+                billing_interval = EXCLUDED.billing_interval,
+                siren_quantity = EXCLUDED.siren_quantity
+            """,
+            (user_id, stripe_subscription_id, status, plan, current_period_end,
+             time.time(), billing_interval, siren_quantity),
+        )
+        conn.commit()
+
+    _run(_fn)
 
 
 def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
@@ -780,17 +774,12 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
         user_id = _user_id_for_stripe_customer(customer_id)
         if not user_id:
             return
-        pool = _get_pool()
-        conn = pool.getconn()
-        try:
-            with conn, conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE tva_subscriptions SET status='canceled', updated_at=%s WHERE user_id=%s",
-                    (time.time(), user_id),
-                )
-                conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            pool.putconn(conn)
+
+        def _fn(conn, cur):
+            cur.execute(
+                "UPDATE tva_subscriptions SET status='canceled', updated_at=%s WHERE user_id=%s",
+                (time.time(), user_id),
+            )
+            conn.commit()
+
+        _run(_fn)
