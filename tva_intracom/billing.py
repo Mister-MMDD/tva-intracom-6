@@ -421,22 +421,188 @@ def cancel_siren_removal(user_id: str, siren: str) -> None:
     _run(_fn)
 
 
-def get_pricing_grid() -> dict:
+def _existing_stripe_customer_id(user_id: str) -> Optional[str]:
+    """Lit le stripe_customer_id existant, sans en créer un nouveau (contrairement
+    à _get_or_create_stripe_customer) — utilisé pour de simples vérifications en
+    lecture (ex. éligibilité aux codes promo) où créer un client Stripe pour un
+    simple affichage de grille tarifaire serait un effet de bord indésirable."""
+    def _select(conn, cur):
+        cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE user_id=%s", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    return _run(_select)
+
+
+def _stripe_customer_has_paid_before(customer_id: str) -> bool:
+    """Vérifie côté Stripe (pas en base locale) si ce client a déjà un paiement
+    réussi — utilisé pour évaluer la restriction "1ère commande uniquement" des
+    Promotion Codes, indépendamment de ce que notre base locale sait déjà."""
+    try:
+        charges = stripe.Charge.list(customer=customer_id, limit=1)
+        for ch in charges.auto_paging_iter():
+            if _safe_get(ch, "paid"):
+                return True
+        return False
+    except Exception:
+        # En cas d'erreur réseau/API, on ne bloque pas l'affichage — on
+        # considère prudemment que l'éligibilité "1ère commande" est inconnue
+        # plutôt que de risquer un faux positif.
+        return False
+
+
+def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
+    """Liste les codes promotionnels actifs configurés côté Stripe (Dashboard),
+    avec leurs conditions d'utilisation, sans jamais les recopier en dur ici.
+
+    Si `user_id` est fourni et qu'un client Stripe existe déjà pour ce
+    compte, chaque code inclut aussi son éligibilité pour CE client
+    (vérifiée en direct côté Stripe : historique de paiement pour la
+    restriction "1ère commande", stock restant, date d'expiration). Sans
+    `user_id` (visiteur non connecté), "eligible" vaut None (inconnu).
+
+    Les codes restreints à un client Stripe précis (`promo.customer` défini)
+    et différent de `user_id` sont exclus de la liste — ce sont des codes
+    privés, pas des offres publiques à afficher.
+
+    Retourne une liste de dicts :
+        {
+          "code": str, "percent_off": float|None, "amount_off": float|None,
+          "currency": str|None, "expires_at": int|None (timestamp Unix),
+          "first_time_only": bool, "minimum_amount": float|None,
+          "minimum_amount_currency": str|None, "max_redemptions": int|None,
+          "stock_remaining": int|None (None = illimité),
+          "eligible": bool|None, "ineligible_reasons": list[str],
+        }
+    """
+    if not _stripe_configured():
+        raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
+
+    customer_id = _existing_stripe_customer_id(user_id) if user_id else None
+    has_paid_before = _stripe_customer_has_paid_before(customer_id) if customer_id else False
+
+    results: list[dict] = []
+    try:
+        promos = stripe.PromotionCode.list(active=True, limit=100, expand=["data.coupon"])
+    except Exception:
+        return results
+
+    for promo in promos.auto_paging_iter():
+        customer_restriction = _safe_get(promo, "customer")
+        if customer_restriction and customer_restriction != customer_id:
+            # Code privé réservé à un autre client précis : jamais affiché.
+            continue
+
+        # Schéma API Stripe constaté sur ce compte (version récente) : le
+        # coupon n'est PAS un champ top-level "coupon" sur le Promotion Code,
+        # mais imbriqué sous "promotion": {"coupon": "<id>", "type": "coupon"}.
+        # Repli sur l'ancien emplacement top-level "coupon" par prudence, au
+        # cas où un compte/une version d'API renverrait l'ancien format.
+        _promotion_obj = _safe_get(promo, "promotion")
+        coupon_ref = _safe_get(_promotion_obj, "coupon") if _promotion_obj else _safe_get(promo, "coupon")
+        # L'objet "coupon" imbriqué dans PromotionCode.list(...) ne s'est pas
+        # révélé fiable pour lire percent_off/amount_off (cf. bug constaté :
+        # toujours None malgré un coupon à -25% bien actif dans Stripe). On
+        # récupère donc le coupon explicitement via Coupon.retrieve(id),
+        # comme le faisait l'ancienne version de get_pricing_grid qui, elle,
+        # fonctionnait correctement.
+        coupon_id = coupon_ref if isinstance(coupon_ref, str) else _safe_get(coupon_ref, "id")
+        try:
+            coupon = stripe.Coupon.retrieve(coupon_id) if coupon_id else coupon_ref
+        except Exception:
+            coupon = coupon_ref
+        percent_off = _safe_get(coupon, "percent_off")
+        amount_off_cents = _safe_get(coupon, "amount_off")
+        currency = _safe_get(coupon, "currency")
+        coupon_valid = _safe_get(coupon, "valid", True)
+        if not coupon_valid:
+            continue
+
+        restrictions = _safe_get(promo, "restrictions", {}) or {}
+        first_time_only = bool(_safe_get(restrictions, "first_time_transaction", False))
+        min_amount_cents = _safe_get(restrictions, "minimum_amount")
+        min_currency = _safe_get(restrictions, "minimum_amount_currency")
+
+        max_redemptions = _safe_get(promo, "max_redemptions")
+        times_redeemed = _safe_get(promo, "times_redeemed", 0) or 0
+        stock_remaining = (max_redemptions - times_redeemed) if max_redemptions is not None else None
+
+        expires_at = _safe_get(promo, "expires_at")
+
+        # Faits objectifs, vérifiables indépendamment de l'identité du client :
+        # stock épuisé et expiration. Toujours évalués, connecté ou non.
+        reasons: list[str] = []
+        stock_exhausted = stock_remaining is not None and stock_remaining <= 0
+        expired = bool(expires_at and expires_at < time.time())
+        if stock_exhausted:
+            reasons.append("stock de codes épuisé")
+        if expired:
+            reasons.append("code expiré")
+
+        if user_id:
+            # Client connu : on peut trancher précisément, y compris la
+            # restriction "1ère commande" (vérifiée côté Stripe plus haut).
+            first_time_blocked = first_time_only and has_paid_before
+            if first_time_blocked:
+                reasons.append("réservé aux nouveaux clients (1ère commande)")
+            eligible: Optional[bool] = not (stock_exhausted or expired or first_time_blocked)
+        elif stock_exhausted or expired:
+            # Visiteur non connecté, mais on sait déjà avec certitude que ce
+            # code est inutilisable (fait objectif, indépendant du client).
+            eligible = False
+        elif first_time_only:
+            # Visiteur non connecté et restriction dépendant du client :
+            # éligibilité réellement inconnue tant qu'on ne sait pas s'il a
+            # déjà commandé.
+            eligible = None
+        else:
+            # Aucune restriction dépendant du client, et aucun blocage objectif.
+            eligible = True
+
+        results.append({
+            "code": _safe_get(promo, "code"),
+            "percent_off": percent_off,
+            "amount_off": (amount_off_cents / 100) if amount_off_cents is not None else None,
+            "currency": currency,
+            "expires_at": expires_at,
+            "first_time_only": first_time_only,
+            "minimum_amount": (min_amount_cents / 100) if min_amount_cents is not None else None,
+            "minimum_amount_currency": min_currency,
+            "max_redemptions": max_redemptions,
+            "stock_remaining": stock_remaining,
+            "eligible": eligible,
+            "ineligible_reasons": reasons,
+        })
+
+    return results
+
+
+def get_pricing_grid(user_id: Optional[str] = None) -> dict:
     """Récupère la grille tarifaire réelle depuis l'API Stripe (source de
     vérité — jamais recopiée en dur ici, pour ne jamais diverger de ce qui
     est effectivement configuré dans le Dashboard Stripe).
 
-    Chaque entrée de prix expose en plus, si un coupon actif est configuré
-    (variable STRIPE_PROMO_COUPON_ID, coupon "W99Axvgb" par défaut) :
-        "discounted_amount": float | None  — montant après réduction
-        "discount_label": str | None       — ex. "-20%" ou "-5 EUR"
-    Le code n'applique JAMAIS automatiquement ce coupon à la session
-    Checkout (il reste au client de saisir le code promotionnel
-    correspondant) — ces champs ne servent qu'à l'affichage "prix barré".
+    Le prix barré affiché pour chaque offre correspond au MEILLEUR code
+    promotionnel actif et éligible parmi ceux renvoyés par
+    `list_available_promotions(user_id)` — pas un coupon fixe codé en dur.
+    "Meilleur" est évalué indépendamment pour chaque prix (le montant final
+    le plus bas), car un code à réduction fixe (ex. -5 EUR) et un code en
+    pourcentage (ex. -20%) ne sont pas comparables in abstracto, seulement
+    une fois appliqués à un montant donné. Un code nécessitant un montant
+    minimum non atteint par une offre donnée est ignoré pour cette offre.
+    Le code n'est JAMAIS appliqué automatiquement à la session Checkout
+    (le client doit toujours le saisir lui-même) — ces champs ne servent
+    qu'à l'affichage "prix barré".
+
+    Sans `user_id` (visiteur non connecté), seuls les codes dont
+    l'éligibilité ne dépend pas de l'identité du client (`eligible` True ou
+    None, cf. list_available_promotions) sont considérés comme candidats —
+    les codes objectivement épuisés/expirés restent exclus.
 
     Retourne un dict :
         {
-          "payg": {"amount": float, "currency": "eur", "discounted_amount": float|None, "discount_label": str|None} | None,
+          "payg": {"amount": float, "currency": "eur", "discounted_amount": float|None,
+                   "discount_label": str|None, "discount_code": str|None} | None,
           "business": {"month": {...}, "year": {...}},
           "cabinet": {"month": {"tiers": [...]}, "year": {"tiers": [...]}},
         }
@@ -450,46 +616,60 @@ def get_pricing_grid() -> dict:
     def _amount(cents: Optional[int]) -> Optional[float]:
         return (cents / 100) if cents is not None else None
 
-    # Coupon utilisé uniquement pour calculer le prix barré affiché — ne
-    # remplace pas la saisie du code promotionnel par le client au Checkout.
-    _coupon_id = _env("STRIPE_PROMO_COUPON_ID", "W99Axvgb")
-    _percent_off: Optional[float] = None
-    _amount_off_cents: Optional[int] = None
-    if _coupon_id:
-        try:
-            _coupon = stripe.Coupon.retrieve(_coupon_id)
-            if _safe_get(_coupon, "valid", True):
-                _percent_off = _safe_get(_coupon, "percent_off")
-                _amount_off_cents = _safe_get(_coupon, "amount_off")
-        except Exception:
-            # Coupon introuvable/expiré/désactivé : la grille reste affichée
-            # sans réduction plutôt que de faire échouer tout l'affichage.
-            pass
+    # Candidats : tout code actif dont on ne sait pas AVEC CERTITUDE qu'il
+    # est inutilisable (eligible is False exclu ; True et None acceptés).
+    try:
+        _candidates = [p for p in list_available_promotions(user_id) if p.get("eligible") is not False]
+    except Exception as _promo_err:
+        # Volontairement PAS de fallback silencieux ici : une grille qui
+        # affiche les prix "normaux" sans jamais dire pourquoi la réduction
+        # a disparu serait plus trompeuse qu'une erreur explicite.
+        raise RuntimeError(f"Erreur lors du calcul des codes promo applicables : {_promo_err}") from _promo_err
 
-    def _apply_discount(cents: Optional[int]) -> tuple[Optional[float], Optional[str]]:
-        """Retourne (montant_réduit, libellé) à partir d'un montant en centimes."""
+    def _best_discount(cents: Optional[int]) -> tuple[Optional[float], Optional[str], Optional[str]]:
+        """Retourne (montant_réduit, libellé, code) pour le meilleur candidat
+        applicable à ce montant (en centimes), ou (None, None, None) si aucun
+        candidat n'est applicable."""
         if cents is None:
-            return None, None
-        if _percent_off is not None:
-            discounted = cents * (1 - _percent_off / 100.0) / 100
-            return round(discounted, 2), f"-{_percent_off:g}%"
-        if _amount_off_cents is not None:
-            discounted = max(0, cents - _amount_off_cents) / 100
-            return round(discounted, 2), f"-{_amount_off_cents / 100:.2f}"
-        return None, None
+            return None, None, None
+        best_cents: Optional[float] = None
+        best_label: Optional[str] = None
+        best_code: Optional[str] = None
+        for promo in _candidates:
+            _min = promo.get("minimum_amount")
+            if _min is not None and (cents / 100) < _min:
+                continue  # montant minimum requis non atteint par cette offre
+            if promo.get("percent_off") is not None:
+                candidate_cents = cents * (1 - promo["percent_off"] / 100.0)
+                label = f"-{promo['percent_off']:g}%"
+            elif promo.get("amount_off") is not None:
+                candidate_cents = max(0, cents - promo["amount_off"] * 100)
+                label = f"-{promo['amount_off']:.2f}"
+            else:
+                continue
+            if best_cents is None or candidate_cents < best_cents:
+                best_cents = candidate_cents
+                best_label = label
+                best_code = promo.get("code")
+        if best_code is None:
+            return None, None, None
+        return round(best_cents / 100, 2), best_label, best_code
 
     grid: dict = {"payg": None, "business": {}, "cabinet": {}}
 
     _payg_id = _env("STRIPE_PRICE_PAYG_EXPORT")
     if _payg_id:
-        p = stripe.Price.retrieve(_payg_id)
+        p = stripe.Price.retrieve(_payg_id, expand=["product"])
         _cents = _safe_get(p, "unit_amount")
-        _disc_amount, _disc_label = _apply_discount(_cents)
+        _disc_amount, _disc_label, _disc_code = _best_discount(_cents)
+        _product = _safe_get(p, "product")
         grid["payg"] = {
             "amount": _amount(_cents),
             "currency": _safe_get(p, "currency", "eur"),
             "discounted_amount": _disc_amount,
             "discount_label": _disc_label,
+            "discount_code": _disc_code,
+            "name": _safe_get(_product, "name") if _product else None,
         }
 
     _biz_keys = {"month": "STRIPE_PRICE_SUB_BUSINESS_MONTHLY", "year": "STRIPE_PRICE_SUB_BUSINESS_YEARLY"}
@@ -497,14 +677,17 @@ def get_pricing_grid() -> dict:
         price_id = _env(env_key)
         if not price_id:
             continue
-        p = stripe.Price.retrieve(price_id)
+        p = stripe.Price.retrieve(price_id, expand=["product"])
         _cents = _safe_get(p, "unit_amount")
-        _disc_amount, _disc_label = _apply_discount(_cents)
+        _disc_amount, _disc_label, _disc_code = _best_discount(_cents)
+        _product = _safe_get(p, "product")
         grid["business"][interval] = {
             "amount": _amount(_cents),
             "currency": _safe_get(p, "currency", "eur"),
             "discounted_amount": _disc_amount,
             "discount_label": _disc_label,
+            "discount_code": _disc_code,
+            "name": _safe_get(_product, "name") if _product else None,
         }
 
     _cab_keys = {"month": "STRIPE_PRICE_SUB_CABINET_MONTHLY", "year": "STRIPE_PRICE_SUB_CABINET_YEARLY"}
@@ -512,23 +695,26 @@ def get_pricing_grid() -> dict:
         price_id = _env(env_key)
         if not price_id:
             continue
-        p = stripe.Price.retrieve(price_id, expand=["tiers"])
+        p = stripe.Price.retrieve(price_id, expand=["tiers", "product"])
         tiers_raw = _safe_get(p, "tiers", []) or []
         tiers = []
         for t in tiers_raw:
             _unit_cents = _safe_get(t, "unit_amount")
-            _disc_amount, _disc_label = _apply_discount(_unit_cents)
+            _disc_amount, _disc_label, _disc_code = _best_discount(_unit_cents)
             tiers.append({
                 "up_to": _safe_get(t, "up_to"),  # None = infini (dernier palier)
                 "unit_amount": _amount(_unit_cents),
                 "flat_amount": _amount(_safe_get(t, "flat_amount")),
                 "discounted_unit_amount": _disc_amount,
                 "discount_label": _disc_label,
+                "discount_code": _disc_code,
             })
+        _product = _safe_get(p, "product")
         grid["cabinet"][interval] = {
             "billing_scheme": _safe_get(p, "billing_scheme"),
             "currency": _safe_get(p, "currency", "eur"),
             "tiers": tiers,
+            "name": _safe_get(_product, "name") if _product else None,
         }
 
     return grid
@@ -750,6 +936,50 @@ def _upsert_subscription(
     _run(_fn)
 
 
+def _fulfill_checkout_session(data: dict) -> None:
+    """Débloque l'accès (crédit PAYG ou abonnement) pour une session Checkout
+    dont le paiement est confirmé — appelée uniquement quand payment_status
+    vaut "paid" (carte, ou virement/prélèvement une fois les fonds arrivés)."""
+    metadata = _safe_get(data, "metadata", {}) or {}
+    user_id = _safe_get(metadata, "user_id")
+    if not user_id:
+        return
+
+    if _safe_get(metadata, "kind") == "payg_export":
+        grant_export_credit(
+            user_id,
+            _safe_get(metadata, "period_label", ""),
+            _safe_get(data, "payment_intent", ""),
+        )
+
+    elif _safe_get(data, "mode") == "subscription":
+        subscription_id = _safe_get(data, "subscription")
+        plan = _safe_get(metadata, "plan", "unknown")
+        if not subscription_id:
+            return
+        # On récupère l'abonnement complet plutôt que de dépendre des
+        # événements customer.subscription.created/updated séparés
+        # (qui peuvent ne pas être cochés sur l'endpoint Stripe) : la
+        # session de Checkout contient déjà l'ID, il suffit d'aller
+        # chercher quantité/intervalle/statut/période directement.
+        subscription = stripe.Subscription.retrieve(subscription_id)
+        quantity, interval, period_end = _extract_subscription_item_details(subscription)
+        if period_end is None:
+            raise RuntimeError(
+                f"current_period_end introuvable (ni sur l'item, ni sur la Subscription "
+                f"{subscription_id}) — vérifier un éventuel changement de schéma côté API Stripe."
+            )
+        _upsert_subscription(
+            user_id=user_id,
+            stripe_subscription_id=subscription_id,
+            status=_safe_get(subscription, "status"),
+            plan=plan,
+            current_period_end=float(period_end),
+            billing_interval=interval,
+            siren_quantity=quantity,
+        )
+
+
 def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
@@ -762,44 +992,35 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
     data = event["data"]["object"]
 
     if etype == "checkout.session.completed":
+        # Les méthodes de paiement différées (virement SEPA, prélèvement)
+        # déclenchent bien "checkout.session.completed", mais avec
+        # payment_status="unpaid" tant que les fonds ne sont pas arrivés
+        # (jusqu'à ~6 jours pour un virement). On ne débloque l'accès ici
+        # que si le paiement est déjà confirmé (carte, ou différé déjà réglé
+        # au moment de l'événement) ; sinon on attend
+        # "checkout.session.async_payment_succeeded" plus bas.
+        if _safe_get(data, "payment_status") == "paid":
+            _fulfill_checkout_session(data)
+        # payment_status == "unpaid" : rien à faire maintenant, on attend
+        # la confirmation asynchrone (ou l'échec) ci-dessous.
+
+    elif etype == "checkout.session.async_payment_succeeded":
+        # Confirmation tardive d'un virement/prélèvement : les fonds sont
+        # arrivés, on débloque maintenant l'accès (même logique que pour
+        # un paiement carte confirmé immédiatement).
+        _fulfill_checkout_session(data)
+
+    elif etype == "checkout.session.async_payment_failed":
+        # Le virement/prélèvement a échoué ou a expiré : rien à débloquer.
+        # On ne lève pas d'exception (ce n'est pas une erreur de traitement),
+        # mais un log serveur permet de repérer les paiements différés qui
+        # n'aboutissent pas.
         metadata = _safe_get(data, "metadata", {}) or {}
-        user_id = _safe_get(metadata, "user_id")
-        if not user_id:
-            return
-
-        if _safe_get(metadata, "kind") == "payg_export":
-            grant_export_credit(
-                user_id,
-                _safe_get(metadata, "period_label", ""),
-                _safe_get(data, "payment_intent", ""),
-            )
-
-        elif _safe_get(data, "mode") == "subscription":
-            subscription_id = _safe_get(data, "subscription")
-            plan = _safe_get(metadata, "plan", "unknown")
-            if not subscription_id:
-                return
-            # On récupère l'abonnement complet plutôt que de dépendre des
-            # événements customer.subscription.created/updated séparés
-            # (qui peuvent ne pas être cochés sur l'endpoint Stripe) : la
-            # session de Checkout contient déjà l'ID, il suffit d'aller
-            # chercher quantité/intervalle/statut/période directement.
-            subscription = stripe.Subscription.retrieve(subscription_id)
-            quantity, interval, period_end = _extract_subscription_item_details(subscription)
-            if period_end is None:
-                raise RuntimeError(
-                    f"current_period_end introuvable (ni sur l'item, ni sur la Subscription "
-                    f"{subscription_id}) — vérifier un éventuel changement de schéma côté API Stripe."
-                )
-            _upsert_subscription(
-                user_id=user_id,
-                stripe_subscription_id=subscription_id,
-                status=_safe_get(subscription, "status"),
-                plan=plan,
-                current_period_end=float(period_end),
-                billing_interval=interval,
-                siren_quantity=quantity,
-            )
+        print(
+            f"[stripe_webhook] Paiement différé échoué/expiré — "
+            f"user_id={_safe_get(metadata, 'user_id')} "
+            f"session={_safe_get(data, 'id')}"
+        )
 
     elif etype in ("customer.subscription.created", "customer.subscription.updated"):
         customer_id = _safe_get(data, "customer")

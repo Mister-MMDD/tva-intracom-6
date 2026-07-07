@@ -142,10 +142,6 @@ def _gated_preview_table(df: "pd.DataFrame", can_export: bool, column_config: di
 # =============================================================================
 _PLATFORM_OPTIONS = [
     "Amazon VAT Transactions Report (TSV)",
-    "Mirakl (Fnac, Darty, Leroy Merlin...)",
-    "Shopify (orders_export.csv)",
-    "WooCommerce / PrestaShop (CSV)",
-    "AliExpress / eBay / Temu (CSV)",
 ]
 
 # =============================================================================
@@ -279,12 +275,17 @@ with st.sidebar:
     file_format = st.radio("Plateforme source", _PLATFORM_OPTIONS, index=0)
 
     # ── Validation & Devises ──────────────────────────────────────────────────
-    with st.expander("\U0001f50d Validation & Devises", expanded=True):
-        enable_vies = st.checkbox("Valider les numéros TVA B2B via VIES", value=True,
-            help="Interroge les serveurs de l'UE pour vérifier chaque numéro de TVA B2B.")
+    with st.expander("\U0001f50d Validation & Devises", expanded=False):
+        # Fonctions toujours actives sur ce compte — cases grisées et
+        # verrouillées (disabled=True) pour informer l'utilisateur qu'elles
+        # sont bien activées, sans lui laisser la possibilité de les désactiver.
+        st.checkbox("Valider les numéros TVA B2B via VIES", value=True, disabled=True,
+            help="Toujours activé : interroge les serveurs de l'UE pour vérifier chaque numéro de TVA B2B.")
+        enable_vies = True
         on_invalid_behavior = "reclassify"
-        convert_fx = st.checkbox("Convertir devises via taux BCE", value=True,
-            help="Convertit automatiquement les montants non-EUR au taux BCE.")
+        st.checkbox("Convertir devises via taux BCE", value=True, disabled=True,
+            help="Toujours activé : convertit automatiquement les montants non-EUR au taux BCE.")
+        convert_fx = True
 
     # ── Cache VIES ────────────────────────────────────────────────────────────
     with st.expander("\U0001f5c4\ufe0f Cache VIES", expanded=False):
@@ -368,14 +369,8 @@ with st.sidebar:
 
     # ── Période (exports) ─────────────────────────────────────────────────────
     with st.expander("\U0001f4c5 Période & entreprise (exports officiels)", expanded=False):
-        from datetime import date as _date
-        _now = _date.today()
-
         st.markdown("**Période fiscale**")
-        st.caption(
-            "La période est auto-détectée depuis les dates de vos transactions. "
-            "Vous pouvez la remplacer manuellement si besoin (ex : agrégation partielle)."
-        )
+        st.caption("La période est auto-détectée depuis les dates de vos transactions.")
 
         # ── Affichage de la période auto-détectée (depuis session_state) ──
         _sidebar_results = st.session_state.get("_results", [])
@@ -410,33 +405,10 @@ with st.sidebar:
         elif not _sidebar_results:
             st.caption("_(aucune donnée chargée)_")
 
-        _override = st.toggle("Saisir la période manuellement", value=False)
-
-        if _override:
-            _years = [str(y) for y in range(_now.year, _now.year - 4, -1)]
-            _pcol1, _pcol2 = st.columns(2)
-            with _pcol1:
-                _period_year = st.selectbox("Année", _years, index=0)
-            with _pcol2:
-                _period_freq = st.selectbox(
-                    "Fréquence",
-                    ["Trimestriel", "Semestriel", "Annuel"],
-                    index=0,
-                    help="Trimestriel : standard OSS. Semestriel/Annuel : pour agrégations multi-fichiers.",
-                )
-            if _period_freq == "Trimestriel":
-                _q = st.selectbox("Trimestre", ["T1 (Jan–Mar)", "T2 (Avr–Jun)", "T3 (Jul–Sep)", "T4 (Oct–Déc)"])
-                oss_period = f"{_period_year}-Q{_q[1]}"
-            elif _period_freq == "Semestriel":
-                _s = st.selectbox("Semestre", ["S1 (Jan–Jun)", "S2 (Jul–Déc)"])
-                oss_period = f"{_period_year}-S{_s[1]}"
-            else:
-                oss_period = _period_year
-            st.caption(f"Période saisie : **{oss_period}**")
-        else:
-            # Auto-détection : sera écrasé par la valeur calculée depuis results
-            # (voir plus bas dans tab_dl). Valeur temporaire ici.
-            oss_period = "__auto__"
+        # Choix manuel de la période retiré : la période est désormais
+        # toujours auto-détectée depuis les dates de transaction du fichier
+        # importé (voir _detect_period_label plus bas dans le script).
+        oss_period = "__auto__"
 
         # ── Entreprise : sélection parmi les SIREN déjà enregistrés pour ce
         # compte, dans la limite du quota du forfait (voir tva_intracom/billing.py).
@@ -539,7 +511,7 @@ with st.sidebar:
                     st.rerun()
 
     # ── Abonnements & forfaits ────────────────────────────────────────────────
-    with st.expander("\U0001f4b3 Abonnements & forfaits", expanded=_siren_over_quota):
+    with st.expander("\U0001f4b3 Abonnements & forfaits", expanded=True):
         _sub_status = None
         try:
             _sub_status = tva_billing.get_subscription_status(_current_user.id)
@@ -595,48 +567,96 @@ with st.sidebar:
 
             with st.expander("📋 Voir la grille tarifaire", expanded=False):
                 try:
-                    _grid = tva_billing.get_pricing_grid()
+                    _grid = tva_billing.get_pricing_grid(_current_user.id)
                 except Exception as _grid_err:
                     _grid = None
                     st.caption(f"⚠️ Grille tarifaire indisponible : {_grid_err}")
 
                 if _grid:
+                    try:
+                        _promotions = tva_billing.list_available_promotions(_current_user.id)
+                    except Exception as _promo_list_err:
+                        _promotions = []
+                        st.error(f"Codes promotionnels indisponibles : {_promo_list_err}")
+
+                    if _promotions:
+                        st.markdown("**Codes promotionnels disponibles**")
+                        for _promo_item in _promotions:
+                            if _promo_item.get("percent_off") is not None:
+                                _reduc = f"{_promo_item['percent_off']:g}%"
+                            elif _promo_item.get("amount_off") is not None:
+                                _reduc = f"{_promo_item['amount_off']:.2f} {(_promo_item.get('currency') or 'eur').upper()}"
+                            else:
+                                _reduc = "—"
+
+                            _conditions = []
+                            if _promo_item.get("first_time_only"):
+                                _conditions.append("1ère commande uniquement")
+                            if _promo_item.get("minimum_amount") is not None:
+                                _conditions.append(
+                                    f"montant min. {_promo_item['minimum_amount']:.2f} "
+                                    f"{(_promo_item.get('minimum_amount_currency') or 'eur').upper()}"
+                                )
+                            if _promo_item.get("stock_remaining") is not None:
+                                _conditions.append(f"{_promo_item['stock_remaining']} code(s) restant(s)")
+                            if _promo_item.get("expires_at"):
+                                import datetime as _dt
+                                _conditions.append(
+                                    "valable jusqu'au "
+                                    + _dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y")
+                                )
+                            _conditions_txt = " · ".join(_conditions) if _conditions else "sans condition particulière"
+
+                            _eligible = _promo_item.get("eligible")
+                            if _eligible is True:
+                                st.success(f"✅ **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
+                            elif _eligible is False:
+                                _reasons_txt = ", ".join(_promo_item.get("ineligible_reasons", []))
+                                st.warning(f"❌ **{_promo_item['code']}** — {_reduc} — {_conditions_txt} (non éligible : {_reasons_txt})")
+                            else:
+                                st.markdown(f"- **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
+
                     if _grid.get("payg"):
                         _p = _grid["payg"]
+                        _payg_label = _p.get("name") or "Achat unique"
                         if _p.get("discounted_amount") is not None:
                             st.markdown(
-                                f"**Achat unique** — "
+                                f"**{_payg_label}** — "
                                 f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
                                 f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
-                                f"({_p['discount_label']}) / déclaration",
+                                f"({_p['discount_label']}, code {_p['discount_code']}) / déclaration",
                                 unsafe_allow_html=True,
                             )
                         else:
-                            st.markdown(f"**Achat unique** — {_p['amount']:.2f} "
+                            st.markdown(f"**{_payg_label}** — {_p['amount']:.2f} "
                                 f"{_p['currency'].upper()} / déclaration")
 
                     if _grid.get("business"):
                         _biz_lines = []
+                        _biz_label = None
                         for _iv, _lbl in (("month", "mois"), ("year", "an")):
                             _b = _grid["business"].get(_iv)
                             if _b and _b["amount"] is not None:
+                                if _biz_label is None:
+                                    _biz_label = _b.get("name") or "Pro"
                                 if _b.get("discounted_amount") is not None:
                                     _biz_lines.append(
                                         f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
                                         f"→ <span style='color:#2ca02c;font-weight:bold'>{_b['discounted_amount']:.2f} {_b['currency'].upper()}</span> "
-                                        f"({_b['discount_label']}) / {_lbl}"
+                                        f"({_b['discount_label']}, code {_b['discount_code']}) / {_lbl}"
                                     )
                                 else:
                                     _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
                         if _biz_lines:
-                            st.markdown("**Pro** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
+                            st.markdown(f"**{_biz_label}** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
 
                     if _grid.get("cabinet"):
-                        for _iv, _lbl in (("month", "Cabinet — mensuel"), ("year", "Cabinet — annuel")):
+                        for _iv, _lbl in (("month", "mensuel"), ("year", "annuel")):
                             _c = _grid["cabinet"].get(_iv)
                             if not _c or not _c.get("tiers"):
                                 continue
-                            st.markdown(f"**{_lbl}** (min. 3 SIREN)")
+                            _cab_label = _c.get("name") or "Cabinet"
+                            st.markdown(f"**{_cab_label} — {_lbl}** (min. 3 SIREN)")
                             _rows = []
                             _prev_bound = 0
                             for _t in _c["tiers"]:
@@ -647,7 +667,7 @@ with st.sidebar:
                                         _price_txt = (
                                             f"{_t['unit_amount']:.2f} {_c['currency'].upper()} → "
                                             f"{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()} "
-                                            f"({_t['discount_label']}) / SIREN"
+                                            f"({_t['discount_label']}, code {_t['discount_code']}) / SIREN"
                                         )
                                     else:
                                         _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / SIREN"
@@ -658,6 +678,30 @@ with st.sidebar:
                                 _rows.append({"SIREN gérés": _range, "Tarif": _price_txt})
                                 _prev_bound = _up_to if _up_to is not None else _prev_bound
                             st.dataframe(_rows, hide_index=True, use_container_width=True)
+
+            _detected_period_for_payg = st.session_state.get("_period_label", "")
+            st.markdown("**Achat unique** — une déclaration, la période détectée dans votre fichier")
+            if not _detected_period_for_payg:
+                st.caption(
+                    "📂 Importez d'abord un fichier (zone de dépôt principale) pour "
+                    "que la période à débloquer soit détectée."
+                )
+            else:
+                st.caption(f"📅 Période détectée qui sera débloquée : **{_detected_period_for_payg}**")
+                if st.button("Acheter cette période — Achat unique", key="btn_payg_sidebar"):
+                    try:
+                        _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}"
+                        if _payg_cache_key not in st.session_state:
+                            st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
+                                user_id=_current_user.id, email=_current_user.email,
+                                period_label=_detected_period_for_payg,
+                                success_url=_stripe_success_url("export_ok=1"),
+                                cancel_url=_stripe_cancel_url(),
+                            )
+                        st.link_button("→ Continuer vers le paiement", st.session_state[_payg_cache_key])
+                    except Exception as _payg_err:
+                        st.session_state.pop(_payg_cache_key, None)
+                        st.error(f"Erreur : {_payg_err}")
 
             _sub_interval = st.radio("Facturation", ["Mensuel", "Annuel"],
                 horizontal=True, key="sub_interval_choice")
@@ -1083,6 +1127,22 @@ if uploaded_files:
             return _lbl, (_dates[0][:10], _dates[-1][:10])
 
         period_label, _period_detected_range = _detect_period_label(results, oss_period)
+        # Rendu disponible à la sidebar (« Abonnements & forfaits », qui
+        # s'exécute avant ce bloc dans le script) pour afficher/débloquer
+        # l'achat unique dès que la période est connue.
+        st.session_state["_period_label"] = period_label
+
+        # La sidebar (« Abonnements & forfaits ») s'exécute AVANT ce bloc à
+        # chaque run Streamlit (with st.sidebar: plus haut dans le script).
+        # Sans ce rerun, elle affiche encore le session_state du run
+        # précédent — d'où le bug observé : la période n'apparaissait qu'au
+        # coup suivant. Un seul rerun forcé ici (placé APRÈS le calcul de
+        # period_label, pas avant, sinon la sidebar resterait quand même en
+        # retard d'un cycle), gardé par _period_sidebar_synced_key pour ne
+        # pas boucler indéfiniment.
+        if st.session_state.get("_period_sidebar_synced_key") != _cache_key:
+            st.session_state["_period_sidebar_synced_key"] = _cache_key
+            st.rerun()
 
         # ── Gate billing : un export = un crédit payé pour cette période,
         # ou abonnement actif (voir tva_intracom/billing.py). L'analyse et
@@ -1127,15 +1187,24 @@ if uploaded_files:
         # Prix PAYG affiché sur les boutons verrouillés — récupéré depuis
         # Stripe (jamais recopié en dur, cf. get_pricing_grid) pour ne jamais
         # afficher un montant désynchronisé du tarif réellement facturé.
+        # Inclut le meilleur code promo éligible pour CET utilisateur, comme
+        # le reste de la grille tarifaire (voir zone « Abonnements & forfaits »).
         try:
-            _payg_price = tva_billing.get_pricing_grid().get("payg")
+            _payg_price = tva_billing.get_pricing_grid(_current_user.id).get("payg")
         except Exception:
             _payg_price = None
         if _payg_price and _payg_price.get("amount") is not None:
-            _unlock_label_suffix = (
-                f"débloquer une période pour {_payg_price['amount']:.0f} "
-                f"{_payg_price['currency'].upper()} ou abonnez-vous"
-            )
+            if _payg_price.get("discounted_amount") is not None:
+                _unlock_label_suffix = (
+                    f"débloquer une période pour {_payg_price['discounted_amount']:.0f} "
+                    f"{_payg_price['currency'].upper()} au lieu de {_payg_price['amount']:.0f} "
+                    f"{_payg_price['currency'].upper()} (code {_payg_price['discount_code']}) ou abonnez-vous"
+                )
+            else:
+                _unlock_label_suffix = (
+                    f"débloquer une période pour {_payg_price['amount']:.0f} "
+                    f"{_payg_price['currency'].upper()} ou abonnez-vous"
+                )
         else:
             _unlock_label_suffix = "débloquer cette période ou vous abonner"
 
@@ -1359,7 +1428,7 @@ if uploaded_files:
                 elif sort_yours == "Taux": your_results.sort(key=lambda r: -r.vat_rate)
                 else: your_results.sort(key=lambda r: -r.sale.amount_ht)
                 _your_rows = [{
-                    "ID":r.sale.transaction_event_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Taux %":float(r.vat_rate),
                     "TVA (EUR)":float(r.vat_amount), "Canal":r.channel.value,
                     "Devise":r.sale.original_currency if r.sale.original_currency != "EUR" else "",
@@ -1382,7 +1451,7 @@ if uploaded_files:
                 st.caption("Ventes dont Amazon ou la douane collecte la TVA.")
                 third_results = [r for r in results if r.collector.value != "SELLER"]
                 _third_rows = [{
-                    "ID":r.sale.transaction_event_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                     "Collecteur":r.collector.value}
                     for r in third_results]
@@ -1396,7 +1465,7 @@ if uploaded_files:
                 all_sorted = sorted(results,
                     key=lambda r: r.vat_country if sort_all=="Pays" else (-r.vat_rate if sort_all=="Taux" else -r.sale.amount_ht))
                 _all_rows = [{
-                    "ID":r.sale.transaction_event_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                     "Taux %":float(r.vat_rate), "TVA (EUR)":float(r.vat_amount),
                     "Canal":r.channel.value,
@@ -1461,7 +1530,7 @@ if uploaded_files:
                     ref_sorted = sorted(refund_results,
                         key=lambda r: r.vat_country if sort_ref=="Pays" else (-r.vat_rate if sort_ref=="Taux" else r.sale.amount_ht))
                     _ref_rows = [{
-                        "ID":r.sale.transaction_event_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                        "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                         "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                         "Taux %":float(r.vat_rate), "TVA (EUR)":float(r.vat_amount),
                         "Canal":r.channel.value}
@@ -1708,7 +1777,7 @@ if uploaded_files:
                         tva_moteur = float(r.vat_amount)
                         if tva_amazon==0 and tva_moteur==0: continue
                         ecart = tva_amazon - tva_moteur
-                        row_d = {"ID vente":r.sale.transaction_event_id,
+                        row_d = {"ID vente":r.sale.sale_id,
                             "Stock→Dest":f"{r.sale.stock_country}→{r.sale.buyer_country}",
                             "Scénario":r.scenario.value,"HT (EUR)":float(r.sale.amount_ht),
                             "TVA Amazon (EUR)":round(tva_amazon,2),"TVA moteur (EUR)":round(tva_moteur,2),
@@ -2258,6 +2327,9 @@ if uploaded_files:
         for _p in tmp_paths: _p.unlink(missing_ok=True)
 
 else:
+    # Aucun fichier chargé (ou fichier retiré) : la période détectée d'un
+    # run précédent ne doit pas rester affichée/exploitable dans la sidebar.
+    st.session_state.pop("_period_label", None)
     st.markdown("---")
     col_a, col_b = st.columns([2,1])
     with col_a:
