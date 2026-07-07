@@ -9,6 +9,8 @@ from pathlib import Path
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import extra_streamlit_components as stx
+from datetime import datetime, timedelta
 import math
 import pandas as pd
 import sys
@@ -149,6 +151,12 @@ _PLATFORM_OPTIONS = [
 # =============================================================================
 st.set_page_config(page_title="TVA Intracommunautaire", page_icon="\U0001f1ea\U0001f1fa", layout="wide")
 
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
+
 if "_malformed_vies_purged" not in st.session_state:
     try:
         _vies_purge_malformed_entries()
@@ -182,30 +190,36 @@ if _qp_token and st.session_state["auth_user"] is None:
     _u = tva_auth.consume_magic_link(_qp_token)
     if _u is not None:
         st.session_state["auth_user"] = _u
-        # Jeton de session longue durée (réutilisable, 30 jours) porté dans
-        # l'URL pour survivre à un rafraîchissement de page ou à une
-        # redirection externe (paiement Stripe) sans reconsommer un lien
-        # magique à usage unique.
         _new_session_token = tva_auth.create_session_token(_u.id)
+        # On stocke dans un cookie sécurisé (30 jours) au lieu de l'URL
+        cookie_manager.set(
+            "tva_session_token", 
+            _new_session_token, 
+            expires_at=datetime.now() + timedelta(days=30)
+        )
         st.query_params.clear()
-        st.query_params["session_token"] = _new_session_token
         st.rerun()
     else:
         st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
 
-# ── Restauration de session via jeton persistant (URL ?session_token=...) ──
+# ── Restauration de session via Cookie (Conformité Amazon DPP) ──────────────
+_cookie_token = cookie_manager.get("tva_session_token")
+
+# Cas particulier : migration d'un ancien lien vers le nouveau système de cookie
 _qp_session_token = st.query_params.get("session_token")
 if _qp_session_token:
-    if st.session_state.get("auth_user") is None:
-        _restored_user = tva_auth.get_user_by_session_token(_qp_session_token)
-        if _restored_user is not None:
-            st.session_state["auth_user"] = _restored_user
-    
-    # Sécurité : On retire le jeton de l'URL immédiatement après usage (ou tentative)
-    # pour éviter qu'il ne reste dans l'historique du navigateur (DPP Amazon).
-    # On utilise pop pour ne pas effacer d'éventuels autres paramètres (ex: Stripe).
+    cookie_manager.set(
+        "tva_session_token", 
+        _qp_session_token, 
+        expires_at=datetime.now() + timedelta(days=30)
+    )
     st.query_params.pop("session_token", None)
     st.rerun()
+
+if _cookie_token and st.session_state["auth_user"] is None:
+    _restored_user = tva_auth.get_user_by_session_token(_cookie_token)
+    if _restored_user is not None:
+        st.session_state["auth_user"] = _restored_user
 
 if st.session_state["auth_user"] is None:
     st.info("🔐 Connectez-vous pour utiliser le moteur de TVA.")
@@ -217,7 +231,12 @@ if st.session_state["auth_user"] is None:
             if _dev_email and "@" in _dev_email:
                 _dev_user = tva_auth.get_or_create_user(_dev_email)
                 st.session_state["auth_user"] = _dev_user
-                st.query_params["session_token"] = tva_auth.create_session_token(_dev_user.id)
+                _dev_token = tva_auth.create_session_token(_dev_user.id)
+                cookie_manager.set(
+                    "tva_session_token", 
+                    _dev_token, 
+                    expires_at=datetime.now() + timedelta(days=30)
+                )
                 st.rerun()
             else:
                 st.warning("Adresse e-mail invalide.")
@@ -246,6 +265,7 @@ _col_user, _col_logout = st.columns([5, 1])
 _col_user.caption(f"Connecté : {_current_user.email}")
 if _col_logout.button("🚪 Déconnexion", key="btn_logout"):
     st.session_state["auth_user"] = None
+    cookie_manager.delete("tva_session_token")
     st.query_params.clear()
     st.rerun()
 
