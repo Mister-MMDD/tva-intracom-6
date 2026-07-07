@@ -49,7 +49,7 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
                 "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
                 "d'authentification. Configurez ce secret côté Streamlit Cloud et Vercel."
             )
-        _pool = psycopg2.pool.SimpleConnectionPool(1, 5, dsn)
+        _pool = psycopg2.pool.SimpleConnectionPool(1, 5, dsn, sslmode="require")
         _init_schema()
     return _pool
 

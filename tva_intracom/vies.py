@@ -56,6 +56,7 @@ import psycopg2
 import psycopg2.pool
 from psycopg2.extras import execute_values
 import streamlit as st
+from .security import encrypt_data as _enc, decrypt_data as _dec
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,7 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
                         "base du cache VIES. Configurez ce secret côté Streamlit Cloud "
                         "(même valeur que pour auth.py / billing.py)."
                     )
-                pool = psycopg2.pool.SimpleConnectionPool(1, 25, dsn)
+                pool = psycopg2.pool.SimpleConnectionPool(1, 25, dsn, sslmode="require")
                 _init_schema(pool)
                 _pool = pool
     return _pool
@@ -300,8 +301,10 @@ def _conn() -> _ConnCtx:
 
 def _row_to_result(row) -> ViesResult:
     valid, cc, num, name, addr, err = row
-    return ViesResult(valid=bool(valid), country_code=cc, vat_number=num,
-                       name=name or "", address=addr or "", error=err or "")
+    return ViesResult(
+        valid=bool(valid), country_code=cc, vat_number=num,
+        name=_dec(name), address=_dec(addr), error=err or ""
+    )
 
 
 def _db_get_scope(scope_id: str, vat_id: str) -> tuple[Optional[ViesResult], bool]:
@@ -347,14 +350,14 @@ def _db_set_scope(scope_id: str, vat_id: str, result: ViesResult, log_history: b
                 address=EXCLUDED.address, error=EXCLUDED.error,
                 checked_at=EXCLUDED.checked_at
         """, (scope_id, vat_id, result.valid, result.country_code, result.vat_number,
-              result.name, result.address, result.error, checked_at))
+              _enc(result.name), _enc(result.address), result.error, checked_at))
         if log_history:
             cur.execute("""
                 INSERT INTO vies_check_history
                     (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (scope_id, vat_id, result.valid, result.country_code, result.vat_number,
-                  result.name, result.address, result.error, checked_at))
+                  _enc(result.name), _enc(result.address), result.error, checked_at))
         conn.commit()
 
 
@@ -374,7 +377,7 @@ def _db_set_global(vat_id: str, result: ViesResult) -> None:
                 address=EXCLUDED.address, error=EXCLUDED.error,
                 checked_at=EXCLUDED.checked_at
         """, (vat_id, result.valid, result.country_code, result.vat_number,
-              result.name, result.address, result.error, checked_at))
+              _enc(result.name), _enc(result.address), result.error, checked_at))
         conn.commit()
 
 
@@ -429,7 +432,7 @@ def _db_set_scope_batch(scope_id: str, items: list[tuple[str, ViesResult]], log_
         return
     checked_at = _now_utc()
     scope_rows = [
-        (scope_id, vat_id, r.valid, r.country_code, r.vat_number, r.name, r.address, r.error, checked_at)
+        (scope_id, vat_id, r.valid, r.country_code, r.vat_number, _enc(r.name), _enc(r.address), r.error, checked_at)
         for vat_id, r in items
     ]
     with _conn() as conn, conn.cursor() as cur:
@@ -459,7 +462,7 @@ def _db_set_global_batch(items: list[tuple[str, ViesResult]]) -> None:
         return
     checked_at = _now_utc()
     rows = [
-        (vat_id, r.valid, r.country_code, r.vat_number, r.name, r.address, r.error, checked_at)
+        (vat_id, r.valid, r.country_code, r.vat_number, _enc(r.name), _enc(r.address), r.error, checked_at)
         for vat_id, r in items
     ]
     with _conn() as conn, conn.cursor() as cur:
@@ -491,7 +494,7 @@ def get_vies_history(scope_id: str, full_vat: str) -> list[dict]:
         {
             "checked_at": r[0].isoformat() if r[0] else "",
             "valid": bool(r[1]), "country_code": r[2], "vat_number": r[3],
-            "name": r[4] or "", "address": r[5] or "", "error": r[6] or "",
+            "name": _dec(r[4]), "address": _dec(r[5]), "error": r[6] or "",
         }
         for r in rows
     ]
@@ -515,7 +518,7 @@ def get_vies_history_bulk(scope_id: str, full_vats: list[str]) -> dict[str, list
         result.setdefault(r[0], []).append({
             "checked_at": r[1].isoformat() if r[1] else "",
             "valid": bool(r[2]), "country_code": r[3], "vat_number": r[4],
-            "name": r[5] or "", "address": r[6] or "", "error": r[7] or "",
+            "name": _dec(r[5]), "address": _dec(r[6]), "error": r[7] or "",
         })
     return result
 

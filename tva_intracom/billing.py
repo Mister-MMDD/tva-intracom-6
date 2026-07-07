@@ -30,11 +30,11 @@ except ImportError:
 
 try:
     # Disponible sur Streamlit Cloud, absent côté fonction serverless Vercel
-    # (voir stripe_webhook.py, qui charge ce module par chemin sans Streamlit
-    # installé) — l'import doit donc rester optionnel.
     import streamlit as _st
 except ImportError:
     _st = None
+
+from .security import encrypt_data as _enc, decrypt_data as _dec
 
 
 def _env(key: str, default: str = "") -> str:
@@ -94,7 +94,7 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
             raise RuntimeError(
                 "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
             )
-        _pool = psycopg2.pool.SimpleConnectionPool(1, 5, dsn)
+        _pool = psycopg2.pool.SimpleConnectionPool(1, 5, dsn, sslmode="require")
         _init_schema()
     return _pool
 
@@ -313,7 +313,7 @@ def list_registered_sirens(user_id: str) -> list[dict]:
     rows = _run(_fn)
     return [
         {
-            "siren": r[0], "company_name": r[1], "tva_number": r[2],
+            "siren": r[0], "company_name": _dec(r[1]), "tva_number": r[2],
             "first_used_at": r[3], "pending_removal_at": r[4],
         }
         for r in rows
@@ -382,7 +382,7 @@ def register_siren(user_id: str, siren: str, company_name: str = "", tva_number:
             DO UPDATE SET company_name = EXCLUDED.company_name,
                           tva_number = EXCLUDED.tva_number
             """,
-            (user_id, siren, company_name, tva_number, time.time()),
+            (user_id, siren, _enc(company_name), tva_number, time.time()),
         )
         conn.commit()
 

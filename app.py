@@ -195,10 +195,17 @@ if _qp_token and st.session_state["auth_user"] is None:
 
 # ── Restauration de session via jeton persistant (URL ?session_token=...) ──
 _qp_session_token = st.query_params.get("session_token")
-if _qp_session_token and st.session_state["auth_user"] is None:
-    _restored_user = tva_auth.get_user_by_session_token(_qp_session_token)
-    if _restored_user is not None:
-        st.session_state["auth_user"] = _restored_user
+if _qp_session_token:
+    if st.session_state.get("auth_user") is None:
+        _restored_user = tva_auth.get_user_by_session_token(_qp_session_token)
+        if _restored_user is not None:
+            st.session_state["auth_user"] = _restored_user
+    
+    # Sécurité : On retire le jeton de l'URL immédiatement après usage (ou tentative)
+    # pour éviter qu'il ne reste dans l'historique du navigateur (DPP Amazon).
+    # On utilise pop pour ne pas effacer d'éventuels autres paramètres (ex: Stripe).
+    st.query_params.pop("session_token", None)
+    st.rerun()
 
 if st.session_state["auth_user"] is None:
     st.info("🔐 Connectez-vous pour utiliser le moteur de TVA.")
