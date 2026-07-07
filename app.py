@@ -151,11 +151,8 @@ _PLATFORM_OPTIONS = [
 # =============================================================================
 st.set_page_config(page_title="TVA Intracommunautaire", page_icon="\U0001f1ea\U0001f1fa", layout="wide")
 
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+# Instanciation du gestionnaire de cookies (sans cache pour éviter les conflits Streamlit)
+cookie_manager = stx.CookieManager()
 
 if "_malformed_vies_purged" not in st.session_state:
     try:
