@@ -151,8 +151,13 @@ _PLATFORM_OPTIONS = [
 # =============================================================================
 st.set_page_config(page_title="TVA Intracommunautaire", page_icon="\U0001f1ea\U0001f1fa", layout="wide")
 
-# Instanciation du gestionnaire de cookies (sans cache pour éviter les conflits Streamlit)
+# Instanciation du gestionnaire de cookies
+# On utilise un délai pour laisser le temps au composant JS de s'initialiser
 cookie_manager = stx.CookieManager()
+
+# Petit délai d'attente pour l'initialisation du composant CookieManager au premier chargement
+if not cookie_manager.get_all():
+    time.sleep(0.1)
 
 if "_malformed_vies_purged" not in st.session_state:
     try:
@@ -188,16 +193,22 @@ if _qp_token and st.session_state["auth_user"] is None:
     if _u is not None:
         st.session_state["auth_user"] = _u
         _new_session_token = tva_auth.create_session_token(_u.id)
-        # On stocke dans un cookie sécurisé (30 jours) au lieu de l'URL
+        
+        # Sécurité Amazon DPP : On nettoie l'URL AVANT de faire quoi que ce soit d'autre
+        st.query_params.clear()
+        
+        # On stocke dans un cookie sécurisé (30 jours)
         cookie_manager.set(
             "tva_session_token", 
             _new_session_token, 
-            expires_at=datetime.now() + timedelta(days=30)
+            expires_at=datetime.now() + timedelta(days=30),
+            key="set_cookie_on_login" # Clé explicite pour éviter les conflits
         )
-        st.query_params.clear()
         st.rerun()
     else:
-        st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
+        # On vérifie si on n'est pas déjà connecté (cas du double-clic ou refresh sur lien consommé)
+        if st.session_state["auth_user"] is None:
+            st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
 
 # ── Restauration de session via Cookie (Conformité Amazon DPP) ──────────────
 _cookie_token = cookie_manager.get("tva_session_token")
