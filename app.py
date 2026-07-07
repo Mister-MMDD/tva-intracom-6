@@ -187,47 +187,50 @@ try:
 except Exception:
     _local_bypass = False
 
-_qp_token = st.query_params.get("login_token")
-if _qp_token and st.session_state["auth_user"] is None:
-    _u = tva_auth.consume_magic_link(_qp_token)
-    if _u is not None:
-        st.session_state["auth_user"] = _u
-        _new_session_token = tva_auth.create_session_token(_u.id)
-        
-        # Sécurité Amazon DPP : On nettoie l'URL AVANT de faire quoi que ce soit d'autre
-        st.query_params.clear()
-        
-        # On stocke dans un cookie sécurisé (30 jours)
-        cookie_manager.set(
-            "tva_session_token", 
-            _new_session_token, 
-            expires_at=datetime.now() + timedelta(days=30),
-            key="set_cookie_on_login" # Clé explicite pour éviter les conflits
-        )
-        st.rerun()
-    else:
-        # On vérifie si on n'est pas déjà connecté (cas du double-clic ou refresh sur lien consommé)
-        if st.session_state["auth_user"] is None:
-            st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
-
 # ── Restauration de session via Cookie (Conformité Amazon DPP) ──────────────
 _cookie_token = cookie_manager.get("tva_session_token")
 
-# Cas particulier : migration d'un ancien lien vers le nouveau système de cookie
-_qp_session_token = st.query_params.get("session_token")
-if _qp_session_token:
-    cookie_manager.set(
-        "tva_session_token", 
-        _qp_session_token, 
-        expires_at=datetime.now() + timedelta(days=30)
-    )
-    st.query_params.pop("session_token", None)
-    st.rerun()
-
-if _cookie_token and st.session_state["auth_user"] is None:
+if _cookie_token and st.session_state.get("auth_user") is None:
     _restored_user = tva_auth.get_user_by_session_token(_cookie_token)
     if _restored_user is not None:
         st.session_state["auth_user"] = _restored_user
+
+# ── Consommation du lien magique (seulement si pas déjà connecté) ──────────
+_qp_token = st.query_params.get("login_token")
+if _qp_token:
+    if st.session_state.get("auth_user") is None:
+        _u = tva_auth.consume_magic_link(_qp_token)
+        if _u is not None:
+            st.session_state["auth_user"] = _u
+            _new_session_token = tva_auth.create_session_token(_u.id)
+            
+            # On écrit le cookie
+            cookie_manager.set(
+                "tva_session_token", 
+                _new_session_token, 
+                expires_at=datetime.now() + timedelta(days=30),
+                key="set_cookie_on_login"
+            )
+            # On nettoie l'URL et on relance
+            st.query_params.clear()
+            st.rerun()
+        else:
+            # Si on arrive ici, le lien est invalide OU déjà consommé.
+            # On ne montre l'erreur que si on n'a vraiment aucune session.
+            if st.session_state.get("auth_user") is None:
+                st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
+    else:
+        # L'utilisateur est déjà connecté (peut-être via le cookie juste avant)
+        # On nettoie juste l'URL pour être propre
+        st.query_params.clear()
+        st.rerun()
+
+# Cas particulier : migration d'un ancien lien session_token vers cookie
+_qp_session_token = st.query_params.get("session_token")
+if _qp_session_token:
+    cookie_manager.set("tva_session_token", _qp_session_token, expires_at=datetime.now() + timedelta(days=30))
+    st.query_params.pop("session_token", None)
+    st.rerun()
 
 if st.session_state["auth_user"] is None:
     st.info("🔐 Connectez-vous pour utiliser le moteur de TVA.")
