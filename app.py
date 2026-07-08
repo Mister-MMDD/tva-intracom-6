@@ -454,27 +454,8 @@ with st.sidebar:
         except Exception as _e:
             st.caption(f"Cache VIES indisponible : {_e}")
 
-    # ── Paramètres d'import ───────────────────────────────────────────────────
-    with st.expander("\U0001f4e6 Paramètres d'import", expanded=False):
-        ioss_number = st.text_input("Numéro IOSS propre (optionnel)", value="",
-            placeholder="ex: IM1234567890",
-            help="Si renseigné, les imports B2C ≤ 150 € hors marketplace seront traités en IOSS_DIRECT.")
-        seller_is_importer = st.toggle("Vendeur = importateur officiel (DDP)", value=False,
-            help="Activez si vous prenez en charge le dédouanement (Incoterms DDP).")
-        apply_fr_under_threshold = st.toggle(
-            "Appliquer TVA FR sous le seuil OSS (10 000 €)", value=False,
-            help=(
-                "Si activé, les premières ventes OSS cross-border B2C jusqu'à 10 000 € HT "
-                "sont déclarées en TVA française (CA3) au lieu du guichet OSS. "
-                "Option réservée aux vendeurs dont le CA OSS annuel est proche ou sous le seuil. "
-                "Désactivé par défaut : toutes les ventes OSS sont déclarées via le guichet OSS."
-            ),
-        )
-        countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local :",
-            options=sorted(list(EU_COUNTRIES)), default=["FR"],
-            help="Incluez tous les pays où vous êtes immatriculé. La France est "
-                 "cochée par défaut (établissement du vendeur) — décochez-la si "
-                 "ce n'est pas votre cas.")
+    # ── Paramètres du fichier ─────────────────────────────────────────────────
+    with st.expander("\U0001f4e6 Paramètres du fichier", expanded=False):
         encoding = st.selectbox("Encodage du fichier", ["utf-8","latin-1","cp1252"], index=0)
 
     # ── Catalogue Produits ────────────────────────────────────────────────────
@@ -503,8 +484,17 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Erreur catalogue : {e}")
 
-    # ── Période (exports) ─────────────────────────────────────────────────────
-    with st.expander("\U0001f4c5 Période & entreprise (exports officiels)", expanded=False):
+    # ── Entreprise & Paramètres ───────────────────────────────────────────────
+    # Ces paramètres sont liés au SIREN sélectionné et sauvegardés en base.
+    ioss_number = ""
+    seller_is_importer = False
+    apply_fr_under_threshold = False
+    countries_with_vat = ["FR"]
+    nom_entreprise = ""
+    siren_entreprise = ""
+    tva_fr = ""
+
+    with st.expander("\U0001f4c5 Entreprise & Paramètres", expanded=False):
         st.markdown("**Période fiscale**")
         st.caption("La période est auto-détectée depuis les dates de vos transactions.")
 
@@ -541,15 +531,10 @@ with st.sidebar:
         elif not _sidebar_results:
             st.caption("_(aucune donnée chargée)_")
 
-        # Choix manuel de la période retiré : la période est désormais
-        # toujours auto-détectée depuis les dates de transaction du fichier
-        # importé (voir _detect_period_label plus bas dans le script).
         oss_period = "__auto__"
 
-        # ── Entreprise : sélection parmi les SIREN déjà enregistrés pour ce
-        # compte, dans la limite du quota du forfait (voir tva_intracom/billing.py).
-        # 1 client = 1 SIREN + 1 nom d'entreprise + 1 numéro de TVA.
-        st.markdown("**Entreprise**")
+        st.divider()
+        st.markdown("**Identité & Paramètres TVA**")
         try:
             _registered_sirens = tva_billing.list_registered_sirens(_current_user.id)
             _siren_quota_status = tva_billing.get_siren_quota_status(_current_user.id)
@@ -558,9 +543,6 @@ with st.sidebar:
             _siren_quota_status = None
             st.caption(f"⚠️ Liste des SIREN indisponible : {_siren_list_err}")
 
-        # Sur-quota (ex. downgrade, ou SIREN enregistrés avant l'instauration
-        # du quota) : blocage total des exports tant que le compte n'est pas
-        # revenu à son quota — voir section Abonnements pour retirer un SIREN.
         _siren_over_quota = bool(_siren_quota_status and _siren_quota_status.blocked)
         if _siren_over_quota:
             st.error(
@@ -581,8 +563,6 @@ with st.sidebar:
             options=_siren_options + ["➕ Nouveau SIREN…"],
             index=0 if _siren_options else 0,
             format_func=lambda v: _siren_label_by_value.get(v, v),
-            help="Sélectionnez un SIREN déjà enregistré, ou ajoutez-en un nouveau "
-                 "dans la limite de votre forfait.",
         ) if _siren_options else "➕ Nouveau SIREN…"
 
         if _siren_choice == "➕ Nouveau SIREN…":
@@ -595,23 +575,37 @@ with st.sidebar:
 
             if not _can_add_siren:
                 st.error(f"🔒 {_siren_quota_msg}")
-                st.caption(
-                    "Ouvrez la section **💳 Abonnements & forfaits** ci-dessous pour "
-                    "passer à un forfait supérieur ou augmenter votre quantité Cabinet."
-                )
                 nom_entreprise = _registered_sirens[0]["company_name"] if _registered_sirens else ""
                 siren_entreprise = _registered_sirens[0]["siren"] if _registered_sirens else ""
                 tva_fr = _registered_sirens[0]["tva_number"] if _registered_sirens else ""
+                ioss_number = _registered_sirens[0].get("ioss_number") or ""
+                seller_is_importer = _registered_sirens[0].get("seller_is_importer") or False
+                apply_fr_under_threshold = _registered_sirens[0].get("apply_fr_under_threshold") or False
+                _countries_raw = _registered_sirens[0].get("countries_with_vat") or "FR"
+                countries_with_vat = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
             else:
-                nom_entreprise   = st.text_input("Nom de l'entreprise", "Mon Entreprise E-commerce")
-                siren_entreprise = st.text_input("Numéro SIREN", "123456789")
-                tva_fr = st.text_input("Numéro de TVA FR (pour XML OSS)", "FR12345678901")
+                nom_entreprise   = st.text_input("Nom de l'entreprise", "Mon Entreprise E-commerce", key="nom_new")
+                siren_entreprise = st.text_input("Numéro SIREN", "123456789", key="siren_new")
+                tva_fr = st.text_input("Numéro de TVA FR (pour XML OSS)", "FR12345678901", key="tva_new")
+                
+                st.markdown("---")
+                ioss_number = st.text_input("Numéro IOSS propre (optionnel)", placeholder="ex: IM1234567890", key="ioss_new",
+                    help="Si renseigné, les imports B2C ≤ 150 € hors marketplace seront traités en IOSS_DIRECT.")
+                seller_is_importer = st.toggle("Vendeur = importateur officiel (DDP)", value=False, key="ddp_new")
+                apply_fr_under_threshold = st.toggle("Appliquer TVA FR sous le seuil OSS (10 000 €)", value=False, key="oss_thr_new")
+                countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local", 
+                    options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
+
                 if st.button("💾 Enregistrer ce SIREN", key="btn_register_siren"):
                     if siren_entreprise.strip():
                         try:
                             tva_billing.register_siren(
                                 _current_user.id, siren_entreprise.strip(),
                                 nom_entreprise.strip(), tva_fr.strip(),
+                                ioss_number=ioss_number.strip(),
+                                seller_is_importer=seller_is_importer,
+                                apply_fr_under_threshold=apply_fr_under_threshold,
+                                countries_with_vat=",".join(countries_with_vat)
                             )
                             st.success("✅ SIREN enregistré.")
                             st.rerun()
@@ -621,10 +615,37 @@ with st.sidebar:
                         st.warning("Le numéro SIREN est requis.")
         else:
             _match = next((r for r in _registered_sirens if r["siren"] == _siren_choice), None)
-            nom_entreprise   = _match["company_name"] if _match else ""
+            nom_entreprise   = st.text_input("Nom de l'entreprise", value=_match["company_name"] if _match else "", key="nom_edit")
             siren_entreprise = _match["siren"] if _match else ""
-            tva_fr = _match["tva_number"] if _match else ""
-            st.caption(f"Nom : **{nom_entreprise}** · TVA : **{tva_fr}**")
+            st.caption(f"SIREN : **{siren_entreprise}**")
+            tva_fr = st.text_input("Numéro de TVA FR (pour XML OSS)", value=_match["tva_number"] if _match else "", key="tva_edit")
+            
+            st.markdown("---")
+            ioss_number = st.text_input("Numéro IOSS propre (optionnel)", value=_match.get("ioss_number") or "" if _match else "",
+                placeholder="ex: IM1234567890", key="ioss_edit")
+            seller_is_importer = st.toggle("Vendeur = importateur officiel (DDP)", value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
+            apply_fr_under_threshold = st.toggle("Appliquer TVA FR sous le seuil OSS (10 000 €)", value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
+            
+            _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
+            _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
+            countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local", 
+                options=sorted(list(EU_COUNTRIES)), default=_default_vat_countries, key="vat_countries_edit")
+
+            if st.button("💾 Mettre à jour les paramètres", key="btn_update_siren"):
+                try:
+                    tva_billing.register_siren(
+                        _current_user.id, siren_entreprise.strip(),
+                        nom_entreprise.strip(), tva_fr.strip(),
+                        ioss_number=ioss_number.strip(),
+                        seller_is_importer=seller_is_importer,
+                        apply_fr_under_threshold=apply_fr_under_threshold,
+                        countries_with_vat=",".join(countries_with_vat)
+                    )
+                    st.success("✅ Paramètres mis à jour.")
+                    st.rerun()
+                except Exception as _reg_err:
+                    st.error(f"Erreur de mise à jour : {_reg_err}")
+
             if _match and _match.get("pending_removal_at"):
                 import datetime as _dt
                 _eff_date = _dt.datetime.fromtimestamp(_match["pending_removal_at"]).strftime("%d/%m/%Y")
@@ -633,10 +654,6 @@ with st.sidebar:
                     tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
                     st.rerun()
             elif _match and len(_registered_sirens) > 1:
-                # Retrait disponible dès qu'il y a plus d'un SIREN enregistré,
-                # quel que soit le forfait (Pro, Cabinet, ou sans abonnement).
-                # Immédiat si pas d'abonnement actif, différé à la date
-                # anniversaire sinon (voir tva_intracom/billing.py).
                 if st.button("🗑️ Retirer ce SIREN", key=f"btn_remove_entreprise_{siren_entreprise}"):
                     _eff = tva_billing.request_siren_removal(_current_user.id, siren_entreprise)
                     import datetime as _dt
@@ -1183,35 +1200,54 @@ if uploaded_files:
                     f"TVA OSS nette due : **{_oss_gross_vat:,.2f} €**."
                 )
         
+        # Immatriculations requises
         unregistered = all_stock_countries - set(countries_with_vat)
-        if unregistered:
-            st.warning(
-                f"⚠️ **Stock Amazon détecté sans immatriculation confirmée : "
-                f"{', '.join(sorted(unregistered))}** — présence de stock "
-                "(transferts FBA et/ou expéditions), à vérifier même en l'absence "
-                "de vente domestique constatée sur cette période."
-            )
+        pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
+        unregistered_local = pay_eu - set(countries_with_vat)
+        
+        registration_needed = {}
+        # 1. Stock detection
+        for c in unregistered:
+            if c: registration_needed.setdefault(c, {"stock": False, "sales": False, "ddp": False})["stock"] = True
+        # 2. Local sales detection
+        for c in unregistered_local:
+            if c: registration_needed.setdefault(c, {"stock": False, "sales": False, "ddp": False})["sales"] = True
+        # 3. DDP detection
         if seller_is_importer:
             _ddp_unrg = {r.vat_country for r in results
                 if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"
                 and r.vat_country != "FR" and r.vat_country not in countries_with_vat}
-            if _ddp_unrg:
-                st.error(f"🚨 **DDP actif — Immatriculation TVA requise dans : "
-                    f"{', '.join(_country_label(c)+' ('+c+')' for c in sorted(_ddp_unrg))}**")
+            for c in _ddp_unrg:
+                if c: registration_needed.setdefault(c, {"stock": False, "sales": False, "ddp": False})["ddp"] = True
+
+        if registration_needed:
+            _reg_list = ", ".join(sorted(registration_needed.keys()))
+            with st.expander(f"🚨 **Plan d'action Immatriculations : {_reg_list}**", expanded=True):
+                st.write("Les pays suivants nécessitent une immatriculation TVA locale pour régulariser votre situation :")
+                for c in sorted(registration_needed.keys()):
+                    reasons = []
+                    icons = ""
+                    data = registration_needed[c]
+                    if data["stock"]:
+                        icons += "📦 "
+                        reasons.append("Stock détecté (transferts FBA)")
+                    if data["sales"]:
+                        icons += "💰 "
+                        reasons.append("Ventes locales taxables")
+                    if data["ddp"]:
+                        icons += "🛃 "
+                        reasons.append("Importation DDP")
+                    
+                    st.markdown(f"- **{_country_label(c)} ({c})** : {icons} — *Raison : {' + '.join(reasons)}*")
                 
-        # Immatriculations requises
-        pay_eu = {r.vat_country for r in results
-            if r.channel.value == "LOCAL" and r.vat_country}
-        if pay_eu:
-            unregistered_local = pay_eu - set(countries_with_vat)
-            if unregistered_local:
-                _local_list = ", ".join(f"**{_country_label(p)} ({p})**" for p in sorted(unregistered_local))
-                st.warning(
-                    "⚠️ Immatriculation TVA locale requise (ventes domestiques "
-                    f"constatées sur cette période) dans : {_local_list}"
-                    " — distinct de l'alerte stock ci-dessus : ici, des ventes "
-                    "taxables réelles ont été calculées dans ces pays."
-                )
+                critical_blocking = [c for c in registration_needed if c in ["DE", "FR"]]
+                if critical_blocking:
+                    _c_list = " et ".join(f"**{_country_label(c)} ({c})**" for c in sorted(critical_blocking))
+                    st.warning(
+                        f"⚠️ **Attention : Risque de blocage Amazon**  \n"
+                        f"Pour {_c_list}, Amazon bloque les comptes vendeurs "
+                        "sans certificat de TVA valide. Régularisez votre situation au plus vite pour éviter toute interruption d'activité."
+                    )
 
         # =====================================================================
         # KPIs — toujours visibles

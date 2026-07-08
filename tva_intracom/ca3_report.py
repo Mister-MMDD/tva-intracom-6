@@ -131,61 +131,86 @@ def compute_ca3_lines_v2(
       20d TVA déductible sur immobilisations
       21d TVA déductible sur autres biens et services
       27  Crédit de taxe de la période précédente
+
+    Chaque ligne "brute" ci-dessus (01, 02, 14, 20, 22, 24, 25) est en réalité
+    décomposée en trois variantes dans le dict retourné, pour permettre un
+    affichage vente / avoir / net séparé (voir generate_ca3_html_report_v2) :
+      "<ligne>_base_vente" / "<ligne>_tva_vente" : ventes seules (brut)
+      "<ligne>_base_remb"  / "<ligne>_tva_remb"  : avoirs seuls (négatif)
+      "<ligne>_base_ht"    / "<ligne>_tva_due"   : net (vente + remb) — clés
+        historiques, ce sont elles qui doivent figurer sur le Cerfa officiel.
+    Ligne 08 (AIC) n'a pas de variante avoir : les transferts de stock FBA ne
+    sont jamais remboursés.
     """
+    _BASE_LINES = ("01", "02", "14")
+    _RATE_LINES = ("20", "22", "24", "25")
+
     lines: Dict[str, Decimal] = {
-        "01_base_ht":   Decimal("0.00"),
-        "02_base_ht":   Decimal("0.00"),
         "08_base_ht":   Decimal("0.00"),
         "08_tva_aic":   Decimal("0.00"),
-        "14_base_ht":   Decimal("0.00"),
-        "20_base_ht":   Decimal("0.00"),
-        "20_tva_due":   Decimal("0.00"),
-        "22_base_ht":   Decimal("0.00"),
-        "22_tva_due":   Decimal("0.00"),
-        "24_base_ht":   Decimal("0.00"),
-        "24_tva_due":   Decimal("0.00"),
-        "25_base_ht":   Decimal("0.00"),
-        "25_tva_due":   Decimal("0.00"),
         # Déductions (saisies)
         "20d_tva_ded":  _round(tva_deductible_immos),
         "21d_tva_ded":  _round(tva_deductible_autres),
         "27_credit":    _round(credit_periode_precedente),
     }
+    for k in _BASE_LINES:
+        lines[f"{k}_base_vente"] = Decimal("0.00")
+        lines[f"{k}_base_remb"]  = Decimal("0.00")
+        lines[f"{k}_base_ht"]    = Decimal("0.00")
+    for k in _RATE_LINES:
+        lines[f"{k}_base_vente"] = Decimal("0.00")
+        lines[f"{k}_tva_vente"]  = Decimal("0.00")
+        lines[f"{k}_base_remb"]  = Decimal("0.00")
+        lines[f"{k}_tva_remb"]   = Decimal("0.00")
+        lines[f"{k}_base_ht"]    = Decimal("0.00")
+        lines[f"{k}_tva_due"]    = Decimal("0.00")
 
-    def _aggregate(res: VatResult) -> None:
+    def _aggregate(res: VatResult, is_refund: bool) -> None:
         stock_from_seller = res.sale.stock_country == seller_country.upper()
         buyer_in_seller   = res.sale.buyer_country == seller_country.upper()
+        suffix = "remb" if is_refund else "vente"
 
         if res.scenario == Scenario.DOMESTIC and buyer_in_seller and stock_from_seller:
             amt  = res.sale.amount_ht
             tva  = res.vat_amount
             rate = res.vat_rate
-            lines["01_base_ht"] += amt
+            lines[f"01_base_{suffix}"] += amt
             if rate in (Decimal("20"), Decimal("20.00")):
-                lines["20_base_ht"] += amt; lines["20_tva_due"] += tva
+                bucket = "20"
             elif rate in (Decimal("5.5"), Decimal("5.50")):
-                lines["22_base_ht"] += amt; lines["22_tva_due"] += tva
+                bucket = "22"
             elif rate in (Decimal("2.1"), Decimal("2.10")):
-                lines["24_base_ht"] += amt; lines["24_tva_due"] += tva
+                bucket = "24"
             elif rate in (Decimal("10"), Decimal("10.00")):
-                lines["25_base_ht"] += amt; lines["25_tva_due"] += tva
+                bucket = "25"
             else:
                 logger.warning("CA3 v2 : taux %.2f%% non mappé (sale_id=%s) → ligne 20.",
                                float(rate), res.sale.sale_id)
-                lines["20_base_ht"] += amt; lines["20_tva_due"] += tva
+                bucket = "20"
+            lines[f"{bucket}_base_{suffix}"] += amt
+            lines[f"{bucket}_tva_{suffix}"]  += tva
 
         elif res.scenario == Scenario.B2B_REVERSE_CHARGE and stock_from_seller:
-            lines["02_base_ht"] += res.sale.amount_ht
+            lines[f"02_base_{suffix}"] += res.sale.amount_ht
 
         elif res.scenario == Scenario.EXPORT and stock_from_seller:
-            lines["14_base_ht"] += res.sale.amount_ht
+            lines[f"14_base_{suffix}"] += res.sale.amount_ht
 
     for res in results:
-        _aggregate(res)
+        _aggregate(res, is_refund=False)
     for res in (refund_results or []):
-        _aggregate(res)
+        _aggregate(res, is_refund=True)
 
-    # Ligne 08 : AIC depuis les FC Transfers entrant
+    # Reconstruction des totaux nets (vente + avoir) — ce sont ces clés
+    # historiques qui doivent être utilisées pour le Cerfa officiel.
+    for k in _BASE_LINES:
+        lines[f"{k}_base_ht"] = lines[f"{k}_base_vente"] + lines[f"{k}_base_remb"]
+    for k in _RATE_LINES:
+        lines[f"{k}_base_ht"] = lines[f"{k}_base_vente"] + lines[f"{k}_base_remb"]
+        lines[f"{k}_tva_due"] = lines[f"{k}_tva_vente"]  + lines[f"{k}_tva_remb"]
+
+    # Ligne 08 : AIC depuis les FC Transfers entrant (jamais d'avoir sur les
+    # transferts de stock FBA — pas de variante remb).
     if all_fc_transfers:
         b, t = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country)
         lines["08_base_ht"] = b
@@ -247,10 +272,21 @@ def generate_ca3_html_report_v2(
     )
 
     has_aic  = lines["08_base_ht"] > 0
-    has_l22  = lines["22_base_ht"] > 0
-    has_l24  = lines["24_base_ht"] > 0
-    has_l25  = lines["25_base_ht"] > 0
+    has_l22  = lines["22_base_ht"] != 0 or lines["22_base_vente"] != 0 or lines["22_base_remb"] != 0
+    has_l24  = lines["24_base_ht"] != 0 or lines["24_base_vente"] != 0 or lines["24_base_remb"] != 0
+    has_l25  = lines["25_base_ht"] != 0 or lines["25_base_vente"] != 0 or lines["25_base_remb"] != 0
     has_ded  = any(lines[k] > 0 for k in ("20d_tva_ded", "21d_tva_ded", "27_credit"))
+
+    # Totaux vente / avoir (hors AIC — l'AIC n'a pas de variante avoir)
+    _RATE_LINES = ("20", "22", "24", "25")
+    tva_vente_total  = sum(lines[f"{k}_tva_vente"]  for k in _RATE_LINES)
+    tva_remb_total   = sum(lines[f"{k}_tva_remb"]   for k in _RATE_LINES)
+    base_vente_total = sum(lines[f"{k}_base_vente"] for k in _RATE_LINES)
+    base_remb_total  = sum(lines[f"{k}_base_remb"]  for k in _RATE_LINES)
+    has_remb = any(
+        lines[f"{k}_base_remb"] != 0
+        for k in ("01", "02", "14", "20", "22", "24", "25")
+    )
 
     def _fmt(v: Decimal) -> str:
         return f"{v:,.2f}"
@@ -320,36 +356,39 @@ def generate_ca3_html_report_v2(
                 <td>Acquisitions intracommunautaires assimilées — transferts stock FBA entrant {seller_country}
                     <br><small>(base estimée — valeur d'achat réelle à substituer)</small></td>
                 <td class="tr">{_fmt(lines['08_base_ht'])}</td>
+                <td class="tr">—</td>
+                <td class="tr">{_fmt(lines['08_base_ht'])}</td>
             </tr>"""
 
-    L22_ROW = f"""
+    def _rate_row(cadre: str, label: str, key: str) -> str:
+        return f"""
             <tr>
-                <td class="tc"><span class="cb">Ligne 22</span></td>
-                <td><strong>Taux réduit 5,5 %</strong> (alimentation, livres, médicaments…)</td>
-                <td class="tr">{_fmt(lines['22_base_ht'])}</td>
-                <td class="tr">{_fmt(lines['22_tva_due'])}</td>
-            </tr>""" if has_l22 else ""
+                <td class="tc"><span class="cb">Ligne {cadre}</span></td>
+                <td><strong>{label}</strong></td>
+                <td class="tr">{_fmt(lines[f'{key}_base_vente'])}</td>
+                <td class="tr">{_fmt(lines[f'{key}_tva_vente'])}</td>
+                <td class="tr">{_fmt(lines[f'{key}_base_remb'])}</td>
+                <td class="tr">{_fmt(lines[f'{key}_tva_remb'])}</td>
+                <td class="tr">{_fmt(lines[f'{key}_base_ht'])}</td>
+                <td class="tr">{_fmt(lines[f'{key}_tva_due'])}</td>
+            </tr>"""
 
-    L24_ROW = f"""
-            <tr>
-                <td class="tc"><span class="cb">Ligne 24</span></td>
-                <td><strong>Taux super-réduit 2,1 %</strong> (médicaments remboursables, presse en ligne)</td>
-                <td class="tr">{_fmt(lines['24_base_ht'])}</td>
-                <td class="tr">{_fmt(lines['24_tva_due'])}</td>
-            </tr>""" if has_l24 else ""
+    L20_ROW = _rate_row("20", "Taux normal 20 %", "20")
 
-    L25_ROW = f"""
-            <tr>
-                <td class="tc"><span class="cb">Ligne 25</span></td>
-                <td><strong>Taux intermédiaire 10 %</strong> (restauration, hébergement…)</td>
-                <td class="tr">{_fmt(lines['25_base_ht'])}</td>
-                <td class="tr">{_fmt(lines['25_tva_due'])}</td>
-            </tr>""" if has_l25 else ""
+    L22_ROW = _rate_row("22", "Taux réduit 5,5 % (alimentation, livres, médicaments…)", "22") if has_l22 else ""
+
+    L24_ROW = _rate_row("24", "Taux super-réduit 2,1 % (médicaments remboursables, presse en ligne)", "24") if has_l24 else ""
+
+    L25_ROW = _rate_row("25", "Taux intermédiaire 10 % (restauration, hébergement…)", "25") if has_l25 else ""
 
     L08_TVA_ROW = f"""
             <tr>
                 <td class="tc"><span class="cb">Ligne 08</span></td>
                 <td><strong>TVA sur AIC assimilées</strong> (collectée = déductible, art. 272 CGI)</td>
+                <td class="tr">{_fmt(lines['08_base_ht'])}</td>
+                <td class="tr">{_fmt(lines['08_tva_aic'])}</td>
+                <td class="tr">—</td>
+                <td class="tr">—</td>
                 <td class="tr">{_fmt(lines['08_base_ht'])}</td>
                 <td class="tr">{_fmt(lines['08_tva_aic'])}</td>
             </tr>""" if has_aic else ""
@@ -449,61 +488,81 @@ def generate_ca3_html_report_v2(
     <table class="t">
         <thead>
             <tr>
-                <th style="width:15%;">Cadre Cerfa</th>
-                <th style="width:55%;">Nature des opérations</th>
-                <th style="width:30%;text-align:right;">Base HT (EUR)</th>
+                <th style="width:12%;">Cadre Cerfa</th>
+                <th style="width:34%;">Nature des opérations</th>
+                <th style="width:18%;text-align:right;">Base vente (EUR)</th>
+                <th style="width:18%;text-align:right;">Dont avoirs (EUR)</th>
+                <th style="width:18%;text-align:right;">Base nette (EUR)</th>
             </tr>
         </thead>
         <tbody>
             <tr>
                 <td class="tc"><span class="cb">Ligne 01</span></td>
-                <td>Ventes / prestations imposables en {seller_country} (net avoirs)</td>
+                <td>Ventes / prestations imposables en {seller_country}</td>
+                <td class="tr">{_fmt(lines['01_base_vente'])}</td>
+                <td class="tr">{_fmt(lines['01_base_remb'])}</td>
                 <td class="tr">{_fmt(lines['01_base_ht'])}</td>
             </tr>
             <tr>
                 <td class="tc"><span class="cb">Ligne 02</span></td>
                 <td>Livraisons intracommunautaires B2B exonérées (départ {seller_country})</td>
+                <td class="tr">{_fmt(lines['02_base_vente'])}</td>
+                <td class="tr">{_fmt(lines['02_base_remb'])}</td>
                 <td class="tr">{_fmt(lines['02_base_ht'])}</td>
             </tr>
             {L08_ROW}
             <tr>
                 <td class="tc"><span class="cb">Ligne 14</span></td>
                 <td>Exportations hors Union Européenne (départ {seller_country})</td>
+                <td class="tr">{_fmt(lines['14_base_vente'])}</td>
+                <td class="tr">{_fmt(lines['14_base_remb'])}</td>
                 <td class="tr">{_fmt(lines['14_base_ht'])}</td>
             </tr>
             <tr class="tot">
                 <td class="tc">—</td>
-                <td>TOTAL CHIFFRE D'AFFAIRES NET (avoirs déduits)</td>
+                <td>TOTAL CHIFFRE D'AFFAIRES</td>
+                <td class="tr">{_fmt(lines['01_base_vente'] + lines['02_base_vente'] + lines['08_base_ht'] + lines['14_base_vente'])}</td>
+                <td class="tr">{_fmt(lines['01_base_remb'] + lines['02_base_remb'] + lines['14_base_remb'])}</td>
                 <td class="tr">{_fmt(total_ca_ht)}</td>
             </tr>
         </tbody>
     </table>
+    {'<p style="font-size:8.5pt;color:#7f8c8d;margin:-8px 0 16px;">La colonne « Dont avoirs » liste les remboursements/avoirs de la période déjà inclus dans la base nette — à titre de rapprochement, ce ne sont pas des lignes Cerfa séparées.</p>' if has_remb else ''}
 
     <h2>B. TVA due — ventilation par taux</h2>
     <table class="t">
         <thead>
             <tr>
-                <th style="width:15%;">Cadre Cerfa</th>
-                <th style="width:35%;">Section d'imposition</th>
-                <th style="width:25%;text-align:right;">Base imposable (EUR)</th>
-                <th style="width:25%;text-align:right;">TVA due (EUR)</th>
+                <th style="width:9%;">Cadre</th>
+                <th style="width:23%;">Section d'imposition</th>
+                <th style="width:13%;text-align:right;">Base vente</th>
+                <th style="width:13%;text-align:right;">TVA vente</th>
+                <th style="width:13%;text-align:right;">Base avoir</th>
+                <th style="width:13%;text-align:right;">TVA avoir</th>
+                <th style="width:13%;text-align:right;">Base nette</th>
+                <th style="width:13%;text-align:right;">TVA nette</th>
             </tr>
         </thead>
         <tbody>
-            <tr>
-                <td class="tc"><span class="cb">Ligne 20</span></td>
-                <td><strong>Taux normal 20 %</strong></td>
-                <td class="tr">{_fmt(lines['20_base_ht'])}</td>
-                <td class="tr">{_fmt(lines['20_tva_due'])}</td>
-            </tr>
-            {L25_ROW}{L22_ROW}{L24_ROW}{L08_TVA_ROW}
+            {L20_ROW}{L25_ROW}{L22_ROW}{L24_ROW}{L08_TVA_ROW}
             <tr class="tot">
                 <td class="tc">—</td>
-                <td colspan="2">TOTAL TVA BRUTE DUE</td>
+                <td>TOTAL</td>
+                <td class="tr">{_fmt(base_vente_total)}</td>
+                <td class="tr">{_fmt(tva_vente_total)}</td>
+                <td class="tr">{_fmt(base_remb_total)}</td>
+                <td class="tr">{_fmt(tva_remb_total)}</td>
+                <td class="tr">{_fmt(base_vente_total + base_remb_total)}</td>
+                <td class="tr">{_fmt(tva_brute_due)}</td>
+            </tr>
+            <tr class="tot">
+                <td class="tc">—</td>
+                <td colspan="6">TOTAL TVA BRUTE DUE (nette d'avoirs + AIC ligne 08)</td>
                 <td class="tr">{_fmt(tva_brute_due_avec_aic)}</td>
             </tr>
         </tbody>
     </table>
+    {'<p style="font-size:8.5pt;color:#7f8c8d;margin:-8px 0 16px;">« TVA vente » = TVA brute sur les ventes seules, avant déduction des avoirs. « TVA avoir » = TVA des remboursements de la période (négative). « TVA nette » = vente + avoir, c\'est ce montant qui doit être reporté sur le Cerfa.</p>' if has_remb else ''}
 
     {DED_SECTION}
     {SOLDE_SECTION}

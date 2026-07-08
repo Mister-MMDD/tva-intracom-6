@@ -190,6 +190,11 @@ def _init_schema() -> None:
         cur.execute(
             "ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS pending_removal_at DOUBLE PRECISION"
         )
+        # Nouveaux paramètres d'import liés au SIREN
+        cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS ioss_number TEXT")
+        cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS seller_is_importer BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS apply_fr_under_threshold BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS countries_with_vat TEXT")
         conn.commit()
 
     _run(_fn)
@@ -301,7 +306,8 @@ def list_registered_sirens(user_id: str) -> list[dict]:
     def _fn(conn, cur):
         cur.execute(
             """
-            SELECT siren, company_name, tva_number, first_used_at, pending_removal_at
+            SELECT siren, company_name, tva_number, first_used_at, pending_removal_at,
+                   ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat
             FROM tva_siren_registrations
             WHERE user_id=%s
             ORDER BY first_used_at ASC
@@ -315,6 +321,8 @@ def list_registered_sirens(user_id: str) -> list[dict]:
         {
             "siren": r[0], "company_name": _dec(r[1]), "tva_number": r[2],
             "first_used_at": r[3], "pending_removal_at": r[4],
+            "ioss_number": r[5], "seller_is_importer": r[6],
+            "apply_fr_under_threshold": r[7], "countries_with_vat": r[8],
         }
         for r in rows
     ]
@@ -368,7 +376,11 @@ def can_register_new_siren(user_id: str) -> tuple[bool, str]:
     return True, ""
 
 
-def register_siren(user_id: str, siren: str, company_name: str = "", tva_number: str = "") -> None:
+def register_siren(
+    user_id: str, siren: str, company_name: str = "", tva_number: str = "",
+    ioss_number: str = "", seller_is_importer: bool = False,
+    apply_fr_under_threshold: bool = False, countries_with_vat: str = ""
+) -> None:
     """Enregistre un SIREN pour ce compte, ou met à jour ses métadonnées s'il
     est déjà enregistré. Le contrôle de quota (`can_register_new_siren`) doit
     être fait par l'appelant AVANT d'appeler cette fonction pour un nouveau
@@ -376,13 +388,21 @@ def register_siren(user_id: str, siren: str, company_name: str = "", tva_number:
     def _fn(conn, cur):
         cur.execute(
             """
-            INSERT INTO tva_siren_registrations (user_id, siren, company_name, tva_number, first_used_at)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO tva_siren_registrations (
+                user_id, siren, company_name, tva_number, first_used_at,
+                ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id, siren)
             DO UPDATE SET company_name = EXCLUDED.company_name,
-                          tva_number = EXCLUDED.tva_number
+                          tva_number = EXCLUDED.tva_number,
+                          ioss_number = EXCLUDED.ioss_number,
+                          seller_is_importer = EXCLUDED.seller_is_importer,
+                          apply_fr_under_threshold = EXCLUDED.apply_fr_under_threshold,
+                          countries_with_vat = EXCLUDED.countries_with_vat
             """,
-            (user_id, siren, _enc(company_name), tva_number, time.time()),
+            (user_id, siren, _enc(company_name), tva_number, time.time(),
+             ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat),
         )
         conn.commit()
 

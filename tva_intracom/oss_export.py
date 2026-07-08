@@ -42,6 +42,48 @@ _ZERO = Decimal("0.00")
 OssAggType = dict  # dict[str, dict[str, dict[Decimal, dict[str, Decimal | int]]]]
 
 
+def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal, Decimal]:
+    """Retourne (ht, tva) d'un VatResult OSS, reconverti au besoin au taux BCE
+    de clôture de la période déclarée (Règl. UE 2020/194, art. 5 bis).
+
+    Fonction PARTAGÉE — c'est la seule source de vérité pour la conversion de
+    devise appliquée à une ligne OSS. Utilisée à la fois par
+    `aggregate_oss_results()` (pour OSS_Résumé et le XML officiel) et par
+    l'onglet OSS_Détail, afin que les deux affichages utilisent strictement
+    le même montant pour une même vente en devise étrangère.
+
+    Si `period` est vide/non reconnu, ou si la vente est déjà en EUR, on
+    retombe sur `res.sale.amount_ht` / `res.vat_amount` tels quels
+    (comportement historique, taux du jour de la vente).
+    """
+    ht  = res.sale.amount_ht
+    tva = res.vat_amount
+
+    if period and res.sale.original_currency and res.sale.original_currency != "EUR":
+        try:
+            tx_date = _date.fromisoformat((res.sale.transaction_date or "")[:10])
+        except ValueError:
+            tx_date = _date.today()
+        sign = Decimal("-1") if ht < 0 else Decimal("1")
+        try:
+            new_ht_abs, _rate_used, _src = convert_to_eur_for_oss(
+                abs(res.sale.original_amount),
+                res.sale.original_currency,
+                period,
+                tx_date,
+                fallback_rate=res.sale.exchange_rate or None,
+            )
+            ht = sign * new_ht_abs
+            tva = (ht * (res.vat_rate / Decimal("100"))).quantize(_CENT, rounding=ROUND_HALF_UP)
+        except ValueError:
+            # BCE indisponible et pas de fallback : on garde le montant déjà
+            # converti au taux du jour de la vente plutôt que de bloquer
+            # toute la génération du rapport.
+            pass
+
+    return ht, tva
+
+
 def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggType:
     """Agrège les VatResult OSS_B2C par pays de départ puis pays d'arrivée.
 
@@ -51,15 +93,22 @@ def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggT
         {
           "FR": {
             "DE": {
-              Decimal("19"): {"ht": Decimal(...), "tva": Decimal(...), "nb": int},
+              Decimal("19"): {
+                  "ht": Decimal(...), "tva": Decimal(...),        # net (vente+avoir)
+                  "ht_vente": Decimal(...), "tva_vente": Decimal(...),   # ventes seules (brut)
+                  "ht_remb":  Decimal(...), "tva_remb":  Decimal(...),   # avoirs seuls (négatif)
+                  "nb": int,
+              },
               ...
             },
           },
           "DE": { ... },
         }
 
-    Le champ 'nb' (nombre de transactions) est utilisé uniquement par
-    l'export Excel ; il est ignoré par le générateur XML.
+    Les clés "ht"/"tva" (net) sont historiques — c'est ce que consomme
+    oss_xml.py et find_oss_negative_buckets(). Les clés "*_vente"/"*_remb"
+    sont ajoutées pour permettre un affichage brut/avoir/net séparé
+    (OSS_Résumé) sans changer le comportement du XML officiel.
 
     Args:
         period: période OSS déclarée (ex: "2026-Q1"). Si fournie et reconnue,
@@ -80,42 +129,29 @@ def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggT
         arrival   = res.vat_country          # MemberStateOfConsumption
         rate      = res.vat_rate
 
-        ht  = res.sale.amount_ht
-        tva = res.vat_amount
-
-        # Reconversion au taux BCE de clôture de période — uniquement pour
-        # les ventes effectivement passées en devise étrangère.
-        if period and res.sale.original_currency and res.sale.original_currency != "EUR":
-            try:
-                tx_date = _date.fromisoformat((res.sale.transaction_date or "")[:10])
-            except ValueError:
-                tx_date = _date.today()
-            sign = Decimal("-1") if ht < 0 else Decimal("1")
-            try:
-                new_ht_abs, _rate_used, _src = convert_to_eur_for_oss(
-                    abs(res.sale.original_amount),
-                    res.sale.original_currency,
-                    period,
-                    tx_date,
-                    fallback_rate=res.sale.exchange_rate or None,
-                )
-                ht = sign * new_ht_abs
-                tva = (ht * (rate / Decimal("100"))).quantize(_CENT, rounding=ROUND_HALF_UP)
-            except ValueError:
-                # BCE indisponible et pas de fallback : on garde le montant
-                # déjà converti au taux du jour de la vente plutôt que de
-                # bloquer toute la génération du rapport.
-                pass
+        ht, tva = convert_ht_tva_for_oss_period(res, period)
 
         aggregated.setdefault(departure, {})
         aggregated[departure].setdefault(arrival, {})
         aggregated[departure][arrival].setdefault(
-            rate, {"ht": Decimal("0.00"), "tva": Decimal("0.00"), "nb": 0}
+            rate, {
+                "ht": Decimal("0.00"), "tva": Decimal("0.00"),
+                "ht_vente": Decimal("0.00"), "tva_vente": Decimal("0.00"),
+                "ht_remb":  Decimal("0.00"), "tva_remb":  Decimal("0.00"),
+                "nb": 0,
+            }
         )
 
-        aggregated[departure][arrival][rate]["ht"]  += ht
-        aggregated[departure][arrival][rate]["tva"] += tva
-        aggregated[departure][arrival][rate]["nb"]  += 1
+        bucket = aggregated[departure][arrival][rate]
+        bucket["ht"]  += ht
+        bucket["tva"] += tva
+        if ht >= 0:
+            bucket["ht_vente"]  += ht
+            bucket["tva_vente"] += tva
+        else:
+            bucket["ht_remb"]  += ht
+            bucket["tva_remb"] += tva
+        bucket["nb"]  += 1
 
     return aggregated
 
@@ -185,9 +221,13 @@ class OssCountryLine:
     country: str
     country_name: str
     vat_rate: Decimal
-    base_ht: Decimal
-    vat_amount: Decimal
+    base_ht: Decimal          # NET (vente + avoir) — clé historique
+    vat_amount: Decimal       # NET (vente + avoir) — clé historique
     nb_transactions: int
+    base_ht_vente: Decimal = _ZERO   # brut, ventes seules
+    vat_vente: Decimal      = _ZERO   # brut, ventes seules
+    base_ht_remb: Decimal   = _ZERO   # avoirs seuls (négatif)
+    vat_remb: Decimal       = _ZERO   # avoirs seuls (négatif)
 
 
 @dataclass
@@ -203,7 +243,7 @@ class B2bLine:
 @dataclass
 class OssExportData:
     oss_by_country: List[OssCountryLine]
-    oss_details: List[VatResult]
+    oss_details: List[tuple]   # (VatResult, ht_converti, tva_converti) — voir convert_ht_tva_for_oss_period
     b2b_lines: List[B2bLine]
     period: str
     total_oss_ht: Decimal = _ZERO
@@ -225,7 +265,6 @@ def _aggregate(results: List[VatResult], period: str = "") -> OssExportData:
     # Note : l'Excel OSS consolide TOUS les pays de départ — la DGFiP attend
     # une vue par pays de consommation (pas de départ) dans l'état OSS FR.
     country_map: dict[tuple[str, Decimal], dict] = {}
-    oss_detail_results: list[VatResult] = []
 
     for departure, destinations in oss_agg.items():
         for arrival, rates in destinations.items():
@@ -238,14 +277,29 @@ def _aggregate(results: List[VatResult], period: str = "") -> OssExportData:
                         "vat_rate": rate,
                         "base_ht": _ZERO,
                         "vat_amount": _ZERO,
+                        "base_ht_vente": _ZERO,
+                        "vat_vente": _ZERO,
+                        "base_ht_remb": _ZERO,
+                        "vat_remb": _ZERO,
                         "nb": 0,
                     }
-                country_map[key]["base_ht"]    += amounts["ht"]
-                country_map[key]["vat_amount"] += amounts["tva"]
-                country_map[key]["nb"]         += amounts["nb"]
+                country_map[key]["base_ht"]       += amounts["ht"]
+                country_map[key]["vat_amount"]     += amounts["tva"]
+                country_map[key]["base_ht_vente"]  += amounts["ht_vente"]
+                country_map[key]["vat_vente"]      += amounts["tva_vente"]
+                country_map[key]["base_ht_remb"]   += amounts["ht_remb"]
+                country_map[key]["vat_remb"]       += amounts["tva_remb"]
+                country_map[key]["nb"]             += amounts["nb"]
 
-    # Reconstruire la liste de détail OSS depuis les résultats d'origine
-    oss_detail_results = [r for r in results if r.scenario == Scenario.OSS_B2C]
+    # Reconstruire la liste de détail OSS depuis les résultats d'origine, en
+    # appliquant la MÊME reconversion BCE de clôture de période que le Résumé
+    # (convert_ht_tva_for_oss_period) — auparavant le détail affichait le
+    # montant au taux du jour de la vente, différent du Résumé pour toute
+    # vente en devise étrangère.
+    oss_detail_results = [
+        (r, *convert_ht_tva_for_oss_period(r, period))
+        for r in results if r.scenario == Scenario.OSS_B2C
+    ]
 
     oss_lines = [
         OssCountryLine(
@@ -255,6 +309,10 @@ def _aggregate(results: List[VatResult], period: str = "") -> OssExportData:
             base_ht=v["base_ht"],
             vat_amount=v["vat_amount"],
             nb_transactions=v["nb"],
+            base_ht_vente=v["base_ht_vente"],
+            vat_vente=v["vat_vente"],
+            base_ht_remb=v["base_ht_remb"],
+            vat_remb=v["vat_remb"],
         )
         for v in sorted(country_map.values(), key=lambda x: x["country"])
     ]
@@ -319,7 +377,7 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     ws.sheet_view.showGridLines = False
 
     # Titre
-    ws.merge_cells("A1:F1")
+    ws.merge_cells("A1:J1")
     t = ws["A1"]
     t.value = f"ÉTAT RÉCAPITULATIF OSS — {period}"
     t.font = Font(bold=True, size=13, color=_WHITE, name="Arial")
@@ -327,15 +385,23 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     t.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 28
 
-    ws.merge_cells("A2:F2")
+    ws.merge_cells("A2:J2")
     sub = ws["A2"]
     sub.value = "Guichet unique OSS — à déclarer auprès de l'administration fiscale française (URSSAF / DGFiP)"
     sub.font = Font(italic=True, size=9, color="595959", name="Arial")
     sub.alignment = Alignment(horizontal="center")
 
     # Headers colonnes
-    headers = ["Code pays", "Pays", "Taux TVA", "Base HT (€)", "TVA due (€)", "Nb transactions"]
-    widths =  [12,           22,     12,          18,             18,             16]
+    headers = ["Code pays", "Pays", "Taux TVA",
+               "Base vente (€)", "TVA vente (€)",
+               "Base avoir (€)", "TVA avoir (€)",
+               "Base nette (€)", "TVA nette (€)",
+               "Nb transactions"]
+    widths =  [12,           22,     10,
+               16,             15,
+               16,             15,
+               16,             15,
+               14]
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         _hdr_cell(ws, 3, col, h, _BLUE_LIGHT, fg="1F4E79", size=9)
         ws.column_dimensions[get_column_letter(col)].width = w
@@ -348,9 +414,13 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
         _data_cell(ws, r, 1, line.country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
         _data_cell(ws, r, 2, line.country_name, zebra=zebra)
         _data_cell(ws, r, 3, float(line.vat_rate) / 100, fmt="0.0%", zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, r, 4, float(line.base_ht), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, r, 5, float(line.vat_amount), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, r, 6, line.nb_transactions, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
+        _data_cell(ws, r, 4, float(line.base_ht_vente), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
+        _data_cell(ws, r, 5, float(line.vat_vente), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
+        _data_cell(ws, r, 6, float(line.base_ht_remb), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
+        _data_cell(ws, r, 7, float(line.vat_remb), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
+        _data_cell(ws, r, 8, float(line.base_ht), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
+        _data_cell(ws, r, 9, float(line.vat_amount), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
+        _data_cell(ws, r, 10, line.nb_transactions, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[r].height = 16
 
     # Ligne total
@@ -361,15 +431,20 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     _total_cell(ws, total_row, 3, "")
     _total_cell(ws, total_row, 4, f"=SUM(D4:D{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
     _total_cell(ws, total_row, 5, f"=SUM(E4:E{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
-    _total_cell(ws, total_row, 6, f"=SUM(F4:F{total_row-1})").alignment = Alignment(horizontal="center", vertical="center")
+    _total_cell(ws, total_row, 6, f"=SUM(F4:F{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
+    _total_cell(ws, total_row, 7, f"=SUM(G4:G{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
+    _total_cell(ws, total_row, 8, f"=SUM(H4:H{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
+    _total_cell(ws, total_row, 9, f"=SUM(I4:I{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
+    _total_cell(ws, total_row, 10, f"=SUM(J4:J{total_row-1})").alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[total_row].height = 18
 
     # Note de bas de page
     note_row = total_row + 2
-    ws.merge_cells(f"A{note_row}:F{note_row}")
+    ws.merge_cells(f"A{note_row}:J{note_row}")
     n_cell = ws[f"A{note_row}"]
     n_cell.value = (
-        "⚠️  Ce document est un récapitulatif indicatif. "
+        "⚠️  Ce document est un récapitulatif indicatif. « Base/TVA nette » (vente + avoir) est le "
+        "montant à déclarer sur le portail OSS. "
         "Vérifiez les montants avant dépôt sur le portail OSS URSSAF (https://www.impots.gouv.fr)."
     )
     n_cell.font = Font(italic=True, size=8, color="C00000", name="Arial")
@@ -394,7 +469,10 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
         ws.column_dimensions[get_column_letter(col)].width = w
     ws.row_dimensions[2].height = 18
 
-    for i, r in enumerate(data.oss_details):
+    # data.oss_details contient des tuples (VatResult, ht_converti, tva_converti) —
+    # ht/tva déjà reconvertis au taux BCE de clôture de période (même valeur
+    # que celle agrégée dans OSS_Résumé, voir convert_ht_tva_for_oss_period).
+    for i, (r, ht, tva) in enumerate(data.oss_details):
         row = i + 3
         zebra = i % 2 == 1
         _data_cell(ws, row, 1, (getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra)
@@ -402,9 +480,9 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
         _data_cell(ws, row, 3, r.sale.stock_country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
         _data_cell(ws, row, 4, r.sale.buyer_country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
         _data_cell(ws, row, 5, COUNTRY_NAMES.get(r.sale.buyer_country, r.sale.buyer_country), zebra=zebra)
-        _data_cell(ws, row, 6, float(r.sale.amount_ht), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
+        _data_cell(ws, row, 6, float(ht), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
         _data_cell(ws, row, 7, float(r.vat_rate) / 100, fmt="0.0%", zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, row, 8, float(r.vat_amount), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
+        _data_cell(ws, row, 8, float(tva), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
         ws.row_dimensions[row].height = 15
 
     # Totaux
