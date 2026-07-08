@@ -1,2 +1,4 @@
 stripe
 psycopg2-binary
+cryptography==49.0.0
+

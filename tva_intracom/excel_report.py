@@ -260,7 +260,7 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
             channel = "N/A"
             note = "Remboursement (source brute)"
 
-        ws.cell(row=i, column=1, value=str(sale.sale_id))
+        ws.cell(row=i, column=1, value=str(getattr(sale, "display_id", "") or sale.sale_id))
         ws.cell(row=i, column=2, value=str(sale.transaction_date))
         ws.cell(row=i, column=3, value=str(sale.stock_country))
         ws.cell(row=i, column=4, value=str(sale.buyer_country))
@@ -403,7 +403,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     row += 1
 
     for r, nat, dep, arr, tva_amz, tva_mot, ecart in detail_rows:
-        ws.cell(row=row, column=1, value=str(r.sale.sale_id))
+        ws.cell(row=row, column=1, value=str(getattr(r.sale, "display_id", "") or r.sale.sale_id))
         ws.cell(row=row, column=2, value=nat)
         ws.cell(row=row, column=3, value=f"{dep}→{arr}")
         ws.cell(row=row, column=4, value=str(r.scenario.value))

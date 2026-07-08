@@ -122,6 +122,16 @@ def _init_schema() -> None:
                 )
                 """
             )
+            # Table pour la protection brute-force (DPP Amazon)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tva_failed_logins (
+                    ip_hash TEXT NOT NULL,
+                    attempt_at DOUBLE PRECISION NOT NULL
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_failed_logins_at ON tva_failed_logins(attempt_at)")
     finally:
         _pool.putconn(conn)
 
@@ -210,26 +220,53 @@ def send_magic_link_email(email: str, login_url: str) -> None:
     response.raise_for_status()
 
 
-def consume_magic_link(token: str) -> Optional[User]:
-    """Valide un jeton de connexion. Retourne None si invalide, expiré, ou déjà utilisé."""
+def consume_magic_link(token: str, ip_address: str = "unknown") -> Optional[User]:
+    """Valide un jeton de connexion. Retourne None si invalide, expiré, ou déjà utilisé.
+    Inclut une protection brute-force (DPP Amazon)."""
+    import hashlib
+    ip_hash = hashlib.sha256(ip_address.encode()).hexdigest()
+
     def _fn(conn, cur):
+        # 1. Vérifier le brute-force : max 5 échecs en 5 minutes pour cet IP hash
+        cutoff = time.time() - 300
+        cur.execute(
+            "SELECT COUNT(*) FROM tva_failed_logins WHERE ip_hash=%s AND attempt_at > %s",
+            (ip_hash, cutoff)
+        )
+        failed_count = cur.fetchone()[0]
+        if failed_count >= 5:
+            return "rate_limited"
+
+        # 2. Vérifier le token
         cur.execute(
             "SELECT email, created_at, consumed FROM tva_magic_links WHERE token=%s",
             (token,),
         )
         row = cur.fetchone()
+        
         if not row:
+            # Enregistrer l'échec
+            cur.execute("INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)", (ip_hash, time.time()))
+            conn.commit()
             return None
+            
         email, created_at, consumed = row
         if consumed or (time.time() - created_at) > MAGIC_LINK_TTL_SECONDS:
+            cur.execute("INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)", (ip_hash, time.time()))
+            conn.commit()
             return None
+            
+        # Succès : on nettoie les anciens échecs pour cet IP et on marque consommé
+        cur.execute("DELETE FROM tva_failed_logins WHERE ip_hash=%s", (ip_hash,))
         cur.execute("UPDATE tva_magic_links SET consumed=TRUE WHERE token=%s", (token,))
         return email
 
-    email = _run(_fn)
-    if not email:
+    res = _run(_fn)
+    if res == "rate_limited":
+        raise PermissionError("Trop de tentatives de connexion. Réessayez dans 5 minutes.")
+    if not res:
         return None
-    return get_or_create_user(email)
+    return get_or_create_user(res)
 
 
 def create_session_token(user_id: str) -> str:

@@ -285,8 +285,13 @@ def _process_rows(
 
         # --- Construction Sale ---
         sale_id = parser.sale_id(row, line_no)
+        # Identifiant à AFFICHER uniquement (TRANSACTION_EVENT_ID) — n'intervient
+        # jamais dans sale_id (clé d'agrégation/matching, inchangée ci-dessus).
+        # Absent des formats 3/5 : reste vide, l'affichage repliera sur sale_id.
+        display_id = row.get("transaction_event_id", "").strip()
         sale = Sale(
             sale_id=sale_id,
+            display_id=display_id,
             amount_ht=fx.amount_ht,
             buyer_type=classification.buyer_type,
             stock_country=departure,

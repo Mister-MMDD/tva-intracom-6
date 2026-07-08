@@ -199,26 +199,48 @@ if _cookie_token and st.session_state.get("auth_user") is None:
 _qp_token = st.query_params.get("login_token")
 if _qp_token:
     if st.session_state.get("auth_user") is None:
-        _u = tva_auth.consume_magic_link(_qp_token)
+        # Récupération de l'IP pour le rate limiting : purement best-effort.
+        # Une défaillance ici (API interne Streamlit non garantie d'une version
+        # à l'autre) ne doit JAMAIS empêcher la création du session_token/cookie
+        # après un consume_magic_link() réussi — sinon la connexion "marche"
+        # (l'utilisateur est créé côté Supabase) mais aucune session ne persiste
+        # (pas de tva_session_tokens, pas de cookie), et un simple F5 déconnecte.
+        _ip = "unknown"
+        try:
+            from streamlit.web.server.websocket_headers import _get_websocket_headers  # type: ignore[import]
+            _headers = _get_websocket_headers()
+            if _headers:
+                _ip = _headers.get("X-Forwarded-For", _headers.get("Remote-Addr", "unknown")).split(",")[0]
+        except Exception:
+            pass  # rate limiting par IP simplement désactivé pour cette requête
+
+        try:
+            _u = tva_auth.consume_magic_link(_qp_token, ip_address=_ip)
+        except PermissionError as e:
+            st.error(f"⛔ {e}")
+            _u = None
+        except Exception as e:
+            st.error(f"⛔ Erreur lors de la connexion : {e}")
+            _u = None
+
         if _u is not None:
             st.session_state["auth_user"] = _u
             _new_session_token = tva_auth.create_session_token(_u.id)
-            
+
             # On écrit le cookie
             cookie_manager.set(
-                "tva_session_token", 
-                _new_session_token, 
+                "tva_session_token",
+                _new_session_token,
                 expires_at=datetime.now() + timedelta(days=30),
                 key="set_cookie_on_login"
             )
             # On nettoie l'URL et on relance
             st.query_params.clear()
             st.rerun()
-        else:
-            # Si on arrive ici, le lien est invalide OU déjà consommé.
-            # On ne montre l'erreur que si on n'a vraiment aucune session.
-            if st.session_state.get("auth_user") is None:
-                st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
+        elif st.session_state.get("auth_user") is None:
+            # Si on arrive ici (et qu'aucune erreur explicite n'a déjà été
+            # affichée ci-dessus), le lien est invalide, expiré, ou déjà consommé.
+            st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
     else:
         # L'utilisateur est déjà connecté (peut-être via le cookie juste avant)
         # On nettoie juste l'URL pour être propre
@@ -1466,7 +1488,7 @@ if uploaded_files:
                 elif sort_yours == "Taux": your_results.sort(key=lambda r: -r.vat_rate)
                 else: your_results.sort(key=lambda r: -r.sale.amount_ht)
                 _your_rows = [{
-                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":(r.sale.display_id or r.sale.sale_id), "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Taux %":float(r.vat_rate),
                     "TVA (EUR)":float(r.vat_amount), "Canal":r.channel.value,
                     "Devise":r.sale.original_currency if r.sale.original_currency != "EUR" else "",
@@ -1489,7 +1511,7 @@ if uploaded_files:
                 st.caption("Ventes dont Amazon ou la douane collecte la TVA.")
                 third_results = [r for r in results if r.collector.value != "SELLER"]
                 _third_rows = [{
-                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":(r.sale.display_id or r.sale.sale_id), "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                     "Collecteur":r.collector.value}
                     for r in third_results]
@@ -1503,7 +1525,7 @@ if uploaded_files:
                 all_sorted = sorted(results,
                     key=lambda r: r.vat_country if sort_all=="Pays" else (-r.vat_rate if sort_all=="Taux" else -r.sale.amount_ht))
                 _all_rows = [{
-                    "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                    "ID":(r.sale.display_id or r.sale.sale_id), "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                     "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                     "Taux %":float(r.vat_rate), "TVA (EUR)":float(r.vat_amount),
                     "Canal":r.channel.value,
@@ -1568,7 +1590,7 @@ if uploaded_files:
                     ref_sorted = sorted(refund_results,
                         key=lambda r: r.vat_country if sort_ref=="Pays" else (-r.vat_rate if sort_ref=="Taux" else r.sale.amount_ht))
                     _ref_rows = [{
-                        "ID":r.sale.sale_id, "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
+                        "ID":(r.sale.display_id or r.sale.sale_id), "Stock":r.sale.stock_country, "Dest":r.sale.buyer_country,
                         "HT (EUR)":float(r.sale.amount_ht), "Scénario":r.scenario.value,
                         "Taux %":float(r.vat_rate), "TVA (EUR)":float(r.vat_amount),
                         "Canal":r.channel.value}
@@ -1614,7 +1636,7 @@ if uploaded_files:
                         _details = getattr(vies_summary, "inconclusive_vat_details", None)
                         if _details:
                             _inc_entries = [{"vat": d["vat"], "country": d.get("country", d["vat"][:2]),
-                                "sale_ids": d.get("sale_ids", [])} for d in _details]
+                                "sale_ids": (d.get("display_ids") or d.get("sale_ids", []))} for d in _details]
                         else:
                             _inc_entries = [{"vat": v, "country": v[:2], "sale_ids": []}
                                 for v in vies_summary.inconclusive_vats]
@@ -1740,7 +1762,7 @@ if uploaded_files:
                         elif r.vat_delta <= 0: return "Domestic — TVA due dans les 2 cas"
                         return "Cross-border — exonération évitée"
 
-                    fraud_data = [{"Vente": r.sale_id, "N° TVA rejeté": r.buyer_vat_number,
+                    fraud_data = [{"Vente": (getattr(r, "display_id", "") or r.sale_id), "N° TVA rejeté": r.buyer_vat_number,
                         "Pays": _country_label(r.buyer_country), "HT (EUR)": float(r.amount_ht),
                         "TVA récupérée (EUR)": float(r.vat_avoided),
                         "Statut": _vies_statut(r), "Explication": _vies_explication(r)}
@@ -1775,7 +1797,7 @@ if uploaded_files:
                             statut_csv = "Deja taxe (domestic)"; expl_csv = "Domestic"
                         else:
                             statut_csv = "TVA recuperee"; expl_csv = "Cross-border"
-                        w.writerow([r.sale_id, r.buyer_vat_number, _country_label(r.buyer_country),
+                        w.writerow([(getattr(r, "display_id", "") or r.sale_id), r.buyer_vat_number, _country_label(r.buyer_country),
                             str(r.amount_ht).replace(".",","), str(r.vat_avoided).replace(".",","),
                             statut_csv, expl_csv])
                     _gated_download("⬇️ Exporter rapport VIES (.csv)",
@@ -1815,7 +1837,7 @@ if uploaded_files:
                         tva_moteur = float(r.vat_amount)
                         if tva_amazon==0 and tva_moteur==0: continue
                         ecart = tva_amazon - tva_moteur
-                        row_d = {"ID vente":r.sale.sale_id,
+                        row_d = {"ID vente":(r.sale.display_id or r.sale.sale_id),
                             "Stock→Dest":f"{r.sale.stock_country}→{r.sale.buyer_country}",
                             "Scénario":r.scenario.value,"HT (EUR)":float(r.sale.amount_ht),
                             "TVA Amazon (EUR)":round(tva_amazon,2),"TVA moteur (EUR)":round(tva_moteur,2),
@@ -1985,7 +2007,7 @@ if uploaded_files:
                                 w.writerow(["Base HT","Taux (%)","TVA","ID vente","Canal"])
                                 for r in country_results:
                                     w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),
-                                        str(r.vat_amount).replace(".",","),r.sale.sale_id,r.channel.value])
+                                        str(r.vat_amount).replace(".",","),(r.sale.display_id or r.sale.sale_id),r.channel.value])
                                 w.writerow([]); w.writerow(["TOTAL TVA FR",str(summary.net_fr_domestic_vat).replace(".",",")])
                                 w.writerow(["TOTAL OSS",str(summary.net_oss_total).replace(".",",")])
                             elif country in fmt_map:
@@ -2003,12 +2025,12 @@ if uploaded_files:
                                 w.writerow([lbl_base+" (EUR)","Taux (%)","TVA (EUR)","Nb","ID vente","Date"])
                                 for r in country_results:
                                     w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),
-                                        str(r.vat_amount).replace(".",","),1,r.sale.sale_id,r.sale.transaction_date])
+                                        str(r.vat_amount).replace(".",","),1,(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date])
                                 w.writerow([]); w.writerow(["TOTAL TVA","",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
                             w.writerow([]); w.writerow(["--- Détail ---"])
                             w.writerow(["ID vente","Date","Base HT (EUR)","Taux (%)","TVA (EUR)","Canal","Pays dest."])
                             for r in country_results:
-                                w.writerow([r.sale.sale_id,r.sale.transaction_date,str(r.sale.amount_ht).replace(".",","),
+                                w.writerow([(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date,str(r.sale.amount_ht).replace(".",","),
                                     str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),
                                     r.channel.value,r.sale.buyer_country])
                             return ("\ufeff"+buf.getvalue()).encode("utf-8")

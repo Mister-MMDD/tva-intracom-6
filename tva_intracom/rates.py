@@ -39,6 +39,7 @@ COUNTRY_NAMES: Dict[str, str] = {
     "MT": "Malte",       "NL": "Pays-Bas",   "PL": "Pologne",
     "PT": "Portugal",    "RO": "Roumanie",   "SK": "Slovaquie",
     "SI": "Slovénie",    "ES": "Espagne",    "SE": "Suède",
+    "XI": "Irlande du Nord",
 }
 
 COUNTRY_ISO3: Dict[str, str] = {
@@ -47,7 +48,7 @@ COUNTRY_ISO3: Dict[str, str] = {
     "DE": "DEU", "GR": "GRC", "HU": "HUN", "IE": "IRL", "IT": "ITA",
     "LV": "LVA", "LT": "LTU", "LU": "LUX", "MT": "MLT", "NL": "NLD",
     "PL": "POL", "PT": "PRT", "RO": "ROU", "SK": "SVK", "SI": "SVN",
-    "ES": "ESP", "SE": "SWE",
+    "ES": "ESP", "SE": "SWE", "XI": "NIR",
 }
 
 # Métadonnées fiscales locales par pays.
@@ -80,6 +81,7 @@ COUNTRY_FISCAL_META: Dict[str, Tuple[str, str, str, str, str]] = {
     "SI": ("Obracun DDV (DDV-O)",               "Davcna osnova",       "DDV",         "22%",   "9.5%"),
     "ES": ("Modelo 303 / Declaracion IVA",      "Base imponible",      "IVA",         "21%",   "4%"),
     "SE": ("Mervardesskattdeklaration (SKV 4700)","Beskattningsunderlag","Moms",      "25%",   "6%"),
+    "XI": ("VAT Return (Northern Ireland)",     "Taxable amount",      "VAT",         "20%",   "5%"),
 }
 
 EU_COUNTRIES: Set[str] = set(COUNTRY_NAMES.keys())
@@ -128,6 +130,7 @@ STANDARD_VAT_RATES: Dict[str, Decimal] = {
     "LT": Decimal("21"), "LU": Decimal("17"), "MT": Decimal("18"), "NL": Decimal("21"),
     "PL": Decimal("23"), "PT": Decimal("23"), "RO": Decimal("21"), "SK": Decimal("23"),   
     "SI": Decimal("22"), "ES": Decimal("21"), "SE": Decimal("25"),
+    "XI": Decimal("20"),
 }
 
 # ---------------------------------------------------------------------------
@@ -442,9 +445,9 @@ REDUCED_VAT_RATES: Dict[str, Dict[str, Decimal]] = {
         "PARKING": Decimal("13"),   
     },
     "RO": {  
-        "BOOKS": Decimal("9"), "LIVRES": Decimal("9"),
-        "FOOD": Decimal("9"), "ALIMENTATION": Decimal("9"),
-        "MEDICINES": Decimal("9"), "MEDICAMENTS": Decimal("9"),
+        "BOOKS": Decimal("11"), "LIVRES": Decimal("11"),
+        "FOOD": Decimal("11"), "ALIMENTATION": Decimal("11"),
+        "MEDICINES": Decimal("11"), "MEDICAMENTS": Decimal("11"),
         "CLOTHING": Decimal("21"), "VETEMENTS": Decimal("21"),
         "SUPER_REDUCED": Decimal("9"),
         "PARKING": Decimal("21"),
@@ -480,6 +483,14 @@ REDUCED_VAT_RATES: Dict[str, Dict[str, Decimal]] = {
         "CLOTHING": Decimal("25"), "VETEMENTS": Decimal("25"),
         "SUPER_REDUCED": Decimal("6"),
         "PARKING": Decimal("25"),
+    },
+    "XI": {
+        "BOOKS": Decimal("0"), "LIVRES": Decimal("0"),
+        "FOOD": Decimal("5"), "ALIMENTATION": Decimal("5"),
+        "MEDICINES": Decimal("0"), "MEDICAMENTS": Decimal("0"),
+        "CLOTHING": Decimal("20"), "VETEMENTS": Decimal("20"),
+        "SUPER_REDUCED": Decimal("0"),
+        "PARKING": Decimal("20"),
     },
 }
 

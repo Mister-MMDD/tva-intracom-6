@@ -546,11 +546,21 @@ def get_vies_status_as_of(scope_id: str, full_vat: str, as_of_date_iso: str) -> 
     }
 
 
+def _mask_vat(vat: str) -> str:
+    """Masque partiellement un numéro de TVA pour les logs (DPP Amazon)."""
+    if not vat or len(vat) < 5:
+        return "***"
+    return f"{vat[:4]}***{vat[-2:]}"
+
 def _db_delete_expired_scope(scope_id: str) -> int:
     """Purge les entrées expirées ET les erreurs transitoires du scope
     courant. N'affecte jamais le cache global (mutualisé, purgé
     indépendamment par purge_expired_global_cache())."""
     cutoff = _now_utc() - timedelta(days=CACHE_TTL_DAYS)
+    # Rétention historique : Amazon DPP exige la suppression des PII. 
+    # On garde 365 jours pour raisons fiscales, mais on purge le reste.
+    history_cutoff = _now_utc() - timedelta(days=365)
+    
     transient_patterns = [
         "%ms_unavailable%", "%service_unavailable%",
         "%ms_max_concurrent_req%", "%global_max_concurrent_req%",
@@ -560,11 +570,19 @@ def _db_delete_expired_scope(scope_id: str) -> int:
         "%non concluante%",
     ]
     with _conn() as conn, conn.cursor() as cur:
+        # Cache
         cur.execute(
             "DELETE FROM vies_scope_cache WHERE scope_id=%s AND checked_at < %s",
             (scope_id, cutoff),
         )
         deleted = cur.rowcount
+        
+        # Historique (Data Retention)
+        cur.execute(
+            "DELETE FROM vies_check_history WHERE scope_id=%s AND checked_at < %s",
+            (scope_id, history_cutoff),
+        )
+        
         for pat in transient_patterns:
             cur.execute(
                 "DELETE FROM vies_scope_cache WHERE scope_id=%s AND LOWER(error) LIKE %s",
@@ -583,7 +601,7 @@ def purge_malformed_entries() -> int:
     préfixe pays, ex. "DEIT123..."). Opère sur les DEUX tables (scope +
     global) car le bug était antérieur à la scopisation."""
     _EU_CC = {"AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
-              "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"}
+              "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "XI"}
     deleted = 0
     with _conn() as conn, conn.cursor() as cur:
         for table in ("vies_global_cache", "vies_scope_cache"):
@@ -737,7 +755,7 @@ def normalize_full_vat(buyer_vat: str, buyer_country: str) -> str:
     _ALIASES = {"EL": "GR", "UK": "GB"}
     EU_CC = {
         "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
-        "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+        "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "XI",
     }
     raw = buyer_vat.strip().upper()
     clean = raw.replace(" ", "").replace("-", "").replace(".", "")
@@ -872,7 +890,7 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
         return global_cached
 
     if cached is not None and not is_fresh:
-        logger.info("Cache VIES [%s] : %s expiré (TTL=%dj), revalidation.", scope_id, norm, CACHE_TTL_DAYS)
+        logger.info("Cache VIES [%s] : %s expiré (TTL=%dj), revalidation.", scope_id, _mask_vat(norm), CACHE_TTL_DAYS)
 
     # 3) API VIES
     try:
@@ -882,7 +900,7 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
         if _is_unreliable(res):
             fallback = cached if cached is not None else global_cached
             if fallback is not None:
-                logger.info("VIES instable pour %s — résultat en cache conservé.", norm)
+                logger.info("VIES instable pour %s — résultat en cache conservé.", _mask_vat(norm))
                 return fallback
             return res
 
@@ -983,7 +1001,7 @@ def validate_vat_numbers_parallel(
 
         if scope_entry is not None:
             fallback_cache[norm] = scope_entry[0]
-            logger.debug("Cache VIES [%s] expiré pour %s, revalidation.", scope_id, norm)
+            logger.debug("Cache VIES [%s] expiré pour %s, revalidation.", scope_id, _mask_vat(norm))
         elif global_entry is not None:
             fallback_cache[norm] = global_entry[0]
 
@@ -1153,7 +1171,7 @@ def set_manual_override(scope_id: str, full_vat: str, valid: bool) -> None:
                 is_valid=EXCLUDED.is_valid, set_at=EXCLUDED.set_at
         """, (scope_id, full_vat.upper().strip(), valid, _now_utc()))
         conn.commit()
-    logger.info("Override manuel VIES [%s] : %s → %s", scope_id, full_vat,
+    logger.info("Override manuel VIES [%s] : %s → %s", scope_id, _mask_vat(full_vat),
                 "VALIDE" if valid else "INVALIDE")
 
 
@@ -1215,7 +1233,7 @@ def delete_manual_override(scope_id: str, full_vat: str) -> None:
                 (scope_id, full_vat.upper().strip()),
             )
             conn.commit()
-        logger.info("Override manuel VIES [%s] supprimé : %s", scope_id, full_vat)
+        logger.info("Override manuel VIES [%s] supprimé : %s", scope_id, _mask_vat(full_vat))
     except Exception as exc:
         logger.warning("Erreur suppression override [%s] %s : %s", scope_id, full_vat, exc)
         raise

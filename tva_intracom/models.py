@@ -132,6 +132,12 @@ class Sale:
     arrival_post_code: str = ""        # Code postal de destination (ARRIVAL_POST_CODE Amazon)
                                        # Utilisé pour détecter les territoires hors UE fiscale
                                        # (Canaries, Heligoland, Åland…) — voir rates.is_fiscal_eu()
+    display_id: str = ""               # Identifiant à AFFICHER (TRANSACTION_EVENT_ID côté Amazon,
+                                       # formats 1/2/4 uniquement). Purement cosmétique : ne sert
+                                       # jamais de clé d'agrégation ni de matching interne — c'est
+                                       # sale_id qui continue de jouer ce rôle partout ailleurs.
+                                       # Vide (formats 3/5, ou colonne absente) : l'affichage doit
+                                       # replier sur sale_id (ex: `sale.display_id or sale.sale_id`).
     order_date: str = ""               # Date de commande (ORDER_DATE, format V5 uniquement).
                                        # Distincte de transaction_date qui porte la date
                                        # d'EXIGIBILITÉ retenue pour le calcul fiscal (en

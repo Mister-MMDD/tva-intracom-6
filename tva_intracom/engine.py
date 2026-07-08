@@ -519,6 +519,8 @@ class ViesReclassification:
     reason: str
     vat_delta: Decimal = Decimal("0.00")  # TVA supplémentaire générée par la reclassification
     is_domestic_reverse_charge: bool = False  # True = autoliquidation nationale (art.194)
+    display_id: str = ""  # Identifiant à AFFICHER (sale.display_id) — cosmétique uniquement,
+                           # sale_id ci-dessus reste la clé utilisée pour tout matching interne.
 
 
 @dataclass
@@ -744,6 +746,7 @@ def compute_all_with_vies(
                     sale_id=sale.sale_id, buyer_vat_number=sale.buyer_vat_number,
                     buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
                     vat_avoided=Decimal("0.00"), reason="Numéro invalide ou introuvable",
+                    display_id=getattr(sale, "display_id", ""),
                 ))
             effective = _dc_replace(sale, buyer_type=chosen_type, buyer_vat_valid=False,
                                     product_category=product_category, asin=product_asin)
@@ -785,6 +788,7 @@ def compute_all_with_vies(
             reason=reclass.reason,
             vat_delta=real_vat_avoided,
             is_domestic_reverse_charge=is_dom_rc,
+            display_id=reclass.display_id,
         )
 
     return results, vies_summary, oss_summary

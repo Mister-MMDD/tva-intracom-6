@@ -31,10 +31,30 @@ from pathlib import Path
 
 # api/stripe_webhook.py -> vercel_webhook/ -> racine du repo -> tva_intracom/billing.py
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_BILLING_PATH = _REPO_ROOT / "tva_intracom" / "billing.py"
+_PKG_DIR = _REPO_ROOT / "tva_intracom"
+_BILLING_PATH = _PKG_DIR / "billing.py"
 
-_spec = importlib.util.spec_from_file_location("tva_intracom_billing", _BILLING_PATH)
+# IMPORTANT (ajout suite au chiffrement dans billing.py) : billing.py fait
+# `from .security import encrypt_data, decrypt_data` — un import RELATIF, qui
+# suppose que billing.py appartient au package "tva_intracom". Or on le charge
+# ici par chemin de fichier, hors de tout package réel, ce qui casse cet
+# import relatif ("attempted relative import with no known parent package").
+# On enregistre donc d'abord un package parent minimal "tva_intracom" dans
+# sys.modules, avec __path__ pointant vers le vrai dossier tva_intracom/, afin
+# que Python puisse résoudre .security via l'import normal (fichier trouvé sur
+# disque, importé une seule fois, mis en cache dans sys.modules comme
+# n'importe quel sous-module). On ne touche pas à billing.py, qui doit rester
+# un import relatif propre pour continuer à fonctionner normalement importé
+# depuis l'app Streamlit (là où il fait bien partie du package tva_intracom).
+if "tva_intracom" not in sys.modules:
+    import types
+    _pkg = types.ModuleType("tva_intracom")
+    _pkg.__path__ = [str(_PKG_DIR)]
+    sys.modules["tva_intracom"] = _pkg
+
+_spec = importlib.util.spec_from_file_location("tva_intracom.billing", _BILLING_PATH)
 _billing = importlib.util.module_from_spec(_spec)
+_billing.__package__ = "tva_intracom"
 # IMPORTANT : le module doit être enregistré dans sys.modules AVANT exec_module().
 # Sans cette ligne, @dataclass (utilisé dans billing.py) ne retrouve pas son
 # module via sys.modules[cls.__module__] et plante avec
