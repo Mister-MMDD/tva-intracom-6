@@ -1605,19 +1605,41 @@ if uploaded_files:
         # ── 1. DÉCLARATIONS ───────────────────────────────────────────────────
         with tab_decl:
             st.subheader("Ce que vous devez reverser")
+
+            # OSS : source unique de vérité = aggregate_oss_results() (même
+            # fonction que celle utilisée par les exports Excel/CSV/XML OSS),
+            # avec reconversion BCE de clôture de période (art. 5 bis Règl.
+            # UE 2020/194). `summary.oss_by_country` (report.py) n'applique
+            # PAS cette reconversion et affichait donc un total légèrement
+            # différent de celui des exports pour les ventes en devise
+            # étrangère — on ne l'utilise plus ici pour éviter la divergence.
+            _oss_period_agg = aggregate_oss_results(results + (refund_results or []), period=period_label)
+            _oss_country_totals: dict = {}
+            for _dep, _dests in _oss_period_agg.items():
+                for _arr, _rates in _dests.items():
+                    _acc = _oss_country_totals.setdefault(_arr, {"vente": _ZERO, "remb": _ZERO, "net": _ZERO})
+                    for _rate, _amt in _rates.items():
+                        _acc["vente"] += _amt["tva_vente"]
+                        _acc["remb"]  += _amt["tva_remb"]
+                        _acc["net"]   += _amt["tva"]
+            _oss_vente_total = sum((v["vente"] for v in _oss_country_totals.values()), _ZERO)
+            _oss_remb_total  = sum((v["remb"]  for v in _oss_country_totals.values()), _ZERO)
+            _oss_net_total   = sum((v["net"]   for v in _oss_country_totals.values()), _ZERO)
+
             recap_data = [
                 {"Canal":"TVA domestique France (CA3)","Ventes (EUR)":float(summary.fr_domestic_vat),
                  "Remb. (EUR)":float(summary.refund_fr_domestic_vat) if summary.refund_count else None,
                  "Net (EUR)":float(summary.net_fr_domestic_vat)},
-                {"Canal":"Guichet OSS (total)","Ventes (EUR)":float(summary.oss_total),
-                 "Remb. (EUR)":float(summary.refund_oss_total) if summary.refund_count else None,
-                 "Net (EUR)":float(summary.net_oss_total)},
+                {"Canal":"Guichet OSS (total)","Ventes (EUR)":float(_oss_vente_total),
+                 "Remb. (EUR)":float(_oss_remb_total) if summary.refund_count else None,
+                 "Net (EUR)":float(_oss_net_total)},
             ]
-            for country in sorted(summary.net_oss_by_country):
+            for country in sorted(_oss_country_totals):
+                _c = _oss_country_totals[country]
                 recap_data.append({"Canal":f"  → {_country_label(country)} ({country})",
-                    "Ventes (EUR)":float(summary.oss_by_country.get(country,0)),
-                    "Remb. (EUR)":float(summary.refund_oss_by_country.get(country,_ZERO)) if summary.refund_count else None,
-                    "Net (EUR)":float(summary.net_oss_by_country[country])})
+                    "Ventes (EUR)":float(_c["vente"]),
+                    "Remb. (EUR)":float(_c["remb"]) if summary.refund_count else None,
+                    "Net (EUR)":float(_c["net"])})
             _ioss_results = [r for r in results if r.scenario.value == "IOSS_DIRECT"]
             if _ioss_results:
                 _ioss_total = sum(float(r.vat_amount) for r in _ioss_results)
@@ -2286,7 +2308,7 @@ if uploaded_files:
                                     w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),
                                         str(r.vat_amount).replace(".",","),(r.sale.display_id or r.sale.sale_id),r.channel.value])
                                 w.writerow([]); w.writerow(["TOTAL TVA FR",str(summary.net_fr_domestic_vat).replace(".",",")])
-                                w.writerow(["TOTAL OSS",str(summary.net_oss_total).replace(".",",")])
+                                w.writerow(["TOTAL OSS",str(_oss_net_total).replace(".",",")])
                             elif country in fmt_map:
                                 headers, mapping = fmt_map[country]
                                 w.writerow(headers)
@@ -2399,7 +2421,7 @@ if uploaded_files:
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 use_container_width=True,
                             )
-                            st.caption(f"{len(oss_results_dl)} ventes · TVA {float(summary.oss_total):,.2f} €")
+                            st.caption(f"{len(oss_results_dl)} ventes · TVA {float(_oss_vente_total):,.2f} €")
                     with o2:
                         if oss_results_dl:
                             oss_csv_bytes, _ = build_oss_csv(results_net, period=period_label)
@@ -2506,7 +2528,8 @@ if uploaded_files:
                             key="ca3_credit_prec",
                         )
                     ca3_html = generate_ca3_html_report_v2(
-                        results=results_net,
+                        results=results,
+                        refund_results=refund_results,
                         company_name=nom_entreprise, siren=siren_entreprise,
                         period_label=period_label,
                         all_fc_transfers=all_fc_transfers,

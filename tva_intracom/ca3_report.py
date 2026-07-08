@@ -62,9 +62,9 @@ def _asin_avg_price_from_results(results: List[VatResult]) -> Dict[str, Decimal]
 
 
 def _compute_aic_from_fc_transfers(
-    all_fc_transfers: list,
-    results: List[VatResult],
-    seller_country: str = "FR",
+        all_fc_transfers: list,
+        results: List[VatResult],
+        seller_country: str = "FR",
 ) -> tuple[Decimal, Decimal]:
     """Calcule la base AIC et la TVA AIC estimées pour la CA3.
 
@@ -107,13 +107,13 @@ def _compute_aic_from_fc_transfers(
 # ---------------------------------------------------------------------------
 
 def compute_ca3_lines_v2(
-    results: List[VatResult],
-    refund_results: Optional[List[VatResult]] = None,
-    all_fc_transfers: Optional[list] = None,
-    tva_deductible_immos:    Decimal = Decimal("0.00"),
-    tva_deductible_autres:   Decimal = Decimal("0.00"),
-    credit_periode_precedente: Decimal = Decimal("0.00"),
-    seller_country: str = "FR",
+        results: List[VatResult],
+        refund_results: Optional[List[VatResult]] = None,
+        all_fc_transfers: Optional[list] = None,
+        tva_deductible_immos:    Decimal = Decimal("0.00"),
+        tva_deductible_autres:   Decimal = Decimal("0.00"),
+        credit_periode_precedente: Decimal = Decimal("0.00"),
+        seller_country: str = "FR",
 ) -> Dict[str, Decimal]:
     """Calcule les montants des lignes du formulaire Cerfa CA3.
 
@@ -227,16 +227,16 @@ def compute_ca3_lines_v2(
 # ---------------------------------------------------------------------------
 
 def generate_ca3_html_report_v2(
-    results: List[VatResult],
-    company_name: str,
-    siren: str,
-    period_label: str,
-    refund_results: Optional[List[VatResult]] = None,
-    all_fc_transfers: Optional[list] = None,
-    tva_deductible_immos:      Decimal = Decimal("0.00"),
-    tva_deductible_autres:     Decimal = Decimal("0.00"),
-    credit_periode_precedente: Decimal = Decimal("0.00"),
-    seller_country: str = "FR",
+        results: List[VatResult],
+        company_name: str,
+        siren: str,
+        period_label: str,
+        refund_results: Optional[List[VatResult]] = None,
+        all_fc_transfers: Optional[list] = None,
+        tva_deductible_immos:      Decimal = Decimal("0.00"),
+        tva_deductible_autres:     Decimal = Decimal("0.00"),
+        credit_periode_precedente: Decimal = Decimal("0.00"),
+        seller_country: str = "FR",
 ) -> str:
     """Génère le rapport HTML de contrôle CA3 — version 3 (multi-taux + AIC + déductions)."""
 
@@ -453,7 +453,9 @@ def generate_ca3_html_report_v2(
     <div class="solde-box" style="color:{solde_color}; border-color:{solde_color};">
         {solde_label} : {_fmt(abs(solde))} EUR<br>
         <small style="font-weight:normal;font-size:9pt;">
-            (TVA brute {_fmt(tva_brute_due_avec_aic)} EUR − Total déductions {_fmt(total_ded)} EUR)
+            (TVA nette des ventes, avoirs déduits {_fmt(tva_brute_due)} EUR
+            + TVA AIC ligne 08 {_fmt(lines['08_tva_aic'])} EUR
+            − Total déductions (dont AIC) {_fmt(total_ded)} EUR)
         </small>
     </div>"""
 
@@ -557,7 +559,7 @@ def generate_ca3_html_report_v2(
             </tr>
             <tr class="tot">
                 <td class="tc">—</td>
-                <td colspan="6">TOTAL TVA BRUTE DUE (nette d'avoirs + AIC ligne 08)</td>
+                <td colspan="6">TOTAL TVA DUE (avoirs déjà déduits + AIC ligne 08 — ≠ TVA brute des ventes ci-dessus)</td>
                 <td class="tr">{_fmt(tva_brute_due_avec_aic)}</td>
             </tr>
         </tbody>
