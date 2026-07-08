@@ -199,48 +199,46 @@ if _cookie_token and st.session_state.get("auth_user") is None:
 _qp_token = st.query_params.get("login_token")
 if _qp_token:
     if st.session_state.get("auth_user") is None:
-        # Récupération de l'IP pour le rate limiting : purement best-effort.
-        # Une défaillance ici (API interne Streamlit non garantie d'une version
-        # à l'autre) ne doit JAMAIS empêcher la création du session_token/cookie
-        # après un consume_magic_link() réussi — sinon la connexion "marche"
-        # (l'utilisateur est créé côté Supabase) mais aucune session ne persiste
-        # (pas de tva_session_tokens, pas de cookie), et un simple F5 déconnecte.
-        _ip = "unknown"
-        try:
-            from streamlit.web.server.websocket_headers import _get_websocket_headers  # type: ignore[import]
-            _headers = _get_websocket_headers()
-            if _headers:
-                _ip = _headers.get("X-Forwarded-For", _headers.get("Remote-Addr", "unknown")).split(",")[0]
-        except Exception:
-            pass  # rate limiting par IP simplement désactivé pour cette requête
+        # On demande une confirmation manuelle (clic) pour éviter que les robots
+        # d'indexation de mails ne "consomment" le lien à usage unique avant l'utilisateur.
+        st.info("👋 Bienvenue ! Cliquez sur le bouton ci-dessous pour finaliser votre connexion.")
+        if st.button("🚀 Confirmer la connexion", key="confirm_magic_link"):
+            # Récupération de l'IP pour le rate limiting : purement best-effort.
+            _ip = "unknown"
+            try:
+                from streamlit.web.server.websocket_headers import _get_websocket_headers  # type: ignore[import]
+                _headers = _get_websocket_headers()
+                if _headers:
+                    _ip = _headers.get("X-Forwarded-For", _headers.get("Remote-Addr", "unknown")).split(",")[0]
+            except Exception:
+                pass
 
-        try:
-            _u = tva_auth.consume_magic_link(_qp_token, ip_address=_ip)
-        except PermissionError as e:
-            st.error(f"⛔ {e}")
-            _u = None
-        except Exception as e:
-            st.error(f"⛔ Erreur lors de la connexion : {e}")
-            _u = None
+            try:
+                _u = tva_auth.consume_magic_link(_qp_token, ip_address=_ip)
+            except PermissionError as e:
+                st.error(f"⛔ {e}")
+                _u = None
+            except Exception as e:
+                st.error(f"⛔ Erreur lors de la connexion : {e}")
+                _u = None
 
-        if _u is not None:
-            st.session_state["auth_user"] = _u
-            _new_session_token = tva_auth.create_session_token(_u.id)
+            if _u is not None:
+                st.session_state["auth_user"] = _u
+                _new_session_token = tva_auth.create_session_token(_u.id)
 
-            # On écrit le cookie
-            cookie_manager.set(
-                "tva_session_token",
-                _new_session_token,
-                expires_at=datetime.now() + timedelta(days=30),
-                key="set_cookie_on_login"
-            )
-            # On nettoie l'URL et on relance
-            st.query_params.clear()
-            st.rerun()
-        elif st.session_state.get("auth_user") is None:
-            # Si on arrive ici (et qu'aucune erreur explicite n'a déjà été
-            # affichée ci-dessus), le lien est invalide, expiré, ou déjà consommé.
-            st.error("⛔ Lien de connexion invalide ou expiré. Redemandez-en un ci-dessous.")
+                # On écrit le cookie
+                cookie_manager.set(
+                    "tva_session_token",
+                    _new_session_token,
+                    expires_at=datetime.now() + timedelta(days=30),
+                    key="set_cookie_on_login"
+                )
+                # On nettoie l'URL et on relance
+                st.query_params.clear()
+                st.rerun()
+            else:
+                st.error("⛔ Lien de connexion invalide, expiré ou déjà consommé. Redemandez-en un ci-dessous.")
+        st.stop()
     else:
         # L'utilisateur est déjà connecté (peut-être via le cookie juste avant)
         # On nettoie juste l'URL pour être propre
