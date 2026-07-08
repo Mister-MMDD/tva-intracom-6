@@ -122,10 +122,10 @@ def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggT
     aggregated: OssAggType = {}
 
     for res in results:
-        if res.scenario != Scenario.OSS_B2C:
+        if res.scenario not in (Scenario.OSS_B2C, Scenario.IOSS_DIRECT):
             continue
 
-        departure = res.sale.stock_country   # MemberStateOfSupply
+        departure = res.sale.stock_country   # MemberStateOfSupply (pour OSS) ou Pays tiers (pour IOSS)
         arrival   = res.vat_country          # MemberStateOfConsumption
         rate      = res.vat_rate
 

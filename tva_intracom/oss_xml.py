@@ -23,7 +23,7 @@ from typing import List
 from xml.dom import minidom
 
 from tva_intracom.models import Scenario, VatResult
-from tva_intracom.rates import STANDARD_VAT_RATES
+from tva_intracom.rates import STANDARD_VAT_RATES, is_eu
 from tva_intracom.oss_export import aggregate_oss_results, find_oss_negative_buckets, COUNTRY_NAMES
 
 # Type interne : départ → arrivée → taux → {ht, tva, nb}
@@ -46,6 +46,7 @@ def generate_oss_xml(
     seller_vat: str,
     period: str,
     intermediary_vat: str | None = None,
+    local_vat_numbers: dict[str, str] | None = None,
 ) -> bytes:
     """Génère le contenu XML conforme pour la télédéclaration OSS.
 
@@ -54,6 +55,8 @@ def generate_oss_xml(
         seller_vat:       numéro TVA de l'assujetti déclarant (ex: "FR12345678901").
         period:           période de déclaration au format OSS (ex: "2026-Q1").
         intermediary_vat: numéro TVA de l'intermédiaire (optionnel, régime IOSS).
+        local_vat_numbers: dictionnaire {code_pays: numéro_TVA_local} pour
+                           les pays de départ du stock hors pays d'identification.
 
     Returns:
         Contenu XML encodé UTF-8, indenté et prêt au dépôt.
@@ -148,8 +151,21 @@ def generate_oss_xml(
 
     # Niveau 1 : pays de DÉPART du stock (un bloc par stock_country)
     for departure_country, destinations in sorted(aggregated_data.items()):
+        # Union Scheme : seuls les pays de départ membres de l'UE sont déclarés
+        # dans ce bloc SupplyFromMemberState. L'IOSS (départ hors UE) suit une
+        # structure différente (IossGoodsSupplies) non supportée ici pour le moment.
+        if not is_eu(departure_country):
+            continue
+
         supply_from = ET.SubElement(details, "SupplyFromMemberState")
         ET.SubElement(supply_from, "MemberStateOfSupply").text = departure_country
+
+        # Ajout du numéro de TVA local si différent du pays d'identification (ex: FR)
+        # Conformément aux spécifications UE (balise MemberStateOfSupplyVatNumber).
+        if local_vat_numbers and departure_country in local_vat_numbers:
+            local_num = local_vat_numbers[departure_country]
+            if local_num and local_num.strip():
+                ET.SubElement(supply_from, "MemberStateOfSupplyVatNumber").text = local_num.strip()
 
         # Niveau 2 : pays de DESTINATION / consommation
         for arrival_country, rates in sorted(destinations.items()):

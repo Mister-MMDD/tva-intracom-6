@@ -22,6 +22,7 @@ class ReportSummary:
     fr_domestic_vat: Decimal = _ZERO                      # CA3 France
     oss_by_country: Dict[str, Decimal] = field(default_factory=dict)  # via OSS (FR)
     local_by_country: Dict[str, Decimal] = field(default_factory=dict)  # immat. locale
+    ioss_vat: Decimal = _ZERO                             # Guichet IOSS (propre numéro)
 
     # TVA geree par d'autres / sans reversement de votre part.
     amazon_vat: Decimal = _ZERO                           # deemed supplier
@@ -97,7 +98,7 @@ class ReportSummary:
     @property
     def total_you_owe(self) -> Decimal:
         """TVA totale nette a reverser (ventes - remboursements)."""
-        return self.net_fr_domestic_vat + self.net_oss_total + self.net_local_total
+        return self.net_fr_domestic_vat + self.net_oss_total + self.net_local_total + self.ioss_vat
 
     @property
     def net_ht_by_bucket(self) -> Dict[str, Decimal]:
@@ -189,6 +190,8 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
             summary.local_by_country[r.vat_country] = (
                 summary.local_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
+        elif r.channel == Channel.IOSS:
+            summary.ioss_vat += r.vat_amount
         if r.collector == Collector.AMAZON:
             summary.amazon_vat += r.vat_amount
         if r.scenario == Scenario.B2B_REVERSE_CHARGE:
@@ -249,6 +252,9 @@ def render_report(summary: ReportSummary) -> str:
         refund = summary.refund_oss_by_country.get(country, _ZERO)
         suffix = f" (dont remboursements : {_fmt(refund)})" if refund else ""
         lines.append(f"    dont {country} : {_fmt(net)}{suffix}")
+
+    if summary.ioss_vat:
+        lines.append(f"Fisc francais - via guichet IOSS (Import vendeur) : {_fmt(summary.ioss_vat)}")
 
     if summary.net_local_by_country:
         lines.append("Fisc locaux - immatriculation TVA requise :")

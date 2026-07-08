@@ -513,6 +513,8 @@ with st.sidebar:
                 _ey, _em = _sd_max.year, _sd_max.month
                 if _sy != _ey:
                     _detected = f"{_sy}-{_ey}"
+                elif _sm == _em:
+                    _detected = f"{_sy}-{_sm:02d}"
                 elif _sm == 1 and _em == 12:
                     _detected = str(_sy)
                 elif _sm == 1 and _em == 6:
@@ -583,6 +585,11 @@ with st.sidebar:
                 apply_fr_under_threshold = _registered_sirens[0].get("apply_fr_under_threshold") or False
                 _countries_raw = _registered_sirens[0].get("countries_with_vat") or "FR"
                 countries_with_vat = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
+                import json
+                try:
+                    local_vat_numbers = json.loads(_registered_sirens[0].get("vat_numbers_json") or "{}")
+                except:
+                    local_vat_numbers = {}
             else:
                 nom_entreprise   = st.text_input("Nom de l'entreprise", "Mon Entreprise E-commerce", key="nom_new")
                 siren_entreprise = st.text_input("Numéro SIREN", "123456789", key="siren_new")
@@ -596,6 +603,18 @@ with st.sidebar:
                 countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local", 
                     options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
 
+                import json
+                local_vat_numbers = {}
+                if countries_with_vat:
+                    st.caption("Numéros de TVA locaux (obligatoires pour l'OSS si stock présent) :")
+                    for ccode in sorted(countries_with_vat):
+                        if ccode == "FR":
+                            local_vat_numbers["FR"] = tva_fr
+                            continue
+                        _v = st.text_input(f"Numéro de TVA {ccode}", key=f"vat_num_new_{ccode}",
+                                           placeholder=f"ex: {ccode}123456789")
+                        local_vat_numbers[ccode] = _v.strip()
+
                 if st.button("💾 Enregistrer ce SIREN", key="btn_register_siren"):
                     if siren_entreprise.strip():
                         try:
@@ -605,7 +624,8 @@ with st.sidebar:
                                 ioss_number=ioss_number.strip(),
                                 seller_is_importer=seller_is_importer,
                                 apply_fr_under_threshold=apply_fr_under_threshold,
-                                countries_with_vat=",".join(countries_with_vat)
+                                countries_with_vat=",".join(countries_with_vat),
+                                vat_numbers_json=json.dumps(local_vat_numbers)
                             )
                             st.success("✅ SIREN enregistré.")
                             st.rerun()
@@ -615,12 +635,16 @@ with st.sidebar:
                         st.warning("Le numéro SIREN est requis.")
         else:
             _match = next((r for r in _registered_sirens if r["siren"] == _siren_choice), None)
-            nom_entreprise   = st.text_input("Nom de l'entreprise", value=_match["company_name"] if _match else "", key="nom_edit")
+            nom_entreprise   = _match["company_name"] if _match else ""
             siren_entreprise = _match["siren"] if _match else ""
-            st.caption(f"SIREN : **{siren_entreprise}**")
-            tva_fr = st.text_input("Numéro de TVA FR (pour XML OSS)", value=_match["tva_number"] if _match else "", key="tva_edit")
+            tva_fr = _match["tva_number"] if _match else ""
+            
+            # Affichage de l'identité (fixe)
+            st.markdown(f"🏢 **{nom_entreprise}**")
+            st.caption(f"SIREN : **{siren_entreprise}** · TVA : **{tva_fr}**")
             
             st.markdown("---")
+            st.markdown("**Paramètres variables**")
             ioss_number = st.text_input("Numéro IOSS propre (optionnel)", value=_match.get("ioss_number") or "" if _match else "",
                 placeholder="ex: IM1234567890", key="ioss_edit")
             seller_is_importer = st.toggle("Vendeur = importateur officiel (DDP)", value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
@@ -631,7 +655,26 @@ with st.sidebar:
             countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local", 
                 options=sorted(list(EU_COUNTRIES)), default=_default_vat_countries, key="vat_countries_edit")
 
-            if st.button("💾 Mettre à jour les paramètres", key="btn_update_siren"):
+            import json
+            local_vat_numbers = {}
+            try:
+                _existing_vats = json.loads(_match.get("vat_numbers_json") or "{}") if _match else {}
+            except:
+                _existing_vats = {}
+
+            if countries_with_vat:
+                st.caption("Numéros de TVA locaux (obligatoires pour l'OSS si stock présent) :")
+                for ccode in sorted(countries_with_vat):
+                    if ccode == "FR":
+                        local_vat_numbers["FR"] = tva_fr
+                        continue
+                    _v = st.text_input(f"Numéro de TVA {ccode}", 
+                                       value=_existing_vats.get(ccode, ""), 
+                                       key=f"vat_num_edit_{ccode}",
+                                       placeholder=f"ex: {ccode}123456789")
+                    local_vat_numbers[ccode] = _v.strip()
+
+            if st.button("💾 Enregistrer les modifications", key="btn_update_siren"):
                 try:
                     tva_billing.register_siren(
                         _current_user.id, siren_entreprise.strip(),
@@ -639,7 +682,8 @@ with st.sidebar:
                         ioss_number=ioss_number.strip(),
                         seller_is_importer=seller_is_importer,
                         apply_fr_under_threshold=apply_fr_under_threshold,
-                        countries_with_vat=",".join(countries_with_vat)
+                        countries_with_vat=",".join(countries_with_vat),
+                        vat_numbers_json=json.dumps(local_vat_numbers)
                     )
                     st.success("✅ Paramètres mis à jour.")
                     st.rerun()
@@ -705,6 +749,19 @@ with st.sidebar:
                 st.link_button("Gérer mon abonnement (Stripe)", _portal_url)
             except Exception:
                 pass
+
+        # ── Crédits PAYG (Achats uniques) ─────────────────────────────────────
+        try:
+            _credits = tva_billing.list_purchased_credits(_current_user.id)
+            if _credits:
+                st.markdown("---")
+                st.markdown("**🔓 Périodes débloquées (Achats uniques)**")
+                for _c in _credits:
+                    from datetime import datetime as _dt
+                    _at = _dt.fromtimestamp(_c["at"]).strftime("%d/%m/%Y")
+                    st.caption(f"✅ **{_c['period']}** — acheté le {_at}")
+        except Exception as _credit_err:
+            st.caption(f"⚠️ Historique d'achats indisponible : {_credit_err}")
         else:
             if _sub_status and _sub_status.status:
                 # Abonnement existant mais inactif (annulé/expiré) : état actuel
@@ -1298,6 +1355,8 @@ if uploaded_files:
             _y_max, _m_max = _d_max.year, _d_max.month
             if _y_min != _y_max:
                 _lbl = f"{_y_min}-{_y_max}"
+            elif _m_min == _m_max:
+                _lbl = f"{_y_min}-{_m_min:02d}"
             elif _m_min == 1 and _m_max == 12:
                 _lbl = str(_y_min)
             elif _m_min == 1 and _m_max == 6:
@@ -1368,6 +1427,19 @@ if uploaded_files:
                 "SIREN (section « 💳 Abonnements & forfaits ») pour débloquer les exports."
             )
 
+        # ── Gate Conformité (TVA & IOSS) ──────────────────────────────────────
+        # On vérifie que tous les numéros de TVA requis pour les pays où du stock
+        # est détecté sont renseignés, ainsi que l'IOSS si nécessaire.
+        _missing_vats = []
+        for _ccode in sorted(registration_needed.keys()):
+            if _ccode != "FR" and not local_vat_numbers.get(_ccode):
+                _missing_vats.append(f"{_country_label(_ccode)} ({_ccode})")
+        
+        _has_ioss_vendeur = any(r.channel == Channel.IOSS for r in results)
+        _ioss_missing = _has_ioss_vendeur and not ioss_number.strip()
+        
+        _compliance_blocked = bool(_missing_vats or _ioss_missing)
+
         # Prix PAYG affiché sur les boutons verrouillés — récupéré depuis
         # Stripe (jamais recopié en dur, cf. get_pricing_grid) pour ne jamais
         # afficher un montant désynchronisé du tarif réellement facturé.
@@ -1428,6 +1500,16 @@ if uploaded_files:
             Utilisable dans N'IMPORTE QUEL onglet (défini avant st.tabs) —
             tous les exports CSV/XLSX, où qu'ils soient affichés, doivent
             passer par cette fonction plutôt que st.download_button en direct."""
+            if _compliance_blocked:
+                _msg = "🔒 Téléchargement bloqué : informations de conformité manquantes.\n\n"
+                if _missing_vats:
+                    _msg += f"- Numéro(s) de TVA requis pour : {', '.join(_missing_vats)}\n"
+                if _ioss_missing:
+                    _msg += "- Numéro IOSS propre obligatoire (ventes importées détectées)\n"
+                _msg += "\nComplétez ces informations dans la section **Entreprise & Paramètres** de la barre latérale."
+                st.error(_msg)
+                return
+
             if _can_export:
                 st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
                 return
@@ -1926,7 +2008,7 @@ if uploaded_files:
                             statut_csv, expl_csv])
                     _gated_download("⬇️ Exporter rapport VIES (.csv)",
                         data=("\ufeff"+buf.getvalue()).encode("utf-8"),
-                        file_name="rapport_vies.csv", mime="text/csv")
+                        file_name=f"Rapport Audit VIES - {nom_entreprise} - {period_label}.csv", mime="text/csv")
                 elif vies_summary.total_inconclusive:
                     st.info("ℹ️ Aucun numéro invalide confirmé pour le moment (certains restent à vérifier).")
                 else:
@@ -2042,7 +2124,7 @@ if uploaded_files:
                                     str(_rw["TVA moteur (EUR)"]).replace(".",","),str(_rw["Écart (EUR)"]).replace(".",",")])
                             st.download_button("⬇️ Exporter TVA Amazon manquante (.csv)",
                                 data=("\ufeff"+_buf2.getvalue()).encode("utf-8"),
-                                file_name="TVA_amazon_manquante.csv", mime="text/csv")
+                                file_name=f"Écarts TVA Amazon Manquante - {nom_entreprise} - {period_label}.csv", mime="text/csv")
                         else:
                             st.success("✅ Amazon collecte correctement la TVA sur toutes les ventes.")
                     if nb_arrondis > 0:
@@ -2168,7 +2250,7 @@ if uploaded_files:
                         m3.metric("Taux réduit", meta_sel[4])
                         _gated_download(f"⬇️ Déclaration {_country_label(export_country)} (.csv)",
                             data=_build_local_csv(export_country),
-                            file_name=f"declaration_tva_{export_country.lower()}_{oss_period or 'periode'}.csv",
+                            file_name=f"Déclaration TVA {_country_label(export_country)} - {nom_entreprise} - {period_label}.csv",
                             mime="text/csv")
 
 
@@ -2183,7 +2265,7 @@ if uploaded_files:
             if _period_detected_range:
                 st.info(f"📅 Période auto-détectée : **{period_label}** "
                         f"(transactions du {_period_detected_range[0]} au {_period_detected_range[1]}). "
-                        "Modifiez via le panneau latéral si nécessaire.")
+                )
 
             if not _can_export and period_label:
                 st.warning(
@@ -2215,7 +2297,7 @@ if uploaded_files:
                     _gated_download(
                         "📊 Rapport complet (.xlsx)",
                         data=xlsx_bytes,
-                        file_name="rapport_tva_intracommunautaire.xlsx",
+                        file_name=f"Rapport TVA intracommunautaire principal - {nom_entreprise} - {period_label}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         type="primary", use_container_width=True,
                     )
@@ -2223,7 +2305,7 @@ if uploaded_files:
                     _gated_download(
                         "📝 Rapport texte (.txt)",
                         data=render_report(summary).encode("utf-8"),
-                        file_name="rapport_tva_intracommunautaire.txt",
+                        file_name=f"Rapport TVA intracommunautaire principal - {nom_entreprise} - {period_label}.txt",
                         mime="text/plain", use_container_width=True,
                     )
 
@@ -2242,7 +2324,7 @@ if uploaded_files:
                             with open(oss_xlsx_path,"rb") as f: oss_xlsx_bytes = f.read()
                             _gated_download(
                                 "📊 État OSS (.xlsx)", data=oss_xlsx_bytes,
-                                file_name="etat_recapitulatif_oss.xlsx",
+                                file_name=f"État Récapitulatif OSS - {nom_entreprise} - {period_label}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 use_container_width=True,
                             )
@@ -2252,7 +2334,7 @@ if uploaded_files:
                             oss_csv_bytes, _ = build_oss_csv(results_net, period=period_label)
                             _gated_download(
                                 "📄 OSS URSSAF (.csv)", data=oss_csv_bytes,
-                                file_name="oss_urssaf.csv", mime="text/csv",
+                                file_name=f"Export OSS URSSAF - {nom_entreprise} - {period_label}.csv", mime="text/csv",
                                 use_container_width=True,
                             )
                     with o3:
@@ -2260,7 +2342,7 @@ if uploaded_files:
                             _, b2b_csv_bytes = build_oss_csv(results_net, period=period_label)
                             _gated_download(
                                 "🤝 B2B Recap (.csv)", data=b2b_csv_bytes,
-                                file_name="b2b_recap.csv", mime="text/csv",
+                                file_name=f"Récapitulatif Livraisons B2B - {nom_entreprise} - {period_label}.csv", mime="text/csv",
                                 use_container_width=True,
                             )
                             st.caption(f"{len(b2b_results_dl)} livraisons · HT {float(summary.reverse_charge_ht):,.2f} €")
@@ -2317,11 +2399,12 @@ if uploaded_files:
                             )
                         try:
                             oss_xml_bytes = generate_oss_xml(
-                                results=results_net, seller_vat=tva_fr, period=period_label
+                                results=results_net, seller_vat=tva_fr, period=period_label,
+                                local_vat_numbers=local_vat_numbers
                             )
                             _gated_download(
                                 "📥 XML OSS officiel", data=oss_xml_bytes,
-                                file_name=f"oss_declaration_{period_label}.xml",
+                                file_name=f"Déclaration XML OSS - {nom_entreprise} - {period_label}.xml",
                                 mime="application/xml", use_container_width=True,
                                 key="btn_oss_xml_final",
                             )
@@ -2363,7 +2446,7 @@ if uploaded_files:
                     )
                     _gated_download(
                         "📥 Rapport CA3 (HTML)", data=ca3_html.encode("utf-8"),
-                        file_name=f"rapport_ca3_{period_label}.html",
+                        file_name=f"Rapport Préparatoire CA3 - {nom_entreprise} - {period_label}.html",
                         mime="text/html", use_container_width=True,
                         key="btn_ca3_html_final",
                     )

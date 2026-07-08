@@ -195,6 +195,7 @@ def _init_schema() -> None:
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS seller_is_importer BOOLEAN DEFAULT FALSE")
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS apply_fr_under_threshold BOOLEAN DEFAULT FALSE")
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS countries_with_vat TEXT")
+        cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS vat_numbers_json TEXT")
         conn.commit()
 
     _run(_fn)
@@ -273,6 +274,19 @@ def grant_export_credit(user_id: str, period_label: str, payment_intent_id: str 
     _run(_fn)
 
 
+def list_purchased_credits(user_id: str) -> list[dict]:
+    """Liste tous les crédits d'export PAYG achetés par l'utilisateur."""
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT period_label, purchased_at FROM tva_export_credits WHERE user_id=%s ORDER BY purchased_at DESC",
+            (user_id,),
+        )
+        return cur.fetchall()
+
+    rows = _run(_fn)
+    return [{"period": r[0], "at": r[1]} for r in rows]
+
+
 # =============================================================================
 # QUOTAS SIREN
 # =============================================================================
@@ -307,7 +321,7 @@ def list_registered_sirens(user_id: str) -> list[dict]:
         cur.execute(
             """
             SELECT siren, company_name, tva_number, first_used_at, pending_removal_at,
-                   ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat
+                   ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json
             FROM tva_siren_registrations
             WHERE user_id=%s
             ORDER BY first_used_at ASC
@@ -323,6 +337,7 @@ def list_registered_sirens(user_id: str) -> list[dict]:
             "first_used_at": r[3], "pending_removal_at": r[4],
             "ioss_number": r[5], "seller_is_importer": r[6],
             "apply_fr_under_threshold": r[7], "countries_with_vat": r[8],
+            "vat_numbers_json": r[9],
         }
         for r in rows
     ]
@@ -379,7 +394,8 @@ def can_register_new_siren(user_id: str) -> tuple[bool, str]:
 def register_siren(
     user_id: str, siren: str, company_name: str = "", tva_number: str = "",
     ioss_number: str = "", seller_is_importer: bool = False,
-    apply_fr_under_threshold: bool = False, countries_with_vat: str = ""
+    apply_fr_under_threshold: bool = False, countries_with_vat: str = "",
+    vat_numbers_json: str = ""
 ) -> None:
     """Enregistre un SIREN pour ce compte, ou met à jour ses métadonnées s'il
     est déjà enregistré. Le contrôle de quota (`can_register_new_siren`) doit
@@ -390,19 +406,20 @@ def register_siren(
             """
             INSERT INTO tva_siren_registrations (
                 user_id, siren, company_name, tva_number, first_used_at,
-                ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat
+                ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id, siren)
             DO UPDATE SET company_name = EXCLUDED.company_name,
                           tva_number = EXCLUDED.tva_number,
                           ioss_number = EXCLUDED.ioss_number,
                           seller_is_importer = EXCLUDED.seller_is_importer,
                           apply_fr_under_threshold = EXCLUDED.apply_fr_under_threshold,
-                          countries_with_vat = EXCLUDED.countries_with_vat
+                          countries_with_vat = EXCLUDED.countries_with_vat,
+                          vat_numbers_json = EXCLUDED.vat_numbers_json
             """,
             (user_id, siren, _enc(company_name), tva_number, time.time(),
-             ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat),
+             ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json),
         )
         conn.commit()
 
