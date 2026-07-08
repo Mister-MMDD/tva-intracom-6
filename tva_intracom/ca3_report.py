@@ -11,6 +11,21 @@ Améliorations v2 vs v2 :
   indisponibles) : l'utilisateur les saisit comme paramètres.
 - Section D : Solde net à payer / crédit à reporter.
 - Note informative ligne 3A (opérations OSS déclarées sur portail séparé).
+
+ROADMAP — export EDI-TVA (télédéclaration) :
+Ce module ne génère aujourd'hui qu'un rapport HTML (`generate_ca3_html_report_v2`),
+destiné à la SAISIE MANUELLE sur le portail impots.gouv.fr (mode EFI) ou par un
+cabinet comptable. Il n'existe pas d'export au format EDI-TVA (norme d'échange
+utilisée en mode EDI par les partenaires EDI homologués DGFIP pour la
+télétransmission directe des CA3). Ajouter ce format nécessiterait :
+  - le mapping des lignes CA3 vers le schéma EDI-TVA (cahier des charges DGFIP,
+    non fourni avec ce dépôt — à obtenir auprès de la DGFIP ou d'un partenaire
+    EDI homologué),
+  - une homologation ou un partenariat avec un opérateur EDI existant (la
+    télétransmission directe à la DGFIP n'est pas ouverte à un éditeur non
+    homologué sans passer par un partenaire EDI),
+  - une gestion de la signature/authentification propre au canal EDI.
+Non implémenté dans cette version — voir README, section Roadmap.
 """
 
 from __future__ import annotations

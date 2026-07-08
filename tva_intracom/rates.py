@@ -266,6 +266,54 @@ def rate_periods_for_country(country: str) -> List[_VatPeriod]:
     return sorted(periods, key=lambda x: (x.category, x.date_from))
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Seuils Intrastat / EMEBI (France) — obligation STATISTIQUE uniquement.
+#
+# Depuis 2022, la douane française a scindé l'ancienne "DEB" en deux
+# obligations distinctes et indépendantes :
+#   1. EMEBI (Enquête Mensuelle sur les Échanges de Biens intra-UE) :
+#      obligation STATISTIQUE, déclenchée uniquement au-delà du seuil ci-
+#      dessous, et par sens de flux (introductions / expéditions). En
+#      dessous du seuil, aucune obligation statistique — la douane peut
+#      toutefois solliciter certains opérateurs par échantillonnage même
+#      sous le seuil (hors périmètre de cet outil).
+#   2. État récapitulatif TVA (ESL/DES) : obligation FISCALE, dès le
+#      1er euro, pour les livraisons intracommunautaires B2B exonérées
+#      (art. 289 B CGI) — indépendante du seuil EMEBI. Voir
+#      `excel_report.py::_write_calendar_tab` (onglet Calendrier Fiscal),
+#      qui génère cette échéance séparément de l'onglet Intrastat.
+#
+# Le seuil est historiquement resté stable (460 000 €/an) mais n'est pas
+# garanti par la loi d'une année sur l'autre : il doit être revérifié
+# chaque année sur pro.douane.gouv.fr. Cette table ne doit JAMAIS être
+# lue comme une source légale figée — seulement comme la dernière valeur
+# connue au moment de la mise à jour de ce fichier.
+INTRASTAT_EMEBI_THRESHOLDS_FR: Dict[int, Decimal] = {
+    2022: Decimal("460000"),
+    2023: Decimal("460000"),
+    2024: Decimal("460000"),
+    2025: Decimal("460000"),
+    2026: Decimal("460000"),  # À reconfirmer chaque année sur pro.douane.gouv.fr
+}
+
+_LATEST_KNOWN_INTRASTAT_YEAR = max(INTRASTAT_EMEBI_THRESHOLDS_FR)
+
+
+def intrastat_emebi_threshold_for_year(year: int) -> tuple[Decimal, bool]:
+    """Retourne (seuil EMEBI en €, seuil_confirmé) pour l'année donnée.
+
+    `seuil_confirmé` est False lorsque l'année demandée est postérieure à la
+    dernière année explicitement répertoriée dans `INTRASTAT_EMEBI_THRESHOLDS_FR` :
+    dans ce cas, la dernière valeur connue est retournée par extrapolation,
+    mais l'appelant DOIT signaler à l'utilisateur que ce seuil reste à
+    vérifier (le seuil est fixé par arrêté douanier et peut changer sans
+    préavis d'une année sur l'autre).
+    """
+    if year in INTRASTAT_EMEBI_THRESHOLDS_FR:
+        return INTRASTAT_EMEBI_THRESHOLDS_FR[year], True
+    return INTRASTAT_EMEBI_THRESHOLDS_FR[_LATEST_KNOWN_INTRASTAT_YEAR], False
+
+
 # Mapping complet des taux actuels (Situation 2026)
 REDUCED_VAT_RATES: Dict[str, Dict[str, Decimal]] = {
     "AT": {  

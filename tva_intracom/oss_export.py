@@ -261,7 +261,7 @@ def _aggregate(results: List[VatResult], period: str = "") -> OssExportData:
 
     b2b_lines = [
         B2bLine(
-            sale_id=r.sale.sale_id,
+            sale_id=(getattr(r.sale, "display_id", "") or r.sale.sale_id),
             buyer_vat_number=r.sale.buyer_vat_number,
             buyer_country=r.sale.buyer_country,
             country_name=COUNTRY_NAMES.get(r.sale.buyer_country, r.sale.buyer_country),
@@ -397,7 +397,7 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
     for i, r in enumerate(data.oss_details):
         row = i + 3
         zebra = i % 2 == 1
-        _data_cell(ws, row, 1, r.sale.sale_id, zebra=zebra)
+        _data_cell(ws, row, 1, (getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra)
         _data_cell(ws, row, 2, r.sale.transaction_date, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
         _data_cell(ws, row, 3, r.sale.stock_country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
         _data_cell(ws, row, 4, r.sale.buyer_country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")

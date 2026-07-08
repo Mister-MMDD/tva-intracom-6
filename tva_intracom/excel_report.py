@@ -483,17 +483,18 @@ def _write_intrastat_tab(
     results: list,
     seller_country: str = "FR",
 ) -> None:
-    """Onglet Intrastat (DEB/DEA) — aide au remplissage de la déclaration.
+    """Onglet Intrastat / EMEBI (statistique) — aide au remplissage de la déclaration.
 
-    L'Intrastat (ancien DEB/DEA, renommé en 2022) est une déclaration
-    statistique/fiscale obligatoire auprès de la Douane française (DGDDI)
-    pour les flux de marchandises intra-UE dont vous êtes le déclarant.
-
-    SEUILS 2024+ :
-    - Introductions (flux entrant FR ← UE) : obligation statistique dès 460 000 €/an
-      (aucun seuil fiscal pour les introductions depuis 2022).
-    - Expéditions (flux sortant FR → UE) : obligation statistique dès 460 000 €/an ;
-      obligation fiscale (données TVA) dès le 1er euro.
+    Depuis 2022, la douane française a scindé l'ancienne "DEB" en deux
+    obligations distinctes, qui NE partagent PAS le même seuil :
+    - EMEBI (Enquête statistique, cet onglet) : déclenchée uniquement au-delà
+      du seuil annuel (voir jauge ci-dessous), par sens de flux.
+    - État récapitulatif de TVA (ESL/DES) : obligation FISCALE séparée, dès
+      le 1er euro, pour les livraisons intracommunautaires B2B exonérées
+      (art. 289 B CGI). Cette échéance est générée dans l'onglet
+      "Calendrier Fiscal" (voir `_write_calendar_tab`) et n'est PAS
+      conditionnée par le seuil EMEBI ci-dessous — un flux sous le seuil
+      EMEBI peut donc rester soumis à l'ESL.
 
     Chaque ligne = un flux (pays_départ, pays_arrivée, ASIN) avec :
     - Nature de la transaction : 11 (transfert de stock, art. 17 dir. 2006/112/CE)
@@ -502,21 +503,36 @@ def _write_intrastat_tab(
     - Code NC / CN8 : à compléter par le déclarant (Amazon ne fournit pas le code douanier)
 
     ⚠ Ce tableau est une AIDE AU REMPLISSAGE et non une déclaration valide. Le
-    dépôt se fait sur le portail Pro.douane (https://pro.douane.gouv.fr).
+    dépôt se fait sur le portail Pro.douane (https://pro.douane.gouv.fr). Le
+    seuil utilisé est celui de `rates.INTRASTAT_EMEBI_THRESHOLDS_FR` : s'il
+    n'est pas explicitement confirmé pour l'année en cours, un avertissement
+    est affiché à l'utilisateur (voir `seuil_confirme` ci-dessous).
     """
-    ws.title = "Intrastat (DEB)"
+    from .rates import intrastat_emebi_threshold_for_year
+
+    ws.title = "Intrastat (EMEBI)"
     GREEN_FILL = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
 
     ws.cell(row=1, column=1,
-            value="AIDE AU REMPLISSAGE — DÉCLARATION INTRASTAT (DEB/DEA)").font = _TITLE_FONT
+            value="AIDE AU REMPLISSAGE — ENQUÊTE STATISTIQUE EMEBI (ex-DEB/DEA)").font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
+
+    # Année de référence pour le seuil : année en cours au moment de la génération.
+    _current_year = _date.today().year
+    _seuil_annee_ref, _seuil_confirme = intrastat_emebi_threshold_for_year(_current_year)
+    _seuil_warning = (
+        "" if _seuil_confirme else
+        f"  |  ⚠ Seuil {_current_year} non confirmé — dernière valeur connue reprise par extrapolation, à vérifier sur pro.douane.gouv.fr."
+    )
 
     # Note légale
     note = ws.cell(row=2, column=1, value=(
         f"Déclarant présumé : {seller_country}  |  "
-        "Seuils Intrastat 2024 : 460 000 €/an (introductions et expéditions).  |  "
+        f"Seuil EMEBI {_current_year} : {_seuil_annee_ref:,.0f} €/an (introductions et expéditions ; "
+        "obligation STATISTIQUE — distincte de l'état récapitulatif TVA/ESL, exigible dès 1€, voir onglet Calendrier Fiscal).  |  "
         "Dépôt sur pro.douane.gouv.fr  |  Periodicité : mensuelle, avant le 10e jour ouvré du mois suivant.  |  "
         "⚠ Code NC (CN8) et masse nette à compléter — non fournis par Amazon."
+        f"{_seuil_warning}"
     ))
     note.font = Font(italic=True, size=10, color="C00000")
     ws.row_dimensions[2].height = 30
@@ -539,10 +555,11 @@ def _write_intrastat_tab(
         flux[key]["nb"]           += 1
         flux[key]["designation"]  = flux[key]["designation"] or designation
 
-    # ── Jauge de seuil annuel (460 000 €) ───────────────────────────────
+    # ── Jauge de seuil annuel (EMEBI) ───────────────────────────────────
     # Cumul par année civile et par sens (intro/expé), toutes ASIN confondus,
-    # pour anticiper le franchissement de l'obligation déclarative Intrastat.
-    _SEUIL_INTRASTAT = Decimal("460000.00")
+    # pour anticiper le franchissement de l'obligation déclarative EMEBI.
+    # Le seuil est recalculé PAR ANNÉE (il peut varier d'une année sur
+    # l'autre) plutôt que codé en dur — voir rates.INTRASTAT_EMEBI_THRESHOLDS_FR.
     seuil_par_annee: dict[str, dict] = defaultdict(lambda: {"intro": Decimal("0"), "expe": Decimal("0")})
     for (dep, arr, asin, mois), data in flux.items():
         annee = mois[:4] if mois and mois != "—" else "—"
@@ -556,31 +573,42 @@ def _write_intrastat_tab(
     current_row = 4
     if seuil_par_annee:
         ws.cell(row=current_row, column=1,
-                value="SUIVI DU SEUIL ANNUEL (460 000 € — obligation statistique)").font = Font(bold=True, size=11, color="C00000")
+                value="SUIVI DU SEUIL ANNUEL EMEBI (obligation statistique — seuil par année, voir colonne dédiée)").font = Font(bold=True, size=11, color="C00000")
         current_row += 1
         _set_header(ws, current_row, [
-            "Année", "Sens", "Valeur cumulée estimée (€)", "% du seuil", "Statut",
+            "Année", "Sens", "Valeur cumulée estimée (€)", "Seuil EMEBI de l'année (€)", "% du seuil", "Statut",
         ], fill=PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"))
         current_row += 1
+        any_unconfirmed = False
         for annee in sorted(seuil_par_annee):
+            try:
+                seuil_annee, confirme = intrastat_emebi_threshold_for_year(int(annee))
+            except ValueError:
+                seuil_annee, confirme = _seuil_annee_ref, _seuil_confirme
+            any_unconfirmed = any_unconfirmed or not confirme
             for sens_label, key_sens in [("Introductions", "intro"), ("Expéditions", "expe")]:
                 cumul = seuil_par_annee[annee][key_sens]
-                pct = float(cumul / _SEUIL_INTRASTAT * 100) if _SEUIL_INTRASTAT else 0.0
+                pct = float(cumul / seuil_annee * 100) if seuil_annee else 0.0
                 statut = ("🔴 SEUIL DÉPASSÉ" if pct >= 100
                           else "🟡 Proche du seuil (>80%)" if pct >= 80
                           else "🟢 Sous le seuil")
+                if not confirme:
+                    statut += " (seuil non confirmé)"
                 ws.cell(row=current_row, column=1, value=annee)
                 ws.cell(row=current_row, column=2, value=sens_label)
                 c_v = ws.cell(row=current_row, column=3, value=float(cumul))
                 c_v.number_format = _EUR_FORMAT
-                c_p = ws.cell(row=current_row, column=4, value=round(pct, 1))
+                c_s = ws.cell(row=current_row, column=4, value=float(seuil_annee))
+                c_s.number_format = _EUR_FORMAT
+                c_p = ws.cell(row=current_row, column=5, value=round(pct, 1))
                 c_p.number_format = '0.0"%"'
                 c_p.font = Font(bold=True, color="C00000" if pct >= 100 else ("ED7D31" if pct >= 80 else "375623"))
-                ws.cell(row=current_row, column=5, value=statut)
+                ws.cell(row=current_row, column=6, value=statut)
                 ws.row_dimensions[current_row].height = 18
                 current_row += 1
         cap = ws.cell(row=current_row, column=1,
-                value="⚠ Valeurs estimées (prix vente moyen HT × qté) — à recouper avec la valeur d'achat réelle.")
+                value="⚠ Valeurs estimées (prix vente moyen HT × qté) — à recouper avec la valeur d'achat réelle."
+                + (" Seuil(s) marqué(s) 'non confirmé' : à revérifier sur pro.douane.gouv.fr avant toute décision." if any_unconfirmed else ""))
         cap.font = Font(italic=True, size=9, color="7f7f7f")
         current_row += 2
     else:
@@ -842,11 +870,11 @@ def _write_calendar_tab(
             if ouvre < 10:
                 d_limit += timedelta(days=1)
         _write_row(
-            "Intrastat",
-            f"Déclaration Intrastat {seller_country} (introductions + expéditions)",
+            "EMEBI (Intrastat)",
+            f"Enquête statistique EMEBI {seller_country} (introductions + expéditions, sous réserve de seuil — voir onglet dédié)",
             f"{yr}-{mo:02d}",
             d_limit,
-            "pro.douane.gouv.fr → DEB/Intrastat",
+            "pro.douane.gouv.fr → EMEBI/Intrastat",
             "Art. 7 Règl. UE 2019/2152 — 10e jour ouvré du mois suivant",
             GREEN_FILL,
         )
@@ -1475,7 +1503,7 @@ def export_xlsx(
     _write_fba_transfers_tab(ws_fba, all_fc_transfers or [])
 
     # 11. Onglet Intrastat / DEB (aide au remplissage)
-    ws_intrastat = wb.create_sheet("Intrastat (DEB)")
+    ws_intrastat = wb.create_sheet("Intrastat (EMEBI)")
     _write_intrastat_tab(ws_intrastat, all_fc_transfers or [], results, seller_country=seller_country)
 
     # 11bis. Onglet INVOICE / CREDIT_NOTE (écritures Amazon hors ventes)

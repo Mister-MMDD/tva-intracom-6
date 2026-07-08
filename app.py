@@ -1,11 +1,15 @@
 """Application Streamlit — Moteur TVA Intracommunautaire."""
 from __future__ import annotations
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+
 import tempfile, re
+import secrets
 import logging
 import time
 import os
 from decimal import Decimal
-from pathlib import Path
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
@@ -13,10 +17,7 @@ import extra_streamlit_components as stx
 from datetime import datetime, timedelta
 import math
 import pandas as pd
-import sys
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -252,6 +253,55 @@ if _qp_session_token:
     st.query_params.pop("session_token", None)
     st.rerun()
 
+# ── Consommation du callback Amazon SP-API OAuth ───────────────────────────
+_spapi_code = st.query_params.get("spapi_oauth_code")
+_spapi_selling_partner_id = st.query_params.get("selling_partner_id")
+if _spapi_code and _spapi_selling_partner_id:
+    from tva_intracom import amazon_spapi
+    try:
+        # 1. Échange du code contre les tokens
+        _tokens = amazon_spapi.exchange_code_for_token(_spapi_code)
+        _refresh_token = _tokens.get("refresh_token")
+        _access_token = _tokens.get("access_token")
+        
+        if _refresh_token:
+            # 2. On essaie de récupérer l'e-mail Amazon pour identifier/créer l'utilisateur
+            # (Login with Amazon / LWA Profile)
+            _amz_email = None
+            try:
+                if _access_token:
+                    _amz_email = amazon_spapi.get_seller_email(_access_token)
+            except Exception:
+                pass
+            
+            _current_u = st.session_state.get("auth_user")
+            
+            # Cas A : Connexion (Login with Amazon) - On n'est pas encore connecté
+            if _current_u is None and _amz_email:
+
+                _current_u = tva_auth.get_or_create_user(_amz_email)
+                st.session_state["auth_user"] = _current_u
+                _new_token = tva_auth.create_session_token(_current_u.id)
+                cookie_manager.set("tva_session_token", _new_token, expires_at=datetime.now() + timedelta(days=30))
+            
+            # Cas B : Liaison (L'utilisateur est déjà connecté, on lie juste le compte Amazon)
+            if _current_u:
+                tva_auth.save_amazon_credentials(
+                    _current_u.id, _spapi_selling_partner_id, _refresh_token
+                )
+                st.success(f"✅ Compte Amazon lié avec succès ({_current_u.email}) !")
+                time.sleep(1)
+            else:
+                st.error("Impossible d'identifier votre compte Amazon. Connectez-vous d'abord par e-mail.")
+        else:
+            st.error("Erreur : Aucun refresh token reçu d'Amazon.")
+    except Exception as _e:
+        st.error(f"Erreur lors de la connexion Amazon : {_e}")
+    
+    # On nettoie l'URL
+    st.query_params.clear()
+    st.rerun()
+
 if st.session_state["auth_user"] is None:
     st.info("🔐 Connectez-vous pour utiliser le moteur de TVA.")
 
@@ -274,21 +324,30 @@ if st.session_state["auth_user"] is None:
         st.stop()
 
     _login_email = st.text_input("Adresse e-mail", key="login_email_input")
-    if st.button("Recevoir un lien de connexion", key="btn_send_magic_link"):
+    _col_magic, _col_amazon = st.columns(2)
+    
+    if _col_magic.button("Recevoir un lien de connexion", key="btn_send_magic_link", use_container_width=True):
         if _login_email and "@" in _login_email:
             _token = tva_auth.create_magic_link(_login_email)
-            # URL de base de l'app — à définir dans st.secrets["APP_BASE_URL"] si elle
-            # change un jour. Valeur par défaut = domaine Streamlit Cloud actuel.
             _base_url = st.secrets.get("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
             _login_url = f"{_base_url}/?login_token={_token}"
             try:
                 tva_auth.send_magic_link_email(_login_email, _login_url)
-                st.success(f"✅ Lien de connexion envoyé à {_login_email}. Vérifiez votre boîte mail "
-                           "(et les spams).")
+                st.success(f"✅ Lien envoyé à {_login_email}.")
             except Exception as _mail_err:
-                st.error(f"⛔ Échec de l'envoi de l'e-mail : {_mail_err}")
+                st.error(f"⛔ Échec de l'envoi : {_mail_err}")
         else:
             st.warning("Adresse e-mail invalide.")
+            
+    with _col_amazon:
+        from tva_intracom import amazon_spapi
+        _state = secrets.token_hex(8)
+        try:
+            _auth_url = amazon_spapi.get_authorization_url(state=_state)
+            st.link_button("🚀 Connexion via Amazon", _auth_url, use_container_width=True, type="primary")
+        except Exception:
+            st.error("Amazon non configuré.")
+
     st.stop()
 
 _current_user = st.session_state["auth_user"]
@@ -331,6 +390,25 @@ with st.sidebar:
 
     # ── Plateforme source (toujours visible) ──────────────────────────────────
     file_format = st.radio("Plateforme source", _PLATFORM_OPTIONS, index=0)
+
+    # ── Connexion Amazon SP-API ───────────────────────────────────────────────
+    with st.expander("🔗 Connexion Amazon SP-API", expanded=False):
+        _amz_creds = tva_auth.get_amazon_credentials(_current_user.id)
+        if _amz_creds:
+            st.success(f"✅ Connecté à Amazon (ID: {_amz_creds['selling_partner_id']})")
+            if st.button("🔌 Déconnecter Amazon", key="btn_disconnect_amazon"):
+                tva_auth.delete_amazon_credentials(_current_user.id)
+                st.rerun()
+        else:
+            st.info("Autorisez l'accès à vos données Amazon pour automatiser l'import.")
+            # On génère un 'state' pour sécuriser l'OAuth (optionnel mais recommandé)
+            _state = secrets.token_hex(8)
+            from tva_intracom import amazon_spapi
+            try:
+                _auth_url = amazon_spapi.get_authorization_url(state=_state)
+                st.link_button("🚀 Connecter mon compte Amazon", _auth_url)
+            except Exception as _err:
+                st.error(f"Erreur configuration : {_err}")
 
     # ── Validation & Devises ──────────────────────────────────────────────────
     with st.expander("\U0001f50d Validation & Devises", expanded=False):
@@ -709,6 +787,13 @@ with st.sidebar:
                             st.markdown(f"**{_biz_label}** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
 
                     if _grid.get("cabinet"):
+                        st.markdown("""
+                            <style>
+                            .cabinet-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+                            .cabinet-table th { text-align: left; padding: 8px; border-bottom: 2px solid rgba(250, 250, 250, 0.2); background-color: rgba(250, 250, 250, 0.05); }
+                            .cabinet-table td { padding: 8px; border-bottom: 1px solid rgba(250, 250, 250, 0.1); }
+                            </style>
+                        """, unsafe_allow_html=True)
                         for _iv, _lbl in (("month", "mensuel"), ("year", "annuel")):
                             _c = _grid["cabinet"].get(_iv)
                             if not _c or not _c.get("tiers"):
@@ -723,8 +808,8 @@ with st.sidebar:
                                 if _t["unit_amount"] is not None:
                                     if _t.get("discounted_unit_amount") is not None:
                                         _price_txt = (
-                                            f"{_t['unit_amount']:.2f} {_c['currency'].upper()} → "
-                                            f"{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()} "
+                                            f"<span style='text-decoration:line-through;color:gray'>{_t['unit_amount']:.2f} {_c['currency'].upper()}</span> "
+                                            f"→ <span style='color:#2ca02c;font-weight:bold'>{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()}</span> "
                                             f"({_t['discount_label']}, code {_t['discount_code']}) / SIREN"
                                         )
                                     else:
@@ -735,7 +820,12 @@ with st.sidebar:
                                     _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} fixe)"
                                 _rows.append({"SIREN gérés": _range, "Tarif": _price_txt})
                                 _prev_bound = _up_to if _up_to is not None else _prev_bound
-                            st.dataframe(_rows, hide_index=True, use_container_width=True)
+                            # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown
+                            # avec l'export HTML du DataFrame pour conserver le formattage.
+                            st.markdown(
+                                pd.DataFrame(_rows).to_html(escape=False, index=False, classes="cabinet-table"),
+                                unsafe_allow_html=True
+                            )
 
             _detected_period_for_payg = st.session_state.get("_period_label", "")
             st.markdown("**Achat unique** — une déclaration, la période détectée dans votre fichier")

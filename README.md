@@ -118,7 +118,7 @@ tva-intracom/
 | `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle, convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194), retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires |
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
 | `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965), validation période, garde-fou soldes négatifs (CorrectionsOfVatReturns) |
-| `ca3_report.py` | Génération du rapport CA3 (HTML) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
+| `ca3_report.py` | Génération du rapport CA3 (HTML uniquement — pas d'export EDI-TVA, voir Roadmap) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
@@ -294,6 +294,19 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
   effectuée en amont du clic sur le bouton de génération, avec un bloc d'alerte
   explicatif affiché avant toute tentative.
 
+  **Exemple concret** : la période `2026-Q2` contient un avoir DE (19%) de 300 €
+  alors que les ventes DE (19%) de la période ne totalisent que 120 € → solde de
+  -180 € détecté sur le couple (DE, 19%). L'outil bloque la génération du XML et
+  affiche le détail. Marche à suivre sur le portail OSS (guichet-unique.impots.gouv.fr
+  ou portail de l'État membre d'identification) :
+  1. Ne PAS inclure cet avoir dans la déclaration de la période courante (`2026-Q2`).
+  2. Identifier la période d'origine de la vente concernée par l'avoir (ex. `2026-Q1`).
+  3. Sur le portail OSS, utiliser l'onglet dédié aux **corrections de périodes
+     antérieures** (`CorrectionsOfVatReturns`) et y saisir l'avoir en référençant
+     explicitement `2026-Q1` comme période corrigée — pas la période courante.
+  4. Régénérer le XML `2026-Q2` une fois l'avoir retiré du jeu de données de cette
+     période (ou traité manuellement hors outil), pour repasser sous le seuil.
+
 ### Interface Streamlit — contrôles complémentaires
 
 - **Barre de progression** sur le parsing des rapports Amazon volumineux, via le
@@ -320,7 +333,7 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 | 7 | **Historique VIES** | Toutes les vérifications VIES horodatées (piste d'audit) |
 | 8 | **Analyse AIC FBA** | AIC estimées par flux (art. 17 Dir. 2006/112/CE), TVA AIC à autodéclarer |
 | 9 | **Transferts FBA Détail** | Liste brute des mouvements de stock FC |
-| 10 | **Intrastat (DEB)** | Aide au remplissage : introductions et expéditions par mois/ASIN/flux |
+| 10 | **Intrastat (EMEBI)** | Aide au remplissage : introductions et expéditions par mois/ASIN/flux, seuil annualisé, renvoi vers l'ESL (obligation fiscale distincte, voir onglet Calendrier Fiscal) |
 | 11 | **Calendrier Fiscal** | Prochaines échéances OSS, CA3, Intrastat, ESL avec jours restants |
 | 12 | **Historique VIES** | Piste d'audit VIES (append-only, preuve de bonne foi en contrôle fiscal) |
 
@@ -339,9 +352,20 @@ Le moteur déduit les échéances déclaratives directement des données traité
 
 ---
 
-## Intrastat (DEB)
+## Intrastat / EMEBI (onglet 10)
 
-L'onglet Intrastat est pré-rempli à partir des mouvements de stock FC détectés :
+Depuis 2022, la douane française a scindé l'ancienne « DEB » en deux obligations
+**distinctes et indépendantes**, que le moteur traite séparément :
+
+| Obligation | Nature | Seuil | Où dans l'outil |
+|---|---|---|---|
+| **EMEBI** (Enquête statistique) | Statistique | Seuil annuel (voir ci-dessous), par sens de flux | Onglet **Intrastat (EMEBI)** |
+| **État récapitulatif TVA (ESL/DES)** | Fiscale | Dès le 1er euro, pour les livraisons B2B intra-UE exonérées (art. 289 B CGI) | Onglet **Calendrier Fiscal**, généré indépendamment du seuil EMEBI |
+
+L'onglet 10 rappelle explicitement ce renvoi : un flux sous le seuil EMEBI peut
+malgré tout déclencher une obligation ESL, les deux étant indépendantes.
+
+L'onglet Intrastat/EMEBI est pré-rempli à partir des mouvements de stock FC détectés :
 
 - **Introductions** (flux UE → FR) et **Expéditions** (flux FR → UE) séparées.
 - Agrégation par mois, pays et ASIN.
@@ -350,7 +374,16 @@ L'onglet Intrastat est pré-rempli à partir des mouvements de stock FC détect�
   pas la valeur d'achat — approximation par excès, art. 83 Dir. 2006/112/CE).
 - **Code NC (CN8) et masse nette** : colonnes `À COMPLÉTER` manuellement (non
   disponibles dans les fichiers Amazon).
-- Seuils 2024 : 460 000 €/an (introductions et expéditions).
+- **Seuil EMEBI** : géré dynamiquement par année via
+  `rates.INTRASTAT_EMEBI_THRESHOLDS_FR` (dict année → seuil) et la fonction
+  `rates.intrastat_emebi_threshold_for_year(year)`, qui renvoie aussi un
+  indicateur `seuil_confirmé`. Valeur actuellement répertoriée : 460 000 €/an
+  (stable depuis 2022, mais non garantie par la loi d'une année sur l'autre).
+  Si l'année traitée n'est pas explicitement dans la table, le seuil de la
+  dernière année connue est repris par extrapolation et un avertissement
+  explicite est affiché à l'utilisateur dans l'onglet Excel — **ce seuil doit
+  être revérifié chaque année sur pro.douane.gouv.fr**, la table de ce dépôt
+  n'étant mise à jour qu'au fil des évolutions constatées.
 - Dépôt : [pro.douane.gouv.fr](https://pro.douane.gouv.fr).
 
 ### Conformité Amazon DPP (Data Protection Policy)
@@ -461,6 +494,25 @@ conversion BCE.
 | IOSS (import ≤ 150 €) | Dir. 2006/112/CE art. 369 ter et suivants |
 | Fait générateur livraison biens | Dir. 2006/112/CE art. 65 |
 | Relevé TVA intracom (ESL) | Art. 289 B CGI |
+
+---
+
+## Roadmap
+
+- **Export EDI-TVA (télédéclaration CA3)** : actuellement, `ca3_report.py` ne
+  produit qu'un rapport HTML (`generate_ca3_html_report_v2`) destiné à une
+  saisie manuelle sur le portail impots.gouv.fr (mode EFI) ou par un cabinet
+  comptable. Un export au format **EDI-TVA** (norme utilisée par les
+  partenaires EDI homologués DGFIP pour la télétransmission directe des CA3)
+  permettrait une automatisation complète pour les cabinets comptables gérant
+  de multiples dossiers. Cela suppose : l'obtention du cahier des charges
+  EDI-TVA auprès de la DGFIP ou d'un partenaire EDI, un partenariat ou une
+  homologation (la télétransmission directe n'est pas ouverte à un éditeur
+  non homologué), et la gestion de la signature/authentification du canal
+  EDI. Alternative plus légère envisageable à terme : une API de
+  pré-remplissage qui exporte les lignes CA3 dans un format consommable par
+  les logiciels comptables existants (FEC, ou format propriétaire des
+  principaux éditeurs), sans viser la télétransmission directe.
 
 ---
 

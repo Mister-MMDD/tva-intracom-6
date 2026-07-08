@@ -132,6 +132,17 @@ def _init_schema() -> None:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_failed_logins_at ON tva_failed_logins(attempt_at)")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tva_amazon_credentials (
+                    user_id TEXT PRIMARY KEY,
+                    selling_partner_id TEXT NOT NULL,
+                    refresh_token TEXT NOT NULL,
+                    created_at DOUBLE PRECISION NOT NULL,
+                    updated_at DOUBLE PRECISION NOT NULL
+                )
+                """
+            )
     finally:
         _pool.putconn(conn)
 
@@ -315,3 +326,42 @@ def get_user_by_session_token(token: str) -> Optional[User]:
     if not urow:
         return None
     return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3])
+
+
+def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token: str) -> None:
+    def _fn(conn, cur):
+        now = time.time()
+        cur.execute(
+            """
+            INSERT INTO tva_amazon_credentials (user_id, selling_partner_id, refresh_token, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                selling_partner_id = EXCLUDED.selling_partner_id,
+                refresh_token = EXCLUDED.refresh_token,
+                updated_at = EXCLUDED.updated_at
+            """,
+            (user_id, selling_partner_id, refresh_token, now, now),
+        )
+
+    _run(_fn)
+
+
+def get_amazon_credentials(user_id: str) -> Optional[dict]:
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT selling_partner_id, refresh_token FROM tva_amazon_credentials WHERE user_id=%s",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            return {"selling_partner_id": row[0], "refresh_token": row[1]}
+        return None
+
+    return _run(_fn)
+
+
+def delete_amazon_credentials(user_id: str) -> None:
+    def _fn(conn, cur):
+        cur.execute("DELETE FROM tva_amazon_credentials WHERE user_id=%s", (user_id,))
+
+    _run(_fn)
