@@ -17,6 +17,7 @@ import extra_streamlit_components as stx
 from datetime import datetime, timedelta
 import math
 import pandas as pd
+import json
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
 
 logging.basicConfig(
@@ -355,7 +356,12 @@ _col_user, _col_logout = st.columns([5, 1])
 _col_user.caption(f"Connecté : {_current_user.email}")
 if _col_logout.button("🚪 Déconnexion", key="btn_logout"):
     st.session_state["auth_user"] = None
-    cookie_manager.delete("tva_session_token")
+    try:
+        # On vérifie si le cookie existe avant de tenter de le supprimer
+        if "tva_session_token" in cookie_manager.get_all():
+            cookie_manager.delete("tva_session_token")
+    except Exception:
+        pass
     st.query_params.clear()
     st.rerun()
 
@@ -619,6 +625,8 @@ with st.sidebar:
                 if st.button("💾 Enregistrer ce SIREN", key="btn_register_siren"):
                     if not siren_entreprise.strip():
                         st.warning("Le numéro SIREN est requis.")
+                    elif siren_entreprise.strip() in _siren_options:
+                        st.error(f"🚫 Le SIREN {siren_entreprise.strip()} est déjà enregistré sur ce compte.")
                     elif _missing_vat_input:
                         st.warning("Veuillez remplir le numéro de TVA pour chaque pays sélectionné.")
                     else:
@@ -645,7 +653,6 @@ with st.sidebar:
             st.markdown(f"🏢 **{nom_entreprise}**")
             st.caption(f"SIREN : **{siren_entreprise}**")
             
-            import json
             try:
                 _existing_vats = json.loads(_match.get("vat_numbers_json") or "{}") if _match else {}
             except:
@@ -655,20 +662,21 @@ with st.sidebar:
             if _tva_fr_fixed:
                 st.caption(f"TVA FR : **{_tva_fr_fixed}**")
             
-            _ioss_fixed = _match.get("ioss_number") or ""
-            if _ioss_fixed:
-                st.caption(f"IOSS : **{_ioss_fixed}**")
-
             st.markdown("---")
-            st.markdown("**Paramètres variables**")
+            st.markdown("**Paramètres fiscaux**")
             
-            # IOSS et TVA sont désormais "bloqués" s'ils ont déjà été saisis (conformément à votre demande)
-            # Si vide, on laisse saisir une fois.
-            if not _ioss_fixed:
-                ioss_number = st.text_input("Numéro IOSS propre (optionnel)", 
-                    placeholder="ex: IM1234567890", key="ioss_edit")
+            # Option pour déverrouiller la modification des numéros déjà enregistrés
+            allow_edit_ids = st.checkbox("🔓 Modifier les identifiants (IOSS, TVA)", value=False, help="Cochez pour modifier les numéros déjà enregistrés.")
+            
+            # IOSS
+            _ioss_val = _match.get("ioss_number") or ""
+            if _ioss_val and not allow_edit_ids:
+                st.caption(f"IOSS : **{_ioss_val}**")
+                ioss_number = _ioss_val
             else:
-                ioss_number = _ioss_fixed
+                ioss_number = st.text_input("Numéro IOSS propre (optionnel)", 
+                    value=_ioss_val,
+                    placeholder="ex: IM1234567890", key="ioss_edit")
 
             seller_is_importer = st.toggle("Vendeur = importateur officiel (DDP)", value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
             apply_fr_under_threshold = st.toggle("Appliquer TVA FR sous le seuil OSS (10 000 €)", value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
@@ -676,32 +684,33 @@ with st.sidebar:
             _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
             _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
             
-            # On ne peut qu'ajouter des pays, pas en retirer (pour garder l'historique des numéros)
             countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local", 
                 options=sorted(list(EU_COUNTRIES)), default=_default_vat_countries, key="vat_countries_edit")
 
-            local_vat_numbers = dict(_existing_vats)
+            local_vat_numbers = {}
             _missing_vat_input = False
             if countries_with_vat:
                 st.caption("Numéros de TVA locaux :")
                 for ccode in sorted(countries_with_vat):
-                    _existing_v = _existing_vats.get(ccode, "")
-                    if _existing_v:
-                        st.caption(f"✅ {ccode} : **{_existing_v}**")
-                        local_vat_numbers[ccode] = _existing_v
+                    _val = _existing_vats.get(ccode, "")
+                    if _val and not allow_edit_ids:
+                        st.caption(f"✅ {ccode} : **{_val}**")
+                        local_vat_numbers[ccode] = _val
                     else:
                         _v = st.text_input(f"Numéro de TVA {ccode}", 
+                                           value=_val,
                                            key=f"vat_num_edit_{ccode}",
                                            placeholder=f"ex: {ccode}123456789")
                         local_vat_numbers[ccode] = _v.strip()
                         if not _v.strip():
                             _missing_vat_input = True
 
+            # Mise à jour de tva_fr pour le XML OSS (toujours basé sur le numéro FR)
             tva_fr = local_vat_numbers.get("FR", _tva_fr_fixed)
 
             if st.button("💾 Enregistrer les modifications", key="btn_update_siren"):
                 if _missing_vat_input:
-                    st.warning("Veuillez remplir le numéro de TVA pour tous les nouveaux pays.")
+                    st.warning("Veuillez remplir le numéro de TVA pour chaque pays sélectionné.")
                 else:
                     try:
                         tva_billing.register_siren(
@@ -718,22 +727,28 @@ with st.sidebar:
                     except Exception as _reg_err:
                         st.error(f"Erreur de mise à jour : {_reg_err}")
 
-            if _match and _match.get("pending_removal_at"):
-                import datetime as _dt
-                _eff_date = _dt.datetime.fromtimestamp(_match["pending_removal_at"]).strftime("%d/%m/%Y")
-                st.caption(f"⏳ Retrait programmé le {_eff_date}.")
-                if st.button("↩️ Annuler le retrait", key=f"btn_cancel_removal_{siren_entreprise}"):
-                    tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
-                    st.rerun()
-            elif _match and len(_registered_sirens) > 1:
-                if st.button("🗑️ Retirer ce SIREN", key=f"btn_remove_entreprise_{siren_entreprise}"):
-                    _eff = tva_billing.request_siren_removal(_current_user.id, siren_entreprise)
+            # Option de retrait du SIREN (toujours visible si déjà enregistré)
+            if _match:
+                st.divider()
+                if _match.get("pending_removal_at"):
                     import datetime as _dt
-                    if _eff <= time.time() + 5:
-                        st.success("✅ SIREN retiré.")
-                    else:
-                        st.info(f"Retrait programmé le {_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')}.")
-                    st.rerun()
+                    _eff_date = _dt.datetime.fromtimestamp(_match["pending_removal_at"]).strftime("%d/%m/%Y")
+                    st.warning(f"⏳ Retrait programmé le {_eff_date}.")
+                    if st.button("↩️ Annuler le retrait", key=f"btn_cancel_removal_{siren_entreprise}", use_container_width=True):
+                        tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
+                        st.rerun()
+                else:
+                    if st.button("🗑️ Retirer ce SIREN", key=f"btn_remove_entreprise_{siren_entreprise}", 
+                                help="Le retrait sera effectif à la fin de la période de facturation en cours.",
+                                use_container_width=True):
+                        # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
+                        _eff = tva_billing.request_siren_removal(_current_user.id, siren_entreprise)
+                        import datetime as _dt
+                        if _eff <= time.time() + 5:
+                            st.success("✅ SIREN retiré.")
+                        else:
+                            st.info(f"Retrait programmé le {_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')}.")
+                        st.rerun()
 
     # ── Abonnements & forfaits ────────────────────────────────────────────────
     with st.expander("\U0001f4b3 Abonnements & forfaits", expanded=True):
@@ -929,65 +944,66 @@ with st.sidebar:
                                 unsafe_allow_html=True
                             )
 
-            _detected_period_for_payg = st.session_state.get("_period_label", "")
-            st.markdown("**Achat unique** — une déclaration, la période détectée dans votre fichier")
-            if not _detected_period_for_payg:
-                st.caption(
-                    "📂 Importez d'abord un fichier (zone de dépôt principale) pour "
-                    "que la période à débloquer soit détectée."
-                )
-            else:
-                st.caption(f"📅 Période détectée qui sera débloquée : **{_detected_period_for_payg}**")
-                if st.button("Acheter cette période — Achat unique", key="btn_payg_sidebar"):
+            if not (_sub_status and _sub_status.active):
+                _detected_period_for_payg = st.session_state.get("_period_label", "")
+                st.markdown("**Achat unique** — une déclaration, la période détectée dans votre fichier")
+                if not _detected_period_for_payg:
+                    st.caption(
+                        "📂 Importez d'abord un fichier (zone de dépôt principale) pour "
+                        "que la période à débloquer soit détectée."
+                    )
+                else:
+                    st.caption(f"📅 Période détectée qui sera débloquée : **{_detected_period_for_payg}**")
+                    if st.button("Acheter cette période — Achat unique", key="btn_payg_sidebar"):
+                        try:
+                            _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}"
+                            if _payg_cache_key not in st.session_state:
+                                st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
+                                    user_id=_current_user.id, email=_current_user.email,
+                                    period_label=_detected_period_for_payg,
+                                    success_url=_stripe_success_url("export_ok=1"),
+                                    cancel_url=_stripe_cancel_url(),
+                                )
+                            st.link_button("→ Continuer vers le paiement", st.session_state[_payg_cache_key])
+                        except Exception as _payg_err:
+                            st.session_state.pop(_payg_cache_key, None)
+                            st.error(f"Erreur : {_payg_err}")
+
+                _sub_interval = st.radio("Facturation", ["Mensuel", "Annuel"],
+                    horizontal=True, key="sub_interval_choice")
+                _interval_code = "month" if _sub_interval == "Mensuel" else "year"
+
+                st.markdown("**Pro** — accès illimité, 1 SIREN")
+                if st.button("S'abonner — Pro", key="btn_sub_business"):
                     try:
-                        _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}"
-                        if _payg_cache_key not in st.session_state:
-                            st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
-                                user_id=_current_user.id, email=_current_user.email,
-                                period_label=_detected_period_for_payg,
-                                success_url=_stripe_success_url("export_ok=1"),
-                                cancel_url=_stripe_cancel_url(),
-                            )
-                        st.link_button("→ Continuer vers le paiement", st.session_state[_payg_cache_key])
-                    except Exception as _payg_err:
-                        st.session_state.pop(_payg_cache_key, None)
-                        st.error(f"Erreur : {_payg_err}")
+                        _url = tva_billing.create_subscription_checkout_session(
+                            user_id=_current_user.id, email=_current_user.email,
+                            plan="business", interval=_interval_code,
+                            success_url=_stripe_success_url("export_ok=1"),
+                            cancel_url=_stripe_cancel_url(),
+                        )
+                        st.link_button("→ Continuer vers le paiement", _url)
+                    except Exception as _biz_err:
+                        st.error(f"Erreur : {_biz_err}")
 
-            _sub_interval = st.radio("Facturation", ["Mensuel", "Annuel"],
-                horizontal=True, key="sub_interval_choice")
-            _interval_code = "month" if _sub_interval == "Mensuel" else "year"
-
-            st.markdown("**Pro** — accès illimité, 1 SIREN")
-            if st.button("S'abonner — Pro", key="btn_sub_business"):
-                try:
-                    _url = tva_billing.create_subscription_checkout_session(
-                        user_id=_current_user.id, email=_current_user.email,
-                        plan="business", interval=_interval_code,
-                        success_url=_stripe_success_url("export_ok=1"),
-                        cancel_url=_stripe_cancel_url(),
-                    )
-                    st.link_button("→ Continuer vers le paiement", _url)
-                except Exception as _biz_err:
-                    st.error(f"Erreur : {_biz_err}")
-
-            st.markdown("**Cabinet** — accès illimité, tarif dégressif par SIREN géré (3 SIREN minimum)")
-            _cabinet_qty = st.number_input("Nombre de SIREN gérés", min_value=3, max_value=500,
-                value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
-                key="cabinet_siren_qty",
-                help="Minimum 3 SIREN pour le forfait Cabinet. Doit couvrir au moins "
-                     "le nombre de SIREN déjà enregistrés sur ce compte.")
-            if st.button("S'abonner — Cabinet", key="btn_sub_cabinet"):
-                try:
-                    _url = tva_billing.create_subscription_checkout_session(
-                        user_id=_current_user.id, email=_current_user.email,
-                        plan="cabinet", interval=_interval_code,
-                        quantity=int(_cabinet_qty),
-                        success_url=_stripe_success_url("export_ok=1"),
-                        cancel_url=_stripe_cancel_url(),
-                    )
-                    st.link_button("→ Continuer vers le paiement", _url)
-                except Exception as _cab_err:
-                    st.error(f"Erreur : {_cab_err}")
+                st.markdown("**Cabinet** — accès illimité, tarif dégressif par SIREN géré (3 SIREN minimum)")
+                _cabinet_qty = st.number_input("Nombre de SIREN gérés", min_value=3, max_value=500,
+                    value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
+                    key="cabinet_siren_qty",
+                    help="Minimum 3 SIREN for the forfait Cabinet. Doit couvrir au moins "
+                         "le nombre de SIREN déjà enregistrés sur ce compte.")
+                if st.button("S'abonner — Cabinet", key="btn_sub_cabinet"):
+                    try:
+                        _url = tva_billing.create_subscription_checkout_session(
+                            user_id=_current_user.id, email=_current_user.email,
+                            plan="cabinet", interval=_interval_code,
+                            quantity=int(_cabinet_qty),
+                            success_url=_stripe_success_url("export_ok=1"),
+                            cancel_url=_stripe_cancel_url(),
+                        )
+                        st.link_button("→ Continuer vers le paiement", _url)
+                    except Exception as _cab_err:
+                        st.error(f"Erreur : {_cab_err}")
 
 # =============================================================================
 # UPLOAD
@@ -1183,6 +1199,7 @@ if uploaded_files:
             apply_fr_under_threshold,
             _vies_retry_nonce,
         )
+        vies_summary = None
         if st.session_state.get("_calc_key") != _cache_key:
             vies_summary = None
             if enable_vies:
@@ -1222,6 +1239,11 @@ if uploaded_files:
             st.session_state["_summary"]        = summary
             st.session_state["_vies_summary"]   = vies_summary
             st.session_state["_oss_summary"]    = oss_summary
+        else:
+            results        = st.session_state["_results"]
+            refund_results = st.session_state["_refund_results"]
+            summary        = st.session_state["_summary"]
+            vies_summary   = st.session_state["_vies_summary"]
             oss_summary    = st.session_state["_oss_summary"]
 
         # Alertes VIES (numéros non vérifiés)
@@ -1546,7 +1568,7 @@ if uploaded_files:
                     st.error(
                         f"🔒 {label} — export bloqué : **{vies_summary.total_inconclusive} numéro(s) TVA** "
                         "n'ont pas pu être vérifiés auprès de VIES. "
-                        "Veuillez les classifier manuellement dans l'onglet **🔎 Contrôle VIES** avant d'exporter."
+                        "Veuillez relancer une vérification automatique ou les classifier manuellement dans l'onglet **🔎 Contrôle VIES** avant d'exporter."
                     )
                     return
                 st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
@@ -1962,8 +1984,19 @@ if uploaded_files:
                             _ov_expired2 = _vies_is_expired_b(_ov_date2)
                             _oc1b, _oc2b, _oc3b, _oc4b = st.columns([3, 2, 1, 1])
                             _ov_badge2 = " · <b style='color:#d97706'>⚠️ expiré, ignoré</b>" if _ov_expired2 else ""
+                            
+                            _ov_label2 = f"**{_ov_vat2}**"
+                            # On affiche les ventes du fichier actuel concernées par cet override (si présentes)
+                            _ov_sales2 = []
+                            if vies_summary and hasattr(vies_summary, "vat_to_display_ids"):
+                                _ov_sales2 = vies_summary.vat_to_display_ids.get(_ov_vat2, [])
+                            if _ov_sales2:
+                                _ov_label2 += f" — vente(s) : {', '.join(_ov_sales2[:3])}"
+                                if len(_ov_sales2) > 3:
+                                    _ov_label2 += f" +{len(_ov_sales2)-3}"
+                            
                             _oc1b.markdown(
-                                f"**{_ov_vat2}**  \n<small style='color:grey'>{_ov_date_str2}{_ov_badge2}</small>",
+                                f"{_ov_label2}  \n<small style='color:grey'>{_ov_date_str2}{_ov_badge2}</small>",
                                 unsafe_allow_html=True)
                             _ov_new2 = _oc2b.selectbox("Statut",
                                 options=["✅ Valide (B2B)", "❌ Invalide (B2C)"],

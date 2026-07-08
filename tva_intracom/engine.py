@@ -534,6 +534,10 @@ class ViesValidationSummary:
     # Détail enrichi pour affichage : {"vat": full_vat, "country": cc,
     # "sale_ids": [sale_id, ...]} — un numéro peut couvrir plusieurs ventes.
     inconclusive_vat_details: list[dict] = field(default_factory=list)
+    # Mapping complet de TOUS les numéros de TVA (full_vat) vers leurs identifiants
+    # de vente à afficher (display_id or sale_id). Utilisé par app.py pour
+    # enrichir l'affichage des classifications manuelles déjà enregistrées.
+    vat_to_display_ids: dict[str, list[str]] = field(default_factory=dict)
     reclassifications: list[ViesReclassification] = field(default_factory=list)
     # Identité Python (id()) des objets Sale (effective_sale) B2B
     # cross-border dont le résultat fiscal a été déterminé par le statut
@@ -632,10 +636,14 @@ def compute_all_with_vies(
             full_vat = _normalize_full_vat(sale.buyer_vat_number, sale.buyer_country)
             sale_vat_index[(sale.sale_id, sale.buyer_vat_number)] = full_vat
             if full_vat:
-                vat_to_sale_ids.setdefault(full_vat, []).append(sale.sale_id)
+                # On utilise l'identifiant d'affichage (TRANSACTION_EVENT_ID) s'il existe
+                display_label = getattr(sale, "display_id", "") or sale.sale_id
+                vat_to_sale_ids.setdefault(full_vat, []).append(display_label)
                 if full_vat not in vat_seen:
                     vat_seen.add(full_vat)
                     vats_to_check.append(full_vat)
+
+    vies_summary.vat_to_display_ids = vat_to_sale_ids
 
     # Appel de la validation VIES parallèle (validate_vat_numbers_parallel importée
     # en tête de fonction depuis vies.py). En cas d'erreur réseau ou VIES indisponible,

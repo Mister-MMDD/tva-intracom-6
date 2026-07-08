@@ -152,20 +152,15 @@ tva-intracom/
     quantité de SIREN choisie au Checkout (3 minimum), avec tarif dégressif
     Stripe (tiered pricing) selon la quantité. La modification de quantité ou
     de forfait sur un abonnement déjà actif se fait via le Portail client
-    Stripe (bouton "Gérer mon abonnement"), jamais via un nouveau Checkout —
-    ce qui créerait un second abonnement Stripe indépendant plutôt que de
-    modifier l'existant.
-  - Aucun essai gratuit sur les abonnements (retiré : faussait les tests de
-    bout en bout en environnement Stripe test, aucune transaction n'étant
-    générée avant la fin de la période d'essai).
-- **Quotas SIREN** : chaque compte enregistre les SIREN de ses clients
-  (nom d'entreprise, SIREN, n° de TVA) dans la limite de son forfait — 1 pour
-  PAYG/Pro, la quantité achetée pour Cabinet. Un compte au-dessus de son
-  quota (ex. abonnement Cabinet redescendu à une quantité inférieure) voit
-  tous ses exports bloqués tant qu'il n'est pas revenu dans les clous. Le
-  retrait d'un SIREN par un compte Cabinet est différé (lazy deletion) : il
-  reste utilisable jusqu'à la date anniversaire de l'abonnement en cours, pour
-  éviter les ajouts/retraits à volonté en cours de période.
+    Stripe (bouton "Gérer mon abonnement"), jamais via un nouveau Checkout.
+  - **Crédits PAYG** : historique des périodes débloquées visible directement
+    dans la section "Abonnements & forfaits".
+- **Quotas & Profils SIREN** : chaque compte enregistre les SIREN de ses clients
+  (nom d'entreprise, SIREN, n° de TVA FR) ainsi que leurs **paramètres
+  persistants** (numéro IOSS, mode DDP, seuil OSS, pays d'immatriculation). Ces
+  paramètres sont sauvegardés en base de données par SIREN et restaurés
+  automatiquement lors de la sélection du client. Le retrait d'un SIREN est
+  différé (lazy deletion) à la date anniversaire de l'abonnement.
 - **Grille tarifaire** : les montants affichés dans l'app (achat unique, Pro,
   paliers Cabinet) sont récupérés en direct depuis l'API Stripe
   (`billing.get_pricing_grid()`), jamais recopiés en dur, pour ne jamais
@@ -228,6 +223,13 @@ transaction) avant traitement.
 - Détection des territoires hors UE fiscale (Canaries, DOM-TOM, Åland, Helgoland…)
   via code postal (`is_non_fiscal_eu`).
 - Seuil OSS 10 000 € opt-in, suivi multi-année avec `oss_ht_by_year`.
+- **Plan d'action Immatriculations** : vue consolidée détectant les besoins de
+  mise en conformité (stock Amazon détecté, ventes locales taxables, import DDP).
+  Alerte critique pour l'Allemagne (DE) et la France (FR) avec rappel des risques
+  de blocage de compte Amazon.
+- **Gestion fine des périodes** : support complet des mois isolés (`2026-06`)
+  pour les achats uniques PAYG, avec conversion automatique au format
+  trimestriel pour le XML OSS officiel.
 - Refunds intégrés chronologiquement dans la boucle OSS via `id()` Python (pas
   de collision sur les `sale_id` répétés).
 - Composite key `(sale_id, buyer_vat_number)` pour `sale_vat_index`.
@@ -245,7 +247,10 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
     *   *Messageries grand public* (`@gmail.com`, `@outlook.fr`, etc.) : Le cache est strictement isolé par utilisateur (`user:<email>`).
     *   *Domaines professionnels* (`@cabinet-comptable.fr`) : Le cache est partagé entre tous les collaborateurs d'une même structure (`domain:<domaine>`).
 *   **Piste d'audit (vies_check_history)** : Table au format *append-only* (jamais écrasée). Chaque scope conserve sa propre preuve horodatée de la date à laquelle il a validé un statut VIES (y compris s'il l'a récupéré via le cache global), indispensable pour justifier une exonération B2B lors d'un contrôle fiscal.
-*   **Classifications manuelles (vies_manual_overrides)** : Permet à l'utilisateur de forcer le statut d'un numéro indisponible ou inconclusif. Ces overrides sont strictement privés, ont une durée de vie indexée sur le TTL global, et **ne remontent jamais** dans le cache global pour ne pas polluer les calculs des autres comptes.
+*   **Classifications manuelles (vies_manual_overrides)** : Permet à l'utilisateur de forcer le statut d'un numéro indisponible ou inconclusif. Ces overrides sont strictement privés, ont une durée de vie indexée sur le TTL global, et **ne remontent jamais** dans le cache global.
+*   **Blocage de conformité** : Téléchargements bloqués si des numéros TVA B2B
+    demeurent non classifiés (erreur serveur UE) pour garantir l'exactitude
+    fiscale des rapports.
 *   **Performances et résilience** : 
     *   Validation en lot via 25 workers `ThreadPoolExecutor` en parallèle avec barre de progression.
     *   Système de retry avec *backoff exponentiel* (1s ➔ 2s ➔ 4s) sur erreurs transitoires.
@@ -307,16 +312,14 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
   4. Régénérer le XML `2026-Q2` une fois l'avoir retiré du jeu de données de cette
      période (ou traité manuellement hors outil), pour repasser sous le seuil.
 
-### Interface Streamlit — contrôles complémentaires
+### Interface Streamlit — contrôles & ergonomie
 
+- **Profils Clients persistants** : sélection et configuration rapide des SIREN avec
+  mémorisation des paramètres d'import et numéros de TVA locaux.
+- **Exports personnalisés** : tous les noms de fichiers incluent désormais le nom de
+  l'entreprise et la période (ex: `Export OSS URSSAF - MonEntreprise - 2026-Q1.csv`).
 - **Barre de progression** sur le parsing des rapports Amazon volumineux, via le
   paramètre `progress_callback` de `load_amazon_report()`.
-- **Contrôle de cohérence comptable** : ventilation exhaustive et mutuellement
-  exclusive du CA HT par canal fiscal (`ReportSummary.ht_by_bucket` dans `report.py`),
-  recalculée indépendamment du total global. Un écart révèle un scénario de vente non
-  couvert par la classification plutôt qu'une erreur silencieuse. Ce contrôle vérifie
-  la cohérence *interne* du moteur — il ne remplace pas un rapprochement avec le
-  relevé de règlements Amazon (commissions, frais, remises non couverts).
 
 ---
 
