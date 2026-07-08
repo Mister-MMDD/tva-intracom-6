@@ -34,7 +34,7 @@ from tva_intracom.vies import (
 )
 from tva_intracom.engine import ViesValidationSummary, compute_all, compute_all_with_vies
 from tva_intracom.excel_report import export_xlsx
-from tva_intracom.models import Scenario
+from tva_intracom.models import Scenario, BuyerType, Channel, Collector
 from tva_intracom.rates import EU_COUNTRIES
 from tva_intracom.report import build_report, render_report
 from tva_intracom.oss_export import build_oss_excel, build_oss_csv
@@ -593,7 +593,6 @@ with st.sidebar:
             else:
                 nom_entreprise   = st.text_input("Nom de l'entreprise", "Mon Entreprise E-commerce", key="nom_new")
                 siren_entreprise = st.text_input("Numéro SIREN", "123456789", key="siren_new")
-                tva_fr = st.text_input("Numéro de TVA FR (pour XML OSS)", "FR12345678901", key="tva_new")
                 
                 st.markdown("---")
                 ioss_number = st.text_input("Numéro IOSS propre (optionnel)", placeholder="ex: IM1234567890", key="ioss_new",
@@ -605,18 +604,24 @@ with st.sidebar:
 
                 import json
                 local_vat_numbers = {}
+                _missing_vat_input = False
                 if countries_with_vat:
-                    st.caption("Numéros de TVA locaux (obligatoires pour l'OSS si stock présent) :")
+                    st.caption("Numéros de TVA locaux (obligatoires) :")
                     for ccode in sorted(countries_with_vat):
-                        if ccode == "FR":
-                            local_vat_numbers["FR"] = tva_fr
-                            continue
                         _v = st.text_input(f"Numéro de TVA {ccode}", key=f"vat_num_new_{ccode}",
                                            placeholder=f"ex: {ccode}123456789")
                         local_vat_numbers[ccode] = _v.strip()
+                        if not _v.strip():
+                            _missing_vat_input = True
+
+                tva_fr = local_vat_numbers.get("FR", "")
 
                 if st.button("💾 Enregistrer ce SIREN", key="btn_register_siren"):
-                    if siren_entreprise.strip():
+                    if not siren_entreprise.strip():
+                        st.warning("Le numéro SIREN est requis.")
+                    elif _missing_vat_input:
+                        st.warning("Veuillez remplir le numéro de TVA pour chaque pays sélectionné.")
+                    else:
                         try:
                             tva_billing.register_siren(
                                 _current_user.id, siren_entreprise.strip(),
@@ -631,64 +636,87 @@ with st.sidebar:
                             st.rerun()
                         except Exception as _reg_err:
                             st.error(f"Erreur d'enregistrement : {_reg_err}")
-                    else:
-                        st.warning("Le numéro SIREN est requis.")
         else:
             _match = next((r for r in _registered_sirens if r["siren"] == _siren_choice), None)
             nom_entreprise   = _match["company_name"] if _match else ""
             siren_entreprise = _match["siren"] if _match else ""
-            tva_fr = _match["tva_number"] if _match else ""
             
             # Affichage de l'identité (fixe)
             st.markdown(f"🏢 **{nom_entreprise}**")
-            st.caption(f"SIREN : **{siren_entreprise}** · TVA : **{tva_fr}**")
+            st.caption(f"SIREN : **{siren_entreprise}**")
             
+            import json
+            try:
+                _existing_vats = json.loads(_match.get("vat_numbers_json") or "{}") if _match else {}
+            except:
+                _existing_vats = {}
+            
+            _tva_fr_fixed = _existing_vats.get("FR") or _match.get("tva_number") or ""
+            if _tva_fr_fixed:
+                st.caption(f"TVA FR : **{_tva_fr_fixed}**")
+            
+            _ioss_fixed = _match.get("ioss_number") or ""
+            if _ioss_fixed:
+                st.caption(f"IOSS : **{_ioss_fixed}**")
+
             st.markdown("---")
             st.markdown("**Paramètres variables**")
-            ioss_number = st.text_input("Numéro IOSS propre (optionnel)", value=_match.get("ioss_number") or "" if _match else "",
-                placeholder="ex: IM1234567890", key="ioss_edit")
+            
+            # IOSS et TVA sont désormais "bloqués" s'ils ont déjà été saisis (conformément à votre demande)
+            # Si vide, on laisse saisir une fois.
+            if not _ioss_fixed:
+                ioss_number = st.text_input("Numéro IOSS propre (optionnel)", 
+                    placeholder="ex: IM1234567890", key="ioss_edit")
+            else:
+                ioss_number = _ioss_fixed
+
             seller_is_importer = st.toggle("Vendeur = importateur officiel (DDP)", value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
             apply_fr_under_threshold = st.toggle("Appliquer TVA FR sous le seuil OSS (10 000 €)", value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
             
             _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
             _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
+            
+            # On ne peut qu'ajouter des pays, pas en retirer (pour garder l'historique des numéros)
             countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local", 
                 options=sorted(list(EU_COUNTRIES)), default=_default_vat_countries, key="vat_countries_edit")
 
-            import json
-            local_vat_numbers = {}
-            try:
-                _existing_vats = json.loads(_match.get("vat_numbers_json") or "{}") if _match else {}
-            except:
-                _existing_vats = {}
-
+            local_vat_numbers = dict(_existing_vats)
+            _missing_vat_input = False
             if countries_with_vat:
-                st.caption("Numéros de TVA locaux (obligatoires pour l'OSS si stock présent) :")
+                st.caption("Numéros de TVA locaux :")
                 for ccode in sorted(countries_with_vat):
-                    if ccode == "FR":
-                        local_vat_numbers["FR"] = tva_fr
-                        continue
-                    _v = st.text_input(f"Numéro de TVA {ccode}", 
-                                       value=_existing_vats.get(ccode, ""), 
-                                       key=f"vat_num_edit_{ccode}",
-                                       placeholder=f"ex: {ccode}123456789")
-                    local_vat_numbers[ccode] = _v.strip()
+                    _existing_v = _existing_vats.get(ccode, "")
+                    if _existing_v:
+                        st.caption(f"✅ {ccode} : **{_existing_v}**")
+                        local_vat_numbers[ccode] = _existing_v
+                    else:
+                        _v = st.text_input(f"Numéro de TVA {ccode}", 
+                                           key=f"vat_num_edit_{ccode}",
+                                           placeholder=f"ex: {ccode}123456789")
+                        local_vat_numbers[ccode] = _v.strip()
+                        if not _v.strip():
+                            _missing_vat_input = True
+
+            tva_fr = local_vat_numbers.get("FR", _tva_fr_fixed)
 
             if st.button("💾 Enregistrer les modifications", key="btn_update_siren"):
-                try:
-                    tva_billing.register_siren(
-                        _current_user.id, siren_entreprise.strip(),
-                        nom_entreprise.strip(), tva_fr.strip(),
-                        ioss_number=ioss_number.strip(),
-                        seller_is_importer=seller_is_importer,
-                        apply_fr_under_threshold=apply_fr_under_threshold,
-                        countries_with_vat=",".join(countries_with_vat),
-                        vat_numbers_json=json.dumps(local_vat_numbers)
-                    )
-                    st.success("✅ Paramètres mis à jour.")
-                    st.rerun()
-                except Exception as _reg_err:
-                    st.error(f"Erreur de mise à jour : {_reg_err}")
+                if _missing_vat_input:
+                    st.warning("Veuillez remplir le numéro de TVA pour tous les nouveaux pays.")
+                else:
+                    try:
+                        tva_billing.register_siren(
+                            _current_user.id, siren_entreprise.strip(),
+                            nom_entreprise.strip(), tva_fr.strip(),
+                            ioss_number=ioss_number.strip(),
+                            seller_is_importer=seller_is_importer,
+                            apply_fr_under_threshold=apply_fr_under_threshold,
+                            countries_with_vat=",".join(countries_with_vat),
+                            vat_numbers_json=json.dumps(local_vat_numbers)
+                        )
+                        st.success("✅ Paramètres mis à jour.")
+                        st.rerun()
+                    except Exception as _reg_err:
+                        st.error(f"Erreur de mise à jour : {_reg_err}")
 
             if _match and _match.get("pending_removal_at"):
                 import datetime as _dt
