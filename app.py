@@ -1222,12 +1222,15 @@ if uploaded_files:
             st.session_state["_summary"]        = summary
             st.session_state["_vies_summary"]   = vies_summary
             st.session_state["_oss_summary"]    = oss_summary
-        else:
-            results        = st.session_state["_results"]
-            refund_results = st.session_state["_refund_results"]
-            summary        = st.session_state["_summary"]
-            vies_summary   = st.session_state["_vies_summary"]
             oss_summary    = st.session_state["_oss_summary"]
+
+        # Alertes VIES (numéros non vérifiés)
+        if vies_summary and vies_summary.total_inconclusive > 0:
+            st.error(
+                f"🚨 **Attention : {vies_summary.total_inconclusive} numéro(s) de TVA n'ont pas pu être vérifiés auprès de VIES** "
+                "(problème de connexion aux serveurs de l'UE). "
+                "Allez dans l'onglet **🔎 Contrôle VIES** pour les classifier manuellement ou réessayer la vérification."
+            )
 
         # Segmentation écarts pour KPI
         _vies_ids_kpi     = getattr(vies_summary, 'vies_affected_sale_ids', set()) if vies_summary else set()
@@ -1539,6 +1542,13 @@ if uploaded_files:
                 return
 
             if _can_export:
+                if vies_summary and vies_summary.total_inconclusive > 0:
+                    st.error(
+                        f"🔒 {label} — export bloqué : **{vies_summary.total_inconclusive} numéro(s) TVA** "
+                        "n'ont pas pu être vérifiés auprès de VIES. "
+                        "Veuillez les classifier manuellement dans l'onglet **🔎 Contrôle VIES** avant d'exporter."
+                    )
+                    return
                 st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
                 return
             if _quota_status and _quota_status.blocked:

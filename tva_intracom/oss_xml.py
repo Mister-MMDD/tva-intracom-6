@@ -75,6 +75,16 @@ def generate_oss_xml(
     period = period.strip()
     # Normaliser T → Q (format FR → format international)
     period = re.sub(r"(?i)-T([1-4])$", lambda m: f"-Q{m.group(1)}", period)
+    
+    # Normaliser YYYY-MM (mensuel) vers YYYY-QN car le XML OSS officiel
+    # de l'URSSAF/DGFIP n'accepte QUE le format trimestriel (QN).
+    # Une vente du mois 06 doit être déclarée dans le XML du Q2.
+    m_match = re.match(r"^(\d{4})-(\d{2})$", period)
+    if m_match:
+        year, month = m_match.groups()
+        q = (int(month) - 1) // 3 + 1
+        period = f"{year}-Q{q}"
+
     # Formats valides :
     #   YYYY-QN          : trimestriel standard OSS
     #   YYYY-SN          : semestriel (agrégation multi-fichiers)
