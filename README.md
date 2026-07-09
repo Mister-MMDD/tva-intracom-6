@@ -72,6 +72,9 @@ tva-intracom/
 │   │                                 quotas d'export en base Postgres/Supabase)
 │   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
 │   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
+│   ├── fec_export.py                 Export comptable FEC (art. A47 A-1 LPF) : journal des ventes
+│   │                                 agrégé par période/régime/pays/taux, plan comptable générique
+│   │                                 paramétrable (ACCOUNTS), écritures équilibrées débit/crédit
 │   ├── cli.py
 │   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
 │   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
@@ -119,6 +122,7 @@ tva-intracom/
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
 | `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965), validation période, garde-fou soldes négatifs (CorrectionsOfVatReturns) |
 | `ca3_report.py` | Génération du rapport CA3 (HTML uniquement — pas d'export EDI-TVA, voir Roadmap) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
+| `fec_export.py` | Export comptable au format FEC (journal des ventes agrégé par régime/pays/taux, écritures équilibrées débit/crédit) — pré-remplissage pour import dans un logiciel comptable tiers, alternative légère à l'EDI-TVA (voir Roadmap) |
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
@@ -293,24 +297,42 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 - Validation de la période avant génération (formats : `YYYY-QN`, `YYYY-TN`, `YYYY-SN`,
   `YYYY`, `YYYY-QN_QM`, `YYYY-YYYY`).
 - **Garde-fou soldes négatifs** : lève une erreur explicite si un couple (pays/taux)
-  ressort en négatif (montants négatifs non acceptés dans le corps OSS — à traiter
-  comme `CorrectionsOfVatReturns` sur le portail si l'avoir se rapporte à une période
-  antérieure). Dans l'UI Streamlit, cette détection (`find_oss_negative_buckets`) est
-  effectuée en amont du clic sur le bouton de génération, avec un bloc d'alerte
-  explicatif affiché avant toute tentative.
+  ressort en négatif (montants négatifs non acceptés dans le corps OSS). Dans l'UI
+  Streamlit, cette détection (`find_oss_negative_buckets`) est effectuée en amont du
+  clic sur le bouton de génération, avec un bloc d'alerte explicatif affiché avant
+  toute tentative.
+
+- **Correction assistée (rattachement automatique avoir → vente d'origine)** :
+  `oss_export.suggest_negative_bucket_corrections()` recherche, pour chaque avoir
+  responsable d'un solde négatif, une vente antérieure de MÊME `sale_id` (même
+  commande Amazon) présente dans le fichier importé. Ce rattachement n'est
+  utilisé que s'il repose sur un identifiant de commande identique — jamais sur
+  une simple déduction à partir d'`order_date`, jugé insuffisamment fiable pour
+  générer automatiquement une correction fiscale (voir `models.py`).
+  - Si **tous** les avoirs d'un couple pays/taux négatif sont ainsi rattachés,
+    l'UI propose une case de confirmation ; une fois cochée,
+    `generate_oss_xml(confirm_corrections=True)` exclut ces avoirs du corps
+    principal et génère automatiquement le bloc `CorrectionsOfVatReturns`
+    référençant la période d'origine détectée.
+  - Si une partie seulement (ou aucun avoir) ne peut être rattachée — typiquement
+    quand le fichier importé ne couvre pas la période d'origine de la vente
+    créditée — le blocage manuel reste actif pour la part non rattachée, avec le
+    détail affiché (montant HT/TVA non résolu).
+  - ⚠️ La structure XML du bloc `CorrectionsOfVatReturns` généré est une
+    approximation, non vérifiée contre le schéma XSD officiel DGFIP/UE — à
+    valider avant tout dépôt réel utilisant cette fonctionnalité.
 
   **Exemple concret** : la période `2026-Q2` contient un avoir DE (19%) de 300 €
   alors que les ventes DE (19%) de la période ne totalisent que 120 € → solde de
-  -180 € détecté sur le couple (DE, 19%). L'outil bloque la génération du XML et
-  affiche le détail. Marche à suivre sur le portail OSS (guichet-unique.impots.gouv.fr
-  ou portail de l'État membre d'identification) :
-  1. Ne PAS inclure cet avoir dans la déclaration de la période courante (`2026-Q2`).
-  2. Identifier la période d'origine de la vente concernée par l'avoir (ex. `2026-Q1`).
-  3. Sur le portail OSS, utiliser l'onglet dédié aux **corrections de périodes
-     antérieures** (`CorrectionsOfVatReturns`) et y saisir l'avoir en référençant
-     explicitement `2026-Q1` comme période corrigée — pas la période courante.
-  4. Régénérer le XML `2026-Q2` une fois l'avoir retiré du jeu de données de cette
-     période (ou traité manuellement hors outil), pour repasser sous le seuil.
+  -180 € détecté sur le couple (DE, 19%).
+  - *Si* cet avoir partage le même `sale_id` qu'une vente DE (19%) de `2026-Q1`
+    présente dans le fichier importé : rattachement automatique proposé, le XML
+    `2026-Q2` (une fois confirmé) inclut le corps principal assaini **et** un
+    bloc `CorrectionsOfVatReturns` référençant `2026-Q1`.
+  - *Sinon* : blocage inchangé — marche à suivre manuelle sur le portail OSS
+    (guichet-unique.impots.gouv.fr ou portail de l'État membre d'identification),
+    rubrique corrections de périodes antérieures, en y référençant explicitement
+    la période d'origine identifiée par l'utilisateur.
 
 ### Interface Streamlit — contrôles & ergonomie
 
@@ -342,7 +364,39 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 
 ---
 
+## Export comptable (FEC)
+
+En complément du rapport CA3 (HTML, saisie manuelle) et en attendant un
+éventuel export EDI-TVA homologué (voir Roadmap), l'outil génère un **journal
+des ventes au format FEC** (art. A47 A-1 du LPF), prêt à être importé dans un
+logiciel comptable tiers (Sage, Ciel, Quadratus, ACD…) par le cabinet
+comptable.
+
+- **Agrégation** : une écriture par (période, régime fiscal, pays de TVA,
+  taux) — pas une écriture par vente. Un fichier de plusieurs milliers de
+  transactions tient donc en quelques dizaines de lignes FEC.
+- **Équilibre débit/crédit garanti** par construction, y compris :
+  - quand un régime ne génère aucune TVA collectée par le vendeur
+    (`DEEMED_SUPPLIER`, `B2B_REVERSE_CHARGE`, `EXPORT` — Amazon collecte ou
+    exonération à justifier) : le compte client n'est débité que du HT ;
+  - quand le solde net d'un groupe est négatif (avoirs de la période
+    dépassant les ventes du même régime/pays/taux) : le sens débit/crédit
+    est inversé plutôt que d'écrire un montant négatif (invalide en FEC).
+- **Plan comptable générique paramétrable** : les numéros de compte (client,
+  vente, TVA collectée FR/OSS/IOSS/locale) sont centralisés dans le dict
+  `ACCOUNTS` de `tva_intracom/fec_export.py` — à adapter à la numérotation
+  réelle du dossier avant tout import.
+- **⚠️ Pré-remplissage, pas une télédéclaration** : ce n'est ni un logiciel de
+  comptabilité, ni un export validé automatiquement. Le traitement de
+  `DEEMED_SUPPLIER` en particulier suppose un rapprochement avec les relevés
+  de règlement Amazon réels (le module ne connaît que le HT calculé par le
+  moteur, pas le flux de règlement net effectivement perçu). Faites relire le
+  premier export par votre expert-comptable avant tout usage récurrent.
+
+---
+
 ## Calendrier fiscal généré automatiquement
+
 
 Le moteur déduit les échéances déclaratives directement des données traitées :
 
@@ -512,10 +566,68 @@ conversion BCE.
   EDI-TVA auprès de la DGFIP ou d'un partenaire EDI, un partenariat ou une
   homologation (la télétransmission directe n'est pas ouverte à un éditeur
   non homologué), et la gestion de la signature/authentification du canal
-  EDI. Alternative plus légère envisageable à terme : une API de
-  pré-remplissage qui exporte les lignes CA3 dans un format consommable par
-  les logiciels comptables existants (FEC, ou format propriétaire des
-  principaux éditeurs), sans viser la télétransmission directe.
+  EDI. **Alternative plus légère déjà implémentée** : `fec_export.py` génère
+  un journal des ventes au format FEC consommable par les logiciels
+  comptables existants (voir section « Export comptable (FEC) » ci-dessus) —
+  sans viser la télétransmission directe. L'EDI-TVA proprement dit (dépôt
+  automatique sur le portail DGFIP) reste non implémenté à ce jour.
+
+- ~~Territoire Monaco (MC) non géré~~ **Corrigé** : une vente expédiée depuis
+  un stock français vers Monaco tombait à tort en `EXPORT` (exonérée) faute
+  de reconnaissance du code pays "MC" par `is_eu()`/`is_fiscal_eu()`. Un cas
+  spécial dans `engine.py` (`compute_vat`) traite désormais ces ventes comme
+  des ventes domestiques françaises (convention fiscale franco-monégasque du
+  18 mai 1963), avec TVA FR collectée et déclarée en CA3. `ca3_report.py` a
+  été mis à jour en conséquence pour inclure ces ventes dans l'agrégation
+  (leur `buyer_country` reste "MC", pas "FR"). Limité au cas non ambigu
+  stock français → Monaco ; un stock dans un autre État membre expédié vers
+  Monaco reste classé `EXPORT` par défaut (convention non applicable,
+  comportement conservateur).
+
+- ~~Références de lignes Cerfa CA3 incorrectes~~ **Corrigé** : les libellés de
+  ligne utilisés dans `ca3_report.py` (`compute_ca3_lines_v2`,
+  `generate_ca3_html_report_v2`) ne correspondaient pas à la numérotation
+  réelle du Cerfa 3310-CA3-SD officiel — corrigés après vérification contre
+  le formulaire PDF officiel (cadres A et B) :
+  - Ventes domestiques FR : Case **A1** (0979), pas "Ligne 01"
+  - Livraisons intracom B2B exonérées : Case **F2** (0034), pas "Ligne 02"
+  - Exportations hors UE : Case **E1** (0032), pas "Ligne 14"
+  - AIC — base : Case **B2** (0031) — absente auparavant, ajoutée
+  - AIC — mémo TVA : **Ligne 17** (0035) — absent auparavant, ajouté
+  - Taux normal 20 % : **Ligne 08** (0207), pas "Ligne 20"
+  - Taux réduit 5,5 % : **Ligne 09** (0105), pas "Ligne 22"
+  - Taux intermédiaire 10 % : **Ligne 9B** (0151), pas "Ligne 25"
+  - Taux particulier 2,1 % métropole : **Ligne T6** (1010), pas "Ligne 24"
+  - Déduction immobilisations : **Ligne 19** (0703), pas "Ligne 20"
+  - Déduction autres biens/services : **Ligne 20** (0702), pas "Ligne 21"
+  - Crédit période précédente : **Ligne 22** (8001), pas "Ligne 27" (qui est
+    en réalité la sortie "crédit à reporter" vers la période suivante, pas
+    l'entrée du crédit précédent)
+  ⚠️ Le module suppose un vendeur établi en France MÉTROPOLITAINE — le cas
+  DOM (taux 8,5 %/2,1 %, lignes 10/11) n'est pas géré.
+
+- ~~Robustesse pool de connexions VIES (`vies.py`)~~ **Corrigé** : le pool
+  Postgres utilisé pour les vérifications VIES parallèles (jusqu'à 25
+  workers `ThreadPoolExecutor` concurrents) utilise désormais
+  `psycopg2.pool.ThreadedConnectionPool` au lieu de `SimpleConnectionPool`
+  (même API), qui n'était pas garanti thread-safe par psycopg2 dans ce
+  scénario concurrent.
+
+- ~~Correction automatique des soldes OSS négatifs dans le XML~~ **Implémenté
+  (version assistée)** : `oss_export.suggest_negative_bucket_corrections()`
+  tente de rattacher chaque avoir responsable d'un solde négatif à sa vente
+  d'origine, mais UNIQUEMENT via un `sale_id` identique (même commande)
+  retrouvé dans le fichier importé — jamais par déduction sur `order_date`,
+  jugé non fiable pour une correction fiscale automatisée (voir
+  `models.py`). Si TOUS les avoirs d'un couple pays/taux négatif sont ainsi
+  rattachés, `generate_oss_xml(confirm_corrections=True)` génère
+  automatiquement le bloc `CorrectionsOfVatReturns` référençant la période
+  d'origine et exclut ces avoirs du corps principal ; sinon, le blocage
+  manuel historique reste actif pour la part non rattachée. L'UI
+  (`app.py`) affiche le détail (rattaché / non rattaché) et ne propose la
+  case de confirmation que si le rattachement est total. ⚠️ La structure
+  XML du bloc `CorrectionsOfVatReturns` généré est une approximation non
+  vérifiée contre le schéma XSD officiel — à valider avant tout dépôt réel.
 
 ---
 

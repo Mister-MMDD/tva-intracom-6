@@ -40,7 +40,8 @@ from tva_intracom.rates import EU_COUNTRIES
 from tva_intracom.report import build_report, render_report
 from tva_intracom.oss_export import build_oss_excel, build_oss_csv
 from tva_intracom.ca3_report import generate_ca3_html_report_v2  # (et autres imports nécessaires)
-from tva_intracom.oss_xml import generate_oss_xml
+from tva_intracom.fec_export import generate_fec_bytes
+from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.oss_export import aggregate_oss_results, find_oss_negative_buckets
 from tva_intracom import auth as tva_auth
 from tva_intracom import billing as tva_billing
@@ -53,6 +54,34 @@ from tva_intracom.rates import (
         STANDARD_VAT_RATES,
         EU_COUNTRIES,
     )
+
+def _fec_period_end_date(period: str) -> str:
+    """Calcule la date de fin de période au format AAAAMMJJ (FEC EcritureDate)
+    à partir du libellé de période détecté (ex: '2026-Q2', '2026-T2',
+    '2026-06', '2026'). Retombe sur la date du jour si le format n'est pas
+    reconnu — cohérent avec le fait que la date d'écriture n'est qu'un
+    repère de comptabilisation, pas une donnée fiscale opposable en soi
+    (contrairement à la période elle-même, mentionnée dans le libellé de
+    chaque écriture par fec_export.build_fec_rows)."""
+    import calendar
+    from datetime import date as _fec_date
+
+    p = (period or "").strip()
+    m = re.match(r"^(\d{4})-[QT]([1-4])$", p, re.IGNORECASE)
+    if m:
+        year, q = int(m.group(1)), int(m.group(2))
+        month = q * 3
+        last_day = calendar.monthrange(year, month)[1]
+        return f"{year}{month:02d}{last_day:02d}"
+    m2 = re.match(r"^(\d{4})-(\d{2})$", p)
+    if m2:
+        year, month = int(m2.group(1)), int(m2.group(2))
+        last_day = calendar.monthrange(year, month)[1]
+        return f"{year}{month:02d}{last_day:02d}"
+    if re.match(r"^\d{4}$", p):
+        return f"{p}1231"
+    return _fec_date.today().strftime("%Y%m%d")
+
 
 def _country_label(code):
     return COUNTRY_NAMES.get(code, code)
@@ -2470,7 +2499,15 @@ if uploaded_files:
                         # de génération raté au préalable.
                         _oss_agg_preview = aggregate_oss_results(results_net, period=period_label)
                         _negative_buckets = find_oss_negative_buckets(_oss_agg_preview)
+                        _confirm_corrections = False
                         if _negative_buckets:
+                            # Tentative de rattachement automatique avoir → vente
+                            # d'origine (même sale_id, présent dans CE fichier
+                            # importé — jamais par déduction sur order_date).
+                            _suggestions = preview_negative_bucket_suggestions(results_net, period_label)
+                            _all_resolved = bool(_suggestions) and all(s.fully_resolved for s in _suggestions)
+                            _any_matched = any(s.matched for s in _suggestions)
+
                             _neg_lines = "\n".join(
                                 f"- {_country_label(b.departure)} → {_country_label(b.arrival)} "
                                 f"({b.vat_rate}%) : HT {float(b.base_ht):,.2f} € · "
@@ -2485,15 +2522,54 @@ if uploaded_files:
                                 "**Cela signifie généralement** que des remboursements de la "
                                 "période dépassent les ventes du même couple pays/taux — "
                                 "souvent parce qu'ils se rapportent à une vente d'une **période "
-                                "déjà déclarée**. Dans ce cas, ne les incluez pas dans cette "
-                                "déclaration : reportez-les manuellement comme correction de la "
-                                "période d'origine sur le portail OSS "
-                                "(rubrique *Corrections de déclarations antérieures*)."
+                                "déjà déclarée**."
                             )
+
+                            if _any_matched:
+                                with st.expander(
+                                    "🔎 Rattachement automatique détecté "
+                                    f"({'toutes origines identifiées' if _all_resolved else 'partiel — vérification manuelle requise'})",
+                                    expanded=True,
+                                ):
+                                    for s in _suggestions:
+                                        _lbl = f"{_country_label(s.bucket.departure)} → {_country_label(s.bucket.arrival)} ({s.bucket.vat_rate}%)"
+                                        if s.matched:
+                                            _origins = ", ".join(sorted({m.origin_period for m in s.matched}))
+                                            st.markdown(
+                                                f"**{_lbl}** — {len(s.matched)} avoir(s) rattaché(s) "
+                                                f"automatiquement à leur vente d'origine (même commande), "
+                                                f"référençant la période **{_origins}**."
+                                            )
+                                        if s.unmatched_count:
+                                            st.markdown(
+                                                f"⚠️ **{_lbl}** — {s.unmatched_count} avoir(s) "
+                                                f"**sans origine identifiée** dans ce fichier "
+                                                f"(HT {float(s.unmatched_ht):,.2f} € · TVA {float(s.unmatched_vat_amount):,.2f} €) "
+                                                "— à traiter manuellement sur le portail OSS."
+                                            )
+                                    st.caption(
+                                        "Rattachement basé uniquement sur un identifiant de commande "
+                                        "identique (même sale_id) retrouvé dans ce fichier — jamais sur "
+                                        "une simple date de commande, jugée insuffisamment fiable pour "
+                                        "une correction fiscale automatisée."
+                                    )
+                                    if _all_resolved:
+                                        st.warning(
+                                            "⚠️ Le bloc `CorrectionsOfVatReturns` généré automatiquement "
+                                            "a une structure **approximative** (non vérifiée contre le "
+                                            "schéma XSD officiel DGFIP/UE) — faites valider le premier XML "
+                                            "généré ainsi avant tout dépôt réel."
+                                        )
+                                        _confirm_corrections = st.checkbox(
+                                            "✅ Je confirme ces rattachements et souhaite générer le XML "
+                                            "avec le bloc de correction automatique inclus",
+                                            key="confirm_oss_corrections",
+                                        )
                         try:
                             oss_xml_bytes = generate_oss_xml(
                                 results=results_net, seller_vat=tva_fr, period=period_label,
-                                local_vat_numbers=local_vat_numbers
+                                local_vat_numbers=local_vat_numbers,
+                                confirm_corrections=_confirm_corrections,
                             )
                             _gated_download(
                                 "📥 XML OSS officiel", data=oss_xml_bytes,
@@ -2543,6 +2619,43 @@ if uploaded_files:
                         file_name=f"Rapport Préparatoire CA3 - {nom_entreprise} - {period_label}.html",
                         mime="text/html", use_container_width=True,
                         key="btn_ca3_html_final",
+                    )
+
+                st.divider()
+
+                # 4. Export comptable (FEC-like) — pré-remplissage pour import
+                # dans un logiciel comptable (Sage, Ciel, Quadratus, ACD…).
+                # Ne remplace PAS l'EDI-TVA (non homologué, voir Roadmap
+                # README.md) : c'est un journal des ventes agrégé par régime
+                # fiscal / pays / taux, à faire relire par le cabinet avant
+                # tout import récurrent — voir l'avertissement dans
+                # tva_intracom/fec_export.py (plan comptable générique
+                # paramétrable dans ACCOUNTS, cas DEEMED_SUPPLIER à
+                # rapprocher des relevés de règlement Amazon réels).
+                st.markdown("#### 📒 Export comptable (FEC)")
+                st.caption(
+                    "Journal des ventes agrégé par régime fiscal / pays / taux, au "
+                    "format FEC (séparateur tabulation), prêt à importer dans un "
+                    "logiciel comptable. ⚠️ Pré-remplissage à faire valider par votre "
+                    "cabinet comptable avant tout usage récurrent — le plan comptable "
+                    "utilisé (`tva_intracom/fec_export.py`, dict `ACCOUNTS`) est "
+                    "générique et doit être adapté à votre dossier."
+                )
+                if not period_label or not period_label.strip():
+                    st.warning("⚠️ Renseignez la période dans le panneau latéral (ex : 2026-T1)")
+                else:
+                    _fec_ecriture_date = _fec_period_end_date(period_label)
+                    fec_bytes = generate_fec_bytes(
+                        results_net,
+                        period=period_label,
+                        ecriture_date=_fec_ecriture_date,
+                        piece_ref=f"Import Amazon {period_label}",
+                    )
+                    _gated_download(
+                        "📥 Journal des ventes (FEC .txt)", data=fec_bytes,
+                        file_name=f"Export Comptable FEC - {nom_entreprise} - {period_label}.txt",
+                        mime="text/plain", use_container_width=True,
+                        key="btn_fec_export_final",
                     )
 
         # ── 6. VISUALISATIONS (repliées) ──────────────────────────────────────

@@ -178,6 +178,139 @@ class OssNegativeBucket:
     vat_amount: Decimal
 
 
+@dataclass
+class MatchedRefundCorrection:
+    """Un avoir dont l'origine a été rattachée avec CERTITUDE à une vente
+    antérieure de la même commande (même sale_id), au sein du même jeu de
+    données fourni. Le rattachement se fait UNIQUEMENT sur sale_id identique
+    (même couple pays/taux) — jamais par déduction sur order_date, jugé non
+    fiable pour générer automatiquement une correction fiscale (voir
+    models.py, champ Sale.order_date)."""
+    sale_id: str
+    origin_period: str          # période OSS d'origine déduite (ex: "2026-Q1")
+    base_ht: Decimal
+    vat_amount: Decimal
+    refund_result: VatResult    # référence à l'objet, pour exclusion précise
+                                 # (par identité Python id()) du corps XML
+                                 # principal — voir oss_xml.generate_oss_xml.
+
+
+@dataclass
+class NegativeBucketSuggestion:
+    """Détail d'un couple (départ, arrivée, taux) en solde négatif, avec la
+    part des avoirs qui a pu être rattachée à une vente d'origine identifiée
+    (matched, groupée par période d'origine) et la part restée sans
+    correspondance (unmatched — à traiter manuellement, comme avant)."""
+    bucket: "OssNegativeBucket"
+    matched: list[MatchedRefundCorrection]
+    unmatched_ht: Decimal
+    unmatched_vat_amount: Decimal
+    unmatched_count: int
+
+    @property
+    def fully_resolved(self) -> bool:
+        """True si TOUS les avoirs du couple négatif ont pu être rattachés
+        à une origine identifiée — condition nécessaire pour générer
+        automatiquement les corrections sans laisser de solde négatif
+        résiduel dans le corps principal du XML."""
+        return self.unmatched_ht == Decimal("0.00") and self.unmatched_vat_amount == Decimal("0.00")
+
+
+def _oss_quarter_of(transaction_date: str) -> str:
+    """Déduit le trimestre OSS 'YYYY-QN' d'une transaction_date 'YYYY-MM-DD'.
+    Retourne '' si la date est vide ou non reconnue."""
+    d = (transaction_date or "")[:10]
+    if len(d) < 7:
+        return ""
+    try:
+        year = int(d[:4])
+        month = int(d[5:7])
+    except ValueError:
+        return ""
+    q = (month - 1) // 3 + 1
+    return f"{year}-Q{q}"
+
+
+def suggest_negative_bucket_corrections(
+    results: list[VatResult],
+    period: str,
+) -> list[NegativeBucketSuggestion]:
+    """Pour chaque couple (départ, arrivée, taux) en solde négatif sur la
+    période, tente de rattacher chaque avoir constitutif à une vente
+    d'origine PRÉSENTE DANS LE MÊME JEU DE DONNÉES `results` (même sale_id,
+    même couple pays/taux, montant positif). Ce rattachement n'est possible
+    que si le fichier importé couvre aussi la période d'origine de la vente
+    créditée — sinon l'avoir reste `unmatched`, exactement comme le
+    comportement actuel (blocage manuel).
+
+    N'utilise PAS order_date : seul un sale_id identique, retrouvé dans le
+    jeu de données réellement fourni, est considéré comme une preuve
+    suffisante pour une correction fiscale automatisée.
+    """
+    aggregated = aggregate_oss_results(results, period=period)
+    negative_buckets = find_oss_negative_buckets(aggregated)
+    if not negative_buckets:
+        return []
+
+    neg_keys = {(b.departure, b.arrival, b.vat_rate) for b in negative_buckets}
+
+    # Ventes positives disponibles pour matching, indexées par (sale_id, pays, taux)
+    positive_by_sale_id: dict[tuple, list[VatResult]] = {}
+    refunds_by_bucket: dict[tuple, list[VatResult]] = {}
+    for res in results:
+        if res.scenario not in (Scenario.OSS_B2C, Scenario.IOSS_DIRECT):
+            continue
+        key = (res.sale.stock_country, res.vat_country, res.vat_rate)
+        if key not in neg_keys:
+            continue
+        if res.sale.amount_ht > 0:
+            positive_by_sale_id.setdefault(
+                (res.sale.sale_id, res.sale.stock_country, res.vat_country, res.vat_rate), []
+            ).append(res)
+        elif res.sale.amount_ht < 0:
+            refunds_by_bucket.setdefault(key, []).append(res)
+
+    suggestions: list[NegativeBucketSuggestion] = []
+    for b in negative_buckets:
+        key = (b.departure, b.arrival, b.vat_rate)
+        matched: list[MatchedRefundCorrection] = []
+        unmatched_ht = Decimal("0.00")
+        unmatched_vat = Decimal("0.00")
+        unmatched_count = 0
+
+        for refund in refunds_by_bucket.get(key, []):
+            candidates = positive_by_sale_id.get(
+                (refund.sale.sale_id, refund.sale.stock_country, refund.vat_country, refund.vat_rate)
+            )
+            origin_quarter = _oss_quarter_of(candidates[0].sale.transaction_date) if candidates else ""
+            # On n'accepte le rattachement que si une origine a été trouvée
+            # ET qu'elle correspond bien à une période DIFFÉRENTE de la
+            # période courante (sinon ce n'est pas un avoir "à cheval",
+            # juste un solde négatif normal intra-période — pas notre sujet).
+            if origin_quarter and origin_quarter != period:
+                matched.append(MatchedRefundCorrection(
+                    sale_id=refund.sale.sale_id,
+                    origin_period=origin_quarter,
+                    base_ht=refund.sale.amount_ht,
+                    vat_amount=refund.vat_amount,
+                    refund_result=refund,
+                ))
+            else:
+                unmatched_ht += refund.sale.amount_ht
+                unmatched_vat += refund.vat_amount
+                unmatched_count += 1
+
+        suggestions.append(NegativeBucketSuggestion(
+            bucket=b,
+            matched=matched,
+            unmatched_ht=unmatched_ht,
+            unmatched_vat_amount=unmatched_vat,
+            unmatched_count=unmatched_count,
+        ))
+
+    return suggestions
+
+
 def find_oss_negative_buckets(aggregated: OssAggType) -> list[OssNegativeBucket]:
     """Liste les couples (départ, arrivée, taux) dont le solde HT ou TVA est négatif."""
     negatives: list[OssNegativeBucket] = []

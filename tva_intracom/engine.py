@@ -57,6 +57,45 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     buyer_eu = is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None)
     cross_border = sale.stock_country != sale.buyer_country
 
+    # Date de transaction (déplacée ici, avant le cas Monaco ET le cas export,
+    # pour que les deux puissent appliquer un taux historique correct — ex:
+    # changement de taux FR au fil du temps).
+    _tx_date: _date | None = None
+    if sale.transaction_date:
+        try:
+            _tx_date = _date.fromisoformat(sale.transaction_date[:10])
+        except ValueError:
+            pass  # date malformée → taux courant (pas de correctif historique)
+
+    # ------------------------------------------------------------------
+    # Monaco (MC) : assimilé au territoire français pour la TVA (convention
+    # fiscale franco-monégasque du 18 mai 1963, droits indirects). Sans ce
+    # cas spécial, "MC" n'étant reconnu ni par is_eu() ni par is_fiscal_eu(),
+    # une vente vers Monaco tomberait à tort dans EXPORT (exonérée) alors
+    # qu'elle doit être taxée comme une vente domestique française standard.
+    # Limité au cas non ambigu stock_country == "FR" (la convention couvre
+    # les échanges France-Monaco) : un stock dans un AUTRE État membre
+    # expédié vers Monaco n'est pas couvert par cette convention bilatérale
+    # et n'est pas traité ici — comportement conservateur, reste EXPORT.
+    # ------------------------------------------------------------------
+    if sale.buyer_country == "MC" and sale.stock_country == "FR":
+        mc_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
+        mc_amount = _vat_amount(sale.amount_ht, mc_rate)
+        return VatResult(
+            sale=sale,
+            scenario=Scenario.DOMESTIC,
+            vat_country="FR",
+            vat_rate=mc_rate,
+            vat_amount=mc_amount,
+            collector=Collector.SELLER,
+            channel=Channel.FR_DOMESTIC,
+            note=(
+                "Vente vers Monaco depuis un stock français : assimilée à une "
+                "vente domestique française (convention fiscale franco-monégasque "
+                f"du 18 mai 1963) — TVA FR {mc_rate}% collectée, déclarée en CA3."
+            ),
+        )
+
     # ------------------------------------------------------------------
     # SÉCURITÉ IMMÉDIATE : Cas d'exportation hors UE (ex: GB, US...)
     # On traite ce cas EN PREMIER pour éviter d'interroger vat_rate inutilement
@@ -79,12 +118,6 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # 1. Calcul du taux dynamique basé sur le pays, la catégorie et la date
     # La date de transaction est utilisée pour appliquer le taux historique correct
     # (ex: EE 22% avant juil.2025, RO 19% avant août 2025).
-    _tx_date: _date | None = None
-    if sale.transaction_date:
-        try:
-            _tx_date = _date.fromisoformat(sale.transaction_date[:10])
-        except ValueError:
-            pass  # date malformée → taux courant (pas de correctif historique)
     tax_rate = vat_rate(sale.buyer_country, effective_category, tx_date=_tx_date)
     tax_amount = _vat_amount(sale.amount_ht, tax_rate)
 
@@ -395,6 +428,29 @@ def _year_of(sale: Sale) -> str:
     return d[:4] if len(d) >= 4 else ""
 
 
+def _chronological_sort_key(sale: Sale) -> str:
+    """Clé de tri chronologique robuste pour les ventes/avoirs.
+
+    transaction_date est censée être normalisée en amont (detect.parse_date),
+    mais deux cas dégradés existent en pratique :
+      - date vide (colonne source vide dans le fichier Amazon) ;
+      - format non reconnu par parse_date(), renvoyé tel quel sans validation.
+
+    Dans ces deux cas, la valeur ne se compare pas forcément correctement à
+    un 'YYYY-MM-DD' — elle est donc écartée du tri normal (fallback
+    "9999-12-31", classée en DERNIER, jamais en premier). But : éviter qu'une
+    vente à date invalide ne s'intercale silencieusement en tête de flux et
+    ne fausse le cumul OSS (reset annuel, seuil 10 000 €) des ventes qui la
+    suivent ; classée en dernier, seul son propre traitement est affecté.
+    """
+    raw = (sale.transaction_date or "")[:10]
+    try:
+        _date.fromisoformat(raw)
+        return raw
+    except ValueError:
+        return "9999-12-31"
+
+
 def _run_oss_loop(
     sorted_items: list[Sale],
     refund_ids: set[int],
@@ -501,7 +557,7 @@ def compute_all(
         asin_to_category = {}
     refund_ids: set[int] = {id(r) for r in (refunds or [])}
     all_items = list(sales) + list(refunds or [])
-    sorted_items = sorted(all_items, key=lambda s: s.transaction_date or "")
+    sorted_items = sorted(all_items, key=_chronological_sort_key)
     return _run_oss_loop(
         sorted_items, refund_ids, marketplace_name,
         asin_to_category, apply_fr_under_threshold,
@@ -610,7 +666,7 @@ def compute_all_with_vies(
 
     # Tri chronologique sur les VENTES UNIQUEMENT pour construire l'index VIES.
     # Les avoirs n'ont pas de numéro TVA acheteur à valider.
-    sorted_sales = sorted(sales, key=lambda s: s.transaction_date or "")
+    sorted_sales = sorted(sales, key=_chronological_sort_key)
 
     # ------------------------------------------------------------------------
     # PREPARATION : normalisation des numéros TVA + index sale_id -> full_vat
@@ -766,7 +822,7 @@ def compute_all_with_vies(
 
     refund_ids: set[int] = {id(r) for r in (refunds or [])}
     all_items = list(sales) + list(refunds or [])
-    all_items_sorted = sorted(all_items, key=lambda s: s.transaction_date or "")
+    all_items_sorted = sorted(all_items, key=_chronological_sort_key)
 
     results, oss_summary = _run_oss_loop(
         all_items_sorted, refund_ids, marketplace_name,

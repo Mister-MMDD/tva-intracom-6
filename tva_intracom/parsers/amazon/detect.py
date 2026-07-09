@@ -5,7 +5,11 @@ Fonctions pures sans état — aucune dépendance vers les autres sous-modules.
 
 from __future__ import annotations
 
+import csv
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_header(h: str) -> str:
@@ -16,9 +20,22 @@ def normalize_header(h: str) -> str:
 def detect_separator(line: str) -> str:
     """Détecte le séparateur CSV dominant (tab / point-virgule / virgule).
 
-    On compte les occurrences plutôt que "in" pour éviter les faux positifs :
-    une virgule peut apparaître dans un nom de colonne sans être le séparateur.
+    Utilise d'abord `csv.Sniffer` (qui tient compte des guillemets — un
+    champ tel que `"tax_label,2026"` ne fausse pas la détection car le
+    contenu entre guillemets n'est pas compté). Si le Sniffer échoue à
+    déterminer un dialecte (ligne trop courte, ambiguë, ou un seul champ),
+    on retombe sur le comptage brut de caractères — plus simple mais
+    sensible aux guillemets, d'où le Sniffer en première intention.
     """
+    try:
+        dialect = csv.Sniffer().sniff(line, delimiters="\t;,")
+        if dialect.delimiter in ("\t", ";", ","):
+            return dialect.delimiter
+    except csv.Error:
+        pass
+
+    # Fallback : comptage brut (comportement historique), utilisé seulement
+    # si le Sniffer n'a pas pu conclure.
     counts = {"\t": line.count("\t"), ";": line.count(";"), ",": line.count(",")}
     best = max(counts, key=lambda s: counts[s])
     return best if counts[best] > 0 else ","
@@ -80,12 +97,23 @@ def parse_date(date_str: str) -> str:
     Formats reconnus :
       YYYY-MM-DD                → inchangé
       YYYY-MM-DD HH:MM:SS       → tronqué à la date
+      YYYY-MM-DDTHH:MM:SSZ      → ISO 8601 avec séparateur 'T' (de plus en
+                                   plus fréquent dans les exports Amazon
+                                   récents) → tronqué à la date
       DD.MM.YYYY                → inversé
       DD-MM-YYYY                → inversé (format V5 Amazon EU)
     """
     s = date_str.strip()
     if not s:
         return ""
+    # Séparateur ISO 8601 'T' entre date et heure : "2026-07-08T21:52:45Z".
+    # Normalisé en espace AVANT le test " in s" ci-dessous, pour que le
+    # tronquage à la date fonctionne de façon identique aux formats
+    # "YYYY-MM-DD HH:MM:SS" déjà gérés. Sans cette normalisation, la chaîne
+    # complète (avec l'heure et le 'Z') passait telle quelle en aval et
+    # cassait le tri chronologique dans le moteur (comparaison lexicale sur
+    # une valeur non normalisée).
+    s = s.replace("T", " ")
     # Tronquer si datetime complet : "2026-05-01 10:49:00" → "2026-05-01"
     if " " in s:
         s = s.split(" ")[0]

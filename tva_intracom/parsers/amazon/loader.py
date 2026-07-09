@@ -184,8 +184,6 @@ def _process_rows(
         tx_date_str  = parser.tx_date(row)
         order_date_str = parser.order_date(row)
         shipment_date_str = parser.shipment_date(row)
-        order_date_str = parser.order_date(row)
-        shipment_date_str = parser.shipment_date(row)
         qty          = parser.qty(row)
         row_asin     = parser.asin(row)
         currency     = parser.currency(row)
@@ -194,6 +192,36 @@ def _process_rows(
         product_category = "STANDARD"
         if asin_to_category and row_asin in asin_to_category:
             product_category = asin_to_category[row_asin]
+
+        # --- Date de transaction absente ou non normalisée ---
+        # tx_date_str est censée sortir de parse_date() au format YYYY-MM-DD,
+        # mais deux cas dégradés existent : colonne source vide, ou format non
+        # reconnu par parse_date() (renvoyé tel quel sans validation). Dans les
+        # deux cas la vente est CONSERVÉE (pas de skip, contrairement au cas
+        # pays manquant ci-dessous) mais son tri chronologique dans engine.py
+        # (_chronological_sort_key) la classera en dernier plutôt qu'en tête,
+        # pour ne pas fausser le cumul OSS des ventes qui la suivent. On
+        # avertit ici pour que l'utilisateur puisse vérifier la ligne source.
+        _tx_date_valid = False
+        if tx_date_str:
+            try:
+                from datetime import date as _d_check
+                _d_check.fromisoformat(tx_date_str[:10])
+                _tx_date_valid = True
+            except ValueError:
+                pass
+        if not _tx_date_valid:
+            order_ref = (
+                row.get("order_id", "")
+                or row.get("vat_invoice_number", "")
+                or f"L{line_no}"
+            )
+            result.warnings.append(
+                f"Ligne {line_no} ({order_ref}) : date de transaction absente ou "
+                f"illisible ({tx_date_str!r}) — cette vente est conservée mais "
+                "triée en fin de période dans le suivi du seuil OSS ; vérifiez "
+                "la date dans le fichier source."
+            )
 
         # --- Pays manquants ---
         if not departure or not arrival:

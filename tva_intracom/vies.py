@@ -188,11 +188,11 @@ def _parse_flexible_date(s: str) -> datetime:
 # Pool Postgres (Supabase) — même base que auth.py / billing.py
 # ---------------------------------------------------------------------------
 
-_pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
+_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 _pool_lock = threading.Lock()
 
 
-def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None:
         with _pool_lock:
@@ -204,13 +204,20 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
                         "base du cache VIES. Configurez ce secret côté Streamlit Cloud "
                         "(même valeur que pour auth.py / billing.py)."
                     )
-                pool = psycopg2.pool.SimpleConnectionPool(1, 25, dsn, sslmode="require")
+                # ThreadedConnectionPool (et non SimpleConnectionPool) : ce module
+                # emprunte des connexions depuis jusqu'à 25 threads simultanés
+                # (ThreadPoolExecutor de validate_vat_numbers_parallel — voir plus
+                # bas). SimpleConnectionPool n'a pas de verrou interne autour de
+                # getconn()/putconn() et n'est pas garanti thread-safe par
+                # psycopg2 dans ce scénario concurrent — ThreadedConnectionPool
+                # ajoute ce verrou (même API, même signature de constructeur).
+                pool = psycopg2.pool.ThreadedConnectionPool(1, 25, dsn, sslmode="require")
                 _init_schema(pool)
                 _pool = pool
     return _pool
 
 
-def _init_schema(pool: psycopg2.pool.SimpleConnectionPool) -> None:
+def _init_schema(pool: psycopg2.pool.ThreadedConnectionPool) -> None:
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:

@@ -1,16 +1,48 @@
 """
 Module CA3 — Déclaration nationale française TVA (Cerfa n°3310-CA3-SD).
 
-Améliorations v2 vs v2 :
-- Ligne 08 : Acquisitions intracommunautaires assimilées (AIC FBA, art. 17
+⚠️ CORRECTION IMPORTANTE (voir README/Roadmap) : les références de lignes
+Cerfa de ce module ont été revérifiées contre le formulaire officiel
+3310-CA3-SD (téléformulaire 2026, cadres A et B) et corrigées comme suit :
+  - Ventes domestiques FR              → case A1 (0979), pas "01"
+  - Livraisons intracom B2B exonérées  → case F2 (0034), pas "02"
+  - Exportations hors UE               → case E1 (0032), pas "14"
+  - AIC — base (opération réalisée)    → case B2 (0031) — absente avant
+  - AIC — mémo TVA due                 → Ligne 17 (0035) — absente avant
+  - Taux normal 20 %                   → Ligne 08 (0207), pas "Ligne 20"
+  - Taux réduit 5,5 %                  → Ligne 09 (0105), pas "Ligne 22"
+  - Taux intermédiaire 10 %            → Ligne 9B (0151), pas "Ligne 25"
+  - Taux particulier 2,1 % (métropole) → Ligne T6 (1010), pas "Ligne 24"
+  - Déduction immobilisations          → Ligne 19 (0703), pas "Ligne 20"
+  - Déduction autres biens/services    → Ligne 20 (0702), pas "Ligne 21"
+  - Crédit période précédente          → Ligne 22 (8001), pas "Ligne 27"
+    (Ligne 27 réelle est la sortie "crédit à reporter" de la période
+    COURANTE vers la période SUIVANTE — pas l'entrée du crédit précédent.)
+La TVA déductible sur AIC (art. 272 CGI) est désormais intégrée dans la
+Ligne 20 (Autres biens et services) plutôt qu'affichée comme une ligne "08"
+séparée qui n'existe pas côté déductible sur le formulaire réel.
+
+Améliorations v2 :
+- Acquisitions intracommunautaires assimilées (AIC FBA, art. 17
   Dir. 2006/112/CE) calculées depuis les mouvements de stock FC Transfer.
-- Section C : Déductions — TVA déductible sur immobilisations (ligne 20 ded.),
-  TVA déductible sur autres biens/services (ligne 21 ded.), crédit de taxe
-  de la période précédente (ligne 27).  Ces montants ne peuvent pas être
-  déduits automatiquement depuis les fichiers Amazon (données d'achats
-  indisponibles) : l'utilisateur les saisit comme paramètres.
+- Section C : Déductions — TVA déductible sur immobilisations (Ligne 19),
+  TVA déductible sur autres biens/services (Ligne 20, inclut l'AIC
+  déductible), crédit de taxe de la période précédente (Ligne 22). Ces
+  montants ne peuvent pas être déduits automatiquement depuis les fichiers
+  Amazon (données d'achats indisponibles) : l'utilisateur les saisit comme
+  paramètres.
 - Section D : Solde net à payer / crédit à reporter.
-- Note informative ligne 3A (opérations OSS déclarées sur portail séparé).
+- Note informative ligne 3A (opérations OSS déclarées sur portail séparé —
+  ce n'est pas une case du Cerfa CA3 lui-même, c'est le régime OSS qui est
+  hors CA3 par nature ; la mention "3A" est une convention interne du
+  rapport pour signaler ce rapprochement, pas une référence officielle).
+
+⚠️ Limites connues non couvertes par ce module :
+  - Le cas DOM (taux 8,5 % / 2,1 % via lignes 10/11) n'est PAS géré : ce
+    module suppose un vendeur établi en France métropolitaine. Un
+    seller_country en DOM produirait des références de ligne incorrectes.
+  - La ligne T6 (taux particulier 2,1 % métropole — presse, médicaments
+    remboursables) est un cas rare ; à vérifier au cas par cas si utilisée.
 
 ROADMAP — export EDI-TVA (télédéclaration) :
 Ce module ne génère aujourd'hui qu'un rapport HTML (`generate_ca3_html_report_v2`),
@@ -117,41 +149,63 @@ def compute_ca3_lines_v2(
 ) -> Dict[str, Decimal]:
     """Calcule les montants des lignes du formulaire Cerfa CA3.
 
-    Lignes calculées automatiquement :
-      01  Ventes domestiques imposables (net avoirs)
-      02  Livraisons intracommunautaires B2B exonérées (départ seller_country)
-      08  Acquisitions intracommunautaires assimilées (AIC FBA, art. 17 Dir.)
-      14  Exportations hors UE (départ seller_country)
-      20  Base + TVA taux normal 20 %
-      22  Base + TVA taux réduit 5,5 %
-      24  Base + TVA taux super-réduit 2,1 %
-      25  Base + TVA taux intermédiaire 10 %
+    Références vérifiées contre le Cerfa 3310-CA3-SD officiel (cadres A et B) :
+
+    Cadre A — Opérations réalisées (chiffre d'affaires HT) :
+      A1  Ventes, prestations de services — ventes domestiques FR (0979)
+      F2  Livraisons intracommunautaires B2B exonérées, départ seller_country (0034)
+      E1  Exportations hors UE, départ seller_country (0032)
+      B2  Acquisitions intracommunautaires — base AIC FBA (0031)
+
+    Cadre B — TVA brute, opérations réalisées en France métropolitaine :
+      L08  Taux normal 20 % (0207) — inclut la part AIC (voir note ci-dessous)
+      L09  Taux réduit 5,5 % (0105)
+      L9B  Taux réduit 10 % (0151)
+      LT6  Taux particulier 2,1 % métropole — presse, médicaments remboursables (1010)
+      L17  Mémo "Dont TVA sur acquisitions intracommunautaires" (0035)
 
     Lignes saisies par l'utilisateur (données d'achat indisponibles depuis Amazon) :
-      20d TVA déductible sur immobilisations
-      21d TVA déductible sur autres biens et services
-      27  Crédit de taxe de la période précédente
+      L19  TVA déductible sur immobilisations (0703)
+      L20  TVA déductible sur autres biens et services (0702) — inclut l'AIC déductible
+      L22  Crédit de taxe de la période précédente (8001)
 
-    Chaque ligne "brute" ci-dessus (01, 02, 14, 20, 22, 24, 25) est en réalité
-    décomposée en trois variantes dans le dict retourné, pour permettre un
-    affichage vente / avoir / net séparé (voir generate_ca3_html_report_v2) :
+    NOTE AIC : l'acquisition intracommunautaire assimilée (transfert de stock
+    FBA entrant, art. 17 Dir. 2006/112/CE) est déclarée à DEUX endroits
+    distincts du formulaire, comme l'exige le Cerfa réel :
+      1. Sa base HT figure en case B2 (0031), comme "opération réalisée"
+         distincte des ventes (A1/F2/E1).
+      2. Sa TVA (collectée ET déductible simultanément, effet net nul —
+         art. 272 CGI) est ADDITIONNÉE dans la décomposition par taux
+         (L08 Taux normal 20 %, en supposant — comme approximation — que
+         le stock transféré est taxé au taux standard), avec un mémo
+         séparé en Ligne 17 indiquant la part de la TVA brute totale qui
+         provient spécifiquement de l'AIC. Côté déductible, le même
+         montant est intégré dans L20 (Autres biens et services).
+    Cette convention "AIC toujours au taux standard" est une approximation
+    documentée (comme la valorisation par prix de vente moyen) — à corriger
+    manuellement si une part du stock transféré relève d'un taux réduit.
+
+    Chaque ligne "brute" ci-dessus (A1, F2, E1, L08, L09, LT6, L9B) est en
+    réalité décomposée en trois variantes dans le dict retourné, pour
+    permettre un affichage vente / avoir / net séparé (voir
+    generate_ca3_html_report_v2) :
       "<ligne>_base_vente" / "<ligne>_tva_vente" : ventes seules (brut)
       "<ligne>_base_remb"  / "<ligne>_tva_remb"  : avoirs seuls (négatif)
       "<ligne>_base_ht"    / "<ligne>_tva_due"   : net (vente + remb) — clés
         historiques, ce sont elles qui doivent figurer sur le Cerfa officiel.
-    Ligne 08 (AIC) n'a pas de variante avoir : les transferts de stock FBA ne
+    B2 (AIC) n'a pas de variante avoir : les transferts de stock FBA ne
     sont jamais remboursés.
     """
-    _BASE_LINES = ("01", "02", "14")
-    _RATE_LINES = ("20", "22", "24", "25")
+    _BASE_LINES = ("A1", "F2", "E1")
+    _RATE_LINES = ("L08", "L09", "LT6", "L9B")
 
     lines: Dict[str, Decimal] = {
-        "08_base_ht":   Decimal("0.00"),
-        "08_tva_aic":   Decimal("0.00"),
+        "B2_base_ht":   Decimal("0.00"),   # AIC — base (cadre A, case B2)
+        "L17_tva_aic":  Decimal("0.00"),   # AIC — mémo TVA (Ligne 17)
         # Déductions (saisies)
-        "20d_tva_ded":  _round(tva_deductible_immos),
-        "21d_tva_ded":  _round(tva_deductible_autres),
-        "27_credit":    _round(credit_periode_precedente),
+        "L19_tva_ded":  _round(tva_deductible_immos),
+        "L20_tva_ded":  _round(tva_deductible_autres),   # + AIC déductible ajouté plus bas
+        "L22_credit":   _round(credit_periode_precedente),
     }
     for k in _BASE_LINES:
         lines[f"{k}_base_vente"] = Decimal("0.00")
@@ -170,31 +224,38 @@ def compute_ca3_lines_v2(
         buyer_in_seller   = res.sale.buyer_country == seller_country.upper()
         suffix = "remb" if is_refund else "vente"
 
-        if res.scenario == Scenario.DOMESTIC and buyer_in_seller and stock_from_seller:
+        if res.scenario == Scenario.DOMESTIC and stock_from_seller and (
+            buyer_in_seller or res.sale.buyer_country == "MC"
+        ):
+            # Monaco (MC) : assimilé au territoire français pour la TVA
+            # (convention fiscale franco-monégasque du 18 mai 1963) — le
+            # moteur (engine.py) classe déjà ces ventes en DOMESTIC/FR_DOMESTIC,
+            # mais buyer_country reste "MC" (pas "FR") : on l'inclut donc
+            # explicitement ici, sinon ces ventes disparaîtraient du rapport CA3.
             amt  = res.sale.amount_ht
             tva  = res.vat_amount
             rate = res.vat_rate
-            lines[f"01_base_{suffix}"] += amt
+            lines[f"A1_base_{suffix}"] += amt
             if rate in (Decimal("20"), Decimal("20.00")):
-                bucket = "20"
+                bucket = "L08"
             elif rate in (Decimal("5.5"), Decimal("5.50")):
-                bucket = "22"
+                bucket = "L09"
             elif rate in (Decimal("2.1"), Decimal("2.10")):
-                bucket = "24"
+                bucket = "LT6"
             elif rate in (Decimal("10"), Decimal("10.00")):
-                bucket = "25"
+                bucket = "L9B"
             else:
-                logger.warning("CA3 v2 : taux %.2f%% non mappé (sale_id=%s) → ligne 20.",
+                logger.warning("CA3 v2 : taux %.2f%% non mappé (sale_id=%s) → Ligne 08.",
                                float(rate), res.sale.sale_id)
-                bucket = "20"
+                bucket = "L08"
             lines[f"{bucket}_base_{suffix}"] += amt
             lines[f"{bucket}_tva_{suffix}"]  += tva
 
         elif res.scenario == Scenario.B2B_REVERSE_CHARGE and stock_from_seller:
-            lines[f"02_base_{suffix}"] += res.sale.amount_ht
+            lines[f"F2_base_{suffix}"] += res.sale.amount_ht
 
         elif res.scenario == Scenario.EXPORT and stock_from_seller:
-            lines[f"14_base_{suffix}"] += res.sale.amount_ht
+            lines[f"E1_base_{suffix}"] += res.sale.amount_ht
 
     for res in results:
         _aggregate(res, is_refund=False)
@@ -209,12 +270,20 @@ def compute_ca3_lines_v2(
         lines[f"{k}_base_ht"] = lines[f"{k}_base_vente"] + lines[f"{k}_base_remb"]
         lines[f"{k}_tva_due"] = lines[f"{k}_tva_vente"]  + lines[f"{k}_tva_remb"]
 
-    # Ligne 08 : AIC depuis les FC Transfers entrant (jamais d'avoir sur les
-    # transferts de stock FBA — pas de variante remb).
+    # Case B2 + Ligne 17 : AIC depuis les FC Transfers entrant (jamais d'avoir
+    # sur les transferts de stock FBA — pas de variante remb). Approximation :
+    # la totalité de l'AIC est supposée au taux standard, donc additionnée
+    # dans L08 (base + TVA), avec un mémo distinct en Ligne 17.
     if all_fc_transfers:
         b, t = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country)
-        lines["08_base_ht"] = b
-        lines["08_tva_aic"] = t
+        lines["B2_base_ht"]  = b
+        lines["L17_tva_aic"] = t
+        lines["L08_base_ht"] += b
+        lines["L08_tva_due"] += t
+        # TVA déductible sur AIC (art. 272 CGI, déduction immédiate si le
+        # stock transféré est destiné à la revente) — intégrée dans la
+        # Ligne 20 (Autres biens et services), pas une ligne séparée.
+        lines["L20_tva_ded"] += t
 
     for k in lines:
         lines[k] = _round(lines[k])
@@ -249,17 +318,21 @@ def generate_ca3_html_report_v2(
         seller_country=seller_country,
     )
 
-    total_ca_ht   = lines["01_base_ht"] + lines["02_base_ht"] + lines["08_base_ht"] + lines["14_base_ht"]
-    tva_brute_due = lines["20_tva_due"] + lines["22_tva_due"] + lines["24_tva_due"] + lines["25_tva_due"]
-    # Ligne 08 : AIC → TVA AIC collectée ET déductible simultanément (art. 272 CGI).
-    # L'effet net en trésorerie est 0 mais les deux montants doivent apparaître.
-    tva_brute_due_avec_aic = tva_brute_due + lines["08_tva_aic"]
+    total_ca_ht   = lines["A1_base_ht"] + lines["F2_base_ht"] + lines["B2_base_ht"] + lines["E1_base_ht"]
+    tva_brute_due = lines["L08_tva_due"] + lines["L09_tva_due"] + lines["LT6_tva_due"] + lines["L9B_tva_due"]
+    # La TVA AIC (Ligne 17) est déjà incluse dans L08_tva_due (voir
+    # compute_ca3_lines_v2) — tva_brute_due est donc déjà "avec AIC" ; on
+    # garde ce nom de variable pour ne pas casser le reste du calcul du
+    # solde, mais il n'y a plus de double-comptage à faire ici.
+    tva_brute_due_avec_aic = tva_brute_due
 
-    total_ded = lines["20d_tva_ded"] + lines["21d_tva_ded"] + lines["27_credit"] + lines["08_tva_aic"]
-    # Note : TVA AIC déduite au même montant que perçue → pas d'impact net.
+    total_ded = lines["L19_tva_ded"] + lines["L20_tva_ded"] + lines["L22_credit"]
+    # Note : la TVA déductible sur AIC est déjà incluse dans L20_tva_ded
+    # (voir compute_ca3_lines_v2) — même montant que la part perçue via
+    # Ligne 17, donc pas d'impact net sur le solde final.
 
     solde = _round(tva_brute_due_avec_aic - total_ded)
-    solde_label = ("SOLDE À PAYER" if solde >= 0 else "CRÉDIT À REPORTER")
+    solde_label = ("SOLDE À PAYER (Ligne TD/28)" if solde >= 0 else "CRÉDIT À REPORTER (Ligne 25/27)")
     solde_color = ("#C00000" if solde >= 0 else "#375623")
 
     oss_base = sum(
@@ -271,21 +344,21 @@ def generate_ca3_html_report_v2(
         if r.scenario.name == "OSS_B2C" and r.sale.stock_country == seller_country.upper()
     )
 
-    has_aic  = lines["08_base_ht"] > 0
-    has_l22  = lines["22_base_ht"] != 0 or lines["22_base_vente"] != 0 or lines["22_base_remb"] != 0
-    has_l24  = lines["24_base_ht"] != 0 or lines["24_base_vente"] != 0 or lines["24_base_remb"] != 0
-    has_l25  = lines["25_base_ht"] != 0 or lines["25_base_vente"] != 0 or lines["25_base_remb"] != 0
-    has_ded  = any(lines[k] > 0 for k in ("20d_tva_ded", "21d_tva_ded", "27_credit"))
+    has_aic  = lines["B2_base_ht"] > 0
+    has_l09  = lines["L09_base_ht"] != 0 or lines["L09_base_vente"] != 0 or lines["L09_base_remb"] != 0
+    has_lt6  = lines["LT6_base_ht"] != 0 or lines["LT6_base_vente"] != 0 or lines["LT6_base_remb"] != 0
+    has_l9b  = lines["L9B_base_ht"] != 0 or lines["L9B_base_vente"] != 0 or lines["L9B_base_remb"] != 0
+    has_ded  = any(lines[k] > 0 for k in ("L19_tva_ded", "L20_tva_ded", "L22_credit"))
 
     # Totaux vente / avoir (hors AIC — l'AIC n'a pas de variante avoir)
-    _RATE_LINES = ("20", "22", "24", "25")
+    _RATE_LINES = ("L08", "L09", "LT6", "L9B")
     tva_vente_total  = sum(lines[f"{k}_tva_vente"]  for k in _RATE_LINES)
     tva_remb_total   = sum(lines[f"{k}_tva_remb"]   for k in _RATE_LINES)
     base_vente_total = sum(lines[f"{k}_base_vente"] for k in _RATE_LINES)
     base_remb_total  = sum(lines[f"{k}_base_remb"]  for k in _RATE_LINES)
     has_remb = any(
         lines[f"{k}_base_remb"] != 0
-        for k in ("01", "02", "14", "20", "22", "24", "25")
+        for k in ("A1", "F2", "E1", "L08", "L09", "LT6", "L9B")
     )
 
     def _fmt(v: Decimal) -> str:
@@ -340,24 +413,26 @@ def generate_ca3_html_report_v2(
     if has_aic:
         AIC_BLOC = f"""
         <div class="aic-note">
-            <strong>ℹ️ Ligne 08 — AIC assimilées (transferts FBA entrant en {seller_country}) :</strong>
+            <strong>ℹ️ Case B2 + Ligne 17 — AIC assimilées (transferts FBA entrant en {seller_country}) :</strong>
             Ces acquisitions intracommunautaires assimilées (art. 17 Dir. 2006/112/CE) génèrent
             une TVA collectée <em>et</em> déductible simultanément (effet net nul en trésorerie,
-            art. 272 CGI). La base et la TVA apparaissent dans les sections B et C ci-dessous.
+            art. 272 CGI). La base HT figure en case B2 (opération réalisée), sa TVA est incluse
+            dans la Ligne 08 (taux normal 20 %, approximation — voir notice) avec un mémo distinct
+            en Ligne 17 ; la déduction correspondante figure en Ligne 20.
             ⚠ Valeur estimée = prix de vente moyen HT × qté (valeur d'achat réelle non disponible
             depuis les fichiers Amazon — art. 83 Dir. impose la valeur d'achat).
         </div>"""
 
-    L08_ROW = ""
+    B2_ROW = ""
     if has_aic:
-        L08_ROW = f"""
+        B2_ROW = f"""
             <tr>
-                <td class="tc"><span class="cb">Ligne 08</span></td>
+                <td class="tc"><span class="cb">Case B2</span></td>
                 <td>Acquisitions intracommunautaires assimilées — transferts stock FBA entrant {seller_country}
                     <br><small>(base estimée — valeur d'achat réelle à substituer)</small></td>
-                <td class="tr">{_fmt(lines['08_base_ht'])}</td>
+                <td class="tr">{_fmt(lines['B2_base_ht'])}</td>
                 <td class="tr">—</td>
-                <td class="tr">{_fmt(lines['08_base_ht'])}</td>
+                <td class="tr">{_fmt(lines['B2_base_ht'])}</td>
             </tr>"""
 
     def _rate_row(cadre: str, label: str, key: str) -> str:
@@ -373,52 +448,48 @@ def generate_ca3_html_report_v2(
                 <td class="tr">{_fmt(lines[f'{key}_tva_due'])}</td>
             </tr>"""
 
-    L20_ROW = _rate_row("20", "Taux normal 20 %", "20")
+    L08_ROW = _rate_row("08", "Taux normal 20 % (inclut la part AIC — voir case B2/Ligne 17)", "L08")
 
-    L22_ROW = _rate_row("22", "Taux réduit 5,5 % (alimentation, livres, médicaments…)", "22") if has_l22 else ""
+    L09_ROW = _rate_row("09", "Taux réduit 5,5 % (alimentation, livres, médicaments…)", "L09") if has_l09 else ""
 
-    L24_ROW = _rate_row("24", "Taux super-réduit 2,1 % (médicaments remboursables, presse en ligne)", "24") if has_l24 else ""
+    LT6_ROW = _rate_row("T6", "Taux particulier 2,1 % (métropole — presse, médicaments remboursables)", "LT6") if has_lt6 else ""
 
-    L25_ROW = _rate_row("25", "Taux intermédiaire 10 % (restauration, hébergement…)", "25") if has_l25 else ""
+    L9B_ROW = _rate_row("9B", "Taux réduit 10 % (restauration, hébergement…)", "L9B") if has_l9b else ""
 
-    L08_TVA_ROW = f"""
+    L17_MEMO_ROW = f"""
             <tr>
-                <td class="tc"><span class="cb">Ligne 08</span></td>
-                <td><strong>TVA sur AIC assimilées</strong> (collectée = déductible, art. 272 CGI)</td>
-                <td class="tr">{_fmt(lines['08_base_ht'])}</td>
-                <td class="tr">{_fmt(lines['08_tva_aic'])}</td>
+                <td class="tc"><span class="cb">Ligne 17</span></td>
+                <td><strong>Mémo — dont TVA sur acquisitions intracommunautaires</strong>
+                    (déjà incluse dans la Ligne 08 ci-dessus, art. 272 CGI)</td>
+                <td class="tr">{_fmt(lines['B2_base_ht'])}</td>
+                <td class="tr">{_fmt(lines['L17_tva_aic'])}</td>
                 <td class="tr">—</td>
                 <td class="tr">—</td>
-                <td class="tr">{_fmt(lines['08_base_ht'])}</td>
-                <td class="tr">{_fmt(lines['08_tva_aic'])}</td>
+                <td class="tr">{_fmt(lines['B2_base_ht'])}</td>
+                <td class="tr">{_fmt(lines['L17_tva_aic'])}</td>
             </tr>""" if has_aic else ""
 
     DED_SECTION = ""
     if has_ded or has_aic:
+        L19d = f"""
+                <tr>
+                    <td class="tc"><span class="cb">Ligne 19</span></td>
+                    <td>TVA déductible sur immobilisations</td>
+                    <td class="tr">{_fmt(lines['L19_tva_ded'])}</td>
+                </tr>""" if lines["L19_tva_ded"] > 0 else ""
         L20d = f"""
                 <tr>
                     <td class="tc"><span class="cb">Ligne 20</span></td>
-                    <td>TVA déductible sur immobilisations</td>
-                    <td class="tr">{_fmt(lines['20d_tva_ded'])}</td>
-                </tr>""" if lines["20d_tva_ded"] > 0 else ""
-        L21d = f"""
+                    <td>TVA déductible sur autres biens et services (achats, frais…)
+                        {'<br><small>Inclut la TVA déductible sur AIC assimilées (art. 272 CGI)</small>' if has_aic else ''}</td>
+                    <td class="tr">{_fmt(lines['L20_tva_ded'])}</td>
+                </tr>""" if lines["L20_tva_ded"] > 0 else ""
+        L22d  = f"""
                 <tr>
-                    <td class="tc"><span class="cb">Ligne 21</span></td>
-                    <td>TVA déductible sur autres biens et services (achats, frais…)</td>
-                    <td class="tr">{_fmt(lines['21d_tva_ded'])}</td>
-                </tr>""" if lines["21d_tva_ded"] > 0 else ""
-        L27  = f"""
-                <tr>
-                    <td class="tc"><span class="cb">Ligne 27</span></td>
-                    <td>Crédit de taxe de la période précédente</td>
-                    <td class="tr">{_fmt(lines['27_credit'])}</td>
-                </tr>""" if lines["27_credit"] > 0 else ""
-        L08d = f"""
-                <tr>
-                    <td class="tc"><span class="cb">Ligne 08</span></td>
-                    <td>TVA déductible sur AIC assimilées (égale à la TVA collectée, art. 272 CGI)</td>
-                    <td class="tr">{_fmt(lines['08_tva_aic'])}</td>
-                </tr>""" if has_aic else ""
+                    <td class="tc"><span class="cb">Ligne 22</span></td>
+                    <td>Report du crédit de TVA de la période précédente</td>
+                    <td class="tr">{_fmt(lines['L22_credit'])}</td>
+                </tr>""" if lines["L22_credit"] > 0 else ""
 
         NOTE_DED = ""
         if not has_ded and has_aic:
@@ -439,10 +510,10 @@ def generate_ca3_html_report_v2(
             </tr>
         </thead>
         <tbody>
-            {L20d}{L21d}{L27}{L08d}{NOTE_DED}
+            {L19d}{L20d}{L22d}{NOTE_DED}
             <tr class="tot">
                 <td class="tc">-</td>
-                <td>TOTAL TVA DÉDUCTIBLE</td>
+                <td>TOTAL TVA DÉDUCTIBLE (Ligne 23)</td>
                 <td class="tr">{_fmt(total_ded)}</td>
             </tr>
         </tbody>
@@ -453,9 +524,8 @@ def generate_ca3_html_report_v2(
     <div class="solde-box" style="color:{solde_color}; border-color:{solde_color};">
         {solde_label} : {_fmt(abs(solde))} EUR<br>
         <small style="font-weight:normal;font-size:9pt;">
-            (TVA nette des ventes, avoirs déduits {_fmt(tva_brute_due)} EUR
-            + TVA AIC ligne 08 {_fmt(lines['08_tva_aic'])} EUR
-            − Total déductions (dont AIC) {_fmt(total_ded)} EUR)
+            (TVA brute due (Ligne 16, dont Ligne 17 AIC {_fmt(lines['L17_tva_aic'])} EUR) {_fmt(tva_brute_due_avec_aic)} EUR
+            − Total déductions Ligne 23 (dont AIC en Ligne 20) {_fmt(total_ded)} EUR)
         </small>
     </div>"""
 
@@ -499,39 +569,39 @@ def generate_ca3_html_report_v2(
         </thead>
         <tbody>
             <tr>
-                <td class="tc"><span class="cb">Ligne 01</span></td>
+                <td class="tc"><span class="cb">Case A1</span></td>
                 <td>Ventes / prestations imposables en {seller_country}</td>
-                <td class="tr">{_fmt(lines['01_base_vente'])}</td>
-                <td class="tr">{_fmt(lines['01_base_remb'])}</td>
-                <td class="tr">{_fmt(lines['01_base_ht'])}</td>
+                <td class="tr">{_fmt(lines['A1_base_vente'])}</td>
+                <td class="tr">{_fmt(lines['A1_base_remb'])}</td>
+                <td class="tr">{_fmt(lines['A1_base_ht'])}</td>
             </tr>
             <tr>
-                <td class="tc"><span class="cb">Ligne 02</span></td>
+                <td class="tc"><span class="cb">Case F2</span></td>
                 <td>Livraisons intracommunautaires B2B exonérées (départ {seller_country})</td>
-                <td class="tr">{_fmt(lines['02_base_vente'])}</td>
-                <td class="tr">{_fmt(lines['02_base_remb'])}</td>
-                <td class="tr">{_fmt(lines['02_base_ht'])}</td>
+                <td class="tr">{_fmt(lines['F2_base_vente'])}</td>
+                <td class="tr">{_fmt(lines['F2_base_remb'])}</td>
+                <td class="tr">{_fmt(lines['F2_base_ht'])}</td>
             </tr>
-            {L08_ROW}
+            {B2_ROW}
             <tr>
-                <td class="tc"><span class="cb">Ligne 14</span></td>
+                <td class="tc"><span class="cb">Case E1</span></td>
                 <td>Exportations hors Union Européenne (départ {seller_country})</td>
-                <td class="tr">{_fmt(lines['14_base_vente'])}</td>
-                <td class="tr">{_fmt(lines['14_base_remb'])}</td>
-                <td class="tr">{_fmt(lines['14_base_ht'])}</td>
+                <td class="tr">{_fmt(lines['E1_base_vente'])}</td>
+                <td class="tr">{_fmt(lines['E1_base_remb'])}</td>
+                <td class="tr">{_fmt(lines['E1_base_ht'])}</td>
             </tr>
             <tr class="tot">
                 <td class="tc">—</td>
                 <td>TOTAL CHIFFRE D'AFFAIRES</td>
-                <td class="tr">{_fmt(lines['01_base_vente'] + lines['02_base_vente'] + lines['08_base_ht'] + lines['14_base_vente'])}</td>
-                <td class="tr">{_fmt(lines['01_base_remb'] + lines['02_base_remb'] + lines['14_base_remb'])}</td>
+                <td class="tr">{_fmt(lines['A1_base_vente'] + lines['F2_base_vente'] + lines['B2_base_ht'] + lines['E1_base_vente'])}</td>
+                <td class="tr">{_fmt(lines['A1_base_remb'] + lines['F2_base_remb'] + lines['E1_base_remb'])}</td>
                 <td class="tr">{_fmt(total_ca_ht)}</td>
             </tr>
         </tbody>
     </table>
     {'<p style="font-size:8.5pt;color:#7f8c8d;margin:-8px 0 16px;">La colonne « Dont avoirs » liste les remboursements/avoirs de la période déjà inclus dans la base nette — à titre de rapprochement, ce ne sont pas des lignes Cerfa séparées.</p>' if has_remb else ''}
 
-    <h2>B. TVA due — ventilation par taux</h2>
+    <h2>B. TVA due — ventilation par taux (opérations réalisées en France métropolitaine)</h2>
     <table class="t">
         <thead>
             <tr>
@@ -546,7 +616,7 @@ def generate_ca3_html_report_v2(
             </tr>
         </thead>
         <tbody>
-            {L20_ROW}{L25_ROW}{L22_ROW}{L24_ROW}{L08_TVA_ROW}
+            {L08_ROW}{L09_ROW}{LT6_ROW}{L9B_ROW}{L17_MEMO_ROW}
             <tr class="tot">
                 <td class="tc">—</td>
                 <td>TOTAL</td>
@@ -559,7 +629,7 @@ def generate_ca3_html_report_v2(
             </tr>
             <tr class="tot">
                 <td class="tc">—</td>
-                <td colspan="6">TOTAL TVA DUE (avoirs déjà déduits + AIC ligne 08 — ≠ TVA brute des ventes ci-dessus)</td>
+                <td colspan="6">TOTAL DE LA TVA BRUTE DUE (Ligne 16 — la part AIC/Ligne 17 est déjà comprise dans la Ligne 08 ci-dessus)</td>
                 <td class="tr">{_fmt(tva_brute_due_avec_aic)}</td>
             </tr>
         </tbody>
@@ -572,7 +642,7 @@ def generate_ca3_html_report_v2(
     <div class="notice">
         <strong>Notice :</strong> Ce relevé isole strictement le marché national {seller_country}.
         Les opérations OSS B2C intra-UE font l'objet d'une déclaration séparée sur le portail
-        guichet-entreprises.fr. La TVA sur AIC (ligne 08) est à la fois collectée et déductible
+        guichet-unique.impots.gouv.fr. La TVA sur AIC (case B2 / Ligne 17) est à la fois collectée et déductible
         (effet net nul). Les montants TVA déductible sur achats/immobilisations sont à compléter
         par l'utilisateur (non disponibles depuis les fichiers de transactions Amazon). Ce document
         ne remplace pas un conseil fiscal professionnel.
