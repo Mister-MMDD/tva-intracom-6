@@ -225,7 +225,7 @@ def compute_ca3_lines_v2(
         suffix = "remb" if is_refund else "vente"
 
         if res.scenario == Scenario.DOMESTIC and stock_from_seller and (
-            buyer_in_seller or res.sale.buyer_country == "MC"
+                buyer_in_seller or res.sale.buyer_country == "MC"
         ):
             # Monaco (MC) : assimilé au territoire français pour la TVA
             # (convention fiscale franco-monégasque du 18 mai 1963) — le
@@ -360,6 +360,25 @@ def generate_ca3_html_report_v2(
         lines[f"{k}_base_remb"] != 0
         for k in ("A1", "F2", "E1", "L08", "L09", "LT6", "L9B")
     )
+
+    # Base nette TOTALE, cohérente avec tva_brute_due (donc AIC INCLUS) :
+    # L08_base_ht contient déjà la base AIC (voir compute_ca3_lines_v2),
+    # donc sommer les *_base_ht des lignes de taux donne une base nette qui
+    # inclut l'AIC — contrairement à (base_vente_total + base_remb_total)
+    # qui, elle, exclut l'AIC (calculée uniquement à partir de *_base_vente
+    # et *_base_remb, jamais touchées par l'ajout de l'AIC). Utiliser cette
+    # dernière pour la ligne "TOTAL" produisait une base nette (46 273,68)
+    # incohérente avec une TVA nette (9 369,75) qui, elle, incluait l'AIC.
+    base_net_total_avec_aic = sum(lines[f"{k}_base_ht"] for k in _RATE_LINES)
+
+    # TVA nette "hors AIC" : la TVA brute due (Ligne 16, AIC inclus) moins
+    # UNIQUEMENT la part AIC (Ligne 17) — pas les autres déductions (L19,
+    # L20 hors AIC, L22), qui restent affichées séparément en section C/D.
+    # Sert à afficher, à côté du total "AIC inclus", un second total "AIC
+    # déduit" directement lisible dans le tableau B, sans attendre la
+    # section D (qui elle défalque TOUTES les déductions, pas seulement AIC).
+    tva_nette_hors_aic = _round(tva_brute_due_avec_aic - lines["L17_tva_aic"])
+    base_nette_hors_aic = _round(base_net_total_avec_aic - lines["B2_base_ht"])
 
     def _fmt(v: Decimal) -> str:
         return f"{v:,.2f}"
@@ -619,22 +638,24 @@ def generate_ca3_html_report_v2(
             {L08_ROW}{L09_ROW}{LT6_ROW}{L9B_ROW}{L17_MEMO_ROW}
             <tr class="tot">
                 <td class="tc">—</td>
-                <td>TOTAL</td>
+                <td>TOTAL — <strong>AIC inclus</strong> (Case B2/Ligne 17 comprise dans la base et la TVA nettes)</td>
                 <td class="tr">{_fmt(base_vente_total)}</td>
                 <td class="tr">{_fmt(tva_vente_total)}</td>
                 <td class="tr">{_fmt(base_remb_total)}</td>
                 <td class="tr">{_fmt(tva_remb_total)}</td>
-                <td class="tr">{_fmt(base_vente_total + base_remb_total)}</td>
-                <td class="tr">{_fmt(tva_brute_due)}</td>
+                <td class="tr">{_fmt(base_net_total_avec_aic)}</td>
+                <td class="tr">{_fmt(tva_brute_due_avec_aic)}</td>
             </tr>
             <tr class="tot">
                 <td class="tc">—</td>
-                <td colspan="6">TOTAL DE LA TVA BRUTE DUE (Ligne 16 — la part AIC/Ligne 17 est déjà comprise dans la Ligne 08 ci-dessus)</td>
-                <td class="tr">{_fmt(tva_brute_due_avec_aic)}</td>
+                <td colspan="4">TOTAL — <strong>AIC déduit</strong> (hors base/TVA AIC de la Case B2/Ligne 17 — avant les autres déductions de la section C)</td>
+                <td class="tr">{_fmt(base_nette_hors_aic)}</td>
+                <td class="tr">{_fmt(tva_nette_hors_aic)}</td>
             </tr>
         </tbody>
     </table>
     {'<p style="font-size:8.5pt;color:#7f8c8d;margin:-8px 0 16px;">« TVA vente » = TVA brute sur les ventes seules, avant déduction des avoirs. « TVA avoir » = TVA des remboursements de la période (négative). « TVA nette » = vente + avoir, c\'est ce montant qui doit être reporté sur le Cerfa.</p>' if has_remb else ''}
+    <p style="font-size:8.5pt;color:#7f8c8d;margin:-8px 0 16px;">La ligne « AIC inclus » reprend la Ligne 16 telle qu'elle doit figurer sur le Cerfa (la Case B2/Ligne 17 fait partie intégrante de la Ligne 08). La ligne « AIC déduit » retire uniquement la part AIC (effet net nul par construction, art. 272 CGI) pour vérification — elle ne retire PAS les autres déductions (immobilisations, autres biens/services hors AIC, crédit antérieur), qui restent détaillées en section C et ne sont défalquées que dans le solde final (section D).</p>
 
     {DED_SECTION}
     {SOLDE_SECTION}

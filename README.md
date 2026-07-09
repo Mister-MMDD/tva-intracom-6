@@ -169,13 +169,19 @@ tva-intracom/
   paliers Cabinet) sont récupérés en direct depuis l'API Stripe
   (`billing.get_pricing_grid()`), jamais recopiés en dur, pour ne jamais
   diverger du tarif réellement configuré dans le Dashboard Stripe.
-- **Contenu gratuit limité** : tant qu'une période n'est pas débloquée, les
-  tableaux de résultats affichent un aperçu limité à 15 % des lignes (minimum
-  1) via un rendu statique (sans bouton d'export CSV natif), et le détail par
-  pays des déclarations (OSS, TVA locale) reste masqué — seules les lignes
-  agrégées par canal restent visibles. Ceci limite la valeur d'un usage non
-  payant sans bloquer l'analyse ; ce n'est pas une protection technique
-  étanche (une sélection manuelle du texte affiché reste possible).
+- **Contenu gratuit limité** : tant qu'une période n'est pas débloquée, l'outil
+  propose un aperçu bridé pour protéger sa valeur ajoutée fiscale :
+  - **Tableaux de résultats** : affichage de l'intégralité du volume (pour
+    constater le traitement complet), mais avec une **double limitation** : seules
+    les 10 premières lignes (ou 15 %) sont affichées en clair. Pour toutes les
+    autres, les données sensibles (identifiants, montants, taux, scénarios) sont
+    remplacées par un badge de verrouillage. Les colonnes Date, Pays et ID
+    restent visibles partout pour permettre le rapprochement visuel.
+  - **Déclarations** : les lignes de synthèse (totaux par canal) affichent le CA
+    HT net pour validation, mais les montants de TVA sont verrouillés. Le détail
+    par pays (sous-lignes) est intégralement masqué.
+  - **Visualisations** : le graphique de répartition de la TVA par pays et la
+    carte interactive de l'Europe sont verrouillés.
 - **Webhook Stripe** : fonction serverless Vercel (`vercel_webhook/api/stripe_webhook.py`)
   qui reçoit les événements Stripe et met à jour Supabase via `tva_intracom/billing.py`,
   chargé directement par chemin de fichier (`importlib`) pour éviter de dupliquer le
@@ -278,7 +284,9 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 
 ### Import des fichiers Amazon
 
+- **Performance extrême** : utilisation de **Polars** (moteur Rust ultra-rapide) pour le parsing des fichiers CSV volumineux, avec repli automatique sur Pandas et `csv.DictReader`.
 - Détection automatique du format et du séparateur (tab / `;` / `,`).
+- Support des fichiers jusqu'à **100 Mo**.
 - Filtrage des placeholders Amazon (`FRINV…`, `ITINV…`) et des NIF fiscaux nationaux
   (codice fiscale IT, NIF ES, NIP PL…) — ces derniers ne sont pas interrogeables VIES.
 - Détection des territoires d'exception TVA via code postal de destination
@@ -296,11 +304,13 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
   (et non un seuil fixe).
 - Validation de la période avant génération (formats : `YYYY-QN`, `YYYY-TN`, `YYYY-SN`,
   `YYYY`, `YYYY-QN_QM`, `YYYY-YYYY`).
-- **Garde-fou soldes négatifs** : lève une erreur explicite si un couple (pays/taux)
-  ressort en négatif (montants négatifs non acceptés dans le corps OSS). Dans l'UI
-  Streamlit, cette détection (`find_oss_negative_buckets`) est effectuée en amont du
-  clic sur le bouton de génération, avec un bloc d'alerte explicatif affiché avant
-  toute tentative.
+- **Garde-fou soldes négatifs** : détecte si un couple (pays/taux) ressort en
+  négatif (avoirs supérieurs aux ventes), ce qui est interdit dans le corps
+  principal d'une déclaration OSS. L'outil propose alors un diagnostic de
+  rattachement (voir Correction assistée ci-dessous). Pour faciliter les tests,
+  la génération du XML reste possible malgré un solde négatif (via un message
+  d'avertissement), bien que le fichier soit susceptible d'être rejeté par le
+  portail fiscal.
 
 - **Correction assistée (rattachement automatique avoir → vente d'origine)** :
   `oss_export.suggest_negative_bucket_corrections()` recherche, pour chaque avoir
@@ -336,6 +346,8 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 
 ### Interface Streamlit — contrôles & ergonomie
 
+- **UI Modernisée** : Identité visuelle "Pro" avec couleur de marque (`#1f4e79`), cartes de métriques animées et support du **mode Sombre** (Theme selection restaurée).
+- **Réactivité via st.fragment** : La classification manuelle VIES est isolée dans un fragment Streamlit, permettant de corriger des statuts sans recharger toute l'application ni recalculer les graphiques.
 - **Profils Clients persistants** : sélection et configuration rapide des SIREN avec
   mémorisation des paramètres d'import et numéros de TVA locaux.
 - **Exports personnalisés** : tous les noms de fichiers incluent désormais le nom de

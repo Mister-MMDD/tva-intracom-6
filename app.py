@@ -151,70 +151,191 @@ def _gated_preview_table(df: "pd.DataFrame", can_export: bool, column_config: di
                           unlock_hint: str = "🔒 Aperçu limité avant paiement/abonnement.") -> None:
     """Affiche un tableau de résultats, avec deux comportements :
 
-    - Compte débloqué pour la période (`can_export=True`) : st.dataframe complet,
-      avec sa barre d'outils native (recherche, export CSV, plein écran).
-    - Sinon : aperçu statique via st.table, limité à `pct` % des lignes (minimum
-      `min_rows`). NOUVEAUTÉ : Double limitation (max 10 lignes en clair).
-      Les lignes au-delà de 10 sont affichées mais masquées sur les colonnes sensibles
-      (IDs, montants, scénarios) pour inciter au déblocage.
+    - Compte débloqué pour la période (`can_export=True`) : st.dataframe complet.
+    - Sinon : aperçu bridé mais montrant le VOLUME total. 
+      Seules les 10 premières lignes (ou 15% du total si < 10) sont affichées 
+      normalement. Le reste est affiché mais avec les colonnes sensibles masquées.
+      Les colonnes Date, Pays et ID restent visibles partout.
     """
     n = len(df)
     if can_export or n == 0:
         st.dataframe(df, use_container_width=True, hide_index=True, column_config=column_config or {})
         return
 
-    # 1. Calcul des limites
-    n_total_preview = max(min_rows, math.ceil(n * pct))
-    n_full_visible  = min(n_total_preview, 10)  # On ne montre que 10 lignes max en clair
+    # 1. Calcul de la limite "en clair" (15% plafonné à 10)
+    n_full_visible = min(10, math.ceil(n * pct))
 
-    # On travaille sur une copie pour ne pas altérer le DataFrame original
-    df_preview = df.head(n_total_preview).copy()
+    # On travaille sur une copie intégrale pour montrer tout le volume
+    df_preview = df.copy()
 
     # 2. Masquage des données sensibles pour les lignes > n_full_visible
-    if n_total_preview > n_full_visible:
-        # On identifie les colonnes à masquer
+    if n > n_full_visible:
         for col in df_preview.columns:
             col_l = col.lower()
             
-            # Déterminer si on doit garder la colonne visible (Date, Pays)
+            # Liste des colonnes à garder en clair
             is_date = any(x in col_l for x in ["date", "période", "period", "mois", "month", "année", "year"])
-            is_country = any(x in col_l for x in ["pays", "country", "dep", "dest", "arr", "orig", "départ", "arrivée", "stock"])
+            is_country = any(x in col_l for x in ["pays", "country", "dep", "dest", "arr", "origin", "départ", "arrivée", "stock"])
+            is_id = any(x in col_l for x in ["id", "order", "commande", "transaction", "asin"])
             
-            if is_date or is_country:
-                continue # On garde ces colonnes en clair
+            # Sécurité supplémentaire : si "montant" ou "tva" est dans le nom, on verrouille quand même
+            is_money = any(x in col_l for x in ["montant", "tva", "ht", "eur", "total", "taux", "rate"])
+            
+            if (is_date or is_country or is_id) and not is_money:
+                continue # On garde ces informations pour le rapprochement
 
-            # Pour tout le reste (IDs, Scénarios, Montants...), on masque
-            mask_val = "[🔒 Verrouillé Option Premium]"
-            # Cas particulier pour les régimes fiscaux
+            # Pour tout le reste (Scénarios, Montants...), on masque
+            mask_val = "[🔒 Verrouillé]"
             if any(x in col_l for x in ["régime", "scenario", "scénario", "fiscal"]):
-                mask_val = "[🔒 Verrouillé Option Premium]"
+                mask_val = "[🔒 Option Premium]"
             
-            # Conversion en object pour accepter le texte si c'était du numérique
-            if df_preview[col].dtype.kind in 'ifc':
+            # Conversion en object pour accepter le texte
+            if df_preview[col].dtype.kind in 'ifc' or df_preview[col].dtype == 'float64':
                 df_preview[col] = df_preview[col].astype(object)
                 
             # Application du masque à partir de la ligne n_full_visible
             df_preview.iloc[n_full_visible:, df_preview.columns.get_loc(col)] = mask_val
 
-    # 3. Affichage
-    st.table(df_preview)
+    # 3. Ajustement du column_config pour éviter les erreurs de type (ex: NumberColumn vs String)
+    preview_config = (column_config or {}).copy()
+    if n > n_full_visible:
+        for col in df_preview.columns:
+            # Si la colonne contient maintenant du texte de verrouillage, on force le type TextColumn
+            # pour éviter le warning "The value cannot be interpreted as a number"
+            if df_preview[col].dtype == object and df_preview[col].astype(str).str.contains("🔒").any():
+                preview_config[col] = st.column_config.TextColumn(col)
 
-    _hidden = n - n_total_preview
-    if _hidden > 0:
-        st.caption(f"{unlock_hint} {n_total_preview} ligne(s) affichée(s) sur {n} au total (dont {max(0, n_total_preview - n_full_visible)} masquée(s)).")
-    elif n_total_preview > n_full_visible:
-        st.caption(f"{unlock_hint} {n_total_preview - n_full_visible} ligne(s) masquée(s). Débloquez pour voir tout le détail.")
+    # 4. Affichage via st.dataframe
+    st.dataframe(df_preview, use_container_width=True, hide_index=True, column_config=preview_config)
+    
+    st.caption(f"{unlock_hint} {n_full_visible} ligne(s) détaillées sur {n} au total. "
+               "Débloquez la période pour accéder aux calculs de TVA sur l'intégralité du fichier.")
 # =============================================================================
 # SIDEBAR
 # =============================================================================
 _PLATFORM_OPTIONS = [
-    "Amazon VAT Transactions Report (TSV)",
+    "Amazon VAT Transactions Report (TSV), txt, CSV",
 ]
 
 # =============================================================================
 # PAGE CONFIG + PURGE CACHE MAL-PREFIXÉ (une fois par session)
 # =============================================================================
 st.set_page_config(page_title="TVA Intracommunautaire", page_icon="\U0001f1ea\U0001f1fa", layout="wide")
+
+st.markdown("""
+<style>
+/* ---- Définition de la couleur de marque (indépendante du thème) ---- */
+:root {
+    --brand-blue: #1f4e79;
+}
+
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+    max-width: 1400px;
+}
+
+/* ---- Boutons primaires aux couleurs de la marque ---- */
+button[kind="primary"] {
+    background-color: var(--brand-blue) !important;
+    border-color: var(--brand-blue) !important;
+    color: white !important;
+}
+
+/* ---- Titres avec accent de marque ---- */
+h1 {
+    color: var(--brand-blue);
+    border-bottom: 3px solid var(--brand-blue);
+    padding-bottom: 8px;
+}
+h2, h3 {
+    color: var(--brand-blue);
+}
+
+/* ---- Onglets : accent net sur l'onglet actif ---- */
+button[data-baseweb="tab"][aria-selected="true"] {
+    border-bottom: 3px solid var(--brand-blue) !important;
+    color: var(--brand-blue) !important;
+    font-weight: 600;
+}
+button[data-baseweb="tab"]:hover {
+    color: var(--brand-blue) !important;
+}
+
+/* ---- Sidebar width (élargie pour éviter les coupures) ---- */
+[data-testid="stSidebar"], section[data-testid="stSidebar"] {
+    min-width: 400px !important;
+    max-width: 450px !important;
+}
+
+div[data-testid="stExpander"] {
+    border: 1px solid color-mix(in srgb, var(--brand-blue) 20%, transparent);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-blue) 8%, transparent);
+    background-color: var(--secondary-background-color);
+}
+
+div[data-testid="stMetric"] {
+    background-color: var(--secondary-background-color);
+    border: 1px solid color-mix(in srgb, var(--brand-blue) 18%, transparent);
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-blue) 8%, transparent);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-blue) 15%, transparent);
+}
+
+    # ── Sidebar : séparation nette ──────────────────────────────────────────
+    section[data-testid="stSidebar"] {
+        border-right: 1px solid color-mix(in srgb, var(--primary-color) 15%, transparent);
+    }
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+        margin-bottom: 10px;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
+        gap: 0.5rem;
+    }
+    
+    /* On s'assure que le menu Streamlit reste bien visible */
+    #MainMenu { visibility: visible !important; }
+    header { visibility: visible !important; }
+
+/* ---- Boutons primaires ---- */
+button[kind="primary"] {
+    transition: opacity 0.15s ease;
+}
+button[kind="primary"]:hover {
+    opacity: 0.85;
+}
+
+/* ---- Dataframes : coins arrondis + bordure discrète ---- */
+div[data-testid="stDataFrame"] {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
+/* ---- Alertes (st.error / st.warning / st.success / st.info) : coins arrondis ---- */
+div[data-testid="stAlert"] {
+    border-radius: 8px;
+}
+
+/* ---- Séparateurs plus discrets que le défaut ---- */
+hr {
+    margin: 1.5rem 0;
+    opacity: 0.3;
+}
+
+/* ---- Boutons de téléchargement : petit accent visuel ---- */
+button[data-testid="stBaseButton-secondary"]:hover {
+    border-color: var(--primary-color) !important;
+    color: var(--primary-color) !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # Instanciation du gestionnaire de cookies
 # On utilise un délai pour laisser le temps au composant JS de s'initialiser
@@ -456,8 +577,9 @@ _vies_scope_id = _vies_resolve_scope_id(_current_user.email)
 # =============================================================================
 with st.sidebar:
     st.header("\u2699\ufe0f Options")
-
-    # ── Plateforme source (toujours visible) ──────────────────────────────────
+    
+    # Rappel pour le thème si l'utilisateur ne le trouve plus
+    st.caption("🎨 **Thème** : Accessible via le menu `⋮` > `Settings` > `Theme`.")
     file_format = st.radio("Plateforme source", _PLATFORM_OPTIONS, index=0)
 
     # ── Connexion Amazon SP-API ───────────────────────────────────────────────
@@ -835,13 +957,13 @@ with st.sidebar:
             if _sub_status.plan == "cabinet" and _registered_sirens:
                 st.markdown("**SIREN gérés par cet abonnement**")
                 for _r in _registered_sirens:
-                    _c1, _c2 = st.columns([3, 1])
+                    _c1, _c2 = st.columns([2, 1])
                     _label = f"{_r['company_name'] or '(sans nom)'} — {_r['siren']}"
                     if _r.get("pending_removal_at"):
                         _c1.caption(f"{_label} · ⏳ retrait programmé")
                     else:
                         _c1.caption(_label)
-                        if _c2.button("Retirer", key=f"btn_remove_{_r['siren']}"):
+                        if _c2.button("Retirer", key=f"btn_remove_{_r['siren']}", use_container_width=True):
                             _eff = tva_billing.request_siren_removal(_current_user.id, _r["siren"])
                             import datetime as _dt
                             st.info(f"Retrait programmé le {_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')}.")
@@ -1157,9 +1279,15 @@ if uploaded_files:
                 all_warnings.extend(parse_result.warnings); all_platforms.append(platform)
                 total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
                 _parse_results.append(parse_result)
-                file_summaries.append({"Fichier": uploaded_file.name, "Source": platform,
+                file_summaries.append({
+                    "Fichier": uploaded_file.name, "Source": platform,
                     "Ventes": len(parse_result.sales), "Remboursements": len(parse_result.refunds),
-                    "Lignes lues": parse_result.total_rows, "Ignorees": parse_result.skipped_rows})
+                    "FBA Trans.": len(parse_result.fc_transfers),
+                    "Retours phys.": getattr(parse_result, "return_rows", 0),
+                    "Invoices": getattr(parse_result, "invoice_rows", 0),
+                    "Credit notes": getattr(parse_result, "credit_note_rows", 0),
+                    "Lignes lues": parse_result.total_rows, "Ignorées": parse_result.skipped_rows
+                })
         except Exception as e:
             st.error(f"Erreur sur **{uploaded_file.name}** : {e}")
             for p in tmp_paths: p.unlink(missing_ok=True)
@@ -1173,17 +1301,19 @@ if uploaded_files:
     _total_skipped      = sum(getattr(pr, "skipped_rows", 0) for pr in _parse_results)
 
     # Résumé import
+    _return_part  = f", {_total_returns} retours physiques sans montant" if _total_returns else ""
+    _invoice_part = f", {_total_invoice} invoice" if _total_invoice else ""
+    _credit_part  = f", {_total_credit_note} credit_note" if _total_credit_note else ""
+    _skip_part    = f", {_total_skipped} ignorées" if _total_skipped else ""
+
     if len(uploaded_files) == 1:
         fs = file_summaries[0]
-        _return_part  = f", {_total_returns} retours physiques sans montant" if _total_returns else ""
-        _invoice_part = f", {_total_invoice} invoice" if _total_invoice else ""
-        _credit_part  = f", {_total_credit_note} credit_note" if _total_credit_note else ""
-        _skip_part    = f", {_total_skipped} ignorées" if _total_skipped else ""
         st.info(f"**Import {platform_name}** : {fs['Ventes']} ventes, {fs['Remboursements']} remb., "
                 f"{len(all_fc_transfers)} transferts FBA{_return_part}{_invoice_part}{_credit_part}{_skip_part}.")
     else:
-        st.success(f"**{len(uploaded_files)} fichiers agrégés** — {len(all_sales)} ventes + "
-                   f"{len(all_refunds)} remboursements ({total_rows_sum} lignes).")
+        st.success(f"**{len(uploaded_files)} fichiers agrégés** — {len(all_sales)} ventes, {len(all_refunds)} remb., "
+                   f"{len(all_fc_transfers)} transferts FBA{_return_part}{_invoice_part}{_credit_part}{_skip_part} "
+                   f"({total_rows_sum} lignes).")
         with st.expander(f"Détail par fichier ({len(uploaded_files)} fichiers)"):
             st.table(file_summaries)
         if len(unique_platforms) > 1:
@@ -1314,7 +1444,7 @@ if uploaded_files:
             st.error(
                 f"🚨 **Attention : {vies_summary.total_inconclusive} numéro(s) de TVA n'ont pas pu être vérifiés auprès de VIES** "
                 "(problème de connexion aux serveurs de l'UE). "
-                "Allez dans l'onglet **🔎 Contrôle VIES** pour les classifier manuellement ou réessayer la vérification."
+                "Allez dans l'onglet **🛡️ VIES** pour les classifier manuellement ou réessayer la vérification."
             )
 
         # Segmentation écarts pour KPI
@@ -1425,25 +1555,72 @@ if uploaded_files:
         # =====================================================================
         # KPIs — toujours visibles
         # =====================================================================
+        st.markdown("""
+        <style>
+        .kpi-card {
+            border-radius: 10px;
+            padding: 14px 18px;
+            background-color: var(--secondary-background-color);
+            border: 1px solid color-mix(in srgb, var(--primary-color) 15%, transparent);
+            border-left: 4px solid var(--kpi-accent, var(--primary-color));
+            box-shadow: 0 1px 3px color-mix(in srgb, var(--primary-color) 8%, transparent);
+        }
+        .kpi-label {
+            font-size: 0.8rem;
+            opacity: 0.7;
+            margin-bottom: 4px;
+        }
+        .kpi-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+        <style>
+        .badge-alert {
+            display: inline-block;
+            background-color: color-mix(in srgb, #d62728 15%, transparent);
+            color: #d62728;
+            border-radius: 999px;
+            padding: 3px 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            margin-top: 6px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        def _kpi_card(label: str, value: str, accent: str, help_text: str = "") -> str:
+            """accent : couleur hex (ex '#1f77b4' neutre, '#d97706' à faire, '#2ca02c' géré, '#d62728' alerte)"""
+            title_attr = f' title="{help_text}"' if help_text else ""
+            return f"""
+            <div class="kpi-card" style="--kpi-accent:{accent}"{title_attr}>
+                <div class="kpi-label">{label}</div>
+                <div class="kpi-value">{value}</div>
+            </div>
+            """
+
         st.header("📊 Récapitulatif")
         c1, c2, c3, c4 = st.columns(4)
+
         ca_brut = float(summary.total_ht)
         ca_remb = float(getattr(summary, "refund_total_ht", 0))
         ca_net  = ca_brut + ca_remb
-        c1.metric("CA HT total", _fmt(ca_net),
-            help=f"CA net de remboursements. Brut : {_fmt(ca_brut)} · Remb : {_fmt(ca_remb)}")
-        c2.metric("TVA à reverser (vous)", _fmt(float(summary.total_you_owe)),
-            help="TVA que vous devez déclarer et reverser : TVA France (CA3) + OSS + IOSS. "
-                 "Exclut la TVA collectée par Amazon (deemed supplier) et la TVA autoliquidée par l'acheteur (B2B).")
-        c3.metric(f"TVA gérée par {platform_name}", _fmt(float(summary.amazon_vat)),
-            help=f"TVA collectée et reversée directement par {platform_name} en tant que deemed supplier "
-                 "(marketplace facilitator). Vous n'avez rien à faire pour ces ventes.")
+
+        with c1:
+            st.markdown(_kpi_card("CA HT total", _fmt(ca_net), "#1f4e79",
+                                  f"CA net de remboursements. Brut : {_fmt(ca_brut)} · Remb : {_fmt(ca_remb)}"), unsafe_allow_html=True)
+        with c2:
+            st.markdown(_kpi_card("TVA à reverser (vous)", _fmt(float(summary.total_you_owe)), "#d97706",
+                                  "TVA France (CA3) + OSS + IOSS — à votre charge."), unsafe_allow_html=True)
+        with c3:
+            st.markdown(_kpi_card(f"TVA gérée par {platform_name}", _fmt(float(summary.amazon_vat)), "#2ca02c",
+                                  "Collectée et reversée par Amazon (deemed supplier)."), unsafe_allow_html=True)
         with c4:
             if abs(total_ecarts_autres) > 0.05:
-                st.metric("🚨 Écarts de taux Amazon", f"{total_ecarts_autres:+.2f} €",
-                    delta="Erreur paramétrage", delta_color="inverse")
+                st.markdown(_kpi_card("🚨 Écarts de taux Amazon", f"{total_ecarts_autres:+.2f} €", "#d62728"),
+                            unsafe_allow_html=True)
+                st.markdown('<span class="badge-alert">⚠ Erreur paramétrage</span>', unsafe_allow_html=True)
             else:
-                st.metric("✅ Concordance Amazon", "0 €")
+                st.markdown(_kpi_card("✅ Concordance Amazon", "0 €", "#2ca02c"), unsafe_allow_html=True)
 
         # =====================================================================
         # GATING BILLING — calculé AVANT les onglets (et non plus seulement
@@ -1889,11 +2066,48 @@ if uploaded_files:
                 _oss_year_label = f" (année **{_last_year}**)"
             else:
                 _oss_year_label = ""
+            st.markdown("""
+            <style>
+            .oss-bar-track {
+                width: 100%;
+                height: 14px;
+                border-radius: 7px;
+                background-color: color-mix(in srgb, var(--primary-color) 10%, transparent);
+                overflow: hidden;
+                margin: 6px 0 4px;
+            }
+            .oss-bar-fill {
+                height: 100%;
+                border-radius: 7px;
+                transition: width 0.3s ease;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
+            def _oss_gradient_color(pct: float) -> str:
+                """Vert -> orange -> rouge selon la proximité du seuil (pct entre 0 et 1)."""
+                if pct < 0.7:
+                    return "#2ca02c"
+                elif pct < 0.9:
+                    return "#d97706"
+                else:
+                    return "#d62728"
+
+            _oss_ht = float(oss_summary.total_oss_ht)
+            _oss_pct = min(_oss_ht / 10_000.0, 1.0)
+            _oss_by_year = getattr(oss_summary, "oss_ht_by_year", {})
+            _oss_year_label = f" (année **{max(_oss_by_year.keys())}**)" if len(_oss_by_year) > 1 else ""
+            _bar_color = _oss_gradient_color(_oss_pct)
+
             st.markdown(
-                f"{_oss_color} **Seuil OSS**{_oss_year_label} : {_oss_ht:,.2f} € / 10 000 € HT "
+                f"**Seuil OSS**{_oss_year_label} : {_oss_ht:,.2f} € / 10 000 € HT "
                 f"({'dépassé' if _oss_ht >= 10_000 else f'{_oss_pct*100:.1f} %'})"
             )
-            st.progress(_oss_pct)
+            st.markdown(f"""
+            <div class="oss-bar-track">
+                <div class="oss-bar-fill" style="width:{_oss_pct*100}%; background-color:{_bar_color};"></div>
+            </div>
+            """, unsafe_allow_html=True)
 
             if summary.refund_count:
                 st.info(f"🔄 **{summary.refund_count} remboursement(s)** — HT : {float(summary.refund_total_ht):,.2f} €")
@@ -2099,7 +2313,22 @@ if uploaded_files:
                             else:
                                 st.error(f"❌ Échec : valid={test_res.valid}, error={test_res.error!r}")
 
-                    with st.expander("🔎 Classifier manuellement les numéros non vérifiés", expanded=True):
+                # Inconclus
+                if vies_summary.total_inconclusive > 0:
+                    st.warning(f"⚠️ **{vies_summary.total_inconclusive} numéro(s)** non vérifiés (serveur VIES indisponible).")
+                    if vies_summary.total_inconclusive == vies_summary.total_checked:
+                        st.error("🚫 **100% des numéros sont non vérifiés.** Problème de connectivité probable vers ec.europa.eu.")
+                        if st.button("🧪 Tester la connexion à VIES", key="test_vies_conn"):
+                            from tva_intracom.vies import check_vat
+                            with st.spinner("Test en cours..."):
+                                test_res = check_vat("FR", "40303265045")
+                            if test_res.valid:
+                                st.success(f"✅ Connexion VIES OK : {test_res.name}")
+                            else:
+                                st.error(f"❌ Échec : valid={test_res.valid}, error={test_res.error!r}")
+
+                    @st.fragment
+                    def render_manual_vies_classification():
                         _details = getattr(vies_summary, "inconclusive_vat_details", None)
                         if _details:
                             _inc_entries = [{"vat": d["vat"], "country": d.get("country", d["vat"][:2]),
@@ -2108,42 +2337,48 @@ if uploaded_files:
                             _inc_entries = [{"vat": v, "country": v[:2], "sale_ids": []}
                                 for v in vies_summary.inconclusive_vats]
                         _overrides: dict = st.session_state.get("_vies_manual_overrides", {})
-                        st.caption("Indiquez Valide (B2B exonéré) ou Invalide (B2C, TVA due) pour chaque numéro non vérifié.")
-                        _changed = False
-                        for _entry in _inc_entries:
-                            _vat = _entry["vat"]; _country = _entry["country"]; _sale_ids = _entry["sale_ids"]
-                            _label = f"**{_vat}** ({_country})"
-                            if _sale_ids:
-                                _label += f" — vente(s) : {', '.join(_sale_ids[:3])}"
-                                if len(_sale_ids) > 3: _label += f" +{len(_sale_ids)-3}"
-                            _current = _overrides.get(_vat, "⏳ Non classifié")
-                            _col_label, _col_sel, _col_badge = st.columns([3, 2, 1])
-                            _col_label.markdown(_label)
-                            _choice = _col_sel.selectbox("Statut",
-                                options=["⏳ Non classifié", "✅ Valide (B2B)", "❌ Invalide (B2C)"],
-                                index=["⏳ Non classifié", "✅ Valide (B2B)", "❌ Invalide (B2C)"].index(_current),
-                                key=f"vies_override_{_vat}", label_visibility="collapsed")
-                            _col_badge.markdown("🆕" if _choice != _current else "")
-                            if _choice != _current:
-                                _overrides[_vat] = _choice; _changed = True
-                        if _changed:
-                            st.session_state["_vies_manual_overrides"] = _overrides
-                        _pending = {v: c for v, c in _overrides.items() if c != "⏳ Non classifié"}
-                        st.caption(f"**{len(_pending)} / {len(_inc_entries)}** numéros classifiés manuellement.")
-                        _col_apply, _col_reset = st.columns([2, 1])
-                        with _col_apply:
-                            if _pending and st.button("💾 Appliquer les classifications et recalculer", type="primary"):
-                                from tva_intracom.vies import set_manual_override as _smo_apply
-                                for _vat_key, _choice_val in _pending.items():
-                                    _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == "✅ Valide (B2B)"))
-                                st.session_state.pop("_vies_manual_overrides", None)
-                                st.session_state.pop("_calc_key", None)
-                                st.success("Classification appliquée — recalcul en cours…")
-                                st.rerun()
-                        with _col_reset:
-                            if st.button("↩️ Réinitialiser"):
-                                st.session_state.pop("_vies_manual_overrides", None)
-                                st.rerun()
+                        
+                        with st.expander("🔎 Classifier manuellement les numéros non vérifiés", expanded=True):
+                            st.caption("Indiquez Valide (B2B exonéré) ou Invalide (B2C, TVA due) pour chaque numéro non vérifié.")
+                            _changed = False
+                            for _entry in _inc_entries:
+                                _vat = _entry["vat"]; _country = _entry["country"]; _sale_ids = _entry["sale_ids"]
+                                _label = f"**{_vat}** ({_country})"
+                                if _sale_ids:
+                                    _label += f" — vente(s) : {', '.join(_sale_ids[:3])}"
+                                    if len(_sale_ids) > 3: _label += f" +{len(_sale_ids)-3}"
+                                _current = _overrides.get(_vat, "⏳ Non classifié")
+                                _col_label, _col_sel, _col_badge = st.columns([3, 2, 1])
+                                _col_label.markdown(_label)
+                                _choice = _col_sel.selectbox("Statut",
+                                    options=["⏳ Non classifié", "✅ Valide (B2B)", "❌ Invalide (B2C)"],
+                                    index=["⏳ Non classifié", "✅ Valide (B2B)", "❌ Invalide (B2C)"].index(_current),
+                                    key=f"vies_override_{_vat}", label_visibility="collapsed")
+                                _col_badge.markdown("🆕" if _choice != _current else "")
+                                if _choice != _current:
+                                    _overrides[_vat] = _choice; _changed = True
+                            if _changed:
+                                st.session_state["_vies_manual_overrides"] = _overrides
+                                st.rerun(scope="fragment")
+                            
+                            _pending = {v: c for v, c in _overrides.items() if c != "⏳ Non classifié"}
+                            st.caption(f"**{len(_pending)} / {len(_inc_entries)}** numéros classifiés manuellement.")
+                            _col_apply, _col_reset = st.columns([2, 1])
+                            with _col_apply:
+                                if _pending and st.button("💾 Appliquer les classifications et recalculer", type="primary"):
+                                    from tva_intracom.vies import set_manual_override as _smo_apply
+                                    for _vat_key, _choice_val in _pending.items():
+                                        _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == "✅ Valide (B2B)"))
+                                    st.session_state.pop("_vies_manual_overrides", None)
+                                    st.session_state.pop("_calc_key", None)
+                                    st.success("Classification appliquée — recalcul en cours…")
+                                    st.rerun()
+                            with _col_reset:
+                                if st.button("↩️ Réinitialiser"):
+                                    st.session_state.pop("_vies_manual_overrides", None)
+                                    st.rerun()
+
+                    render_manual_vies_classification()
 
                 if st.button("🔄 Revérifier les numéros VIES en erreur", key="retry_vies_btn"):
                     st.session_state["_vies_retry_nonce"] = _vies_retry_nonce + 1
@@ -2288,10 +2523,9 @@ if uploaded_files:
 
         # ── 4. AUDIT AMAZON ───────────────────────────────────────────────────
         with tab_audit:
-            audit_sub1, audit_sub2, audit_sub3 = st.tabs([
+            audit_sub1, audit_sub2 = st.tabs([
                 "⚖️ Écarts TVA Amazon",
                 "📦 Mouvements stock FBA",
-                "🌍 Exports déclarations locales",
             ])
 
             with audit_sub1:
@@ -2394,7 +2628,7 @@ if uploaded_files:
                                 _w2.writerow([_rw["ID vente"],_rw["Stock→Dest"],_rw["Scénario"],
                                     str(_rw["HT (EUR)"]).replace(".",","),str(_rw["TVA Amazon (EUR)"]).replace(".",","),
                                     str(_rw["TVA moteur (EUR)"]).replace(".",","),str(_rw["Écart (EUR)"]).replace(".",",")])
-                            st.download_button("⬇️ Exporter TVA Amazon manquante (.csv)",
+                            _gated_download("⬇️ Exporter TVA Amazon manquante (.csv)",
                                 data=("\ufeff"+_buf2.getvalue()).encode("utf-8"),
                                 file_name=f"Écarts TVA Amazon Manquante - {nom_entreprise} - {period_label}.csv", mime="text/csv")
                         else:
@@ -2427,104 +2661,6 @@ if uploaded_files:
                             st.caption(f"Affichage limité à 200 sur {len(all_fc_transfers)}.")
                 else:
                     st.info("Aucun transfert FC détecté.")
-
-            with audit_sub3:
-                st.subheader("Exports pour déclarations fiscales locales (27 pays UE)")
-                _local_results = [r for r in results if r.channel.value == "LOCAL" and r.vat_country]
-                if not _local_results:
-                    st.info("ℹ️ Aucune vente en immatriculation locale détectée.")
-                else:
-                    _local_countries = sorted({r.vat_country for r in _local_results})
-                    c1_loc, c2_loc, c3_loc = st.columns(3)
-                    c1_loc.metric("Pays concernés", len(_local_countries))
-                    c2_loc.metric("Ventes locales", len(_local_results))
-                    _local_tva = sum(float(r.vat_amount) for r in _local_results)
-                    c3_loc.metric("TVA locale totale", f"{_local_tva:,.2f} €")
-                    pay_eu_local = set(_local_countries) - set(countries_with_vat)
-                    if pay_eu_local:
-                        st.warning(f"⚠️ Immatriculation TVA requise : {', '.join(f'{_country_label(p)} ({p})' for p in sorted(pay_eu_local))}")
-                    export_country = st.selectbox("Pays à exporter", _local_countries,
-                        format_func=lambda c: f"{_country_label(c)} ({c})")
-                    if export_country:
-                        def _build_local_csv(country):
-                            import io as _il, csv as _cl
-                            from collections import defaultdict as _dd
-                            buf = _il.StringIO(); w = _cl.writer(buf, delimiter=";")
-                            period_lbl = oss_period or "Periode non renseignee"
-                            meta = COUNTRY_FISCAL_META.get(country, (f"Declaration TVA {_country_label(country)}", "Base HT", "TVA", "—", "—"))
-                            decl_name, lbl_base, lbl_tax, rate_std, rate_red = meta
-                            country_results = ([r for r in results if r.channel.value in ("FR_DOMESTIC","OSS")]
-                                if country == "FR" else [r for r in results if r.vat_country == country or r.sale.buyer_country == country])
-                            by_rate = _dd(lambda: {"base": Decimal("0"), "tva": Decimal("0"), "nb": 0})
-                            for r in country_results:
-                                by_rate[str(r.vat_rate)]["base"] += r.sale.amount_ht
-                                by_rate[str(r.vat_rate)]["tva"]  += r.vat_amount
-                                by_rate[str(r.vat_rate)]["nb"]   += 1
-                            w.writerow([f"{decl_name} — {period_lbl}"])
-                            w.writerow([f"Pays : {_country_label(country)} ({country}) | Standard : {rate_std} | Reduit : {rate_red}"])
-                            w.writerow([])
-                            fmt_map = {
-                                "DE": (["Kennzahl","Bezeichnung","Base (EUR)","TVA (EUR)","Nb"], {"19":("81","19%"),"7":("86","7%")}),
-                                "ES": (["Casilla","Concepto","Base (EUR)","TVA (EUR)","Nb"], {"21":("01","21%"),"10":("03","10%"),"4":("05","4%")}),
-                                "IT": (["Aliquota","Descrizione","Base (EUR)","TVA (EUR)","N."], {"22":"22%","10":"10%","4":"4%"}),
-                                "PL": (["Pole","Opis","Base","TVA","Liczba"], {"23":("K_19","23%"),"8":("K_17","8%"),"5":("K_15","5%")}),
-                                "NL": (["Rubriek","Omschrijving","Base (EUR)","TVA (EUR)","Antal"], {"21":("1a","21%"),"9":("1b","9%")}),
-                                "BE": (["Grille","Description","Base (EUR)","TVA (EUR)","Nb"], {"21":("03","21%"),"12":("02","12%"),"6":("01","6%")}),
-                                "PT": (["Campo","Descricao","Base (EUR)","TVA (EUR)","N."], {"23":("1","23%"),"13":("2","13%"),"6":("3","6%")}),
-                                "SE": (["Ruta","Beskrivning","Base","TVA","Antal"], {"25":("05","25%"),"12":("06","12%"),"6":("07","6%")}),
-                                "AT": (["Kennzahl","Bezeichnung","Base (EUR)","TVA (EUR)","Anz."], {"20":("022","20%"),"10":("029","10%"),"13":("006","13%")}),
-                                "CZ": (["Radek","Popis","Base","TVA","Pocet"], {"21":("1","21%"),"12":("2","12%")}),
-                                "RO": (["Rand","Descriere","Base","TVA","Nr."], {"19":("9","19%"),"9":("10","9%"),"5":("11","5%")}),
-                                "HU": (["Sor","Megnevezes","Base","TVA","Db"], {"27":("B2","27%"),"18":("C2","18%"),"5":("D2","5%")}),
-                                "DK": (["Felt","Beskrivelse","Base","TVA"], None),
-                                "IE": (["Box","Description","Base (EUR)","TVA (EUR)","Count"], {"23":("T1","23%"),"9":("T1","9%"),"0":("E1","0%")}),
-                                "FI": (["Koodi","Kuvaus","Base (EUR)","TVA (EUR)","Lkm"], None),
-                                "GR": (["Kod.","Perigraphi","Base (EUR)","TVA (EUR)","Ar."], None),
-                            }
-                            if country == "FR":
-                                w.writerow(["Base HT","Taux (%)","TVA","ID vente","Canal"])
-                                for r in country_results:
-                                    w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),
-                                        str(r.vat_amount).replace(".",","),(r.sale.display_id or r.sale.sale_id),r.channel.value])
-                                w.writerow([]); w.writerow(["TOTAL TVA FR",str(summary.net_fr_domestic_vat).replace(".",",")])
-                                w.writerow(["TOTAL OSS",str(_oss_tva_net_total).replace(".",",")])
-                            elif country in fmt_map:
-                                headers, mapping = fmt_map[country]
-                                w.writerow(headers)
-                                for rk, d in sorted(by_rate.items(), key=lambda x: -float(x[0])):
-                                    if mapping:
-                                        val = mapping.get(rk, ("", rk+"%"))
-                                        code, desc = val if isinstance(val, tuple) else (rk, val)
-                                    else:
-                                        code, desc = "", rk+"%"
-                                    w.writerow([code,desc,str(d["base"]).replace(".",","),str(d["tva"]).replace(".",","),d["nb"]])
-                                w.writerow(["","TOTAL","",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
-                            else:
-                                w.writerow([lbl_base+" (EUR)","Taux (%)","TVA (EUR)","Nb","ID vente","Date"])
-                                for r in country_results:
-                                    w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),
-                                        str(r.vat_amount).replace(".",","),1,(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date])
-                                w.writerow([]); w.writerow(["TOTAL TVA","",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
-                            w.writerow([]); w.writerow(["--- Détail ---"])
-                            w.writerow(["ID vente","Date","Base HT (EUR)","Taux (%)","TVA (EUR)","Canal","Pays dest."])
-                            for r in country_results:
-                                w.writerow([(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date,str(r.sale.amount_ht).replace(".",","),
-                                    str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),
-                                    r.channel.value,r.sale.buyer_country])
-                            return ("\ufeff"+buf.getvalue()).encode("utf-8")
-
-                        meta_sel = COUNTRY_FISCAL_META.get(export_country, ("","","","—","—"))
-                        country_vat = (float(summary.fr_domestic_vat) if export_country == "FR"
-                            else float(summary.oss_by_country.get(export_country,0)) + float(summary.local_by_country.get(export_country,0)))
-                        m1, m2, m3 = st.columns(3)
-                        m1.metric(f"TVA due — {_country_label(export_country)}", f"{country_vat:,.2f} EUR")
-                        m2.metric("Taux standard", meta_sel[3])
-                        m3.metric("Taux réduit", meta_sel[4])
-                        _gated_download(f"⬇️ Déclaration {_country_label(export_country)} (.csv)",
-                            data=_build_local_csv(export_country),
-                            file_name=f"Déclaration TVA {_country_label(export_country)} - {nom_entreprise} - {period_label}.csv",
-                            mime="text/csv")
-
 
         # ── 5. TÉLÉCHARGEMENTS ────────────────────────────────────────────────
         with tab_dl:
@@ -2563,7 +2699,7 @@ if uploaded_files:
                 st.divider()
 
                 # 1. Rapport principal — pleine largeur, bouton primaire
-                st.markdown("#### 📦 Rapport principal")
+                st.markdown("#### 📊 Contrôle & Audit")
                 _gated_download(
                     "📊 Rapport complet (.xlsx)",
                     data=xlsx_bytes,
@@ -2571,234 +2707,167 @@ if uploaded_files:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary", use_container_width=True,
                 )
+                st.caption("Contient tous les onglets : calculs détaillés, VIES, transferts FBA et audit.")
 
                 st.divider()
 
-                # 2. Exports OSS / B2B — 3 colonnes avec KPI inline
-                st.markdown("#### 🇪🇺 Exports OSS / B2B")
+                # 2. Guichet Unique OSS
+                st.markdown("#### 🇪🇺 Guichet Unique (OSS)")
                 oss_results_dl = [r for r in results_net if r.scenario == Scenario.OSS_B2C]
-                b2b_results_dl = [r for r in results_net if r.scenario == Scenario.B2B_REVERSE_CHARGE]
-                if oss_results_dl or b2b_results_dl:
-                    o1, o2, o3 = st.columns(3)
+                if oss_results_dl:
+                    st.caption("Fichiers pour la déclaration trimestrielle OSS (ventes B2C cross-border).")
+                    
+                    # Ligne XML (Prioritaire)
+                    # ── Détection en amont des soldes OSS négatifs ──────────
+                    _oss_agg_preview = aggregate_oss_results(results_net, period=period_label)
+                    _negative_buckets = find_oss_negative_buckets(_oss_agg_preview)
+                    _confirm_corrections = False
+                    if _negative_buckets:
+                        _suggestions = preview_negative_bucket_suggestions(results_net, period_label)
+                        _all_resolved = bool(_suggestions) and all(s.fully_resolved for s in _suggestions)
+                        _any_matched = any(s.matched for s in _suggestions)
+                        if _any_matched:
+                            with st.expander("🔎 Rattachement automatique d'avoirs détecté", expanded=True):
+                                for s in _suggestions:
+                                    _lbl = f"{_country_label(s.bucket.departure)} → {_country_label(s.bucket.arrival)} ({s.bucket.vat_rate}%)"
+                                    if s.matched:
+                                        _origins = ", ".join(sorted({m.origin_period for m in s.matched}))
+                                        st.markdown(f"**{_lbl}** — {len(s.matched)} avoir(s) rattaché(s) (période d'origine : {_origins}).")
+                                    if s.unmatched_count:
+                                        st.markdown(f"⚠️ **{_lbl}** — {s.unmatched_count} avoir(s) sans origine (HT {float(s.unmatched_ht):,.2f} €).")
+                                _confirm_corrections = st.checkbox("✅ Inclure le bloc de correction automatique dans le XML", key="confirm_oss_corrections")
+                    
+                    try:
+                        oss_xml_bytes = generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
+                    except ValueError:
+                        oss_xml_bytes = generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
+
+                    if oss_xml_bytes:
+                        _gated_download("📥 Télécharger XML OSS (impots.gouv.fr)", data=oss_xml_bytes, file_name=f"Déclaration XML OSS - {nom_entreprise} - {period_label}.xml", mime="application/xml", use_container_width=True, type="primary")
+
+                    # Ligne Excel / CSV (Détail)
+                    o1, o2 = st.columns(2)
                     with o1:
-                        if oss_results_dl:
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as oss_tmp:
-                                oss_xlsx_path = build_oss_excel(results_net, oss_tmp.name, period=period_label)
-                            with open(oss_xlsx_path,"rb") as f: oss_xlsx_bytes = f.read()
-                            _gated_download(
-                                "📊 État OSS (.xlsx)", data=oss_xlsx_bytes,
-                                file_name=f"État Récapitulatif OSS - {nom_entreprise} - {period_label}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
-                            )
-                            st.caption(f"{len(oss_results_dl)} ventes · TVA {float(_oss_tva_vente_total):,.2f} €")
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as oss_tmp:
+                            oss_xlsx_path = build_oss_excel(results_net, oss_tmp.name, period=period_label)
+                        with open(oss_xlsx_path,"rb") as f: oss_xlsx_bytes = f.read()
+                        _gated_download("📊 État récapitulatif OSS (.xlsx)", data=oss_xlsx_bytes, file_name=f"État Récapitulatif OSS - {nom_entreprise} - {period_label}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                     with o2:
-                        if oss_results_dl:
-                            oss_csv_bytes, _ = build_oss_csv(results_net, period=period_label)
-                            _gated_download(
-                                "📄 OSS URSSAF (.csv)", data=oss_csv_bytes,
-                                file_name=f"Export OSS URSSAF - {nom_entreprise} - {period_label}.csv", mime="text/csv",
-                                use_container_width=True,
-                            )
-                    with o3:
-                        if b2b_results_dl:
-                            _, b2b_csv_bytes = build_oss_csv(results_net, period=period_label)
-                            _gated_download(
-                                "🤝 B2B Recap (.csv)", data=b2b_csv_bytes,
-                                file_name=f"Récapitulatif Livraisons B2B - {nom_entreprise} - {period_label}.csv", mime="text/csv",
-                                use_container_width=True,
-                            )
-                            st.caption(f"{len(b2b_results_dl)} livraisons · HT {float(summary.reverse_charge_ht):,.2f} €")
+                        oss_csv_bytes, _ = build_oss_csv(results_net, period=period_label)
+                        _gated_download("📄 Export OSS URSSAF (.csv)", data=oss_csv_bytes, file_name=f"Export OSS URSSAF - {nom_entreprise} - {period_label}.csv", mime="text/csv", use_container_width=True)
                 else:
-                    st.info("ℹ️ Aucune vente OSS ou B2B détectée.")
+                    st.info("ℹ️ Aucune vente OSS détectée.")
 
                 st.divider()
 
-                # 3. Formulaires fiscaux français — 2 colonnes symétriques
-                st.markdown("#### 🇫🇷 Formulaires fiscaux")
-                col_xml, col_html = st.columns(2)
-                with col_xml:
-                    st.markdown("**🇪🇺 Guichet Unique OSS (XML)**")
-                    st.caption("Fichier prêt au téléversement sur impots.gouv.fr")
-                    if unregistered:
-                        st.info(
-                            "ℹ️ Rappel : stock détecté sans immatriculation confirmée dans "
-                            f"{', '.join(sorted(unregistered))} (voir alerte en haut de page). "
-                            "Cela n'affecte pas le contenu de ce XML — seules les ventes "
-                            "transfrontalières B2C y figurent, jamais les ventes domestiques "
-                            "du pays de stock, qu'elles soient immatriculées ou non. Vérifiez "
-                            "simplement que la déclaration locale correspondante est bien "
-                            "déposée dans ces pays, en plus de cet OSS."
-                        )
-                    if not period_label or not period_label.strip():
-                        st.warning("⚠️ Renseignez la période dans le panneau latéral (ex : 2026-T1)")
-                    else:
-                        # ── Détection en amont des soldes OSS négatifs ──────────
-                        # generate_oss_xml() bloque déjà avec un ValueError détaillé,
-                        # mais on détecte ici AVANT le clic pour afficher un bloc rouge
-                        # explicatif visible immédiatement, sans nécessiter un essai
-                        # de génération raté au préalable.
-                        _oss_agg_preview = aggregate_oss_results(results_net, period=period_label)
-                        _negative_buckets = find_oss_negative_buckets(_oss_agg_preview)
-                        _confirm_corrections = False
-                        if _negative_buckets:
-                            # Tentative de rattachement automatique avoir → vente
-                            # d'origine (même sale_id, présent dans CE fichier
-                            # importé — jamais par déduction sur order_date).
-                            _suggestions = preview_negative_bucket_suggestions(results_net, period_label)
-                            _all_resolved = bool(_suggestions) and all(s.fully_resolved for s in _suggestions)
-                            _any_matched = any(s.matched for s in _suggestions)
-
-                            _neg_lines = "\n".join(
-                                f"- {_country_label(b.departure)} → {_country_label(b.arrival)} "
-                                f"({b.vat_rate}%) : HT {float(b.base_ht):,.2f} € · "
-                                f"TVA {float(b.vat_amount):,.2f} €"
-                                for b in _negative_buckets
-                            )
-
-                            if _any_matched:
-                                with st.expander(
-                                    "🔎 Rattachement automatique détecté "
-                                    f"({'toutes origines identifiées' if _all_resolved else 'partiel — vérification manuelle requise'})",
-                                    expanded=True,
-                                ):
-                                    for s in _suggestions:
-                                        _lbl = f"{_country_label(s.bucket.departure)} → {_country_label(s.bucket.arrival)} ({s.bucket.vat_rate}%)"
-                                        if s.matched:
-                                            _origins = ", ".join(sorted({m.origin_period for m in s.matched}))
-                                            st.markdown(
-                                                f"**{_lbl}** — {len(s.matched)} avoir(s) rattaché(s) "
-                                                f"automatiquement à leur vente d'origine (même commande), "
-                                                f"référençant la période **{_origins}**."
-                                            )
-                                        if s.unmatched_count:
-                                            st.markdown(
-                                                f"⚠️ **{_lbl}** — {s.unmatched_count} avoir(s) "
-                                                f"**sans origine identifiée** dans ce fichier "
-                                                f"(HT {float(s.unmatched_ht):,.2f} € · TVA {float(s.unmatched_vat_amount):,.2f} €) "
-                                                "— à traiter manuellement sur le portail OSS."
-                                            )
-                                    st.caption(
-                                        "Rattachement basé uniquement sur un identifiant de commande "
-                                        "identique (même sale_id) retrouvé dans ce fichier — jamais sur "
-                                        "une simple date de commande, jugée insuffisamment fiable pour "
-                                        "une correction fiscale automatisée."
-                                    )
-                                    if _all_resolved:
-                                        st.warning(
-                                            "⚠️ Le bloc `CorrectionsOfVatReturns` généré automatiquement "
-                                            "a une structure **approximative** (non vérifiée contre le "
-                                            "schéma XSD officiel DGFIP/UE) — faites valider le premier XML "
-                                            "généré ainsi avant tout dépôt réel."
-                                        )
-                                        _confirm_corrections = st.checkbox(
-                                            "✅ Je confirme ces rattachements et souhaite générer le XML "
-                                            "avec le bloc de correction automatique inclus",
-                                            key="confirm_oss_corrections",
-                                        )
-                        try:
-                            oss_xml_bytes = generate_oss_xml(
-                                results=results_net, seller_vat=tva_fr, period=period_label,
-                                local_vat_numbers=local_vat_numbers,
-                                confirm_corrections=_confirm_corrections,
-                            )
-                        except ValueError as _xml_err:
-                            st.warning(f"⚠️ **Attention : Solde OSS négatif détecté.**\n\n{_xml_err}\n\n"
-                                       "Le fichier XML a été généré avec les montants négatifs pour test, "
-                                       "mais il sera probablement rejeté par le portail fiscal.")
-                            # On force la génération malgré les négatifs pour permettre le test
-                            oss_xml_bytes = generate_oss_xml(
-                                results=results_net, seller_vat=tva_fr, period=period_label,
-                                local_vat_numbers=local_vat_numbers,
-                                confirm_corrections=_confirm_corrections,
-                                ignore_negatives=True
-                            )
-
-                        if oss_xml_bytes:
-                            _gated_download(
-                                "📥 XML OSS officiel", data=oss_xml_bytes,
-                                file_name=f"Déclaration XML OSS - {nom_entreprise} - {period_label}.xml",
-                                mime="application/xml", use_container_width=True,
-                                key="btn_oss_xml_final",
-                            )
-                with col_html:
-                    st.markdown("**🇫🇷 Déclaration CA3 (HTML)**")
-                    st.caption(
-                        "Rapport préparatoire ventilé par taux (20 %, 10 %, 5,5 %, 2,1 %), "
-                        "ligne 08 AIC (transferts FBA) et solde net."
-                    )
-                    with st.expander("Paramètres déductions (optionnel)", expanded=False):
-                        st.caption(
-                            "Non calculables depuis les fichiers Amazon (données d'achats "
-                            "indisponibles) — à saisir manuellement si vous voulez un solde net."
-                        )
-                        _c1, _c2, _c3 = st.columns(3)
-                        _tva_ded_immo = _c1.number_input(
-                            "TVA déd. immobilisations (€)", min_value=0.0, value=0.0, step=10.0,
-                            key="ca3_ded_immo",
-                        )
-                        _tva_ded_autres = _c2.number_input(
-                            "TVA déd. autres biens/services (€)", min_value=0.0, value=0.0, step=10.0,
-                            key="ca3_ded_autres",
-                        )
-                        _credit_prec = _c3.number_input(
-                            "Crédit période précédente (€)", min_value=0.0, value=0.0, step=10.0,
-                            key="ca3_credit_prec",
-                        )
-                    ca3_html = generate_ca3_html_report_v2(
-                        results=results,
-                        refund_results=refund_results,
-                        company_name=nom_entreprise, siren=siren_entreprise,
-                        period_label=period_label,
-                        all_fc_transfers=all_fc_transfers,
-                        tva_deductible_immos=Decimal(str(_tva_ded_immo)),
-                        tva_deductible_autres=Decimal(str(_tva_ded_autres)),
-                        credit_periode_precedente=Decimal(str(_credit_prec)),
-                        seller_country="FR",
-                    )
-                    _gated_download(
-                        "📥 Rapport CA3 (HTML)", data=ca3_html.encode("utf-8"),
-                        file_name=f"Rapport Préparatoire CA3 - {nom_entreprise} - {period_label}.html",
-                        mime="text/html", use_container_width=True,
-                        key="btn_ca3_html_final",
-                    )
-
-                st.divider()
-
-                # 4. Export comptable (FEC-like) — pré-remplissage pour import
-                # dans un logiciel comptable (Sage, Ciel, Quadratus, ACD…).
-                # Ne remplace PAS l'EDI-TVA (non homologué, voir Roadmap
-                # README.md) : c'est un journal des ventes agrégé par régime
-                # fiscal / pays / taux, à faire relire par le cabinet avant
-                # tout import récurrent — voir l'avertissement dans
-                # tva_intracom/fec_export.py (plan comptable générique
-                # paramétrable dans ACCOUNTS, cas DEEMED_SUPPLIER à
-                # rapprocher des relevés de règlement Amazon réels).
-                st.markdown("#### 📒 Export comptable (FEC)")
-                st.caption(
-                    "Journal des ventes agrégé par régime fiscal / pays / taux, au "
-                    "format FEC (séparateur tabulation), prêt à importer dans un "
-                    "logiciel comptable. ⚠️ Pré-remplissage à faire valider par votre "
-                    "cabinet comptable avant tout usage récurrent — le plan comptable "
-                    "utilisé (`tva_intracom/fec_export.py`, dict `ACCOUNTS`) est "
-                    "générique et doit être adapté à votre dossier."
+                # 3. France CA3
+                st.markdown("#### 🇫🇷 France (CA3)")
+                st.caption("Rapport préparatoire pour votre déclaration CA3 mensuelle/trimestrielle en France.")
+                ca3_html = generate_ca3_html_report_v2(
+                    results=results, refund_results=refund_results, company_name=nom_entreprise, siren=siren_entreprise,
+                    period_label=period_label, all_fc_transfers=all_fc_transfers, seller_country="FR",
                 )
-                if not period_label or not period_label.strip():
-                    st.warning("⚠️ Renseignez la période dans le panneau latéral (ex : 2026-T1)")
+                _gated_download("📥 Rapport préparatoire CA3 (HTML)", data=ca3_html.encode("utf-8"), file_name=f"Rapport Préparatoire CA3 - {nom_entreprise} - {period_label}.html", mime="text/html", use_container_width=True)
+
+                st.divider()
+
+                # 4. Livraisons B2B
+                st.markdown("#### 🤝 Livraisons B2B")
+                b2b_results_dl = [r for r in results_net if r.scenario == Scenario.B2B_REVERSE_CHARGE]
+                if b2b_results_dl:
+                    st.caption(f"{len(b2b_results_dl)} livraisons intracommunautaires B2B exonérées (HT {float(summary.reverse_charge_ht):,.2f} €).")
+                    _, b2b_csv_bytes = build_oss_csv(results_net, period=period_label)
+                    _gated_download("📄 Récapitulatif Livraisons B2B (.csv)", data=b2b_csv_bytes, file_name=f"Récapitulatif Livraisons B2B - {nom_entreprise} - {period_label}.csv", mime="text/csv", use_container_width=True)
                 else:
-                    _fec_ecriture_date = _fec_period_end_date(period_label)
-                    fec_bytes = generate_fec_bytes(
-                        results_net,
-                        period=period_label,
-                        ecriture_date=_fec_ecriture_date,
-                        piece_ref=f"Import Amazon {period_label}",
-                    )
-                    _gated_download(
-                        "📥 Journal des ventes (FEC .txt)", data=fec_bytes,
-                        file_name=f"Export Comptable FEC - {nom_entreprise} - {period_label}.txt",
-                        mime="text/plain", use_container_width=True,
-                        key="btn_fec_export_final",
-                    )
+                    st.info("ℹ️ Aucune livraison B2B détectée.")
+
+                st.divider()
+
+                # 5. Déclarations Locales (hors FR)
+                st.markdown("#### 🌍 Déclarations Locales (hors FR)")
+                _local_tax_data = [r for r in results_net if r.channel.value == "LOCAL" and r.vat_country]
+                if not _local_tax_data:
+                    st.info("ℹ️ Aucune vente en immatriculation locale détectée (hors France, OSS et IOSS).")
+                else:
+                    st.caption("Fichiers pré-formatés avec les codes cases spécifiques à chaque pays (Kennzahl, Casilla...).")
+                    _local_countries = sorted({r.vat_country for r in _local_tax_data})
+                    export_country = st.selectbox("Sélectionnez le pays à exporter", _local_countries, format_func=lambda c: f"{_country_label(c)} ({c})", key="dl_country_select")
+                    
+                    def _build_local_csv(country):
+                        import io as _il, csv as _cl
+                        from collections import defaultdict as _dd
+                        buf = _il.StringIO(); w = _cl.writer(buf, delimiter=";")
+                        period_lbl = period_label or "Periode non renseignee"
+                        meta = COUNTRY_FISCAL_META.get(country, (f"Declaration TVA {_country_label(country)}", "Base HT", "TVA", "—", "—"))
+                        decl_name, lbl_base, lbl_tax, rate_std, rate_red = meta
+                        country_results = [r for r in results_net if r.vat_country == country and r.channel.value in ("LOCAL", "FR_DOMESTIC")]
+                        by_rate = _dd(lambda: {"base": Decimal("0"), "tva": Decimal("0"), "nb": 0})
+                        for r in country_results:
+                            by_rate[str(r.vat_rate)]["base"] += r.sale.amount_ht
+                            by_rate[str(r.vat_rate)]["tva"]  += r.vat_amount
+                            by_rate[str(r.vat_rate)]["nb"]   += 1
+                        w.writerow([f"{decl_name} — {period_lbl}"])
+                        w.writerow([f"Pays : {_country_label(country)} ({country}) | Standard : {rate_std} | Reduit : {rate_red}"])
+                        w.writerow([])
+                        fmt_map = {
+                            "DE": (["Kennzahl","Bezeichnung","Base (EUR)","TVA (EUR)","Nb"], {"19":("81","19%"),"7":("86","7%")}),
+                            "ES": (["Casilla","Concepto","Base (EUR)","TVA (EUR)","Nb"], {"21":("01","21%"),"10":("03","10%"),"4":("05","4%")}),
+                            "IT": (["Aliquota","Descrizione","Base (EUR)","TVA (EUR)","N."], {"22":"22%","10":"10%","4":"4%"}),
+                            "PL": (["Pole","Opis","Base","TVA","Liczba"], {"23":("K_19","23%"),"8":("K_17","8%"),"5":("K_15","5%")}),
+                            "NL": (["Rubriek","Omschrijving","Base (EUR)","TVA (EUR)","Antal"], {"21":("1a","21%"),"9":("1b","9%")}),
+                            "BE": (["Grille","Description","Base (EUR)","TVA (EUR)","Nb"], {"21":("03","21%"),"12":("02","12%"),"6":("01","6%")}),
+                            "PT": (["Campo","Descricao","Base (EUR)","TVA (EUR)","N."], {"23":("1","23%"),"13":("2","13%"),"6":("3","6%")}),
+                            "SE": (["Ruta","Beskrivning","Base","TVA","Antal"], {"25":("05","25%"),"12":("06","12%"),"6":("07","6%")}),
+                            "AT": (["Kennzahl","Bezeichnung","Base (EUR)","TVA (EUR)","Anz."], {"20":("022","20%"),"10":("029","10%"),"13":("006","13%")}),
+                            "CZ": (["Radek","Popis","Base","TVA","Pocet"], {"21":("1","21%"),"12":("2","12%")}),
+                            "RO": (["Rand","Descriere","Base","TVA","Nr."], {"19":("9","19%"),"9":("10","9%"),"5":("11","5%")}),
+                            "HU": (["Sor","Megnevezes","Base","TVA","Db"], {"27":("B2","27%"),"18":("C2","18%"),"5":("D2","5%")}),
+                            "IE": (["Box","Description","Base (EUR)","TVA (EUR)","Count"], {"23":("T1","23%"),"9":("T1","9%"),"0":("E1","0%")}),
+                        }
+                        if country == "FR":
+                            w.writerow(["Base HT","Taux (%)","TVA","ID vente","Canal"])
+                            for r in country_results:
+                                w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),(r.sale.display_id or r.sale.sale_id),r.channel.value])
+                            w.writerow([]); w.writerow(["TOTAL TVA FR",str(summary.net_fr_domestic_vat).replace(".",",")])
+                            w.writerow(["TOTAL OSS",str(_oss_tva_net_total).replace(".",",")])
+                        elif country in fmt_map:
+                            headers, mapping = fmt_map[country]
+                            w.writerow(headers)
+                            for rk, d in sorted(by_rate.items(), key=lambda x: -float(x[0])):
+                                if mapping:
+                                    val = mapping.get(rk, ("", rk+"%"))
+                                    code, desc = val if isinstance(val, tuple) else (rk, val)
+                                else:
+                                    code, desc = "", rk+"%"
+                                w.writerow([code,desc,str(d["base"]).replace(".",","),str(d["tva"]).replace(".",","),d["nb"]])
+                            w.writerow(["","TOTAL","",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
+                        else:
+                            w.writerow([lbl_base+" (EUR)","Taux (%)","TVA (EUR)","Nb","ID vente","Date"])
+                            for r in country_results:
+                                w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),1,(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date])
+                            w.writerow([]); w.writerow(["TOTAL TVA","",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
+                        w.writerow([]); w.writerow(["--- Détail ---"])
+                        w.writerow(["ID vente","Date","Base HT (EUR)","Taux (%)","TVA (EUR)","Canal","Pays dest."])
+                        for r in country_results:
+                            w.writerow([(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date,str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),r.channel.value,r.sale.buyer_country])
+                        return ("\ufeff"+buf.getvalue()).encode("utf-8")
+
+                    meta_sel = COUNTRY_FISCAL_META.get(export_country, ("","","","—","—"))
+                    country_vat = (float(summary.fr_domestic_vat) if export_country == "FR" else float(summary.oss_by_country.get(export_country,0)) + float(summary.local_by_country.get(export_country,0)))
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric(f"TVA due — {_country_label(export_country)}", f"{country_vat:,.2f} EUR")
+                    m2.metric("Taux standard", meta_sel[3])
+                    m3.metric("Taux réduit", meta_sel[4])
+                    _gated_download(f"📥 Télécharger Déclaration {_country_label(export_country)} (.csv)", data=_build_local_csv(export_country), file_name=f"Déclaration TVA {_country_label(export_country)} - {nom_entreprise} - {period_label}.csv", mime="text/csv", use_container_width=True)
+
+                st.divider()
+
+                # 6. Comptabilité
+                st.markdown("#### 📒 Comptabilité")
+                st.caption("Export au format FEC (séparateur tabulation) pour import dans votre logiciel comptable.")
+                _fec_ecriture_date = _fec_period_end_date(period_label)
+                fec_bytes = generate_fec_bytes(results_net, period=period_label, ecriture_date=_fec_ecriture_date, piece_ref=f"Import Amazon {period_label}")
+                _gated_download("📥 Journal des ventes (FEC .txt)", data=fec_bytes, file_name=f"Export Comptable FEC - {nom_entreprise} - {period_label}.txt", mime="text/plain", use_container_width=True)
 
         # ── 6. VISUALISATIONS (repliées) ──────────────────────────────────────
         with tab_viz:
@@ -2825,41 +2894,44 @@ if uploaded_files:
             # Total net par pays pour le tri et la carte
             vat_net_by_country = {c: sum(types.values()) for c, types in viz_data_by_country.items()}
 
+            st.subheader("TVA due par pays (Net)")
+            if not _can_export:
+                st.info("🔒 Détail par pays verrouillé. Débloquez la période pour visualiser la répartition géographique.")
+            elif viz_data_by_country:
+                # Préparation des données pour un Bar Chart empilé (Stacked Bar)
+                # On trie par total décroissant
+                sorted_countries = sorted(vat_net_by_country.keys(), key=lambda c: -vat_net_by_country[c])
+                
+                types = ["France (CA3)", "Guichet OSS", "Fisc local"]
+                colors = {"France (CA3)": "#2ca02c", "Guichet OSS": "#1f77b4", "Fisc local": "#9467bd"}
+                
+                fig_bar = go.Figure()
+                for t in types:
+                    vals = [viz_data_by_country[c].get(t, 0) for c in sorted_countries]
+                    if any(v != 0 for v in vals):
+                        fig_bar.add_trace(go.Bar(
+                            name=t,
+                            x=[_country_label(c) for c in sorted_countries],
+                            y=vals,
+                            marker_color=colors.get(t),
+                            text=[f"{v:,.2f}€" if v != 0 else "" for v in vals],
+                            textposition="auto"
+                        ))
+                
+                fig_bar.update_layout(
+                    barmode='relative', # 'relative' permet d'empiler correctement les négatifs si besoin
+                    yaxis_title="Montant TVA Net (EUR)",
+                    height=450,
+                    margin=dict(t=40, b=40),
+                    # On place la légende en haut pour éviter la superposition avec la barre d'outils (modebar)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+            st.divider()
+
             ch1, ch2 = st.columns(2)
             with ch1:
-                st.subheader("TVA due par pays (Net)")
-                if not _can_export:
-                    st.info("🔒 Détail par pays verrouillé. Débloquez la période pour visualiser la répartition géographique.")
-                elif viz_data_by_country:
-                    # Préparation des données pour un Bar Chart empilé (Stacked Bar)
-                    # On trie par total décroissant
-                    sorted_countries = sorted(vat_net_by_country.keys(), key=lambda c: -vat_net_by_country[c])
-                    
-                    types = ["France (CA3)", "Guichet OSS", "Fisc local"]
-                    colors = {"France (CA3)": "#2ca02c", "Guichet OSS": "#1f77b4", "Fisc local": "#9467bd"}
-                    
-                    fig_bar = go.Figure()
-                    for t in types:
-                        vals = [viz_data_by_country[c].get(t, 0) for c in sorted_countries]
-                        if any(v != 0 for v in vals):
-                            fig_bar.add_trace(go.Bar(
-                                name=t,
-                                x=[_country_label(c) for c in sorted_countries],
-                                y=vals,
-                                marker_color=colors.get(t),
-                                text=[f"{v:,.2f}€" if v != 0 else "" for v in vals],
-                                textposition="auto"
-                            ))
-                    
-                    fig_bar.update_layout(
-                        barmode='relative', # 'relative' permet d'empiler correctement les négatifs si besoin
-                        yaxis_title="Montant TVA Net (EUR)",
-                        height=380,
-                        margin=dict(t=20, b=40),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                    )
-                    st.plotly_chart(fig_bar, use_container_width=True)
-            with ch2:
                 st.subheader(f"Répartition : Vous vs {platform_name}")
                 pie_l, pie_v, pie_c = [], [], []
                 if float(summary.total_you_owe)>0: pie_l.append("Vous"); pie_v.append(float(summary.total_you_owe)); pie_c.append("#2ca02c")
@@ -2868,21 +2940,31 @@ if uploaded_files:
                 if pie_v:
                     fig_pie = go.Figure(go.Pie(labels=pie_l, values=pie_v,
                         marker=dict(colors=pie_c), hole=0.4, textinfo="label+percent"))
-                    fig_pie.update_layout(height=380, margin=dict(t=20,b=20))
+                    fig_pie.update_layout(height=400, margin=dict(t=20,b=20),
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
                     st.plotly_chart(fig_pie, use_container_width=True)
 
-            if vat_net_by_country:
+            with ch2:
                 st.subheader("🗺️ Carte de la TVA en Europe (Net)")
                 if not _can_export:
                     st.info("🔒 Carte interactive verrouillée. Débloquez la période pour visualiser les zones fiscales.")
-                else:
+                elif vat_net_by_country:
                     map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt}
                         for c, amt in vat_net_by_country.items() if c in COUNTRY_ISO3]
                     if map_data:
                         fig_map = px.choropleth(map_data, locations="iso_alpha", color="tva",
                             hover_name="pays", color_continuous_scale="YlOrRd", scope="europe",
                             labels={"tva": "TVA Nette (EUR)"})
-                        fig_map.update_layout(height=450, margin=dict(t=10,b=10,l=0,r=0))
+                        fig_map.update_layout(
+                            height=400, 
+                            margin=dict(t=10,b=10,l=0,r=0),
+                            coloraxis_colorbar=dict(
+                                thicknessmode="pixels", thickness=15,
+                                lenmode="pixels", len=200,
+                                yanchor="middle", y=0.5,
+                                xanchor="right", x=1.05 # On rapproche la barre de la carte
+                            )
+                        )
                         st.plotly_chart(fig_map, use_container_width=True)
 
             # ── B : Évolution temporelle ──────────────────────────────────────
@@ -2992,12 +3074,11 @@ else:
     st.markdown("---")
     col_a, col_b = st.columns([2,1])
     with col_a:
-        st.markdown("### Comment utiliser\n\n1. Sélectionnez la **plateforme** dans la barre latérale.\n"
-            "2. Déposez votre **fichier** dans la zone ci-dessus.\n"
-            "3. Consultez le **récapitulatif** avec graphiques.\n"
-            "4. Téléchargez le **rapport Excel**.")
-    with col_b:
-        st.markdown("### Plateformes supportées\n\n"
-            "| Source | Type |\n|---|---|\n"
-            "| Amazon | Marketplace |\n| Mirakl | Marketplace |\n"
-            "| Shopify | CMS |\n| WooCommerce | CMS |\n| AliExpress | Marketplace |")
+        st.markdown("""
+            ### Comment utiliser
+
+            1. **Configuration** : Renseignez votre **SIREN**, vos **numéros de TVA locaux** (France et Europe) ainsi que votre numéro **IOSS** (si applicable) dans la section **Entreprise & Paramètres** de la barre latérale.
+            2. **Import Amazon** : Déposez votre rapport de transactions Amazon (**VAT Transactions Report** au format .tsv, .txt, .csv ou .xlsx) dans la zone de dépôt ci-dessus.
+            3. **Vérification** : Le moteur calcule automatiquement la TVA due par pays, valide les numéros B2B via VIES et audite les collectes effectuées par Amazon.
+            4. **Déclarations** : Consultez les résultats par onglet et téléchargez vos fichiers (XML OSS, rapport CA3, journal FEC, Excel d'audit complet).
+        """)

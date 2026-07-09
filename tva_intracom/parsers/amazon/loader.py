@@ -413,56 +413,51 @@ def load_amazon_report(
         handle.seek(0)
 
         # ------------------------------------------------------------------
-        # Lecture du fichier : pandas (parseur C) en priorité.
+        # Lecture du fichier : polars (parseur Rust) en priorité, sinon pandas.
         #
         # Sur un rapport Amazon de plusieurs centaines de milliers de lignes,
-        # le parseur C de pandas est nettement plus rapide que csv.DictReader
-        # + une dict-comprehension par ligne en pur Python. On lit tout en
-        # dtype=str (aucune inférence de type — la conversion des montants
-        # reste déléguée à safe_decimal() dans constants.py, qui gère déjà
-        # les virgules décimales FR, espaces milliers, et symboles monétaires
-        # — on ne duplique pas cette logique ici), puis on normalise les en-têtes
-        # vectoriellement via un simple rename de colonnes (une seule passe,
-        # pas une par cellule). La conversion finale en liste de dict reste
-        # nécessaire pour ne pas toucher à l'architecture des parsers par
-        # format (chaque _RowParser attend un dict par ligne) — c'est la
-        # lecture/normalisation qui est vectorisée, pas la logique métier
-        # par ligne (classification B2B/B2C, devise, etc.), qui reste légitimement
-        # ligne par ligne car elle diffère par format et a des branches métier
-        # (cf. parsers.py / classify.py).
+        # le parseur de polars est le plus performant. On lit tout en
+        # string (infer_schema_length=0) pour éviter les erreurs d'inférence,
+        # puis on normalise les en-têtes.
         #
-        # Repli automatique sur csv.DictReader si pandas échoue (CSV malformé,
-        # encodage incohérent ligne à ligne, etc.) pour ne jamais bloquer un
-        # import qui fonctionnait auparavant.
+        # Repli automatique sur pandas puis csv.DictReader en cas d'échec.
         # ------------------------------------------------------------------
         raw_rows: list[dict] = []
         try:
-            import pandas as pd  # import local : évite la dépendance dure si non installé
-
-            df = pd.read_csv(
-                handle,
-                sep=sep,
-                dtype=str,
-                keep_default_na=False,
-                na_filter=False,
-                engine="c",
-                on_bad_lines="warn",
-            )
-            df.columns = [normalize_header(str(c)) for c in df.columns]
-            raw_rows = df.to_dict("records")
-        except Exception as exc:
-            logger.warning(
-                "Lecture pandas du CSV échouée (%s) — repli sur csv.DictReader.", exc
-            )
+            import polars as pl
+            # On lit tout en string pour garder la cohérence avec le reste du moteur
+            df = pl.read_csv(handle, separator=sep, infer_schema_length=0, encoding=encoding)
+            df = df.rename({c: normalize_header(c) for c in df.columns})
+            raw_rows = df.to_dicts()
+        except Exception as exc_polars:
+            logger.debug("Lecture polars échouée (%s), tentative pandas.", exc_polars)
             handle.seek(0)
-            reader = csv.DictReader(handle, delimiter=sep)
-            raw_fieldnames = reader.fieldnames
-            if raw_fieldnames:
-                reader.fieldnames = [normalize_header(f) for f in raw_fieldnames]
-            raw_rows = [
-                {normalize_header(k): v for k, v in row.items() if k}
-                for row in reader
-            ]
+            try:
+                import pandas as pd
+                df_pd = pd.read_csv(
+                    handle,
+                    sep=sep,
+                    dtype=str,
+                    keep_default_na=False,
+                    na_filter=False,
+                    engine="c",
+                    on_bad_lines="warn",
+                )
+                df_pd.columns = [normalize_header(str(c)) for c in df_pd.columns]
+                raw_rows = df_pd.to_dict("records")
+            except Exception as exc_pandas:
+                logger.warning(
+                    "Lecture pandas du CSV échouée (%s) — repli sur csv.DictReader.", exc_pandas
+                )
+                handle.seek(0)
+                reader = csv.DictReader(handle, delimiter=sep)
+                raw_fieldnames = reader.fieldnames
+                if raw_fieldnames:
+                    reader.fieldnames = [normalize_header(f) for f in raw_fieldnames]
+                raw_rows = [
+                    {normalize_header(k): v for k, v in row.items() if k}
+                    for row in reader
+                ]
 
         headers = set(raw_rows[0].keys()) if raw_rows else set()
         fmt = detect_format(headers)

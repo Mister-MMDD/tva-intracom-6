@@ -8,4 +8,4 @@ dist/
 .venv/
 venv/
 .env
-.streamlit/
+.streamlit/secrets.toml
