@@ -37,7 +37,7 @@ from tva_intracom.engine import ViesValidationSummary, compute_all, compute_all_
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.models import Scenario, BuyerType, Channel, Collector
 from tva_intracom.rates import EU_COUNTRIES
-from tva_intracom.report import build_report, render_report
+from tva_intracom.report import build_report
 from tva_intracom.oss_export import build_oss_excel, build_oss_csv
 from tva_intracom.ca3_report import generate_ca3_html_report_v2  # (et autres imports nécessaires)
 from tva_intracom.fec_export import generate_fec_bytes
@@ -153,23 +153,57 @@ def _gated_preview_table(df: "pd.DataFrame", can_export: bool, column_config: di
 
     - Compte débloqué pour la période (`can_export=True`) : st.dataframe complet,
       avec sa barre d'outils native (recherche, export CSV, plein écran).
-    - Sinon : aperçu statique via st.table (pas de barre d'outils, donc pas de
-      bouton d'export CSV en un clic), limité à `pct` % des lignes (minimum
-      `min_rows`), pour ne pas exposer la valeur commerciale complète du
-      détail avant paiement. Le contenu visible reste copiable à la souris
-      (aucune techno web n'empêche ça complètement) — l'objectif ici est de
-      retirer l'export en un clic et de limiter le volume, pas d'empêcher
-      toute copie manuelle d'un aperçu volontairement partiel.
+    - Sinon : aperçu statique via st.table, limité à `pct` % des lignes (minimum
+      `min_rows`). NOUVEAUTÉ : Double limitation (max 10 lignes en clair).
+      Les lignes au-delà de 10 sont affichées mais masquées sur les colonnes sensibles
+      (IDs, montants, scénarios) pour inciter au déblocage.
     """
     n = len(df)
     if can_export or n == 0:
         st.dataframe(df, use_container_width=True, hide_index=True, column_config=column_config or {})
         return
-    n_visible = max(min_rows, math.ceil(n * pct))
-    st.table(df.head(n_visible))
-    _hidden = n - n_visible
+
+    # 1. Calcul des limites
+    n_total_preview = max(min_rows, math.ceil(n * pct))
+    n_full_visible  = min(n_total_preview, 10)  # On ne montre que 10 lignes max en clair
+
+    # On travaille sur une copie pour ne pas altérer le DataFrame original
+    df_preview = df.head(n_total_preview).copy()
+
+    # 2. Masquage des données sensibles pour les lignes > n_full_visible
+    if n_total_preview > n_full_visible:
+        # On identifie les colonnes à masquer
+        for col in df_preview.columns:
+            col_l = col.lower()
+            
+            # Déterminer si on doit garder la colonne visible (Date, Pays)
+            is_date = any(x in col_l for x in ["date", "période", "period", "mois", "month", "année", "year"])
+            is_country = any(x in col_l for x in ["pays", "country", "dep", "dest", "arr", "orig", "départ", "arrivée", "stock"])
+            
+            if is_date or is_country:
+                continue # On garde ces colonnes en clair
+
+            # Pour tout le reste (IDs, Scénarios, Montants...), on masque
+            mask_val = "[🔒 Verrouillé Option Premium]"
+            # Cas particulier pour les régimes fiscaux
+            if any(x in col_l for x in ["régime", "scenario", "scénario", "fiscal"]):
+                mask_val = "[🔒 Verrouillé Option Premium]"
+            
+            # Conversion en object pour accepter le texte si c'était du numérique
+            if df_preview[col].dtype.kind in 'ifc':
+                df_preview[col] = df_preview[col].astype(object)
+                
+            # Application du masque à partir de la ligne n_full_visible
+            df_preview.iloc[n_full_visible:, df_preview.columns.get_loc(col)] = mask_val
+
+    # 3. Affichage
+    st.table(df_preview)
+
+    _hidden = n - n_total_preview
     if _hidden > 0:
-        st.caption(f"{unlock_hint} {_hidden} ligne(s) supplémentaire(s) sur {n} au total.")
+        st.caption(f"{unlock_hint} {n_total_preview} ligne(s) affichée(s) sur {n} au total (dont {max(0, n_total_preview - n_full_visible)} masquée(s)).")
+    elif n_total_preview > n_full_visible:
+        st.caption(f"{unlock_hint} {n_total_preview - n_full_visible} ligne(s) masquée(s). Débloquez pour voir tout le détail.")
 # =============================================================================
 # SIDEBAR
 # =============================================================================
@@ -1513,8 +1547,14 @@ if uploaded_files:
         # On vérifie que tous les numéros de TVA requis pour les pays où du stock
         # est détecté sont renseignés, ainsi que l'IOSS si nécessaire.
         _missing_vats = []
-        for _ccode in sorted(registration_needed.keys()):
-            if _ccode != "FR" and not local_vat_numbers.get(_ccode):
+        
+        # On définit l'ensemble des pays où une immatriculation est requise par le fichier
+        _required_local_vats = all_stock_countries | pay_eu
+        if seller_is_importer:
+            _required_local_vats |= {r.vat_country for r in results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"}
+            
+        for _ccode in sorted(_required_local_vats):
+            if _ccode and _ccode != "FR" and not local_vat_numbers.get(_ccode):
                 _missing_vats.append(f"{_country_label(_ccode)} ({_ccode})")
         
         _has_ioss_vendeur = any(r.channel == Channel.IOSS for r in results)
@@ -1582,6 +1622,27 @@ if uploaded_files:
             Utilisable dans N'IMPORTE QUEL onglet (défini avant st.tabs) —
             tous les exports CSV/XLSX, où qu'ils soient affichés, doivent
             passer par cette fonction plutôt que st.download_button en direct."""
+            # Priorité 1 : Paiement / Déblocage de la période
+            if not _can_export:
+                if _quota_status and _quota_status.blocked:
+                    st.error(
+                        f"🔒 {label} — paiement indisponible : ce compte a "
+                        f"{_quota_status.registered_count} SIREN enregistrés pour un quota de "
+                        f"{_quota_status.quota}. Retirez {_quota_status.over_quota_by} SIREN "
+                        "(section « 💳 Abonnements & forfaits ») avant de payer."
+                    )
+                    return
+                
+                _url = _get_payg_checkout_url()
+                if _url:
+                    st.link_button(f"🔒 {label} — {_unlock_label_suffix}", _url,
+                                    use_container_width=kwargs.get("use_container_width", False))
+                else:
+                    _err = st.session_state.get(f"_stripe_checkout_error::{period_label}", "erreur inconnue")
+                    st.error(f"🔒 {label} — paiement indisponible : {_err}")
+                return
+
+            # Priorité 2 : Conformité (seulement si la période est débloquée)
             if _compliance_blocked:
                 _msg = "🔒 Téléchargement bloqué : informations de conformité manquantes.\n\n"
                 if _missing_vats:
@@ -1592,31 +1653,13 @@ if uploaded_files:
                 st.error(_msg)
                 return
 
-            if _can_export:
-                if vies_summary and vies_summary.total_inconclusive > 0:
-                    st.error(
-                        f"🔒 {label} — export bloqué : **{vies_summary.total_inconclusive} numéro(s) TVA** "
-                        "n'ont pas pu être vérifiés auprès de VIES. "
-                        "Veuillez relancer une vérification automatique ou les classifier manuellement dans l'onglet **🔎 Contrôle VIES** avant d'exporter."
-                    )
-                    return
-                st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
-                return
-            if _quota_status and _quota_status.blocked:
-                st.error(
-                    f"🔒 {label} — paiement indisponible : ce compte a "
-                    f"{_quota_status.registered_count} SIREN enregistrés pour un quota de "
-                    f"{_quota_status.quota}. Retirez {_quota_status.over_quota_by} SIREN "
-                    "(section « 💳 Abonnements & forfaits ») avant de payer."
+            # Priorité 3 : Affichage du bouton de téléchargement (avec warning VIES éventuel)
+            if vies_summary and vies_summary.total_inconclusive > 0:
+                st.warning(
+                    f"⚠️ {label} — **Attention : {vies_summary.total_inconclusive} numéro(s) TVA** "
+                    "n'ont pas pu être vérifiés auprès de VIES. L'export peut contenir des erreurs de classification B2B/B2C."
                 )
-                return
-            _url = _get_payg_checkout_url()
-            if _url:
-                st.link_button(f"🔒 {label} — {_unlock_label_suffix}", _url,
-                                use_container_width=kwargs.get("use_container_width", False))
-            else:
-                _err = st.session_state.get(f"_stripe_checkout_error::{period_label}", "erreur inconnue")
-                st.error(f"🔒 {label} — paiement indisponible : {_err}")
+            st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
 
         # =====================================================================
         # ONGLETS PRINCIPAUX
@@ -1646,60 +1689,148 @@ if uploaded_files:
             _oss_country_totals: dict = {}
             for _dep, _dests in _oss_period_agg.items():
                 for _arr, _rates in _dests.items():
-                    _acc = _oss_country_totals.setdefault(_arr, {"vente": _ZERO, "remb": _ZERO, "net": _ZERO})
+                    _acc = _oss_country_totals.setdefault(_arr, {
+                        "tva_vente": _ZERO, "tva_remb": _ZERO, "tva_net": _ZERO,
+                        "ht_vente": _ZERO, "ht_remb": _ZERO, "ht_net": _ZERO
+                    })
                     for _rate, _amt in _rates.items():
-                        _acc["vente"] += _amt["tva_vente"]
-                        _acc["remb"]  += _amt["tva_remb"]
-                        _acc["net"]   += _amt["tva"]
-            _oss_vente_total = sum((v["vente"] for v in _oss_country_totals.values()), _ZERO)
-            _oss_remb_total  = sum((v["remb"]  for v in _oss_country_totals.values()), _ZERO)
-            _oss_net_total   = sum((v["net"]   for v in _oss_country_totals.values()), _ZERO)
+                        _acc["tva_vente"] += _amt["tva_vente"]
+                        _acc["tva_remb"]  += _amt["tva_remb"]
+                        _acc["tva_net"]   += _amt["tva"]
+                        _acc["ht_vente"]  += _amt["ht_vente"]
+                        _acc["ht_remb"]   += _amt["ht_remb"]
+                        _acc["ht_net"]    += _amt["ht"]
+            
+            _oss_tva_vente_total = sum((v["tva_vente"] for v in _oss_country_totals.values()), _ZERO)
+            _oss_tva_remb_total  = sum((v["tva_remb"]  for v in _oss_country_totals.values()), _ZERO)
+            _oss_tva_net_total   = sum((v["tva_net"]   for v in _oss_country_totals.values()), _ZERO)
+            _oss_ht_vente_total  = sum((v["ht_vente"]  for v in _oss_country_totals.values()), _ZERO)
+            _oss_ht_remb_total   = sum((v["ht_remb"]   for v in _oss_country_totals.values()), _ZERO)
+            _oss_ht_net_total    = sum((v["ht_net"]    for v in _oss_country_totals.values()), _ZERO)
+
+            # France CA3
+            fr_ht_brut = sum(r.sale.amount_ht for r in results if r.channel == Channel.FR_DOMESTIC)
+            fr_ht_remb = sum(r.sale.amount_ht for r in (refund_results or []) if r.channel == Channel.FR_DOMESTIC)
 
             recap_data = [
-                {"Canal":"TVA domestique France (CA3)","Ventes (EUR)":float(summary.fr_domestic_vat),
-                 "Remb. (EUR)":float(summary.refund_fr_domestic_vat) if summary.refund_count else None,
-                 "Net (EUR)":float(summary.net_fr_domestic_vat)},
-                {"Canal":"Guichet OSS (total)","Ventes (EUR)":float(_oss_vente_total),
-                 "Remb. (EUR)":float(_oss_remb_total) if summary.refund_count else None,
-                 "Net (EUR)":float(_oss_net_total)},
+                {
+                    "Canal": "TVA domestique France (CA3)",
+                    "CA HT Brut (EUR)": float(fr_ht_brut),
+                    "CA HT Remb. (EUR)": float(fr_ht_remb) if fr_ht_remb else None,
+                    "CA HT Net (EUR)": float(fr_ht_brut + fr_ht_remb),
+                    "TVA Brute (EUR)": float(summary.fr_domestic_vat),
+                    "TVA Remb. (EUR)": float(summary.refund_fr_domestic_vat) if summary.refund_count else None,
+                    "TVA Nette (EUR)": float(summary.net_fr_domestic_vat)
+                },
+                {
+                    "Canal": "Guichet OSS (total)",
+                    "CA HT Brut (EUR)": float(_oss_ht_vente_total),
+                    "CA HT Remb. (EUR)": float(_oss_ht_remb_total) if _oss_ht_remb_total else None,
+                    "CA HT Net (EUR)": float(_oss_ht_net_total),
+                    "TVA Brute (EUR)": float(_oss_tva_vente_total),
+                    "TVA Remb. (EUR)": float(_oss_tva_remb_total) if summary.refund_count else None,
+                    "TVA Nette (EUR)": float(_oss_tva_net_total)
+                },
             ]
             for country in sorted(_oss_country_totals):
                 _c = _oss_country_totals[country]
-                recap_data.append({"Canal":f"  → {_country_label(country)} ({country})",
-                    "Ventes (EUR)":float(_c["vente"]),
-                    "Remb. (EUR)":float(_c["remb"]) if summary.refund_count else None,
-                    "Net (EUR)":float(_c["net"])})
+                recap_data.append({
+                    "Canal": f"  → {_country_label(country)} ({country})",
+                    "CA HT Brut (EUR)": float(_c["ht_vente"]),
+                    "CA HT Remb. (EUR)": float(_c["ht_remb"]) if _c["ht_remb"] else None,
+                    "CA HT Net (EUR)": float(_c["ht_net"]),
+                    "TVA Brute (EUR)": float(_c["tva_vente"]),
+                    "TVA Remb. (EUR)": float(_c["tva_remb"]) if summary.refund_count else None,
+                    "TVA Nette (EUR)": float(_c["tva_net"])
+                })
+
             _ioss_results = [r for r in results if r.scenario.value == "IOSS_DIRECT"]
-            if _ioss_results:
-                _ioss_total = sum(float(r.vat_amount) for r in _ioss_results)
-                _ioss_ht    = sum(float(r.sale.amount_ht) for r in _ioss_results)
-                recap_data.append({"Canal": "🌐 Guichet IOSS (propre numéro vendeur)",
-                    "Ventes (EUR)": _ioss_total, "Remb. (EUR)": None, "Net (EUR)": _ioss_total})
-                st.info(f"ℹ️ **{len(_ioss_results)} vente(s) IOSS_DIRECT** — HT : {_ioss_ht:,.2f} € · TVA : {_ioss_total:,.2f} €")
+            _ioss_refund_results = [r for r in (refund_results or []) if r.scenario.value == "IOSS_DIRECT"]
+            if _ioss_results or _ioss_refund_results:
+                _ioss_tva_brute = sum(r.vat_amount for r in _ioss_results)
+                _ioss_tva_remb = sum(r.vat_amount for r in _ioss_refund_results)
+                _ioss_ht_brut = sum(r.sale.amount_ht for r in _ioss_results)
+                _ioss_ht_remb = sum(r.sale.amount_ht for r in _ioss_refund_results)
+                recap_data.append({
+                    "Canal": "🌐 Guichet IOSS (propre numéro vendeur)",
+                    "CA HT Brut (EUR)": float(_ioss_ht_brut),
+                    "CA HT Remb. (EUR)": float(_ioss_ht_remb) if _ioss_ht_remb else None,
+                    "CA HT Net (EUR)": float(_ioss_ht_brut + _ioss_ht_remb),
+                    "TVA Brute (EUR)": float(_ioss_tva_brute),
+                    "TVA Remb. (EUR)": float(_ioss_tva_remb) if _ioss_tva_remb else None,
+                    "TVA Nette (EUR)": float(_ioss_tva_brute + _ioss_tva_remb)
+                })
+
             _ddp_results = [r for r in results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
-            if _ddp_results:
-                _ddp_by_country: dict = {}
+            _ddp_refund_results = [r for r in (refund_results or []) if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
+            if _ddp_results or _ddp_refund_results:
+                _ddp_agg = {}
                 for r in _ddp_results:
-                    _ddp_by_country[r.vat_country] = _ddp_by_country.get(r.vat_country, 0) + float(r.vat_amount)
-                for _ccode, _camt in sorted(_ddp_by_country.items()):
+                    _acc = _ddp_agg.setdefault(r.vat_country, {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO})
+                    _acc["ht_brut"] += r.sale.amount_ht
+                    _acc["tva_brute"] += r.vat_amount
+                for r in _ddp_refund_results:
+                    _acc = _ddp_agg.setdefault(r.vat_country, {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO})
+                    _acc["ht_remb"] += r.sale.amount_ht
+                    _acc["tva_remb"] += r.vat_amount
+                for _ccode, _vals in sorted(_ddp_agg.items()):
                     _label = "TVA DDP France (CA3)" if _ccode == "FR" else f"TVA DDP {_country_label(_ccode)} (immat. locale)"
-                    recap_data.append({"Canal": f"📦 {_label}", "Ventes (EUR)": _camt, "Remb. (EUR)": None, "Net (EUR)": _camt})
-                st.warning(f"⚠️ **{len(_ddp_results)} vente(s) DDP (vendeur importateur)** : immatriculation locale requise.")
+                    recap_data.append({
+                        "Canal": f"📦 {_label}",
+                        "CA HT Brut (EUR)": float(_vals["ht_brut"]),
+                        "CA HT Remb. (EUR)": float(_vals["ht_remb"]) if _vals["ht_remb"] else None,
+                        "CA HT Net (EUR)": float(_vals["ht_brut"] + _vals["ht_remb"]),
+                        "TVA Brute (EUR)": float(_vals["tva_brute"]),
+                        "TVA Remb. (EUR)": float(_vals["tva_remb"]) if _vals["tva_remb"] else None,
+                        "TVA Nette (EUR)": float(_vals["tva_brute"] + _vals["tva_remb"])
+                    })
+
             if summary.local_by_country:
-                local_total  = float(sum(summary.local_by_country.values()))
-                local_refund = float(sum(getattr(summary,"refund_local_by_country",{}).values() or [0]))
-                recap_data.append({"Canal":"Fisc local (hors FR) — Total","Ventes (EUR)":local_total,
-                    "Remb. (EUR)":local_refund if summary.refund_count else None,"Net (EUR)":local_total+local_refund})
+                local_ht_brut_by_country = {}
+                for r in results:
+                    if r.channel == Channel.LOCAL_REGISTRATION:
+                        local_ht_brut_by_country[r.vat_country] = local_ht_brut_by_country.get(r.vat_country, _ZERO) + r.sale.amount_ht
+                local_ht_remb_by_country = {}
+                for r in (refund_results or []):
+                    if r.channel == Channel.LOCAL_REGISTRATION:
+                        local_ht_remb_by_country[r.vat_country] = local_ht_remb_by_country.get(r.vat_country, _ZERO) + r.sale.amount_ht
+                
+                _local_ht_brut_total = sum(local_ht_brut_by_country.values(), _ZERO)
+                _local_ht_remb_total = sum(local_ht_remb_by_country.values(), _ZERO)
+                _local_tva_brute_total = sum(summary.local_by_country.values(), _ZERO)
+                _local_tva_remb_total = sum(getattr(summary, "refund_local_by_country", {}).values(), _ZERO)
+                
+                recap_data.append({
+                    "Canal": "Fisc local (hors FR) — Total",
+                    "CA HT Brut (EUR)": float(_local_ht_brut_total),
+                    "CA HT Remb. (EUR)": float(_local_ht_remb_total) if _local_ht_remb_total else None,
+                    "CA HT Net (EUR)": float(_local_ht_brut_total + _local_ht_remb_total),
+                    "TVA Brute (EUR)": float(_local_tva_brute_total),
+                    "TVA Remb. (EUR)": float(_local_tva_remb_total) if summary.refund_count else None,
+                    "TVA Nette (EUR)": float(_local_tva_brute_total + _local_tva_remb_total)
+                })
                 for country in sorted(summary.local_by_country):
-                    _lref = float(getattr(summary,"refund_local_by_country",{}).get(country,0))
-                    recap_data.append({"Canal":f"  → {_country_label(country)} ({country})",
-                        "Ventes (EUR)":float(summary.local_by_country[country]),
-                        "Remb. (EUR)":_lref if summary.refund_count else None,
-                        "Net (EUR)":float(summary.local_by_country[country])+_lref})
+                    _ht_brut = local_ht_brut_by_country.get(country, _ZERO)
+                    _ht_remb = local_ht_remb_by_country.get(country, _ZERO)
+                    _tva_brute = summary.local_by_country[country]
+                    _tva_remb = float(getattr(summary, "refund_local_by_country", {}).get(country, 0))
+                    recap_data.append({
+                        "Canal": f"  → {_country_label(country)} ({country})",
+                        "CA HT Brut (EUR)": float(_ht_brut),
+                        "CA HT Remb. (EUR)": float(_ht_remb) if _ht_remb else None,
+                        "CA HT Net (EUR)": float(_ht_brut + _ht_remb),
+                        "TVA Brute (EUR)": float(_tva_brute),
+                        "TVA Remb. (EUR)": float(_tva_remb) if summary.refund_count else None,
+                        "TVA Nette (EUR)": float(_tva_brute + Decimal(str(_tva_remb)))
+                    })
+            _recap_cols = [
+                "CA HT Brut (EUR)", "CA HT Remb. (EUR)", "CA HT Net (EUR)",
+                "TVA Brute (EUR)", "TVA Remb. (EUR)", "TVA Nette (EUR)"
+            ]
             _recap_df = pd.DataFrame(recap_data)
             _recap_cfg = _smart_money_df(
                 _recap_df,
-                money_cols=["Ventes (EUR)", "Remb. (EUR)", "Net (EUR)"],
+                money_cols=_recap_cols,
             )
             # Amélioration 3 : colonne Type pour distinguer totaux et sous-lignes
             # pays — un "→" (OSS/local par pays) ou "📦" (DDP par pays) marque
@@ -1715,18 +1846,37 @@ if uploaded_files:
                 st.dataframe(_recap_df, use_container_width=True, hide_index=True,
                              column_config=_recap_cfg)
             else:
-                # Aperçu gratuit : uniquement les lignes agrégées (TVA domestique
-                # France, Guichet OSS total, Fisc local total…) — le détail par
-                # pays est réservé aux comptes débloqués (achat ou abonnement).
-                _recap_totals_only = _recap_df[_recap_df["Type"] == "Total"].drop(columns=["Type"])
-                st.table(_recap_totals_only)
-                _hidden_country_rows = len(_recap_df) - len(_recap_totals_only)
-                if _hidden_country_rows > 0:
-                    st.caption(
-                        f"🔒 Détail par pays masqué ({_hidden_country_rows} ligne(s)) — "
-                        "débloquez cette période (achat ou abonnement) pour voir la "
-                        "ventilation pays par pays."
-                    )
+                # Aperçu gratuit restreint :
+                # - Lignes Total : CA visible, TVA verrouillée.
+                # - Lignes Pays : tout verrouillé.
+                _recap_preview = _recap_df.copy()
+                tva_cols = ["TVA Brute (EUR)", "TVA Remb. (EUR)", "TVA Nette (EUR)"]
+                ca_cols = ["CA HT Brut (EUR)", "CA HT Remb. (EUR)", "CA HT Net (EUR)"]
+                
+                # On s'assure que les colonnes sont de type object pour accepter les strings de verrouillage
+                for col in tva_cols + ca_cols:
+                    if col in _recap_preview.columns:
+                        _recap_preview[col] = _recap_preview[col].astype(object)
+
+                # Masquage conditionnel
+                for idx, row in _recap_preview.iterrows():
+                    if row["Type"] == "Total":
+                        # Ligne Total : on masque seulement la TVA
+                        for col in tva_cols:
+                            if col in _recap_preview.columns:
+                                _recap_preview.at[idx, col] = "[🔒 Verrouillé Option Premium]"
+                    else:
+                        # Ligne Pays : on masque tout (CA et TVA)
+                        for col in tva_cols + ca_cols:
+                            if col in _recap_preview.columns:
+                                _recap_preview.at[idx, col] = "[🔒 Verrouillé Option Premium]"
+
+                # Affichage (on retire la colonne Type pour l'aperçu comme avant)
+                st.table(_recap_preview.drop(columns=["Type"]))
+                st.caption(
+                    "🔒 Aperçu limité : débloquez cette période (achat ou abonnement) "
+                    "pour voir le détail par pays et les montants de TVA dus."
+                )
 
             # Barre de progression seuil OSS
             _oss_ht = float(oss_summary.total_oss_ht)
@@ -2337,7 +2487,7 @@ if uploaded_files:
                                     w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),
                                         str(r.vat_amount).replace(".",","),(r.sale.display_id or r.sale.sale_id),r.channel.value])
                                 w.writerow([]); w.writerow(["TOTAL TVA FR",str(summary.net_fr_domestic_vat).replace(".",",")])
-                                w.writerow(["TOTAL OSS",str(_oss_net_total).replace(".",",")])
+                                w.writerow(["TOTAL OSS",str(_oss_tva_net_total).replace(".",",")])
                             elif country in fmt_map:
                                 headers, mapping = fmt_map[country]
                                 w.writerow(headers)
@@ -2414,22 +2564,13 @@ if uploaded_files:
 
                 # 1. Rapport principal — pleine largeur, bouton primaire
                 st.markdown("#### 📦 Rapport principal")
-                r1, r2 = st.columns([2, 1])
-                with r1:
-                    _gated_download(
-                        "📊 Rapport complet (.xlsx)",
-                        data=xlsx_bytes,
-                        file_name=f"Rapport TVA intracommunautaire principal - {nom_entreprise} - {period_label}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        type="primary", use_container_width=True,
-                    )
-                with r2:
-                    _gated_download(
-                        "📝 Rapport texte (.txt)",
-                        data=render_report(summary).encode("utf-8"),
-                        file_name=f"Rapport TVA intracommunautaire principal - {nom_entreprise} - {period_label}.txt",
-                        mime="text/plain", use_container_width=True,
-                    )
+                _gated_download(
+                    "📊 Rapport complet (.xlsx)",
+                    data=xlsx_bytes,
+                    file_name=f"Rapport TVA intracommunautaire principal - {nom_entreprise} - {period_label}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary", use_container_width=True,
+                )
 
                 st.divider()
 
@@ -2450,7 +2591,7 @@ if uploaded_files:
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 use_container_width=True,
                             )
-                            st.caption(f"{len(oss_results_dl)} ventes · TVA {float(_oss_vente_total):,.2f} €")
+                            st.caption(f"{len(oss_results_dl)} ventes · TVA {float(_oss_tva_vente_total):,.2f} €")
                     with o2:
                         if oss_results_dl:
                             oss_csv_bytes, _ = build_oss_csv(results_net, period=period_label)
@@ -2514,16 +2655,6 @@ if uploaded_files:
                                 f"TVA {float(b.vat_amount):,.2f} €"
                                 for b in _negative_buckets
                             )
-                            st.error(
-                                "⛔ **Solde OSS négatif détecté pour cette période.** "
-                                "L'URSSAF / le portail OSS n'accepte pas de montant négatif "
-                                "dans le corps de la déclaration.\n\n"
-                                f"{_neg_lines}\n\n"
-                                "**Cela signifie généralement** que des remboursements de la "
-                                "période dépassent les ventes du même couple pays/taux — "
-                                "souvent parce qu'ils se rapportent à une vente d'une **période "
-                                "déjà déclarée**."
-                            )
 
                             if _any_matched:
                                 with st.expander(
@@ -2571,14 +2702,25 @@ if uploaded_files:
                                 local_vat_numbers=local_vat_numbers,
                                 confirm_corrections=_confirm_corrections,
                             )
+                        except ValueError as _xml_err:
+                            st.warning(f"⚠️ **Attention : Solde OSS négatif détecté.**\n\n{_xml_err}\n\n"
+                                       "Le fichier XML a été généré avec les montants négatifs pour test, "
+                                       "mais il sera probablement rejeté par le portail fiscal.")
+                            # On force la génération malgré les négatifs pour permettre le test
+                            oss_xml_bytes = generate_oss_xml(
+                                results=results_net, seller_vat=tva_fr, period=period_label,
+                                local_vat_numbers=local_vat_numbers,
+                                confirm_corrections=_confirm_corrections,
+                                ignore_negatives=True
+                            )
+
+                        if oss_xml_bytes:
                             _gated_download(
                                 "📥 XML OSS officiel", data=oss_xml_bytes,
                                 file_name=f"Déclaration XML OSS - {nom_entreprise} - {period_label}.xml",
                                 mime="application/xml", use_container_width=True,
                                 key="btn_oss_xml_final",
                             )
-                        except ValueError as _xml_err:
-                            st.error(f"⛔ {_xml_err}")
                 with col_html:
                     st.markdown("**🇫🇷 Déclaration CA3 (HTML)**")
                     st.caption(
@@ -2659,23 +2801,63 @@ if uploaded_files:
                     )
 
         # ── 6. VISUALISATIONS (repliées) ──────────────────────────────────────
-        vat_by_country: dict[str, float] = {}
         with tab_viz:
-            vat_by_country = {}
-            if summary.fr_domestic_vat > 0: vat_by_country["FR"] = float(summary.fr_domestic_vat)
-            for c, a in summary.oss_by_country.items(): vat_by_country[c] = vat_by_country.get(c,0)+float(a)
-            for c, a in summary.local_by_country.items(): vat_by_country[c] = vat_by_country.get(c,0)+float(a)
+            # Calcul des données nettes (Ventes + Remboursements) ventilées par type
+            # Structure : { "FR": {"OSS": 0, "Local": 100}, "DE": {"OSS": 50, "Local": 0} }
+            viz_data_by_country: dict[str, dict[str, float]] = {}
+            
+            # 1. TVA France (CA3)
+            if summary.net_fr_domestic_vat != 0:
+                viz_data_by_country.setdefault("FR", {})["France (CA3)"] = float(summary.net_fr_domestic_vat)
+            
+            # 2. TVA OSS
+            # Note: On utilise summary.net_oss_by_country qui contient (Ventes + Remboursements)
+            for c, a in summary.net_oss_by_country.items():
+                if a != 0:
+                    viz_data_by_country.setdefault(c, {})["Guichet OSS"] = float(a)
+            
+            # 3. TVA Locale
+            # Note: On utilise summary.net_local_by_country qui contient (Ventes + Remboursements)
+            for c, a in summary.net_local_by_country.items():
+                if a != 0:
+                    viz_data_by_country.setdefault(c, {})["Fisc local"] = float(a)
+
+            # Total net par pays pour le tri et la carte
+            vat_net_by_country = {c: sum(types.values()) for c, types in viz_data_by_country.items()}
 
             ch1, ch2 = st.columns(2)
             with ch1:
-                st.subheader("TVA due par pays")
-                if vat_by_country:
-                    bar_data = sorted(vat_by_country.items(), key=lambda x: -x[1])
-                    fig_bar = go.Figure(go.Bar(
-                        x=[_country_label(c) for c,_ in bar_data], y=[a for _,a in bar_data],
-                        marker_color=["#2ca02c" if c=="FR" else "#1f77b4" for c,_ in bar_data],
-                        text=[f"{a:,.2f}€" for _,a in bar_data], textposition="auto"))
-                    fig_bar.update_layout(yaxis_title="Montant TVA (EUR)", height=380, margin=dict(t=20,b=40))
+                st.subheader("TVA due par pays (Net)")
+                if not _can_export:
+                    st.info("🔒 Détail par pays verrouillé. Débloquez la période pour visualiser la répartition géographique.")
+                elif viz_data_by_country:
+                    # Préparation des données pour un Bar Chart empilé (Stacked Bar)
+                    # On trie par total décroissant
+                    sorted_countries = sorted(vat_net_by_country.keys(), key=lambda c: -vat_net_by_country[c])
+                    
+                    types = ["France (CA3)", "Guichet OSS", "Fisc local"]
+                    colors = {"France (CA3)": "#2ca02c", "Guichet OSS": "#1f77b4", "Fisc local": "#9467bd"}
+                    
+                    fig_bar = go.Figure()
+                    for t in types:
+                        vals = [viz_data_by_country[c].get(t, 0) for c in sorted_countries]
+                        if any(v != 0 for v in vals):
+                            fig_bar.add_trace(go.Bar(
+                                name=t,
+                                x=[_country_label(c) for c in sorted_countries],
+                                y=vals,
+                                marker_color=colors.get(t),
+                                text=[f"{v:,.2f}€" if v != 0 else "" for v in vals],
+                                textposition="auto"
+                            ))
+                    
+                    fig_bar.update_layout(
+                        barmode='relative', # 'relative' permet d'empiler correctement les négatifs si besoin
+                        yaxis_title="Montant TVA Net (EUR)",
+                        height=380,
+                        margin=dict(t=20, b=40),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
                     st.plotly_chart(fig_bar, use_container_width=True)
             with ch2:
                 st.subheader(f"Répartition : Vous vs {platform_name}")
@@ -2689,16 +2871,19 @@ if uploaded_files:
                     fig_pie.update_layout(height=380, margin=dict(t=20,b=20))
                     st.plotly_chart(fig_pie, use_container_width=True)
 
-            if vat_by_country:
-                st.subheader("🗺️ Carte de la TVA en Europe")
-                map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt}
-                    for c, amt in vat_by_country.items() if c in COUNTRY_ISO3]
-                if map_data:
-                    fig_map = px.choropleth(map_data, locations="iso_alpha", color="tva",
-                        hover_name="pays", color_continuous_scale="YlOrRd", scope="europe",
-                        labels={"tva": "TVA (EUR)"})
-                    fig_map.update_layout(height=450, margin=dict(t=10,b=10,l=0,r=0))
-                    st.plotly_chart(fig_map, use_container_width=True)
+            if vat_net_by_country:
+                st.subheader("🗺️ Carte de la TVA en Europe (Net)")
+                if not _can_export:
+                    st.info("🔒 Carte interactive verrouillée. Débloquez la période pour visualiser les zones fiscales.")
+                else:
+                    map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt}
+                        for c, amt in vat_net_by_country.items() if c in COUNTRY_ISO3]
+                    if map_data:
+                        fig_map = px.choropleth(map_data, locations="iso_alpha", color="tva",
+                            hover_name="pays", color_continuous_scale="YlOrRd", scope="europe",
+                            labels={"tva": "TVA Nette (EUR)"})
+                        fig_map.update_layout(height=450, margin=dict(t=10,b=10,l=0,r=0))
+                        st.plotly_chart(fig_map, use_container_width=True)
 
             # ── B : Évolution temporelle ──────────────────────────────────────
             st.subheader("📅 Évolution mensuelle")

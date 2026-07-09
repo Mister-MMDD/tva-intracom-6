@@ -62,6 +62,7 @@ def generate_oss_xml(
     intermediary_vat: str | None = None,
     local_vat_numbers: dict[str, str] | None = None,
     confirm_corrections: bool = False,
+    ignore_negatives: bool = False,
 ) -> bytes:
     """Génère le contenu XML conforme pour la télédéclaration OSS.
 
@@ -167,7 +168,7 @@ def generate_oss_xml(
             else:
                 still_blocking.append(sug)
 
-        if still_blocking:
+        if still_blocking and not ignore_negatives:
             details = "\n".join(
                 f"  - {COUNTRY_NAMES.get(b.bucket.departure, b.bucket.departure)} → "
                 f"{COUNTRY_NAMES.get(b.bucket.arrival, b.bucket.arrival)} ({b.bucket.vat_rate}%) : "
