@@ -74,6 +74,9 @@ cookie_manager = ensure_cookie_manager()
 st.title(f"🇪🇺 {_('title')}")
 
 _auth_ctx = run_auth_flow(cookie_manager)
+if _auth_ctx is None:
+    st.stop()
+
 _current_user = _auth_ctx.current_user
 _APP_BASE_URL = _auth_ctx.app_base_url
 _vies_scope_id = _auth_ctx.vies_scope_id
