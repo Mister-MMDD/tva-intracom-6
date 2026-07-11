@@ -28,29 +28,14 @@ try:
 except ImportError:
     stripe = None
 
-try:
-    # Disponible sur Streamlit Cloud, absent côté fonction serverless Vercel
-    import streamlit as _st
-except ImportError:
-    _st = None
-
 from .security import encrypt_data as _enc, decrypt_data as _dec
+from .config import get_secret
 
 
 def _env(key: str, default: str = "") -> str:
     """Lit une variable de configuration : priorité à st.secrets (Streamlit
-    Cloud), repli sur os.environ (Vercel, ou variable d'env classique).
-    Contrairement à des constantes calculées une fois à l'import du module,
-    cette fonction est appelée à chaque usage pour éviter de figer une valeur
-    lue vide si le module a été importé avant que le secret soit disponible."""
-    if _st is not None:
-        try:
-            val = _st.secrets.get(key)
-            if val:
-                return val
-        except Exception:
-            pass
-    return os.environ.get(key, default)
+    Cloud), repli sur os.environ (Vercel, ou variable d'env classique)."""
+    return get_secret(key, default)
 
 
 PRICE_PAYG_EXPORT = os.environ.get("STRIPE_PRICE_PAYG_EXPORT", "")

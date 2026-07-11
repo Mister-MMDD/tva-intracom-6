@@ -55,8 +55,7 @@ from typing import Optional
 import psycopg2
 import psycopg2.pool
 from psycopg2.extras import execute_values
-import streamlit as st
-from .i18n import _
+from .config import get_secret
 from .security import encrypt_data as _enc, decrypt_data as _dec
 
 logger = logging.getLogger(__name__)
@@ -204,6 +203,8 @@ def _parse_flexible_date(s: str) -> datetime:
 # Pool Postgres (Supabase) — même base que auth.py / billing.py
 # ---------------------------------------------------------------------------
 
+from .config import get_secret
+
 _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 _pool_lock = threading.Lock()
 
@@ -213,7 +214,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     if _pool is None:
         with _pool_lock:
             if _pool is None:
-                dsn = st.secrets.get("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+                dsn = get_secret("SUPABASE_DB_URL")
                 if not dsn:
                     raise RuntimeError(
                         "SUPABASE_DB_URL non définie — impossible de se connecter à la "

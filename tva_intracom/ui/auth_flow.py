@@ -31,6 +31,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import streamlit as st
+from ..config import get_secret
 from tva_intracom.i18n import _
 import extra_streamlit_components as stx
 
@@ -92,7 +93,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.session_state["auth_user"] = None
 
     try:
-        _local_bypass = bool(st.secrets.get("LOCAL_DEV_BYPASS_AUTH", False))
+        _local_bypass = bool(get_secret("LOCAL_DEV_BYPASS_AUTH", False))
     except Exception:
         _local_bypass = False
 
@@ -223,7 +224,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         if _col_magic.button(_("send_magic_link_btn"), key="btn_send_magic_link", use_container_width=True):
             if _login_email and "@" in _login_email:
                 _token = tva_auth.create_magic_link(_login_email)
-                _base_url = st.secrets.get("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+                _base_url = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
                 _login_url = f"{_base_url}/?login_token={_token}"
                 try:
                     tva_auth.send_magic_link_email(_login_email, _login_url)
@@ -258,7 +259,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.query_params.clear()
         st.rerun()
 
-    _app_base_url = st.secrets.get("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+    _app_base_url = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
     _vies_scope_id = _vies_resolve_scope_id(_current_user.email)
 
     return AuthContext(

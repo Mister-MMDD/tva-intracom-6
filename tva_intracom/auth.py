@@ -25,6 +25,7 @@ import psycopg2
 import psycopg2.pool
 import requests
 import streamlit as st
+from .config import get_secret
 
 MAGIC_LINK_TTL_SECONDS = 15 * 60
 
@@ -46,7 +47,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     if _pool is None:
         with _pool_lock:
             if _pool is None:
-                dsn = st.secrets.get("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+                dsn = get_secret("SUPABASE_DB_URL")
                 
                 if not dsn:
                     raise RuntimeError(
@@ -201,8 +202,8 @@ def send_magic_link_email(email: str, login_url: str) -> None:
     Utilise `requests`, déjà présent dans requirements.txt — aucune nouvelle
     dépendance nécessaire (pas besoin du SDK officiel `resend`).
     """
-    api_key = os.environ.get("RESEND_API_KEY") or st.secrets.get("RESEND_API_KEY")
-    from_email = os.environ.get("RESEND_FROM_EMAIL") or st.secrets.get("RESEND_FROM_EMAIL")
+    api_key = get_secret("RESEND_API_KEY")
+    from_email = get_secret("RESEND_FROM_EMAIL")
     if not api_key or not from_email:
         raise RuntimeError(
             "RESEND_API_KEY / RESEND_FROM_EMAIL non configurés — impossible d'envoyer "

@@ -5,11 +5,12 @@ import os
 import time
 import requests
 import streamlit as st
+from .config import get_secret
 from typing import Optional
 
 def get_authorization_url(state: str) -> str:
     """Génère l'URL pour rediriger l'utilisateur vers Amazon Seller Central."""
-    app_id = st.secrets.get("AMAZON_APP_ID")
+    app_id = get_secret("AMAZON_APP_ID")
     if not app_id:
         raise RuntimeError("AMAZON_APP_ID non configuré dans les secrets.")
     
@@ -19,8 +20,8 @@ def get_authorization_url(state: str) -> str:
 
 def exchange_code_for_token(code: str) -> dict:
     """Échange le code d'autorisation (spapi_oauth_code) contre un refresh token."""
-    client_id = st.secrets.get("AMAZON_CLIENT_ID")
-    client_secret = st.secrets.get("AMAZON_CLIENT_SECRET")
+    client_id = get_secret("AMAZON_CLIENT_ID")
+    client_secret = get_secret("AMAZON_CLIENT_SECRET")
     
     if not client_id or not client_secret:
         raise RuntimeError("AMAZON_CLIENT_ID ou AMAZON_CLIENT_SECRET non configurés.")
@@ -39,8 +40,8 @@ def exchange_code_for_token(code: str) -> dict:
 
 def get_access_token(refresh_token: str) -> str:
     """Utilise le refresh token pour obtenir un access token temporaire."""
-    client_id = st.secrets.get("AMAZON_CLIENT_ID")
-    client_secret = st.secrets.get("AMAZON_CLIENT_SECRET")
+    client_id = get_secret("AMAZON_CLIENT_ID")
+    client_secret = get_secret("AMAZON_CLIENT_SECRET")
     
     url = "https://api.amazon.com/auth/o2/token"
     data = {

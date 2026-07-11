@@ -1,15 +1,11 @@
 """Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)."""
 
-import os
-try:
-    import streamlit as st
-except ImportError:
-    st = None
 from cryptography.fernet import Fernet
+from .config import get_secret
 
 # Clé de chiffrement chargée depuis les secrets. 
 # Pour générer une clé : Fernet.generate_key().decode()
-_KEY = (st.secrets.get("ENCRYPTION_KEY") if st else None) or os.environ.get("ENCRYPTION_KEY")
+_KEY = get_secret("ENCRYPTION_KEY")
 
 def encrypt_data(data: str) -> str:
     """Chiffre une chaîne de caractères (ex: PII) en utilisant Fernet."""
