@@ -247,24 +247,28 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
     # ── Barre d'état connecté ──────────────────────────────────────────────
     _current_user = st.session_state["auth_user"]
-    _col_user, _col_logout = st.columns([5, 1])
-    _col_user.caption(_("logged_in_as", email=_current_user.email))
-    if _col_logout.button(_("logout_btn"), key="btn_logout"):
-        st.session_state["auth_user"] = None
-        try:
-            if "tva_session_token" in cookie_manager.get_all():
-                cookie_manager.delete("tva_session_token")
-        except Exception:
-            pass
-        st.query_params.clear()
-        st.rerun()
 
-    _app_base_url = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
-    _vies_scope_id = _vies_resolve_scope_id(_current_user.email)
+    if _current_user is not None:
+        _col_user, _col_logout = st.columns([5, 1])
+        _col_user.caption(_("logged_in_as", email=_current_user.email))
+        if _col_logout.button(_("logout_btn"), key="btn_logout"):
+            st.session_state["auth_user"] = None
+            try:
+                if "tva_session_token" in cookie_manager.get_all():
+                    cookie_manager.delete("tva_session_token")
+            except Exception:
+                pass
+            st.query_params.clear()
+            st.rerun()
 
-    return AuthContext(
-        current_user=_current_user,
-        cookie_manager=cookie_manager,
-        app_base_url=_app_base_url,
-        vies_scope_id=_vies_scope_id,
-    )
+        _app_base_url = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+        _vies_scope_id = _vies_resolve_scope_id(_current_user.email)
+
+        return AuthContext(
+            current_user=_current_user,
+            cookie_manager=cookie_manager,
+            app_base_url=_app_base_url,
+            vies_scope_id=_vies_scope_id,
+        )
+
+    st.stop()
