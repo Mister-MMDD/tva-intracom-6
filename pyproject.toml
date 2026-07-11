@@ -22,7 +22,7 @@ tva-intracom = "tva_intracom.cli:main"
 packages = ["tva_intracom"]
 
 [tool.setuptools.package-data]
-tva_intracom = ["data/*.csv"]
+tva_intracom = ["data/*.csv", "i18n/*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
