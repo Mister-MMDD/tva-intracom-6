@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Set
 
 from ...models import BuyerType, Sale
-from ...vies import _normalize_vat_id as normalize_vat
+from ...vies_engine import _normalize_vat_id as normalize_vat
 from ...ecb_rates import prefetch_rates
 from .aggregate import preaggregate_v5
 from .classify import (

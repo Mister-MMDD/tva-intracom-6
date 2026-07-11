@@ -40,7 +40,7 @@ from tva_intracom.i18n import _
 from tva_intracom import billing as tva_billing
 from tva_intracom.models import Channel
 from tva_intracom.ui.formatting import _country_label
-from tva_intracom.vies import resolve_scope_id as _vies_resolve_scope_id
+from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
 
 
 def detect_period_label(results, oss_period: str) -> tuple[str, Optional[tuple[str, str]]]:

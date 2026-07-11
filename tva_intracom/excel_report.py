@@ -429,7 +429,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
 
 def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
     """Onglet Historique VIES : piste d'audit de chaque vérification effectuée."""
-    from .vies import get_vies_history_bulk
+    from .vies_engine import get_vies_history_bulk
 
     ws.title = _("xl_tab_vies")
     _set_header(ws, 1, [

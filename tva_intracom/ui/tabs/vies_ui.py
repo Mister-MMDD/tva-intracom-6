@@ -48,7 +48,7 @@ def render_vies(ctx: TabContext) -> None:
             if vies_summary.total_inconclusive == vies_summary.total_checked:
                 st.error(_("vies_unverified_all_error"))
                 if st.button(_("vies_test_btn"), key="test_vies_conn"):
-                    from tva_intracom.vies import check_vat
+                    from tva_intracom.vies_engine import check_vat
                     with st.spinner(_("vies_testing")):
                         test_res = check_vat("FR", "40303265045")
                     if test_res.valid:
@@ -95,7 +95,7 @@ def render_vies(ctx: TabContext) -> None:
                     _col_apply, _col_reset = st.columns([2, 1])
                     with _col_apply:
                         if _pending and st.button(_("vies_manual_class_apply_btn"), type="primary"):
-                            from tva_intracom.vies import set_manual_override as _smo_apply
+                            from tva_intracom.vies_engine import set_manual_override as _smo_apply
                             for _vat_key, _choice_val in _pending.items():
                                 _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == _("manual_valid")))
                             st.session_state.pop("_vies_manual_overrides", None)
@@ -115,7 +115,7 @@ def render_vies(ctx: TabContext) -> None:
 
         # Overrides manuels en base (toujours accessible, replié par défaut)
         try:
-            from tva_intracom.vies import (
+            from tva_intracom.vies_engine import (
                 set_manual_override as _smo_edit,
                 delete_manual_override as _dmo_edit,
                 get_manual_overrides_full as _gmo_full,

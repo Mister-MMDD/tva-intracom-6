@@ -36,7 +36,7 @@ from tva_intracom.i18n import _
 from tva_intracom import auth as tva_auth
 from tva_intracom import billing as tva_billing
 from tva_intracom.rates import EU_COUNTRIES
-from tva_intracom.vies import (
+from tva_intracom.vies_engine import (
     get_cache_stats as vies_cache_stats,
     purge_expired_cache,
     set_cache_ttl,

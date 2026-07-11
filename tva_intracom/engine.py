@@ -32,7 +32,7 @@ from .models import (
 from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate, vat_rate_at_date, has_rate_changed
 from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES
 from datetime import date as _date
-from .vies import normalize_full_vat as _normalize_full_vat_canonical
+from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
 # Seuil de valeur intrinseque d'un envoi pour le regime IOSS (import).
 IOSS_THRESHOLD = Decimal("150")
@@ -628,7 +628,7 @@ def compute_all_with_vies(
         asin_to_category = {}
 
     # IMPORT DIRECT DE TON MODULE VIES
-    from .vies import validate_vat_numbers_parallel, _is_unreliable as _vies_is_unreliable
+    from .vies_engine import validate_vat_numbers_parallel, _is_unreliable as _vies_is_unreliable
 
     vies_summary = ViesValidationSummary()
 
@@ -685,7 +685,7 @@ def compute_all_with_vies(
                 exc_parallel,
             )
             try:
-                from .vies import validate_vat_numbers
+                from .vies_engine import validate_vat_numbers
                 checked_vats = validate_vat_numbers(
                     scope_id, vats_to_check, progress_callback=vies_progress_callback
                 )
@@ -702,7 +702,7 @@ def compute_all_with_vies(
     # Elles écrasent le résultat VIES pour les numéros non vérifiables (inconclusifs).
     # get_manual_overrides() renvoie {full_vat: True|False}.
     try:
-        from .vies import get_manual_overrides
+        from .vies_engine import get_manual_overrides
         from types import SimpleNamespace as _SN
         for _fv, _is_valid in get_manual_overrides(scope_id).items():
             # On surcharge même si le numéro n'était pas dans le batch

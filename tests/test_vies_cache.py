@@ -42,7 +42,7 @@ def isolated_db(tmp_path, monkeypatch):
 
     # Recharge le module dans le répertoire temporaire
     import importlib
-    import tva_intracom.vies as vies_mod
+    import tva_intracom.vies_engine as vies_mod
     monkeypatch.setattr(vies_mod, "CACHE_DB_FILE", db_file)
     monkeypatch.setattr(vies_mod, "_LEGACY_JSON_FILE", json_file)
     monkeypatch.setattr(vies_mod, "CACHE_TTL_DAYS", 90)
@@ -54,7 +54,7 @@ def isolated_db(tmp_path, monkeypatch):
 
 def make_result(valid=True, cc="FR", num="12345678901", name="Test SARL",
                 address="1 rue Test", error=""):
-    from tva_intracom.vies import ViesResult
+    from tva_intracom.vies_engine import ViesResult
     return ViesResult(valid=valid, country_code=cc, vat_number=num,
                       name=name, address=address, error=error)
 

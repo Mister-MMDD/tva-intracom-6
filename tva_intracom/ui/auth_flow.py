@@ -36,7 +36,7 @@ from tva_intracom.i18n import _
 import extra_streamlit_components as stx
 
 from tva_intracom import auth as tva_auth
-from tva_intracom.vies import (
+from tva_intracom.vies_engine import (
     resolve_scope_id as _vies_resolve_scope_id,
     purge_malformed_entries as _vies_purge_malformed_entries,
 )

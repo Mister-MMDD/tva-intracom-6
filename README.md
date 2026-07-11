@@ -92,7 +92,7 @@ tva-intracom/
 │   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
 │   ├── report.py                     ReportSummary, build_report, render_report
 │   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
-│   ├── vies.py                       Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
+│   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
 │   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
 │   │   ├── __init__.py
 │   │   ├── theme.py                  Configuration de page + CSS de marque (apply_theme())
@@ -109,7 +109,7 @@ tva-intracom/
 │   │       ├── context.py            TabContext — état partagé construit une fois avant les onglets
 │   │       ├── declarations.py       Onglet "💶 Déclarations"
 │   │       ├── detail_ventes.py      Onglet "📋 Détail ventes"
-│   │       ├── vies.py               Onglet "🛡️ VIES"
+│   │       ├── vies_ui.py            Onglet "🛡️ VIES"
 │   │       ├── audit.py              Onglet "🔬 Audit Amazon"
 │   │       ├── telechargements.py    Onglet "📥 Téléchargements"
 │   │       └── visualisations.py     Onglet "📊 Visualisations"

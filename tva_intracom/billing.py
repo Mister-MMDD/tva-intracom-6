@@ -183,7 +183,7 @@ def _init_schema() -> None:
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS vat_numbers_json TEXT")
         # Liaison compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) <-> SIREN — anti-abus :
         # empêche d'exporter le fichier d'un client sous le SIREN payé d'un
-        # autre. Scope_id = même portée que le cache VIES (vies.resolve_scope_id) :
+        # autre. Scope_id = même portée que le cache VIES (vies_engine.resolve_scope_id) :
         # partagée entre tous les utilisateurs d'un même cabinet (domaine pro),
         # isolée par compte pour les domaines grand public (gmail...). Un même
         # identifiant ne peut être lié qu'à un seul SIREN dans un scope donné
@@ -470,7 +470,7 @@ def cancel_siren_removal(user_id: str, siren: str) -> None:
 # le fichier d'un client sous le SIREN (donc le crédit/abonnement) payé d'un
 # autre. Un SIREN peut en revanche posséder plusieurs identifiants (un même
 # client peut avoir plusieurs comptes Amazon). Le scope est identique à celui
-# du cache VIES (voir vies.resolve_scope_id) : partagé entre les
+# du cache VIES (voir vies_engine.resolve_scope_id) : partagé entre les
 # collaborateurs d'un même cabinet, isolé par compte pour les domaines grand
 # public — un cabinet n'a donc pas à reconfirmer le rattachement à chaque
 # nouvel utilisateur de la même structure.

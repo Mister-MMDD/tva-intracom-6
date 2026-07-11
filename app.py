@@ -27,7 +27,7 @@ logging.basicConfig(
 )
 
 from tva_intracom.ecb_rates import cache_info as ecb_cache_info
-from tva_intracom.vies import (
+from tva_intracom.vies_engine import (
     get_cache_stats as vies_cache_stats,
     purge_expired_cache,
     set_cache_ttl,
@@ -549,7 +549,7 @@ if uploaded_files:
         from tva_intracom.ui.tabs.context import TabContext
         from tva_intracom.ui.tabs.declarations import render_declarations
         from tva_intracom.ui.tabs.detail_ventes import render_detail_ventes
-        from tva_intracom.ui.tabs.vies import render_vies
+        from tva_intracom.ui.tabs.vies_ui import render_vies
         from tva_intracom.ui.tabs.audit import render_audit
         from tva_intracom.ui.tabs.telechargements import render_telechargements
         from tva_intracom.ui.tabs.visualisations import render_visualisations

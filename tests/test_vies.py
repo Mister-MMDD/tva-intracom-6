@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tva_intracom.vies import ViesResult, _clean_vat_number, check_vat, check_vat_raw
+from tva_intracom.vies_engine import ViesResult, _clean_vat_number, check_vat, check_vat_raw
 from tva_intracom import BuyerType, Sale, Scenario, compute_all_with_vies
 
 
@@ -51,7 +51,7 @@ def _mock_urlopen(valid: bool, name: str = "Firma GmbH"):
     return mock_resp
 
 
-@patch("tva_intracom.vies.urllib.request.urlopen")
+@patch("tva_intracom.vies_engine.urllib.request.urlopen")
 def test_check_vat_valid(mock_urlopen_func):
     mock_urlopen_func.return_value = _mock_urlopen(valid=True)
     result = check_vat("DE", "123456789")
@@ -59,14 +59,14 @@ def test_check_vat_valid(mock_urlopen_func):
     assert result.name == "Firma GmbH"
 
 
-@patch("tva_intracom.vies.urllib.request.urlopen")
+@patch("tva_intracom.vies_engine.urllib.request.urlopen")
 def test_check_vat_invalid(mock_urlopen_func):
     mock_urlopen_func.return_value = _mock_urlopen(valid=False)
     result = check_vat("DE", "000000000")
     assert result.valid is False
 
 
-@patch("tva_intracom.vies.urllib.request.urlopen")
+@patch("tva_intracom.vies_engine.urllib.request.urlopen")
 def test_check_vat_network_error(mock_urlopen_func):
     import urllib.error
     mock_urlopen_func.side_effect = urllib.error.URLError("timeout")
@@ -75,14 +75,14 @@ def test_check_vat_network_error(mock_urlopen_func):
     assert "indisponible" in result.error.lower() or "timeout" in result.error.lower()
 
 
-@patch("tva_intracom.vies.urllib.request.urlopen")
+@patch("tva_intracom.vies_engine.urllib.request.urlopen")
 def test_check_vat_raw_valid(mock_urlopen_func):
     mock_urlopen_func.return_value = _mock_urlopen(valid=True)
     result = check_vat_raw("DE123456789")
     assert result.valid is True
 
 
-@patch("tva_intracom.vies.check_vat_raw")
+@patch("tva_intracom.vies_engine.check_vat_raw")
 def test_compute_all_with_vies_reclassifies_invalid(mock_check):
     """B2B avec numero invalide est reclassifie en B2C -> TVA facturee."""
     mock_check.return_value = ViesResult(
@@ -113,7 +113,7 @@ def test_compute_all_with_vies_reclassifies_invalid(mock_check):
     assert vies_summary.reclassifications[0].buyer_vat_number == "DE000000000"
 
 
-@patch("tva_intracom.vies.check_vat_raw")
+@patch("tva_intracom.vies_engine.check_vat_raw")
 def test_compute_all_with_vies_valid_number(mock_check):
     """B2B avec numero valide -> autoliquidation."""
     mock_check.return_value = ViesResult(
