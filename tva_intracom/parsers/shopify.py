@@ -49,7 +49,9 @@ _TAXES_COLS = ["taxes", "tax", "total_tax", "tax_amount"]
 _REFUND_STATUSES = {"refunded", "partially_refunded"}
 
 
-def _normalize(header: str) -> str:
+def _normalize(header: str | None) -> str:
+    if header is None:
+        return ""
     return header.strip().lower().replace(" ", "_").replace("-", "_")
 
 
@@ -60,7 +62,9 @@ def _find_col(headers: list[str], candidates: list[str]) -> Optional[str]:
     return None
 
 
-def _safe_decimal(value: str) -> Decimal:
+def _safe_decimal(value: str | None) -> Decimal:
+    if value is None:
+        return Decimal("0")
     cleaned = value.strip().replace(",", "").replace("\xa0", "").replace(" ", "")
     if not cleaned or cleaned == "-":
         return Decimal("0")
@@ -159,9 +163,9 @@ def parse(
             from datetime import date as date_type
             to_prefetch = []
             for row in rows:
-                c = row.get(currency_col, "EUR").strip().upper() if currency_col else "EUR"
+                c = (row.get(currency_col) or "EUR").strip().upper() if currency_col else "EUR"
                 if c != "EUR":
-                    d_str = row.get(date_col, "").strip() if date_col else ""
+                    d_str = (row.get(date_col) or "").strip() if date_col else ""
                     d_obj = _parse_date(d_str) or date_type.today()
                     to_prefetch.append((c, d_obj))
             if to_prefetch:
@@ -171,10 +175,10 @@ def parse(
             result.total_rows += 1
             normalized_row = {_normalize(k): v for k, v in row.items() if k}
 
-            buyer_country = normalized_row.get(country_col, "").strip().upper()
+            buyer_country = (normalized_row.get(country_col) or "").strip().upper()
             # Fallback sur billing country si shipping absent.
             if not buyer_country and bill_country_col:
-                buyer_country = normalized_row.get(bill_country_col, "").strip().upper()
+                buyer_country = (normalized_row.get(bill_country_col) or "").strip().upper()
 
             amount_ht = _safe_decimal(normalized_row.get(amount_col, ""))
 
@@ -186,11 +190,11 @@ def parse(
 
             currency = "EUR"
             if currency_col:
-                currency = normalized_row.get(currency_col, "EUR").strip().upper() or "EUR"
+                currency = (normalized_row.get(currency_col) or "EUR").strip().upper() or "EUR"
 
             tx_date = ""
             if date_col:
-                tx_date = normalized_row.get(date_col, "").strip()
+                tx_date = (normalized_row.get(date_col) or "").strip()
 
             # Shopify = vente directe -> toujours B2C (pas de gestion B2B native).
             buyer_type = BuyerType.B2C
@@ -198,7 +202,7 @@ def parse(
             # Detecter les remboursements.
             is_refund = False
             if status_col:
-                status = normalized_row.get(status_col, "").strip().lower()
+                status = (normalized_row.get(status_col) or "").strip().lower()
                 if status in _REFUND_STATUSES:
                     is_refund = True
 
@@ -229,7 +233,7 @@ def parse(
                 amount_ht = -abs(amount_ht)
 
             sale = Sale(
-                sale_id=sale_id.strip(),
+                sale_id=(sale_id or "").strip(),
                 amount_ht=amount_ht,
                 buyer_type=buyer_type,
                 stock_country=stock_country,

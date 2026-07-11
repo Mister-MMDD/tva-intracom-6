@@ -261,8 +261,12 @@ def _gated_preview_table(
     
     for col in df_preview.columns:
         # Si la colonne contient maintenant du texte de verrouillage, on force le type TextColumn
-        # sauf si l'utilisateur a déjà fourni une config spécifique pour cette colonne
-        if col not in config or not isinstance(config[col], st.column_config.TextColumn):
+        # sauf si l'on est déjà sur une TextColumn (on vérifie via le nom de classe pour la robustesse
+        # face à certaines versions de Streamlit où TextColumn est une factory et non un type).
+        current_config = config.get(col)
+        is_text_col = current_config is not None and type(current_config).__name__ == "TextColumn"
+        
+        if not is_text_col:
              if df_preview[col].dtype == object and any(lock_msg in str(x) for x in df_preview[col] if x is not None):
                 config[col] = st.column_config.TextColumn(col)
 

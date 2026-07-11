@@ -50,7 +50,9 @@ _VAT_NUMBER_COLS = ["vat_number", "buyer_vat_number", "tax_number", "tva_number"
 _DATE_COLS = ["date", "order_date", "transaction_date", "created_date"]
 
 
-def _normalize(header: str) -> str:
+def _normalize(header: str | None) -> str:
+    if header is None:
+        return ""
     return header.strip().lower().replace(" ", "_").replace("-", "_")
 
 
@@ -62,7 +64,9 @@ def _find_col(headers: list[str], candidates: list[str]) -> Optional[str]:
     return None
 
 
-def _safe_decimal(value: str) -> Decimal:
+def _safe_decimal(value: str | None) -> Decimal:
+    if value is None:
+        return Decimal("0")
     cleaned = value.strip().replace(",", ".").replace("\xa0", "").replace(" ", "")
     if not cleaned or cleaned == "-":
         return Decimal("0")
@@ -122,7 +126,7 @@ def _parse_csv(
             result.total_rows += 1
             normalized_row = {_normalize(k): v for k, v in row.items() if k}
 
-            buyer_country = normalized_row.get(country_col, "").strip().upper()
+            buyer_country = (normalized_row.get(country_col) or "").strip().upper()
             amount_str = normalized_row.get(amount_col, "")
             amount_ht = _safe_decimal(amount_str)
 
@@ -132,7 +136,7 @@ def _parse_csv(
 
             sale_id = normalized_row.get(id_col, f"M{line_no}") if id_col else f"M{line_no}"
             stock_country = (
-                normalized_row.get(stock_col, "").strip().upper()
+                (normalized_row.get(stock_col) or "").strip().upper()
                 if stock_col else seller_country.upper()
             )
             if not stock_country:
@@ -141,26 +145,26 @@ def _parse_csv(
             # Devise.
             currency = "EUR"
             if currency_col:
-                currency = normalized_row.get(currency_col, "EUR").strip().upper() or "EUR"
+                currency = (normalized_row.get(currency_col) or "EUR").strip().upper() or "EUR"
 
             # Type d'acheteur.
             buyer_type = BuyerType.B2C
             if buyer_type_col:
-                bt = normalized_row.get(buyer_type_col, "").strip().upper()
+                bt = (normalized_row.get(buyer_type_col) or "").strip().upper()
                 if bt in ("B2B", "PROFESSIONNEL", "PRO", "BUSINESS"):
                     buyer_type = BuyerType.B2B
 
             # Numero TVA.
             buyer_vat = ""
             if vat_col:
-                buyer_vat = normalized_row.get(vat_col, "").strip()
+                buyer_vat = (normalized_row.get(vat_col) or "").strip()
                 if buyer_vat:
                     buyer_type = BuyerType.B2B
 
             # Date transaction.
             tx_date = ""
             if date_col:
-                tx_date = normalized_row.get(date_col, "").strip()
+                tx_date = (normalized_row.get(date_col) or "").strip()
 
             # Conversion devise.
             original_amount = amount_ht
@@ -184,7 +188,7 @@ def _parse_csv(
                     )
 
             sale = Sale(
-                sale_id=sale_id.strip(),
+                sale_id=(sale_id or "").strip(),
                 amount_ht=amount_ht,
                 buyer_type=buyer_type,
                 stock_country=stock_country,

@@ -75,28 +75,28 @@ class _RowParser:
 class _Format1Parser(_RowParser):
 
     def tx_type(self, row: dict) -> str:
-        return row.get("transaction_type", "").strip().lower()
+        return (row.get("transaction_type") or "").strip().lower()
 
     def sale_id(self, row: dict, line_no: int) -> str:
-        eid = row.get("activity_transaction_id", "").strip()
+        eid = (row.get("activity_transaction_id") or "").strip()
         if not eid:
-            eid = row.get("transaction_event_id", "").strip()
+            eid = (row.get("transaction_event_id") or "").strip()
         return eid or f"L{line_no}"
 
     def departure(self, row: dict) -> str:
-        return row.get("departure_country", "").strip().upper()
+        return (row.get("departure_country") or "").strip().upper()
 
     def arrival(self, row: dict) -> str:
-        return row.get("arrival_country", "").strip().upper()
+        return (row.get("arrival_country") or "").strip().upper()
 
     def arrival_post_code(self, row: dict) -> str:
-        return row.get("arrival_post_code", "").strip()
+        return (row.get("arrival_post_code") or "").strip()
 
     def buyer_vat(self, row: dict) -> str:
-        return row.get("buyer_vat_number", "").strip()
+        return (row.get("buyer_vat_number") or "").strip()
 
     def amount_ht(self, row: dict) -> Decimal:
-        v = row.get("total_activity_value_amt_vat_excl", "").strip()
+        v = (row.get("total_activity_value_amt_vat_excl") or "").strip()
         if v and v != "-":
             return safe_decimal(v)
         return (
@@ -106,13 +106,13 @@ class _Format1Parser(_RowParser):
         )
 
     def currency(self, row: dict) -> str:
-        col = row.get("transaction_currency_code", "").strip().upper()
+        col = (row.get("transaction_currency_code") or "").strip().upper()
         if col:
             return col
-        return currency_from_marketplace(row.get("marketplace", ""))
+        return currency_from_marketplace((row.get("marketplace") or ""))
 
     def tx_date(self, row: dict) -> str:
-        return parse_date(row.get("tax_calculation_date", ""))
+        return parse_date(row.get("tax_calculation_date"))
 
     def qty(self, row: dict) -> int:
         return int(safe_decimal(row.get("qty", "1")) or 1)
@@ -122,7 +122,7 @@ class _Format1Parser(_RowParser):
         return False
 
     def asin(self, row: dict) -> str:
-        return row.get("asin", "").strip()
+        return (row.get("asin") or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -132,42 +132,42 @@ class _Format1Parser(_RowParser):
 class _Format2Parser(_RowParser):
 
     def tx_type(self, row: dict) -> str:
-        return row.get("transaction_type", "").strip().lower()
+        return (row.get("transaction_type") or "").strip().lower()
 
     def sale_id(self, row: dict, line_no: int) -> str:
-        eid = row.get("transaction_event_id", "").strip()
+        eid = (row.get("transaction_event_id") or "").strip()
         return eid or f"L{line_no}"
 
     def departure(self, row: dict) -> str:
-        return row.get("sale_depart_country", "").strip().upper()
+        return (row.get("sale_depart_country") or "").strip().upper()
 
     def arrival(self, row: dict) -> str:
-        return row.get("sale_arrival_country", "").strip().upper()
+        return (row.get("sale_arrival_country") or "").strip().upper()
 
     def arrival_post_code(self, row: dict) -> str:
-        return row.get("arrival_post_code", "").strip()
+        return (row.get("arrival_post_code") or "").strip()
 
     def buyer_vat(self, row: dict) -> str:
-        return row.get("buyer_vat_number", "").strip()
+        return (row.get("buyer_vat_number") or "").strip()
 
     def amount_ht(self, row: dict) -> Decimal:
-        return safe_decimal(row.get("transaction_total_vat_excl_amount", ""))
+        return safe_decimal(row.get("transaction_total_vat_excl_amount"))
 
     def currency(self, row: dict) -> str:
         return "EUR"  # Format 2 n'a pas de colonne devise connue
 
     def tx_date(self, row: dict) -> str:
-        return parse_date(row.get("transaction_settlement_date", ""))
+        return parse_date(row.get("transaction_settlement_date"))
 
     def qty(self, row: dict) -> int:
         return int(safe_decimal(row.get("quantity", "1")) or 1)
 
     def is_deemed_supplier(self, row: dict) -> bool:
-        model = row.get("marketplace_facilitator_tax_collection_model", "").strip().lower()
+        model = (row.get("marketplace_facilitator_tax_collection_model") or "").strip().lower()
         return "facilitator" in model or "marketplace" in model
 
     def asin(self, row: dict) -> str:
-        return row.get("asin", "").strip()
+        return (row.get("asin") or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -177,53 +177,53 @@ class _Format2Parser(_RowParser):
 class _Format3Parser(_RowParser):
 
     def tx_type(self, row: dict) -> str:
-        return row.get("transaction_type", "").strip().lower()
+        return (row.get("transaction_type") or "").strip().lower()
 
     def sale_id(self, row: dict, line_no: int) -> str:
-        eid = row.get("order_id", "").strip()
+        eid = (row.get("order_id") or "").strip()
         return eid or f"L{line_no}"
 
     def departure(self, row: dict) -> str:
         from .constants import normalize_country_code
-        return normalize_country_code(row.get("sale_depart_country", "").strip().upper())
+        return normalize_country_code((row.get("sale_depart_country") or "").strip().upper())
 
     def arrival(self, row: dict) -> str:
         from .constants import normalize_country_code
-        arr = row.get("sale_arrival_country", "").strip().upper()
+        arr = (row.get("sale_arrival_country") or "").strip().upper()
         if not arr:
-            arr = row.get("buyer_country", "").strip().upper()
+            arr = (row.get("buyer_country") or "").strip().upper()
         return normalize_country_code(arr)
 
     def arrival_post_code(self, row: dict) -> str:
-        return row.get("arrival_post_code", "").strip()
+        return (row.get("arrival_post_code") or "").strip()
 
     def buyer_vat(self, row: dict) -> str:
-        return row.get("buyer_vat_number", "").strip()
+        return (row.get("buyer_vat_number") or "").strip()
 
     def amount_ht(self, row: dict) -> Decimal:
-        return safe_decimal(row.get("total_activity_value_amt_vat_excl", ""))
+        return safe_decimal(row.get("total_activity_value_amt_vat_excl"))
 
     def currency(self, row: dict) -> str:
-        return row.get("transaction_currency_code", "EUR").strip().upper() or "EUR"
+        return (row.get("transaction_currency_code") or "EUR").strip().upper() or "EUR"
 
     def tx_date(self, row: dict) -> str:
-        return parse_date(row.get("transaction_complete_date", ""))
+        return parse_date(row.get("transaction_complete_date"))
 
     def qty(self, row: dict) -> int:
         return 1  # Format 3 n'a pas de colonne qty explicite
 
     def is_deemed_supplier(self, row: dict) -> bool:
-        model = row.get("tax_collection_model", "").strip().lower()
+        model = (row.get("tax_collection_model") or "").strip().lower()
         return "facilitator" in model or "marketplace" in model
 
     def amazon_vat(self, row: dict) -> Decimal:
-        raw = row.get("total_activity_value_vat_amt", "").strip()
+        raw = (row.get("total_activity_value_vat_amt") or "").strip()
         if not raw:
             return Decimal("0.00")
         return abs(safe_decimal(raw))
 
     def asin(self, row: dict) -> str:
-        return row.get("asin", "").strip() or row.get("product_id", "").strip()
+        return (row.get("asin") or "").strip() or (row.get("product_id") or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -240,16 +240,16 @@ class _Format4Parser(_Format3Parser):
     """
 
     def sale_id(self, row: dict, line_no: int) -> str:
-        eid = row.get("activity_transaction_id", "").strip()
+        eid = (row.get("activity_transaction_id") or "").strip()
         if not eid:
-            eid = row.get("transaction_event_id", "").strip()
+            eid = (row.get("transaction_event_id") or "").strip()
         return eid or f"L{line_no}"
 
     def qty(self, row: dict) -> int:
         return int(safe_decimal(row.get("qty", "1")) or 1)
 
     def is_deemed_supplier(self, row: dict) -> bool:
-        return row.get("tax_collection_responsibility", "").strip().upper() == "MARKETPLACE"
+        return (row.get("tax_collection_responsibility") or "").strip().upper() == "MARKETPLACE"
 
 
 # ---------------------------------------------------------------------------
@@ -306,13 +306,13 @@ class _Format5Parser(_RowParser):
     _multi_asin_orders: frozenset = frozenset()
 
     def tx_type(self, row: dict) -> str:
-        return row.get(self._COL_TX_TYPE, "").strip().lower()
+        return (row.get(self._COL_TX_TYPE) or "").strip().lower()
 
     def sale_id(self, row: dict, line_no: int) -> str:
         """Order ID lisible + suffixe (ASIN) si commande multi-articles."""
-        order_id = row.get(self._COL_ORDER_ID, "").strip()
-        asin     = row.get(self._COL_ASIN, "").strip()
-        tx_type  = row.get("transaction_type", "").strip().upper()
+        order_id = (row.get(self._COL_ORDER_ID) or "").strip()
+        asin     = (row.get(self._COL_ASIN) or "").strip()
+        tx_type  = (row.get("transaction_type") or "").strip().upper()
         if order_id:
             if (order_id, tx_type) in self._multi_asin_orders and asin:
                 return f"{order_id} ({asin})"
@@ -320,23 +320,23 @@ class _Format5Parser(_RowParser):
         return f"L{line_no}"
 
     def departure(self, row: dict) -> str:
-        return row.get(self._COL_SHIP_FROM_CC, "").strip().upper()
+        return (row.get(self._COL_SHIP_FROM_CC) or "").strip().upper()
 
     def arrival(self, row: dict) -> str:
-        return row.get(self._COL_SHIP_TO_CC, "").strip().upper()
+        return (row.get(self._COL_SHIP_TO_CC) or "").strip().upper()
 
     def arrival_post_code(self, row: dict) -> str:
-        return row.get(self._COL_ARRIVAL_PC, "").strip()
+        return (row.get(self._COL_ARRIVAL_PC) or "").strip()
 
     def buyer_vat(self, row: dict) -> str:
         """Retourne le numéro TVA uniquement si c'est un vrai numéro intracommunautaire.
 
-        Le format V5 remplit buyer_tax_registration avec des numéros fiscaux nationaux
+        Le format V5 remplit buyer_tax_registration with des numéros fiscaux nationaux
         (codice fiscale IT, NIF ES…) — on filtre via buyer_tax_registration_type.
         """
         from .constants import is_valid_vat_intracom
-        vat      = row.get(self._COL_BUYER_VAT, "").strip()
-        reg_type = row.get("buyer_tax_registration_type", "VAT").strip()
+        vat      = (row.get(self._COL_BUYER_VAT) or "").strip()
+        reg_type = (row.get("buyer_tax_registration_type") or "VAT").strip()
         if not is_valid_vat_intracom(vat, reg_type):
             return ""
         return vat
@@ -354,30 +354,30 @@ class _Format5Parser(_RowParser):
         On utilise donc SHIPMENT_DATE en priorité, avec repli sur
         ORDER_DATE si l'expédition n'est pas renseignée.
         """
-        d = row.get(self._COL_SHIP_DATE, "").strip()
+        d = (row.get(self._COL_SHIP_DATE) or "").strip()
         if not d:
-            d = row.get(self._COL_ORDER_DATE, "").strip()
+            d = (row.get(self._COL_ORDER_DATE) or "").strip()
         return parse_date(d)
 
     def order_date(self, row: dict) -> str:
         """Date de commande brute (ORDER_DATE), pour le rapport de réconciliation."""
-        return parse_date(row.get(self._COL_ORDER_DATE, "").strip())
+        return parse_date(row.get(self._COL_ORDER_DATE))
 
     def shipment_date(self, row: dict) -> str:
         """Date d'expédition brute (SHIPMENT_DATE), si renseignée."""
-        return parse_date(row.get(self._COL_SHIP_DATE, "").strip())
+        return parse_date(row.get(self._COL_SHIP_DATE))
 
     def qty(self, row: dict) -> int:
         return int(safe_decimal(row.get(self._COL_QTY, "1")) or 1)
 
     def currency(self, row: dict) -> str:
-        return row.get(self._COL_CURRENCY, "EUR").strip().upper() or "EUR"
+        return (row.get(self._COL_CURRENCY) or "EUR").strip().upper() or "EUR"
 
     def asin(self, row: dict) -> str:
-        return row.get(self._COL_ASIN, "").strip()
+        return (row.get(self._COL_ASIN) or "").strip()
 
     def is_deemed_supplier(self, row: dict) -> bool:
-        return row.get(self._COL_RESP, "").strip().lower() == "marketplace"
+        return (row.get(self._COL_RESP) or "").strip().lower() == "marketplace"
 
     # --- Montants ---
 
@@ -407,7 +407,7 @@ class _Format5Parser(_RowParser):
 
     def amazon_fx_rate(self, row: dict) -> Optional[Decimal]:
         """Taux de change Amazon (Invoice Level). None si absent ou nul."""
-        raw = row.get(self._COL_FX_RATE, "").strip()
+        raw = (row.get(self._COL_FX_RATE) or "").strip()
         if not raw:
             return None
         val = safe_decimal(raw)
@@ -415,7 +415,7 @@ class _Format5Parser(_RowParser):
 
     def is_country_level(self, row: dict) -> bool:
         """True si la ligne correspond au niveau COUNTRY (TVA nationale UE)."""
-        return row.get(self._COL_JURIS_LEVEL, "").strip().lower() == self._EU_JURISDICTION_LEVEL
+        return (row.get(self._COL_JURIS_LEVEL) or "").strip().lower() == self._EU_JURISDICTION_LEVEL
 
 
 # ---------------------------------------------------------------------------

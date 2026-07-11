@@ -168,15 +168,15 @@ def _process_rows(
             result.invoice_credit_notes.append({
                 "kind": "INVOICE" if tx_type in INVOICE_TYPES else "CREDIT_NOTE",
                 "date": tx_date_val,
-                "marketplace": row.get("marketplace", "").strip(),
-                "program_type": row.get("program_type", "").strip(),
+                "marketplace": (row.get("marketplace") or "").strip(),
+                "program_type": (row.get("program_type") or "").strip(),
                 "reference": (
-                    row.get("vat_inv_number", "").strip()
-                    or row.get("transaction_event_id", "").strip()
+                    (row.get("vat_inv_number") or "").strip()
+                    or (row.get("transaction_event_id") or "").strip()
                 ),
                 "amount_ht": amount,
-                "vat_amount": safe_decimal(row.get("total_activity_value_vat_amt", "")),
-                "currency": row.get("transaction_currency_code", "").strip() or "EUR",
+                "vat_amount": safe_decimal(row.get("total_activity_value_vat_amt")),
+                "currency": (row.get("transaction_currency_code") or "").strip() or "EUR",
             })
             if tx_type in INVOICE_TYPES:
                 result.invoice_rows += 1
@@ -292,10 +292,10 @@ def _process_rows(
         # "XX" n'est pas dans EU_COUNTRIES → engine.py → EXPORT automatiquement.
         # arrival_pc est également conservé sur Sale pour is_fiscal_eu() dans engine.
         postal_code = arrival_pc or (
-            row.get("ship_to_postal_code", "")
-            or row.get("delivery_postal_code", "")
-            or row.get("ship_to_zip", "")
-        ).strip()
+            (row.get("ship_to_postal_code")
+            or row.get("delivery_postal_code")
+            or row.get("ship_to_zip") or "").strip()
+        )
         arrival = apply_vat_exception(arrival, postal_code)
 
         # --- Conversion devise ---
@@ -331,7 +331,7 @@ def _process_rows(
         # Identifiant à AFFICHER uniquement (TRANSACTION_EVENT_ID) — n'intervient
         # jamais dans sale_id (clé d'agrégation/matching, inchangée ci-dessus).
         # Absent des formats 3/5 : reste vide, l'affichage repliera sur sale_id.
-        display_id = row.get("transaction_event_id", "").strip()
+        display_id = (row.get("transaction_event_id") or "").strip()
         sale = Sale(
             sale_id=sale_id,
             display_id=display_id,
@@ -374,7 +374,7 @@ def _process_rows(
 
         # Format 5 : stocker le Tax Reporting Scheme pour audit OSS
         if fmt == 5:
-            scheme = row.get("tax_reporting_scheme", "").strip()
+            scheme = (row.get("tax_reporting_scheme") or "").strip()
             result.tax_scheme_by_sale_id[sale_id] = scheme
 
         # Garde : SHIPMENT avec montant négatif = retour non tagué RETURN

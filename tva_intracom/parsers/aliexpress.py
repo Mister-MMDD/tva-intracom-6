@@ -59,7 +59,9 @@ _CANCELLED_STATUSES = {
 }
 
 
-def _normalize(header: str) -> str:
+def _normalize(header: str | None) -> str:
+    if header is None:
+        return ""
     return header.strip().lower().replace(" ", "_").replace("-", "_")
 
 
@@ -70,7 +72,9 @@ def _find_col(headers: list[str], candidates: list[str]) -> Optional[str]:
     return None
 
 
-def _safe_decimal(value: str) -> Decimal:
+def _safe_decimal(value: str | None) -> Decimal:
+    if value is None:
+        return Decimal("0")
     cleaned = value.strip().replace(",", ".").replace("\xa0", "").replace(" ", "")
     if not cleaned or cleaned == "-":
         return Decimal("0")
@@ -168,7 +172,7 @@ def parse(
 
             # Filtrer les commandes annulees.
             if status_col:
-                status = normalized_row.get(status_col, "").strip().lower()
+                status = (normalized_row.get(status_col) or "").strip().lower()
                 if status in _CANCELLED_STATUSES:
                     result.skipped_rows += 1
                     continue

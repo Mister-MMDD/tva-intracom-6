@@ -48,7 +48,7 @@ def _aggregate_group(rows: list[dict]) -> dict:
 
     # Ligne de référence : préférer la ligne COUNTRY pour les métadonnées
     ref = next(
-        (r for r in rows if r.get("jurisdiction_level", "").strip().lower() == "country"),
+        (r for r in rows if (r.get("jurisdiction_level") or "").strip().lower() == "country"),
         rows[0],
     )
 
@@ -89,9 +89,9 @@ def preaggregate_v5(
     # → sale_id sera "ORDER_ID (ASIN)" pour les distinguer
     order_tx_to_asins: dict[tuple, set] = {}
     for row in raw_rows:
-        oid  = row.get("order_id", "").strip()
-        asin = row.get("asin", "").strip()
-        tx   = row.get("transaction_type", "").strip().upper()
+        oid  = (row.get("order_id") or "").strip()
+        asin = (row.get("asin") or "").strip()
+        tx   = (row.get("transaction_type") or "").strip().upper()
         if oid:
             order_tx_to_asins.setdefault((oid, tx), set()).add(asin)
 
@@ -106,15 +106,15 @@ def preaggregate_v5(
     fallback_counter = 0
 
     for line_no, row in enumerate(raw_rows, start=2):
-        vat_invoice = row.get("vat_invoice_number", "").strip()
-        asin        = row.get("asin", "").strip()
-        tx_type     = row.get("transaction_type", "").strip().upper()
+        vat_invoice = (row.get("vat_invoice_number") or "").strip()
+        asin        = (row.get("asin") or "").strip()
+        tx_type     = (row.get("transaction_type") or "").strip().upper()
 
         # "N/A" = valeur littérale Amazon pour "pas de facture TVA"
         if vat_invoice and vat_invoice.upper() != "N/A":
             agg_key = f"{vat_invoice}|{asin}|{tx_type}"
         else:
-            order_id = row.get("order_id", "").strip()
+            order_id = (row.get("order_id") or "").strip()
             if order_id:
                 agg_key = f"__NOINV__|{order_id}|{asin}|{tx_type}"
             else:

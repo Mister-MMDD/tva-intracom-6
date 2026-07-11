@@ -69,7 +69,9 @@ _CANCELLED_STATUSES = {
 }
 
 
-def _normalize(header: str) -> str:
+def _normalize(header: str | None) -> str:
+    if header is None:
+        return ""
     return header.strip().lower().replace(" ", "_").replace("-", "_")
 
 
@@ -80,7 +82,9 @@ def _find_col(headers: list[str], candidates: list[str]) -> Optional[str]:
     return None
 
 
-def _safe_decimal(value: str) -> Decimal:
+def _safe_decimal(value: str | None) -> Decimal:
+    if value is None:
+        return Decimal("0")
     cleaned = value.strip().replace(",", ".").replace("\xa0", "").replace(" ", "")
     if not cleaned or cleaned == "-":
         return Decimal("0")
@@ -179,9 +183,9 @@ def parse(
             from datetime import date as date_type
             to_prefetch = []
             for row in rows:
-                c = row.get(currency_col, "EUR").strip().upper() if currency_col else "EUR"
+                c = (row.get(currency_col) or "EUR").strip().upper() if currency_col else "EUR"
                 if c != "EUR":
-                    d_str = row.get(date_col, "").strip() if date_col else ""
+                    d_str = (row.get(date_col) or "").strip() if date_col else ""
                     d_obj = _parse_date(d_str) or date_type.today()
                     to_prefetch.append((c, d_obj))
             if to_prefetch:
@@ -193,12 +197,12 @@ def parse(
 
             # Filtrer les commandes annulees.
             if status_col:
-                status = normalized_row.get(status_col, "").strip().lower()
+                status = (normalized_row.get(status_col) or "").strip().lower()
                 if status in _CANCELLED_STATUSES:
                     result.skipped_rows += 1
                     continue
 
-            buyer_country = normalized_row.get(country_col, "").strip().upper()
+            buyer_country = (normalized_row.get(country_col) or "").strip().upper()
             amount_ht = _safe_decimal(normalized_row.get(amount_col, ""))
 
             if not buyer_country or amount_ht == 0:
@@ -209,21 +213,21 @@ def parse(
 
             currency = "EUR"
             if currency_col:
-                currency = normalized_row.get(currency_col, "EUR").strip().upper() or "EUR"
+                currency = (normalized_row.get(currency_col) or "EUR").strip().upper() or "EUR"
 
             tx_date = ""
             if date_col:
-                tx_date = normalized_row.get(date_col, "").strip()
+                tx_date = (normalized_row.get(date_col) or "").strip()
 
             # Detection B2B.
             buyer_type = BuyerType.B2C
             buyer_vat = ""
             if vat_col:
-                buyer_vat = normalized_row.get(vat_col, "").strip()
+                buyer_vat = (normalized_row.get(vat_col) or "").strip()
                 if buyer_vat:
                     buyer_type = BuyerType.B2B
             if buyer_type == BuyerType.B2C and company_col:
-                company = normalized_row.get(company_col, "").strip()
+                company = (normalized_row.get(company_col) or "").strip()
                 if company and company.lower() not in ("", "n/a", "-", "non"):
                     # Presence d'un nom de societe -> potentiellement B2B,
                     # mais sans numero TVA on ne peut pas autoliquider.
@@ -232,7 +236,7 @@ def parse(
             # Stock country.
             row_stock = stock_country
             if stock_col:
-                s = normalized_row.get(stock_col, "").strip().upper()
+                s = (normalized_row.get(stock_col) or "").strip().upper()
                 if s:
                     row_stock = s
 
@@ -258,7 +262,7 @@ def parse(
                     )
 
             sale = Sale(
-                sale_id=sale_id.strip(),
+                sale_id=(sale_id or "").strip(),
                 amount_ht=amount_ht,
                 buyer_type=buyer_type,
                 stock_country=row_stock,

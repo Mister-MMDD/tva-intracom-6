@@ -12,8 +12,10 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-def normalize_header(h: str) -> str:
+def normalize_header(h: str | None) -> str:
     """Normalise un nom de colonne CSV en snake_case minuscule."""
+    if h is None:
+        return ""
     return h.strip().lower().replace(" ", "_").replace("-", "_")
 
 
@@ -91,7 +93,7 @@ EXPECTED_COLUMNS: dict[int, list[str]] = {
 }
 
 
-def parse_date(date_str: str) -> str:
+def parse_date(date_str: str | None) -> str:
     """Normalise une date Amazon vers YYYY-MM-DD. Retourne '' si invalide.
 
     Formats reconnus :
@@ -103,6 +105,8 @@ def parse_date(date_str: str) -> str:
       DD.MM.YYYY                → inversé
       DD-MM-YYYY                → inversé (format V5 Amazon EU)
     """
+    if date_str is None:
+        return ""
     s = date_str.strip()
     if not s:
         return ""

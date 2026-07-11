@@ -171,8 +171,10 @@ def currency_from_marketplace(marketplace: str) -> str:
     return MARKETPLACE_CURRENCY.get(marketplace.strip().lower(), "EUR")
 
 
-def safe_decimal(value: str) -> Decimal:
+def safe_decimal(value: str | None) -> Decimal:
     """Convertit une chaîne en Decimal, retourne 0 si vide ou invalide."""
+    if value is None:
+        return Decimal("0")
     cleaned = value.strip().replace(",", ".")
     if not cleaned or cleaned in ("-", "n/a", ""):
         return Decimal("0")
