@@ -256,6 +256,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 options=_siren_options + [_new_siren_label],
                 index=0 if _siren_options else 0,
                 format_func=lambda v: _siren_label_by_value.get(v, v),
+                key="siren_select_box",
             ) if _siren_options else _new_siren_label
 
             if _siren_choice == _new_siren_label:

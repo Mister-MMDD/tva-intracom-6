@@ -792,3 +792,16 @@ xml_negative_unmatched_suffix = "\n\nSome credit notes could not be automaticall
 xml_negative_detail_line = "  - {dep} → {arr} ({rate}%) : HT={ht:.2f} €, VAT={tva:.2f} €{matching}"
 xml_matching_success = " — {count} credit note(s) linked automatically, {unmatched_count} credit note(s) WITHOUT identified origin (HT={unmatched_ht:.2f} €, VAT={unmatched_vat:.2f} €) to be handled manually"
 xml_matching_none = " — no credit note automatically linkable (origin not found in this file)"
+
+# Amazon account <-> SIREN linking (anti-abuse)
+gate_account_link_blocked_err = "🔒 {label} — download blocked: the Amazon account must be confirmed or resolved against the SIREN (see the panel at the top of the page)."
+account_link_panel_intro = "🔗 One or more Amazon accounts detected in this file need action before downloads can be unlocked."
+account_link_new_title = "**New Amazon account detected: `{identifier}`**"
+account_link_new_caption = "Confirm that this account really belongs to this client before unlocking downloads."
+account_link_confirm_checkbox = "I confirm that account {identifier} belongs to {company} (SIREN {siren})"
+account_link_confirm_btn = "✅ Link this account to this SIREN"
+account_link_success = "Account {identifier} linked to SIREN {siren}."
+account_link_error = "Error while linking: {error}"
+account_link_conflict_title = "⚠️ Amazon account `{identifier}` is already linked to another SIREN"
+account_link_conflict_text = "This account is registered for **{other_label}**, not for **{current_label}**. If the currently selected SIREN is a mistake, switch to the right client."
+account_link_switch_btn = "🔀 Switch to {other_label}"

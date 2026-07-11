@@ -40,6 +40,7 @@ from tva_intracom.i18n import _
 from tva_intracom import billing as tva_billing
 from tva_intracom.models import Channel
 from tva_intracom.ui.formatting import _country_label
+from tva_intracom.vies import resolve_scope_id as _vies_resolve_scope_id
 
 
 def detect_period_label(results, oss_period: str) -> tuple[str, Optional[tuple[str, str]]]:
@@ -90,10 +91,21 @@ class BillingGate:
     ioss_missing: bool
     unlock_label_suffix: str
 
-    current_user: Any = field(repr=False)
-    vies_summary: Any = field(repr=False)
-    stripe_success_url: Any = field(repr=False)
-    stripe_cancel_url: Any = field(repr=False)
+    # Rattachement compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) <-> SIREN —
+    # anti-abus (voir billing.get_siren_links_for_identifiers). Bloque
+    # can_export tant qu'il reste des identifiants non confirmés ou en
+    # conflit avec un autre SIREN — voir render_account_link_panel().
+    account_link_blocked: bool = False
+    unlinked_identifiers: list = field(default_factory=list)
+    conflicting_links: list = field(default_factory=list)  # [(identifier, other_siren)]
+
+    current_user: Any = field(repr=False, default=None)
+    vies_summary: Any = field(repr=False, default=None)
+    stripe_success_url: Any = field(repr=False, default=None)
+    stripe_cancel_url: Any = field(repr=False, default=None)
+    vies_scope_id: str = field(repr=False, default="")
+    siren_entreprise: str = field(repr=False, default="")
+    nom_entreprise: str = field(repr=False, default="")
 
     def get_payg_checkout_url(self) -> Optional[str]:
         """Crée la session Stripe Checkout une seule fois par période/session
@@ -116,6 +128,14 @@ class BillingGate:
     def gated_download(self, label, data, file_name, mime, **kwargs) -> None:
         """Remplace st.download_button : affiche le vrai bouton si crédit
         disponible pour la période, sinon un lien direct vers Stripe Checkout."""
+        # Priorité 0 : Rattachement compte Amazon <-> SIREN non résolu (anti-abus).
+        # Vérifié avant même le paiement : peu importe qu'une période soit déjà
+        # débloquée, un fichier appartenant à un autre client ne doit jamais
+        # être exportable sans confirmation/résolution explicite du conflit.
+        if self.account_link_blocked:
+            st.error(_("gate_account_link_blocked_err", label=label))
+            return
+
         # Priorité 1 : Paiement / Déblocage de la période
         if not self.can_export:
             if self.quota_status and self.quota_status.blocked:
@@ -172,6 +192,9 @@ def build_billing_gate(
         vies_summary,
         stripe_success_url,
         stripe_cancel_url,
+        vies_scope_id: str = "",
+        all_account_identifiers=None,
+        nom_entreprise: str = "",
 ) -> BillingGate:
     """Exécute tout le gating (période, crédit/abonnement, quota SIREN,
     conformité TVA/IOSS) et retourne un BillingGate prêt à l'emploi.
@@ -227,6 +250,31 @@ def build_billing_gate(
 
     compliance_blocked = bool(missing_vats or ioss_missing)
 
+    # ── Gate Rattachement compte Amazon <-> SIREN (anti-abus) ─────────────
+    # Scope identique à celui du cache VIES (partagé par domaine pro, isolé
+    # par compte pour les domaines grand public) — un cabinet ne reconfirme
+    # pas ce rattachement à chaque collaborateur.
+    _scope_id = vies_scope_id or _vies_resolve_scope_id(current_user.email)
+    unlinked_identifiers: list[str] = []
+    conflicting_links: list[tuple[str, str]] = []
+    if all_account_identifiers and siren_entreprise:
+        try:
+            _existing_links = tva_billing.get_siren_links_for_identifiers(
+                _scope_id, all_account_identifiers
+            )
+        except Exception:
+            _existing_links = {}
+        for _identifier in sorted(all_account_identifiers):
+            _linked_siren = _existing_links.get(_identifier)
+            if _linked_siren is None:
+                unlinked_identifiers.append(_identifier)
+            elif _linked_siren != siren_entreprise:
+                conflicting_links.append((_identifier, _linked_siren))
+
+    account_link_blocked = bool(unlinked_identifiers or conflicting_links)
+    if account_link_blocked:
+        can_export = False
+
     try:
         payg_price = tva_billing.get_pricing_grid(current_user.id).get("payg")
     except Exception:
@@ -259,8 +307,78 @@ def build_billing_gate(
         missing_vats=missing_vats,
         ioss_missing=ioss_missing,
         unlock_label_suffix=unlock_label_suffix,
+        account_link_blocked=account_link_blocked,
+        unlinked_identifiers=unlinked_identifiers,
+        conflicting_links=conflicting_links,
         current_user=current_user,
         vies_summary=vies_summary,
         stripe_success_url=stripe_success_url,
         stripe_cancel_url=stripe_cancel_url,
+        vies_scope_id=_scope_id,
+        siren_entreprise=siren_entreprise,
+        nom_entreprise=nom_entreprise,
     )
+
+
+def render_account_link_panel(gate: BillingGate) -> None:
+    """Affiche, le cas échéant, le panneau de confirmation/résolution du
+    rattachement compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) <-> SIREN.
+
+    À appeler une fois, juste après build_billing_gate() et avant l'affichage
+    des onglets — comme le plan d'action Immatriculations. Ne fait rien si
+    `gate.account_link_blocked` est False (cas normal : aucun nouvel
+    identifiant, ou tous déjà liés au bon SIREN).
+
+    Deux cas traités séparément :
+      - identifiant jamais vu dans ce scope : demande de confirmation
+        explicite avant de créer le lien (checkbox + bouton) — on ne lie
+        jamais automatiquement, pour ne pas figer une erreur de sélection
+        de SIREN faite avant l'upload du fichier.
+      - identifiant déjà lié à un AUTRE SIREN que celui sélectionné :
+        avertissement + bouton pour basculer la sélection de SIREN vers le
+        bon (jamais de bascule silencieuse).
+    """
+    if not gate.account_link_blocked:
+        return
+
+    # Libellés lisibles pour les SIREN déjà connus du compte (utilisé pour
+    # les messages de conflit : "SIREN X" -> "Client Untel — 123456789").
+    try:
+        _sirens = tva_billing.list_registered_sirens(gate.current_user.id)
+        _siren_labels = {r["siren"]: f"{r['company_name'] or r['siren']} — {r['siren']}" for r in _sirens}
+    except Exception:
+        _siren_labels = {}
+
+    with st.container():
+        st.warning(_("account_link_panel_intro"))
+
+        for _identifier in gate.unlinked_identifiers:
+            st.markdown(
+                _("account_link_new_title", identifier=_identifier)
+            )
+            st.caption(_("account_link_new_caption"))
+            _confirm_key = f"confirm_link_{gate.vies_scope_id}_{_identifier}"
+            _confirmed = st.checkbox(
+                _("account_link_confirm_checkbox",
+                  identifier=_identifier, company=gate.nom_entreprise or gate.siren_entreprise,
+                  siren=gate.siren_entreprise),
+                key=_confirm_key,
+            )
+            if _confirmed:
+                if st.button(_("account_link_confirm_btn"), key=f"btn_link_{gate.vies_scope_id}_{_identifier}"):
+                    try:
+                        tva_billing.link_account_identifier(gate.vies_scope_id, _identifier, gate.siren_entreprise)
+                        st.success(_("account_link_success", identifier=_identifier, siren=gate.siren_entreprise))
+                        st.rerun()
+                    except Exception as _link_err:
+                        st.error(_("account_link_error", error=_link_err))
+
+        for _identifier, _other_siren in gate.conflicting_links:
+            _other_label = _siren_labels.get(_other_siren, _other_siren)
+            _current_label = gate.nom_entreprise or gate.siren_entreprise
+            st.error(_("account_link_conflict_title", identifier=_identifier))
+            st.caption(_("account_link_conflict_text", other_label=_other_label, current_label=_current_label))
+            if st.button(_("account_link_switch_btn", other_label=_other_label),
+                         key=f"btn_switch_{gate.vies_scope_id}_{_identifier}"):
+                st.session_state["siren_select_box"] = _other_siren
+                st.rerun()

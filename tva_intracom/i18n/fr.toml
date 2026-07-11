@@ -792,3 +792,16 @@ xml_negative_unmatched_suffix = "\n\nCertains avoirs n'ont pas pu être rattach�
 xml_negative_detail_line = "  - {dep} → {arr} ({rate}%) : HT={ht:.2f} €, TVA={tva:.2f} €{matching}"
 xml_matching_success = " — {count} avoir(s) rattaché(s) automatiquement, {unmatched_count} avoir(s) SANS origine identifiée (HT={unmatched_ht:.2f} €, TVA={unmatched_vat:.2f} €) à traiter manuellement"
 xml_matching_none = " — aucun avoir rattachable automatiquement (origine non trouvée dans ce fichier)"
+
+# Rattachement compte Amazon <-> SIREN (anti-abus)
+gate_account_link_blocked_err = "🔒 {label} — téléchargement bloqué : le rattachement du compte Amazon au SIREN doit être confirmé ou résolu (voir l'encart en haut de page)."
+account_link_panel_intro = "🔗 Un ou plusieurs comptes Amazon détectés dans ce fichier nécessitent une action avant de pouvoir débloquer les téléchargements."
+account_link_new_title = "**Nouveau compte Amazon détecté : `{identifier}`**"
+account_link_new_caption = "Confirmez que ce compte appartient bien à ce client avant de débloquer les téléchargements."
+account_link_confirm_checkbox = "Je confirme que le compte {identifier} appartient à {company} (SIREN {siren})"
+account_link_confirm_btn = "✅ Lier ce compte à ce SIREN"
+account_link_success = "Compte {identifier} lié au SIREN {siren}."
+account_link_error = "Erreur lors du rattachement : {error}"
+account_link_conflict_title = "⚠️ Le compte Amazon `{identifier}` est déjà lié à un autre SIREN"
+account_link_conflict_text = "Ce compte est enregistré pour **{other_label}**, pas pour **{current_label}**. Si le SIREN actuellement sélectionné est une erreur, basculez vers le bon client."
+account_link_switch_btn = "🔀 Basculer vers {other_label}"

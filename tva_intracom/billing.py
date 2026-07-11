@@ -196,6 +196,24 @@ def _init_schema() -> None:
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS apply_fr_under_threshold BOOLEAN DEFAULT FALSE")
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS countries_with_vat TEXT")
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS vat_numbers_json TEXT")
+        # Liaison compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) <-> SIREN — anti-abus :
+        # empêche d'exporter le fichier d'un client sous le SIREN payé d'un
+        # autre. Scope_id = même portée que le cache VIES (vies.resolve_scope_id) :
+        # partagée entre tous les utilisateurs d'un même cabinet (domaine pro),
+        # isolée par compte pour les domaines grand public (gmail...). Un même
+        # identifiant ne peut être lié qu'à un seul SIREN dans un scope donné
+        # (PK), un SIREN peut en revanche posséder plusieurs identifiants.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tva_account_siren_links (
+                scope_id TEXT NOT NULL,
+                account_identifier TEXT NOT NULL,
+                siren TEXT NOT NULL,
+                linked_at DOUBLE PRECISION NOT NULL,
+                PRIMARY KEY (scope_id, account_identifier)
+            )
+            """
+        )
         conn.commit()
 
     _run(_fn)
@@ -452,6 +470,69 @@ def cancel_siren_removal(user_id: str, siren: str) -> None:
         cur.execute(
             "UPDATE tva_siren_registrations SET pending_removal_at=NULL WHERE user_id=%s AND siren=%s",
             (user_id, siren),
+        )
+        conn.commit()
+
+    _run(_fn)
+
+
+# =============================================================================
+# LIAISON COMPTE AMAZON (UNIQUE_ACCOUNT_IDENTIFIER) <-> SIREN
+# =============================================================================
+# Anti-abus : un UNIQUE_ACCOUNT_IDENTIFIER (colonne du fichier Amazon,
+# identifiant le compte vendeur d'origine) ne doit pouvoir être rattaché
+# qu'à un seul SIREN par scope — sans quoi un utilisateur pourrait importer
+# le fichier d'un client sous le SIREN (donc le crédit/abonnement) payé d'un
+# autre. Un SIREN peut en revanche posséder plusieurs identifiants (un même
+# client peut avoir plusieurs comptes Amazon). Le scope est identique à celui
+# du cache VIES (voir vies.resolve_scope_id) : partagé entre les
+# collaborateurs d'un même cabinet, isolé par compte pour les domaines grand
+# public — un cabinet n'a donc pas à reconfirmer le rattachement à chaque
+# nouvel utilisateur de la même structure.
+
+
+def get_siren_links_for_identifiers(scope_id: str, identifiers) -> dict[str, str]:
+    """Retourne {account_identifier: siren} pour les identifiants déjà liés
+    dans ce scope, parmi ceux fournis. Les identifiants inconnus (jamais liés)
+    sont simplement absents du dict retourné — à l'appelant de les traiter
+    comme "à confirmer" (voir ui/billing_gate.py)."""
+    ids = sorted({i for i in identifiers if i})
+    if not ids:
+        return {}
+
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            SELECT account_identifier, siren FROM tva_account_siren_links
+            WHERE scope_id=%s AND account_identifier = ANY(%s)
+            """,
+            (scope_id, ids),
+        )
+        return cur.fetchall()
+
+    rows = _run(_fn)
+    return {r[0]: r[1] for r in rows}
+
+
+def link_account_identifier(scope_id: str, account_identifier: str, siren: str) -> None:
+    """Crée le lien identifiant Amazon <-> SIREN pour ce scope.
+
+    Ne doit être appelée qu'après confirmation explicite de l'utilisateur
+    (voir ui/billing_gate.py) — jamais automatiquement à l'import d'un
+    fichier, pour éviter qu'une simple erreur de sélection de SIREN au
+    moment de l'upload ne fige un rattachement incorrect. `ON CONFLICT DO
+    NOTHING` : un identifiant déjà lié (même à ce même SIREN) n'est jamais
+    réécrit silencieusement par cet appel — un changement de rattachement
+    nécessite une action explicite distincte (non exposée ici : cas rare,
+    à traiter au cas par cas si besoin)."""
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            INSERT INTO tva_account_siren_links (scope_id, account_identifier, siren, linked_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (scope_id, account_identifier) DO NOTHING
+            """,
+            (scope_id, account_identifier, siren, time.time()),
         )
         conn.commit()
 

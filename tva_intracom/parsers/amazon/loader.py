@@ -70,6 +70,15 @@ class AmazonImportResult:
     # (voir excel_report.py). Champs extraits via le parser du format détecté
     # + quelques colonnes brutes directement lues sur la ligne normalisée.
     invoice_credit_notes: List[dict] = field(default_factory=list)
+    # Ensemble des UNIQUE_ACCOUNT_IDENTIFIER rencontrés dans le fichier (colonne
+    # Amazon identifiant le compte vendeur d'origine). Un même SIREN client peut
+    # posséder plusieurs comptes Amazon (donc plusieurs identifiants), mais un
+    # identifiant donné n'appartient qu'à un seul SIREN — voir
+    # tva_intracom.billing.get_siren_links_for_identifiers /
+    # link_account_identifier, et le gating dans ui/billing_gate.py, qui
+    # empêchent d'exporter un fichier appartenant à un autre client sans
+    # confirmation explicite.
+    account_identifiers: Set[str] = field(default_factory=set)
     # Format 5 uniquement : Tax Reporting Scheme par sale_id
     # "VCS_EU_OSS" = déclarable OSS ; "" = domestique / hors OSS
     tax_scheme_by_sale_id: dict = field(default_factory=dict)
@@ -125,6 +134,11 @@ def _process_rows(
                 # Le callback ne doit jamais interrompre le parsing (ex: erreur
                 # d'affichage Streamlit si le composant a été démonté entre-temps).
                 logger.debug("progress_callback a levé une exception, ignorée.", exc_info=True)
+
+        # --- Identifiant de compte Amazon (anti-abus SIREN, voir AmazonImportResult) ---
+        _account_id = (row.get("unique_account_identifier") or "").strip()
+        if _account_id:
+            result.account_identifiers.add(_account_id)
 
         tx_type = parser.tx_type(row)
 

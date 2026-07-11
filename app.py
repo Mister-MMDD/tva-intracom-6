@@ -137,6 +137,10 @@ if uploaded_files:
     all_sales, all_refunds, all_fc_transfers = [], [], []
     all_invoice_credit_notes = []
     all_stock_countries, all_warnings, all_platforms = set(), [], []
+    # Identifiants de compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) rencontrés dans
+    # les fichiers importés — utilisés pour le gating anti-abus SIREN
+    # (voir tva_intracom/ui/billing_gate.py). Vide pour les autres plateformes.
+    all_account_identifiers: set = set()
     total_rows_sum = skipped_rows_sum = 0
     file_summaries, tmp_paths, _parse_results = [], [], []
 
@@ -186,6 +190,7 @@ if uploaded_files:
                 all_fc_transfers.extend(parse_result.fc_transfers)
                 all_invoice_credit_notes.extend(getattr(parse_result, "invoice_credit_notes", []))
                 all_stock_countries |= parse_result.stock_countries
+                all_account_identifiers |= getattr(parse_result, "account_identifiers", set())
                 all_warnings.extend(parse_result.warnings); all_platforms.append(platform)
                 total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
                 _parse_results.append(parse_result)
@@ -498,7 +503,7 @@ if uploaded_files:
         # =====================================================================
         # GATING BILLING
         # =====================================================================
-        from tva_intracom.ui.billing_gate import build_billing_gate
+        from tva_intracom.ui.billing_gate import build_billing_gate, render_account_link_panel
 
         _gate = build_billing_gate(
             results=results, oss_period=oss_period, cache_key=_cache_key,
@@ -510,7 +515,11 @@ if uploaded_files:
             vies_summary=vies_summary,
             stripe_success_url=_stripe_success_url,
             stripe_cancel_url=_stripe_cancel_url,
+            vies_scope_id=_vies_scope_id,
+            all_account_identifiers=all_account_identifiers,
+            nom_entreprise=nom_entreprise,
         )
+        render_account_link_panel(_gate)
         period_label = _gate.period_label
         _period_detected_range = _gate.period_detected_range
         _can_export = _gate.can_export
