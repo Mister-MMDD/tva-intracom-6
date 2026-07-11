@@ -18,6 +18,7 @@ from typing import Callable, List, Optional, Set
 
 from ...models import BuyerType, Sale
 from ...vies import _normalize_vat_id as normalize_vat
+from ...ecb_rates import prefetch_rates
 from .aggregate import preaggregate_v5
 from .classify import (
     BuyerClassification,
@@ -487,6 +488,24 @@ def load_amazon_report(
             parser._multi_asin_orders = multi_asin_orders  # type: ignore[attr-defined]
         else:
             rows_to_process = list(enumerate(raw_rows, start=2))
+
+    # --- Warm-up du cache des taux de change (BCE) ---
+    # Optimisation pour les fichiers multi-années : on scanne les dates une fois
+    # pour faire une requête groupée (batch) vers l'API BCE avant de commencer.
+    if convert_currencies and rows_to_process:
+        from datetime import date as _dt
+        to_prefetch = []
+        for _, row in rows_to_process:
+            c = parser.currency(row)
+            if c and c.upper() != "EUR":
+                d_str = parser.tx_date(row)
+                if d_str:
+                    try:
+                        to_prefetch.append((c, _dt.fromisoformat(d_str[:10])))
+                    except (ValueError, TypeError):
+                        pass
+        if to_prefetch:
+            prefetch_rates(to_prefetch, progress_callback=None)
 
     # Traitement principal (hors contexte fichier : fichier fermé proprement)
     _process_rows(

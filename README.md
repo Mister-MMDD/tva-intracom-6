@@ -114,13 +114,13 @@ tva-intracom/
 
 | Module | Rôle |
 |---|---|
-| `models.py` | Dataclasses : Sale, VatResult, Scenario, BuyerType, Channel, Collector |
-| `engine.py` | Moteur de classification fiscale (compute_vat, compute_all, compute_all_with_vies) |
+| `models.py` | Modèles de données (Pydantic) : Sale, VatResult, Scenario, BuyerType, Channel, Collector |
+| `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
 | `vies.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
 | `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle, convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194), retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires |
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
-| `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965), validation période, garde-fou soldes négatifs (CorrectionsOfVatReturns) |
+| `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965) avec multi-validation XSD (DGFIP/UE) |
 | `ca3_report.py` | Génération du rapport CA3 (HTML uniquement — pas d'export EDI-TVA, voir Roadmap) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
 | `fec_export.py` | Export comptable au format FEC (journal des ventes agrégé par régime/pays/taux, écritures équilibrées débit/crédit) — pré-remplissage pour import dans un logiciel comptable tiers, alternative légère à l'EDI-TVA (voir Roadmap) |
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
@@ -224,6 +224,8 @@ transaction) avant traitement.
 
 ### Moteur fiscal
 
+- **Typage Statique & Validation Pydantic** : Utilisation de `pydantic.dataclasses` pour une validation stricte dès l'import (codes pays ISO 2, montants décimaux nettoyés des symboles €/$). Précision absolue via `Decimal`.
+- **Documentation Fiscale Directe** : Chaque note de résultat (`VatResult.note`) intègre désormais des références légales précises et des liens courts vers le **Bofip**, l'**Art. 262 ter du CGI** ou les **Directives Européennes** pour justifier le traitement (ex: Monaco, IOSS, Art. 194).
 - Taux TVA historisés par pays avec gestion des changements de taux dans le temps
   (`vat_rate_at_date`).
 - Taux réduits par catégorie produit (`product_category` : STANDARD, REDUCED,
@@ -274,8 +276,9 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 - Cache deux niveaux : mémoire (`dict`) + disque (`~/.cache/tva_intracom/ecb_rates.json`).
 - Écriture disque batché (toutes les 10 nouvelles entrées) pour éviter les I/O
   répétés sur les gros fichiers.
-- `prefetch_rates()` : pré-charge en parallèle (8 threads) toutes les devises/dates
-  d'un fichier avant le traitement ligne par ligne.
+- **Warm-up du cache (Batch)** : Scanne les dates du fichier au démarrage et effectue
+  une requête groupée vers l'API BCE pour toutes les devises concernées. Cette stratégie
+  optimise radicalement le chargement pour les fichiers couvrant plusieurs années.
 - **`convert_to_eur_for_oss()`** : taux BCE du **dernier jour de la période déclarée**
   (Règlement UE 2020/194, art. 5 bis) pour les ventes OSS en devise étrangère — au
   lieu du taux du jour de la vente. La CA3 conserve le taux du jour de l'opération.
@@ -304,6 +307,7 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
   (et non un seuil fixe).
 - Validation de la période avant génération (formats : `YYYY-QN`, `YYYY-TN`, `YYYY-SN`,
   `YYYY`, `YYYY-QN_QM`, `YYYY-YYYY`).
+- **Multi-validation XSD** : Validation automatique du flux XML par rapport aux schémas de l'administration (`oss_dgfip_complete.xsd`, `oss_dgfip_minimal.xsd`, `oss_vat_return.xsd`). Le système est valide si conforme à au moins l'un des schémas présents.
 - **Garde-fou soldes négatifs** : détecte si un couple (pays/taux) ressort en
   négatif (avoirs supérieurs aux ventes), ce qui est interdit dans le corps
   principal d'une déclaration OSS. L'outil propose alors un diagnostic de
@@ -361,7 +365,7 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 
 | # | Onglet | Contenu |
 |---|---|---|
-| 1 | **Récapitulatif** | Synthèse TVA par canal (CA3, OSS, local, Amazon, douane) |
+| 1 | **Récapitulatif** | Synthèse TVA par canal et **Audit d'intégrité technique** (Nombre de lignes, CA HT Net, Signature numérique Hash ID) |
 | 2 | **Détail ventes** | Ligne par ligne avec scénario, taux, canal, note |
 | 3 | **Détail remboursements** | Avoirs avec même structure |
 | 4 | **OSS par pays** | Agrégation par pays de destination + taux |
@@ -376,7 +380,7 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 
 ---
 
-## Export comptable (FEC)
+### Export comptable (FEC)
 
 En complément du rapport CA3 (HTML, saisie manuelle) et en attendant un
 éventuel export EDI-TVA homologué (voir Roadmap), l'outil génère un **journal
@@ -387,6 +391,9 @@ comptable.
 - **Agrégation** : une écriture par (période, régime fiscal, pays de TVA,
   taux) — pas une écriture par vente. Un fichier de plusieurs milliers de
   transactions tient donc en quelques dizaines de lignes FEC.
+- **Gestion des codes journaux & numérotation** : attribution automatique des
+  codes journaux (ex: `VEN` pour les ventes) et génération de numéros de pièces
+  séquentiels robustes basés sur la chronologie des opérations.
 - **Équilibre débit/crédit garanti** par construction, y compris :
   - quand un régime ne génère aucune TVA collectée par le vendeur
     (`DEEMED_SUPPLIER`, `B2B_REVERSE_CHARGE`, `EXPORT` — Amazon collecte ou
@@ -394,10 +401,8 @@ comptable.
   - quand le solde net d'un groupe est négatif (avoirs de la période
     dépassant les ventes du même régime/pays/taux) : le sens débit/crédit
     est inversé plutôt que d'écrire un montant négatif (invalide en FEC).
-- **Plan comptable générique paramétrable** : les numéros de compte (client,
-  vente, TVA collectée FR/OSS/IOSS/locale) sont centralisés dans le dict
-  `ACCOUNTS` de `tva_intracom/fec_export.py` — à adapter à la numérotation
-  réelle du dossier avant tout import.
+- **Plan comptable flexible** : configuration fine des comptes (ex: comptes de
+  racines `707` ventilés par pays) via le dictionnaire `ACCOUNTS` centralisé.
 - **⚠️ Pré-remplissage, pas une télédéclaration** : ce n'est ni un logiciel de
   comptabilité, ni un export validé automatiquement. Le traitement de
   `DEEMED_SUPPLIER` en particulier suppose un rapprochement avec les relevés

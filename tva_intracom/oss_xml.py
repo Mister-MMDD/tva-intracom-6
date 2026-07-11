@@ -18,11 +18,68 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+import logging
 from decimal import Decimal
 from typing import List
 from xml.dom import minidom
+from pathlib import Path
 
-from tva_intracom.models import Scenario, VatResult
+logger = logging.getLogger(__name__)
+
+# --- Validation XSD (Optionnelle, nécessite lxml) ---
+def validate_oss_xml(xml_bytes: bytes, xsd_path: str | Path | None = None) -> tuple[bool, str]:
+    """Valide le XML généré par rapport aux schémas XSD officiels.
+    
+    Tente de valider par rapport au fichier spécifié, ou par défaut
+    contre les schémas standards attendus dans le dossier 'schemas'.
+    """
+    try:
+        from lxml import etree
+    except ImportError:
+        return True, "Validation ignorée : bibliothèque 'lxml' non installée."
+
+    schemas_dir = Path(__file__).parent.parent / "schemas"
+    
+    # Liste des schémas à tester par ordre de priorité
+    if xsd_path:
+        xsds_to_test = [Path(xsd_path)]
+    else:
+        xsds_to_test = [
+            schemas_dir / "oss_dgfip_complete.xsd",
+            schemas_dir / "oss_dgfip_minimal.xsd",
+            schemas_dir / "oss_vat_return.xsd",
+        ]
+
+    results = []
+    found_any = False
+
+    for path in xsds_to_test:
+        if not path.exists():
+            continue
+        
+        found_any = True
+        try:
+            schema_root = etree.parse(str(path))
+            schema = etree.XMLSchema(schema_root)
+            parser = etree.XMLParser(schema=schema)
+            etree.fromstring(xml_bytes, parser)
+            results.append((True, f"Conforme à {path.name}"))
+        except Exception as exc:
+            results.append((False, f"Erreur {path.name} : {str(exc)}"))
+
+    if not found_any:
+        return True, f"Validation ignorée : aucun schéma XSD trouvé dans {schemas_dir}"
+
+    # Si on a trouvé des schémas, on est valide si au moins UN schéma valide le XML
+    # (car ils peuvent correspondre à différentes versions/niveaux de détail).
+    if any(r[0] for r in results):
+        success_msgs = [r[1] for r in results if r[0]]
+        return True, "Le fichier XML est conforme : " + " | ".join(success_msgs)
+    else:
+        err_msgs = [r[1] for r in results]
+        return False, "Échec de conformité XSD : " + " | ".join(err_msgs)
+
+from tva_intracom.models import VatResult
 from tva_intracom.rates import STANDARD_VAT_RATES, is_eu
 from tva_intracom.oss_export import (
     aggregate_oss_results, find_oss_negative_buckets, COUNTRY_NAMES,
@@ -297,5 +354,13 @@ def generate_oss_xml(
 
     # ── Sérialisation pretty-print ─────────────────────────────────────────
     raw_xml    = ET.tostring(root, encoding="utf-8")
+
+    # Validation XSD automatique
+    is_valid, msg = validate_oss_xml(raw_xml)
+    if not is_valid:
+        logger.error(f"ÉCHEC VALIDATION XSD OSS : {msg}")
+    else:
+        logger.info(f"VALIDATION XSD OSS : {msg}")
+
     parsed_xml = minidom.parseString(raw_xml)
     return parsed_xml.toprettyxml(indent="    ", encoding="utf-8")

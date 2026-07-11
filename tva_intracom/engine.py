@@ -13,7 +13,7 @@ l'acheteur) pour determiner le regime applicable parmi les 4 cas principaux :
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field, replace as _dc_replace
+from dataclasses import replace as _dc_replace
 from decimal import ROUND_HALF_UP, Decimal
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,8 @@ from .models import (
     Scenario,
     VatResult,
     OssThresholdSummary,
+    ViesReclassification,
+    ViesValidationSummary,
 )
 from .rates import is_eu, is_fiscal_eu, vat_rate, vat_rate_at_date, has_rate_changed
 from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES
@@ -73,28 +75,45 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # cas spécial, "MC" n'étant reconnu ni par is_eu() ni par is_fiscal_eu(),
     # une vente vers Monaco tomberait à tort dans EXPORT (exonérée) alors
     # qu'elle doit être taxée comme une vente domestique française standard.
-    # Limité au cas non ambigu stock_country == "FR" (la convention couvre
-    # les échanges France-Monaco) : un stock dans un AUTRE État membre
-    # expédié vers Monaco n'est pas couvert par cette convention bilatérale
-    # et n'est pas traité ici — comportement conservateur, reste EXPORT.
     # ------------------------------------------------------------------
-    if sale.buyer_country == "MC" and sale.stock_country == "FR":
+    if sale.buyer_country == "MC":
         mc_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
         mc_amount = _vat_amount(sale.amount_ht, mc_rate)
-        return VatResult(
-            sale=sale,
-            scenario=Scenario.DOMESTIC,
-            vat_country="FR",
-            vat_rate=mc_rate,
-            vat_amount=mc_amount,
-            collector=Collector.SELLER,
-            channel=Channel.FR_DOMESTIC,
-            note=(
-                "Vente vers Monaco depuis un stock français : assimilée à une "
-                "vente domestique française (convention fiscale franco-monégasque "
-                f"du 18 mai 1963) — TVA FR {mc_rate}% collectée, déclarée en CA3."
-            ),
-        )
+        
+        if sale.stock_country == "FR":
+            return VatResult(
+                sale=sale,
+                scenario=Scenario.DOMESTIC,
+                vat_country="FR",
+                vat_rate=mc_rate,
+                vat_amount=mc_amount,
+                collector=Collector.SELLER,
+                channel=Channel.FR_DOMESTIC,
+                note=(
+                    "Vente vers Monaco depuis un stock français : assimilée à une "
+                    "vente domestique française (convention fiscale franco-monégasque "
+                    "du 18 mai 1963 — https://bit.ly/Conv-FR-MC) — TVA FR "
+                    f"{mc_rate}% collectée, déclarée en CA3."
+                ),
+            )
+        else:
+            # Cas stock_country != "FR" (ex: ES -> MC)
+            # Monaco étant fiscalement la France, c'est une vente OSS vers la France.
+            return VatResult(
+                sale=sale,
+                scenario=Scenario.OSS_B2C,
+                vat_country="FR",
+                vat_rate=mc_rate,
+                vat_amount=mc_amount,
+                collector=Collector.SELLER,
+                channel=Channel.OSS,
+                note=(
+                    f"Vente vers Monaco depuis un stock {sale.stock_country} : "
+                    "assimilée à une vente OSS vers la France (Convention fiscale "
+                    "franco-monégasque — Monaco est traité comme le territoire "
+                    f"français pour la TVA) — TVA FR {mc_rate}%."
+                ),
+            )
 
     # ------------------------------------------------------------------
     # SÉCURITÉ IMMÉDIATE : Cas d'exportation hors UE (ex: GB, US...)
@@ -110,8 +129,9 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             collector=Collector.SELLER,
             channel=Channel.NONE,
             note=(
-                "Exportation hors UE : exonérée de TVA (justificatif de sortie du "
-                "territoire requis)."
+                "Exportation hors UE : exonérée de TVA (Art. 262 du CGI — "
+                "https://bit.ly/Art262CGI). Justificatif de sortie du "
+                "territoire requis."
             ),
         )
 
@@ -144,7 +164,8 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             channel=Channel.IOSS,
             note=(
                 f"Import ≤ {IOSS_THRESHOLD} EUR : TVA {tax_rate}% collectée par le vendeur "
-                f"via son guichet IOSS ({sale.ioss_number}) — déclaration sur portail IOSS."
+                f"via son guichet IOSS ({sale.ioss_number}) — déclaration sur portail IOSS "
+                "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-IOSS)."
             ),
         )
 
@@ -179,7 +200,10 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_amount=Decimal("0.00"),
                 collector=Collector.BUYER,
                 channel=Channel.NONE,
-                note="Livraison intracommunautaire B2B exonérée (autoliquidation)."
+                note=(
+                    "Livraison intracommunautaire B2B exonérée avec autoliquidation "
+                    "par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter)."
+                )
             )
 
         # B2B cross-border sans TVA intracom valide (buyer_vat_valid=False) :
@@ -208,7 +232,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                         f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
                         f"identifiant fiscal national sans préfixe TVA intracom. "
                         f"Art.194 dir.2006/112/CE adopté en {sale.buyer_country} : "
-                        f"autoliquidation par l'acheteur assujetti — vendeur ne collecte pas."
+                        f"autoliquidation par l'acheteur assujetti (https://bit.ly/Directive-Art194)."
                     ),
                 )
             else:
@@ -247,7 +271,10 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             vat_amount=tax_amount,
             collector=Collector.SELLER,
             channel=Channel.OSS,
-            note=f"Vente OSS vers {sale.buyer_country} au taux de {tax_rate}%."
+            note=(
+                f"Vente OSS vers {sale.buyer_country} au taux de {tax_rate}% "
+                "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS)."
+            )
     )
 
     # ------------------------------------------------------------------
@@ -562,73 +589,6 @@ def compute_all(
         sorted_items, refund_ids, marketplace_name,
         asin_to_category, apply_fr_under_threshold,
     )
-
-
-@dataclass
-class ViesReclassification:
-    """Detail d'une vente B2B reclassifiee en B2C par la validation VIES."""
-    sale_id: str
-    buyer_vat_number: str
-    buyer_country: str
-    amount_ht: Decimal
-    vat_avoided: Decimal  # TVA récupérée (0 si vente domestique déjà taxée)
-    reason: str
-    vat_delta: Decimal = Decimal("0.00")  # TVA supplémentaire générée par la reclassification
-    is_domestic_reverse_charge: bool = False  # True = autoliquidation nationale (art.194)
-    display_id: str = ""  # Identifiant à AFFICHER (sale.display_id) — cosmétique uniquement,
-                           # sale_id ci-dessus reste la clé utilisée pour tout matching interne.
-
-
-@dataclass
-class ViesValidationSummary:
-    """Synthese de la validation VIES pour affichage dans le rapport."""
-    total_checked: int = 0
-    valid_count: int = 0
-    invalid_count: int = 0
-    inconclusive_count: int = 0   # erreurs temporaires après retry — résultat non fiable
-    inconclusive_vats: list[str] = field(default_factory=list)  # numéros à revérifier
-    # Détail enrichi pour affichage : {"vat": full_vat, "country": cc,
-    # "sale_ids": [sale_id, ...]} — un numéro peut couvrir plusieurs ventes.
-    inconclusive_vat_details: list[dict] = field(default_factory=list)
-    # Mapping complet de TOUS les numéros de TVA (full_vat) vers leurs identifiants
-    # de vente à afficher (display_id or sale_id). Utilisé par app.py pour
-    # enrichir l'affichage des classifications manuelles déjà enregistrées.
-    vat_to_display_ids: dict[str, list[str]] = field(default_factory=dict)
-    reclassifications: list[ViesReclassification] = field(default_factory=list)
-    # Identité Python (id()) des objets Sale (effective_sale) B2B
-    # cross-border dont le résultat fiscal a été déterminé par le statut
-    # VIES (invalide confirmé OU non vérifié).
-    #
-    # IMPORTANT : on utilise id(effective_sale) et NON sale.sale_id, car
-    # sale_id (transaction_event_id / order_id côté Amazon) n'est PAS unique
-    # — une même commande multi-articles ou un même avoir peut être splitté
-    # sur plusieurs lignes partageant le même sale_id. Utiliser sale_id
-    # ferait "fuiter" le statut VIES d'une ligne vers toutes les autres
-    # lignes partageant le même identifiant, faussant l'audit.
-    #
-    # Utilisé par excel_report.py pour distinguer "Risque VIES réel" des
-    # autres écarts Amazon (B2B domestique, B2C, etc.) sans rapport avec VIES.
-    vies_affected_sale_ids: set[int] = field(default_factory=set)
-
-    @property
-    def total_valid(self) -> int:
-        return self.valid_count
-
-    @property
-    def total_invalid(self) -> int:
-        return self.invalid_count
-
-    @property
-    def total_inconclusive(self) -> int:
-        return self.inconclusive_count
-
-    @property
-    def fraud_avoided_amount(self) -> Decimal:
-        return sum((r.vat_avoided for r in self.reclassifications), Decimal("0.00"))
-
-    @property
-    def fraud_avoided_ht(self) -> Decimal:
-        return sum((r.amount_ht for r in self.reclassifications), Decimal("0.00"))
 
 
 def compute_all_with_vies(

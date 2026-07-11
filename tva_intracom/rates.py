@@ -39,7 +39,7 @@ COUNTRY_NAMES: Dict[str, str] = {
     "MT": "Malte",       "NL": "Pays-Bas",   "PL": "Pologne",
     "PT": "Portugal",    "RO": "Roumanie",   "SK": "Slovaquie",
     "SI": "Slovénie",    "ES": "Espagne",    "SE": "Suède",
-    "XI": "Irlande du Nord",
+    "MC": "Monaco",     "XI": "Irlande du Nord",
 }
 
 COUNTRY_ISO3: Dict[str, str] = {
@@ -48,7 +48,7 @@ COUNTRY_ISO3: Dict[str, str] = {
     "DE": "DEU", "GR": "GRC", "HU": "HUN", "IE": "IRL", "IT": "ITA",
     "LV": "LVA", "LT": "LTU", "LU": "LUX", "MT": "MLT", "NL": "NLD",
     "PL": "POL", "PT": "PRT", "RO": "ROU", "SK": "SVK", "SI": "SVN",
-    "ES": "ESP", "SE": "SWE", "XI": "NIR",
+    "ES": "ESP", "SE": "SWE", "MC": "MCO", "XI": "NIR",
 }
 
 # Métadonnées fiscales locales par pays.
@@ -64,6 +64,7 @@ COUNTRY_FISCAL_META: Dict[str, Tuple[str, str, str, str, str]] = {
     "EE": ("Kaibemaksudeklaratsioon (KMD)",     "Maksustatav kaive",   "Kaibemaks",  "24%",   "9%"),   
     "FI": ("Arvonlisaveroilmoitus",             "Veron peruste",       "ALV",         "25.5%", "13.5%"), # 13.5% depuis jan. 2026
     "FR": ("Declaration TVA (CA3 / OSS)",       "Base HT",             "TVA",         "20%",   "5.5%"),
+    "MC": ("Declaration TVA (CA3 / OSS)",       "Base HT",             "TVA",         "20%",   "5.5%"),
     "DE": ("Umsatzsteuer-Voranmeldung (UStVA)", "Bemessungsgrundlage", "Umsatzsteuer","19%",   "7%"),
     "GR": ("Dilosi FPA",                        "Forologitea axia",    "FPA",         "24%",   "6%"),
     "HU": ("AFA-bevalles",                      "Adoalap",             "AFA",         "27%",   "5%"),
@@ -130,7 +131,7 @@ STANDARD_VAT_RATES: Dict[str, Decimal] = {
     "LT": Decimal("21"), "LU": Decimal("17"), "MT": Decimal("18"), "NL": Decimal("21"),
     "PL": Decimal("23"), "PT": Decimal("23"), "RO": Decimal("21"), "SK": Decimal("23"),   
     "SI": Decimal("22"), "ES": Decimal("21"), "SE": Decimal("25"),
-    "XI": Decimal("20"),
+    "MC": Decimal("20"), "XI": Decimal("20"),
 }
 
 # ---------------------------------------------------------------------------
@@ -531,6 +532,14 @@ REDUCED_VAT_RATES: Dict[str, Dict[str, Decimal]] = {
         "CLOTHING": Decimal("25"), "VETEMENTS": Decimal("25"),
         "SUPER_REDUCED": Decimal("6"),
         "PARKING": Decimal("25"),
+    },
+    "MC": {  # Monaco : mêmes taux que la France (FR)
+        "BOOKS": Decimal("5.5"), "LIVRES": Decimal("5.5"),
+        "FOOD": Decimal("5.5"), "ALIMENTATION": Decimal("5.5"),
+        "MEDICINES": Decimal("5.5"), "MEDICAMENTS": Decimal("5.5"),
+        "CLOTHING": Decimal("20"), "VETEMENTS": Decimal("20"),
+        "SUPER_REDUCED": Decimal("2.1"),  
+        "PARKING": Decimal("20"),
     },
     "XI": {
         "BOOKS": Decimal("0"), "LIVRES": Decimal("0"),

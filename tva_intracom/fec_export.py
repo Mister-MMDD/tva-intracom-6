@@ -48,8 +48,11 @@ ACCOUNTS = {
     # Compte client générique (règlements Amazon) — souvent un compte
     # auxiliaire dédié plutôt qu'un 411 générique en pratique.
     "CLIENT": "4111000",
-    # Compte de vente HT (produits/marchandises).
+    # Compte de vente HT (produits/marchandises) — racine par défaut.
     "VENTE": "7071000",
+    # Optionnel : comptes de vente par pays (racine 707 par pays).
+    # "VENTE_FR": "7070001",
+    # "VENTE_DE": "7070002",
     # TVA collectée FRANÇAISE (CA3) — régime FR_DOMESTIC.
     "TVA_COLLECTEE_FR": "4457100",
     # TVA collectée via OSS — compte dédié recommandé pour ne pas mélanger
@@ -61,7 +64,14 @@ ACCOUNTS = {
     "TVA_COLLECTEE_LOCAL": "4457200",
 }
 
-JOURNAL_CODE = "VE"
+# Codes journaux standards
+JOURNALS = {
+    "VEN": "Journal des ventes",
+    "ACH": "Journal des achats",
+}
+
+# Valeurs par défaut historiques (pour compatibilité si non surchargées)
+JOURNAL_CODE = "VEN"
 JOURNAL_LIB = "Journal des ventes"
 
 
@@ -102,6 +112,23 @@ def _vat_account_for(result: VatResult) -> str:
     # Cas résiduel (ex: IMPORT_STANDARD collecté par le vendeur dans un
     # scénario non prévu ci-dessus) : compte local par défaut, à vérifier.
     return ACCOUNTS["TVA_COLLECTEE_LOCAL"]
+
+
+def _sale_account_for(vat_country: str) -> str:
+    """Détermine le compte de vente HT (707...) selon le pays de TVA."""
+    key = f"VENTE_{vat_country.upper()}"
+    return ACCOUNTS.get(key, ACCOUNTS["VENTE"])
+
+
+def _journal_info_for(results: Iterable[VatResult]) -> tuple[str, str]:
+    """Détermine automatiquement le code journal et son libellé.
+    Pour l'instant, ce module agrège des ventes Amazon -> 'VEN'.
+    L'argument 'results' est conservé pour une extension future aux achats.
+    """
+    _ = results  # Utilisation future
+    code = "VEN"
+    lib = JOURNALS.get(code, "Journal des ventes")
+    return code, lib
 
 
 def aggregate_for_fec(
@@ -167,6 +194,7 @@ def build_fec_rows(
     period: str,
     ecriture_date: str,
     piece_ref: str = "",
+    journal_code: str | None = None,
 ) -> list[list[str]]:
     """Construit les lignes FEC (hors en-tête) pour la période donnée.
 
@@ -178,7 +206,8 @@ def build_fec_rows(
         ecriture_date: date de comptabilisation au format AAAAMMJJ (FEC),
                        typiquement le dernier jour de la période.
         piece_ref:     référence de pièce justificative (ex: nom du fichier
-                       Amazon importé). Optionnel.
+                       Amazon importé). Si vide, génère une réf séquentielle.
+        journal_code:  Code journal (ex: 'VEN'). Si None, déterminé automatiquement.
 
     Returns:
         Liste de lignes (chacune = liste de 18 champs texte, ordre
@@ -187,23 +216,36 @@ def build_fec_rows(
         (vente HT + TVA collectée si applicable), Debit total == Credit total
         par EcritureNum.
     """
-    buckets = aggregate_for_fec(results, period=period)
+    # Copie pour consommation multiple si itérable
+    results_list = list(results)
+    buckets = aggregate_for_fec(results_list, period=period)
     rows: list[list[str]] = []
     ecriture_num = 1
+
+    # Gestion automatique du journal
+    auto_code, auto_lib = _journal_info_for(results_list)
+    final_journal_code = journal_code or auto_code
+    final_journal_lib = JOURNALS.get(final_journal_code, auto_lib)
 
     for key in sorted(buckets, key=lambda k: (k.scenario.value, k.vat_country, k.vat_rate)):
         bucket = buckets[key]
         net_ht = bucket.base_ht
         net_vat = bucket.vat_amount
 
-        label = f"{_scenario_label(key.scenario)} {key.vat_country or 'N/A'} {key.vat_rate}% ({period}, {bucket.count} ventes)"
+        scenario_lbl = _scenario_label(key.scenario)
+        country_lbl = key.vat_country or 'N/A'
+        label = f"{scenario_lbl} {country_lbl} {key.vat_rate}% ({period}, {bucket.count} ventes)"
         num_str = str(ecriture_num)
+
+        # Génération de numéro de pièce séquentiel robuste basé sur la date
+        # Format : <DATE>-<SEQ> (ex: 20240131-001)
+        current_piece_ref = piece_ref or f"{ecriture_date}-{ecriture_num:03d}"
 
         def _line(compte: str, compte_lib: str, debit: Decimal, credit: Decimal) -> list[str]:
             return [
-                JOURNAL_CODE, JOURNAL_LIB, num_str, ecriture_date,
+                final_journal_code, final_journal_lib, num_str, ecriture_date,
                 compte, compte_lib, "", "",
-                piece_ref, ecriture_date, label,
+                current_piece_ref, ecriture_date, label,
                 _fmt_amount(debit), _fmt_amount(credit),
                 "", "", "", "", "",
             ]
@@ -211,6 +253,10 @@ def build_fec_rows(
         abs_ht = abs(net_ht)
         abs_vat = abs(net_vat)
         has_vat_line = bool(key.channel_account) and abs_vat > Decimal("0.00")
+
+        # Compte de vente spécifique par pays
+        sale_account = _sale_account_for(key.vat_country)
+
         # Le débit client doit être égal à la somme des crédits générés pour
         # rester équilibré : HT seul si aucune TVA n'est collectée par le
         # vendeur (DEEMED_SUPPLIER, B2B_REVERSE_CHARGE, EXPORT — vat_amount
@@ -221,12 +267,12 @@ def build_fec_rows(
 
         if not flip:
             rows.append(_line(ACCOUNTS["CLIENT"], "Clients Amazon", abs_client, Decimal("0.00")))
-            rows.append(_line(ACCOUNTS["VENTE"], "Ventes marchandises", Decimal("0.00"), abs_ht))
+            rows.append(_line(sale_account, "Ventes marchandises", Decimal("0.00"), abs_ht))
             if has_vat_line:
                 rows.append(_line(key.channel_account, "TVA collectée", Decimal("0.00"), abs_vat))
         else:
             rows.append(_line(ACCOUNTS["CLIENT"], "Clients Amazon", Decimal("0.00"), abs_client))
-            rows.append(_line(ACCOUNTS["VENTE"], "Ventes marchandises", abs_ht, Decimal("0.00")))
+            rows.append(_line(sale_account, "Ventes marchandises", abs_ht, Decimal("0.00")))
             if has_vat_line:
                 rows.append(_line(key.channel_account, "TVA collectée", abs_vat, Decimal("0.00")))
 
@@ -240,6 +286,7 @@ def generate_fec_bytes(
     period: str,
     ecriture_date: str,
     piece_ref: str = "",
+    journal_code: str | None = None,
     encoding: str = "utf-8",
 ) -> bytes:
     """Génère le contenu FEC complet (en-tête + lignes), séparateur tabulation
@@ -247,7 +294,13 @@ def generate_fec_bytes(
     latin-1 attendu par certains logiciels comptables historiques, utf-8
     plus sûr par défaut pour les caractères accentués des libellés.
     """
-    rows = build_fec_rows(results, period=period, ecriture_date=ecriture_date, piece_ref=piece_ref)
+    rows = build_fec_rows(
+        results,
+        period=period,
+        ecriture_date=ecriture_date,
+        piece_ref=piece_ref,
+        journal_code=journal_code
+    )
     lines = ["\t".join(_FEC_HEADER)]
     lines.extend("\t".join(row) for row in rows)
     content = "\r\n".join(lines) + "\r\n"

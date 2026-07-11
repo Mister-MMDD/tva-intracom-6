@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    xmlns:oss="urn:ec.europa.eu:taxud:fiscalis:oss:v1"
+    targetNamespace="urn:dgfip:oss:envelope:v2"
+    xmlns="urn:dgfip:oss:envelope:v2"
+    elementFormDefault="qualified">
+
+    <!-- Import du schéma UE -->
+    <xs:import namespace="urn:ec.europa.eu:taxud:fiscalis:oss:v1"
+        schemaLocation="oss_vat_return.xsd"/>
+
+    <!-- Racine DGFiP -->
+    <xs:element name="DgfipOssEnvelope">
+        <xs:complexType>
+            <xs:sequence>
+
+                <!-- Header DGFiP complet -->
+                <xs:element name="HeaderDGFiP">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="Siren" type="xs:string"/>
+                            <xs:element name="Nic" type="xs:string"/>
+                            <xs:element name="DgfipIdentifier" type="xs:string"/>
+                            <xs:element name="SoftwareVendorId" type="xs:string"/>
+                            <xs:element name="SoftwareVersion" type="xs:string"/>
+                            <xs:element name="FluxVersion" type="xs:string"/>
+                            <xs:element name="DeclarationType">
+                                <xs:simpleType>
+                                    <xs:restriction base="xs:string">
+                                        <xs:enumeration value="INITIAL"/>
+                                        <xs:enumeration value="CORRECTION"/>
+                                    </xs:restriction>
+                                </xs:simpleType>
+                            </xs:element>
+                            <xs:element name="OriginalDeclarationId" type="xs:string" minOccurs="0"/>
+                            <xs:element name="Period" type="xs:string"/>
+                            <xs:element name="CreationTimestamp" type="xs:dateTime"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+                <!-- Payload = flux UE -->
+                <xs:element name="Payload">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element ref="oss:OssVatReturn"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+                <!-- Contrôles DGFiP -->
+                <xs:element name="Controls">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="TotalTaxableAmount" type="xs:decimal"/>
+                            <xs:element name="TotalVatAmount" type="xs:decimal"/>
+                            <xs:element name="Checksum" type="xs:string"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+</xs:schema>

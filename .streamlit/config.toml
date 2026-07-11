@@ -1,3 +1,2 @@
 [server]
 maxUploadSize = 100
-# On a supprimé le bloc [theme] pour libérer le menu Settings

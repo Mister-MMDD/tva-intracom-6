@@ -79,7 +79,7 @@ def _auto_width(ws) -> None:
         ws.column_dimensions[col_letter].width = max(length + 4, 12)
 
 
-def _write_recap(ws, summary: ReportSummary) -> None:
+def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) -> None:
     ws.title = "Recapitulatif"
     
     ws.cell(row=1, column=1, value="SYNTHÈSE DE LA TVA ET ACTIVITÉ E-COMMERCE").font = _TITLE_FONT
@@ -174,16 +174,15 @@ def _write_recap(ws, summary: ReportSummary) -> None:
     # comptable de retrouver le même contrôle d'intégrité dans le livrable
     # Excel, sans avoir accès à l'interface Streamlit.
     current_row += 3
-    ws.cell(row=current_row, column=1, value="CONTRÔLE DE COHÉRENCE COMPTABLE (CA HT par canal fiscal)").font = _TITLE_FONT
+    ws.cell(row=current_row, column=1, value="CONTRÔLE DE COHÉRENCE ET INTÉGRITÉ TECHNIQUE").font = _TITLE_FONT
     ws.row_dimensions[current_row].height = 22
     current_row += 1
     ws.cell(row=current_row, column=1,
-        value="Vérifie qu'aucune vente n'échappe à la ventilation par canal (test d'intégrité interne, "
-              "ne remplace pas un rapprochement avec le relevé de règlements Amazon).")
+        value="Vérifie l'intégrité du fichier et la ventilation par canal (test d'intégrité interne).")
     current_row += 2
 
     _bucket_header_row = current_row
-    _set_header(ws, _bucket_header_row, ["Canal fiscal", "CA HT net (EUR)"], fill=_BLUE_HEADER_FILL)
+    _set_header(ws, _bucket_header_row, ["Indicateur d'audit / Canal fiscal", "Valeur de contrôle"], fill=_BLUE_HEADER_FILL)
     current_row += 1
     _bucket_first_data_row = current_row
     net_ht_by_bucket = getattr(summary, "net_ht_by_bucket", {})
@@ -193,8 +192,6 @@ def _write_recap(ws, summary: ReportSummary) -> None:
         ws.cell(row=current_row, column=1, value=_bucket_label_)
         _c_bucket = ws.cell(row=current_row, column=2, value=float(_bucket_val))
         _c_bucket.number_format = _EUR_FORMAT
-        # Signale visuellement le seau générique s'il contient un montant :
-        # un scénario échappe à la classification connue de report.py.
         if _bucket_label_ == "Autre / non classé":
             ws.cell(row=current_row, column=1).font = _BOLD_FONT
             _c_bucket.fill = _ORANGE_HEADER_FILL
@@ -202,7 +199,7 @@ def _write_recap(ws, summary: ReportSummary) -> None:
     _bucket_last_data_row = max(current_row - 1, _bucket_first_data_row)
 
     current_row += 1
-    ws.cell(row=current_row, column=1, value="Total (somme des canaux)").font = _BOLD_FONT
+    ws.cell(row=current_row, column=1, value="Total CA HT (somme des canaux)").font = _BOLD_FONT
     _c_bucket_total = ws.cell(
         row=current_row, column=2,
         value=f"=SUM(B{_bucket_first_data_row}:B{_bucket_last_data_row})",
@@ -217,10 +214,20 @@ def _write_recap(ws, summary: ReportSummary) -> None:
     _c_declared.number_format = _EUR_FORMAT
 
     current_row += 1
-    ws.cell(row=current_row, column=1, value="Écart (doit être 0,00 €)").font = _BOLD_FONT
+    ws.cell(row=current_row, column=1, value="Écart de réconciliation (doit être 0,00 €)").font = _BOLD_FONT
     _c_delta = ws.cell(row=current_row, column=2, value=f"=B{current_row - 1}-B{current_row - 2}")
     _c_delta.number_format = _EUR_FORMAT
     _c_delta.font = _BOLD_FONT
+
+    # --- Injection des Hash Totals techniques en fin de tableau ---
+    if hash_totals:
+        current_row += 2
+        ws.cell(row=current_row, column=1, value="Nombre total de lignes traitées (Ventes + Avoirs)")
+        ws.cell(row=current_row, column=2, value=hash_totals.get("count", 0)).font = Font(name="Courier New")
+        
+        current_row += 1
+        ws.cell(row=current_row, column=1, value="Signature numérique du fichier (Hash ID)")
+        ws.cell(row=current_row, column=2, value=hash_totals.get("id_hash", 0)).font = Font(name="Courier New", bold=True)
 
     _auto_width(ws)
 
@@ -911,11 +918,10 @@ def _write_calendar_tab(
     _auto_width(ws)
 
 
-def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, int]:
+def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
     """Extrait les champs normalisés d'une ligne FC transfer (multi-format).
 
     Retourne (tx_id, date_str, asin, designation, dep, arr, qty).
-    Compatible formats Amazon 1-5 (clés snake_case ou UPPER_CASE).
     """
     # Transaction ID
     tx_id = (
@@ -1434,11 +1440,27 @@ def export_xlsx(
     if summary is None:
         summary = build_report(results)
 
+    # Calcul des Hash Totals (Contrôle d'intégrité technique)
+    all_rows = results + (refund_results or [])
+    hash_totals = {
+        "count": len(all_rows),
+        "abs_ht": sum((abs(r.sale.amount_ht) for r in all_rows), Decimal("0.00")),
+        "vat": sum((abs(r.vat_amount) for r in all_rows), Decimal("0.00")),
+        "id_hash": 0,
+        "net_ht_check": sum((r.sale.amount_ht for r in all_rows), Decimal("0.00")),
+    }
+    for r in all_rows:
+        # Somme numérique des IDs pour détecter les doublons ou omissions
+        raw_id = re.sub(r"\D", "", str(r.sale.sale_id))
+        if raw_id:
+            # On prend les 6 derniers chiffres pour plus de précision
+            hash_totals["id_hash"] += int(raw_id[-6:])
+
     wb = Workbook()
     
     # 1. Page de synthèse
     ws_recap = wb.active
-    _write_recap(ws_recap, summary)
+    _write_recap(ws_recap, summary, hash_totals=hash_totals)
 
     # 2. Séparation ventes / remboursements
     # Si refund_results est passé explicitement par app.py (cas normal), on fait

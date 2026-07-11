@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    targetNamespace="urn:ec.europa.eu:taxud:fiscalis:oss:v1"
+    xmlns="urn:ec.europa.eu:taxud:fiscalis:oss:v1"
+    elementFormDefault="qualified">
+
+    <!-- Root element -->
+    <xs:element name="OssVatReturn">
+        <xs:complexType>
+            <xs:sequence>
+
+                <!-- Header -->
+                <xs:element name="Header">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="TraderVatNumber" type="xs:string"/>
+                            <xs:element name="Period" type="xs:string"/>
+                            <xs:element name="NationalCurrency" type="xs:string"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+                <!-- Details -->
+                <xs:element name="VatReturnDetails">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="SupplyFromMemberState" maxOccurs="unbounded">
+                                <xs:complexType>
+                                    <xs:sequence>
+
+                                        <xs:element name="MemberStateOfSupply" type="xs:string"/>
+                                        <xs:element name="MemberStateOfSupplyVatNumber" type="xs:string"/>
+
+                                        <xs:element name="SuppliesPerMemberStateOfConsumption" maxOccurs="unbounded">
+                                            <xs:complexType>
+                                                <xs:sequence>
+
+                                                    <xs:element name="MemberStateOfConsumption" type="xs:string"/>
+
+                                                    <xs:element name="GoodsSupplies">
+                                                        <xs:complexType>
+                                                            <xs:sequence>
+                                                                <xs:element name="VatRate">
+                                                                    <xs:complexType>
+                                                                        <xs:simpleContent>
+                                                                            <xs:extension base="xs:decimal">
+                                                                                <xs:attribute name="type" type="xs:string" use="required"/>
+                                                                            </xs:extension>
+                                                                        </xs:simpleContent>
+                                                                    </xs:complexType>
+                                                                </xs:element>
+
+                                                                <xs:element name="TaxableAmount" type="xs:decimal"/>
+                                                                <xs:element name="VatAmountIssued" type="xs:decimal"/>
+                                                            </xs:sequence>
+                                                        </xs:complexType>
+                                                    </xs:element>
+
+                                                </xs:sequence>
+                                            </xs:complexType>
+                                        </xs:element>
+
+                                    </xs:sequence>
+                                </xs:complexType>
+                            </xs:element>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+            </xs:sequence>
+
+            <xs:attribute name="version" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+</xs:schema>

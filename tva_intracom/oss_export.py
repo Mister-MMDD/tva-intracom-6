@@ -683,7 +683,7 @@ def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
 
 
 def build_oss_excel(results: List[VatResult], output_path: str | Path, period: str = "") -> Path:
-    """Génère le fichier Excel multi-onglets OSS + B2B.
+    """Génère le fichier Excel multi-onglets OSS uniquement.
 
     Args:
         results: liste de VatResult issus du moteur.
@@ -702,6 +702,18 @@ def build_oss_excel(results: List[VatResult], output_path: str | Path, period: s
 
     _build_oss_resume(wb, data, period)
     _build_oss_detail(wb, data)
+
+    output_path = Path(output_path)
+    wb.save(str(output_path))
+    return output_path
+
+
+def build_b2b_excel(results: List[VatResult], output_path: str | Path, period: str = "") -> Path:
+    """Génère le fichier Excel pour les livraisons B2B (État récapitulatif)."""
+    data = _aggregate(results, period=period)
+    
+    wb = Workbook()
+    wb.remove(wb.active)
     _build_b2b_recap(wb, data, period)
 
     output_path = Path(output_path)

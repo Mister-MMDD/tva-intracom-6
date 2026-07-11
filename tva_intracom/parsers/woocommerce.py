@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..models import BuyerType, Sale
+from ..ecb_rates import prefetch_rates
 from . import ParseResult
 
 logger = logging.getLogger(__name__)
@@ -173,7 +174,20 @@ def parse(
             )
             return result
 
-        for line_no, row in enumerate(reader, start=2):
+        rows = list(reader)
+        if convert_currencies:
+            from datetime import date as date_type
+            to_prefetch = []
+            for row in rows:
+                c = row.get(currency_col, "EUR").strip().upper() if currency_col else "EUR"
+                if c != "EUR":
+                    d_str = row.get(date_col, "").strip() if date_col else ""
+                    d_obj = _parse_date(d_str) or date_type.today()
+                    to_prefetch.append((c, d_obj))
+            if to_prefetch:
+                prefetch_rates(to_prefetch)
+
+        for line_no, row in enumerate(rows, start=2):
             result.total_rows += 1
             normalized_row = {_normalize(k): v for k, v in row.items() if k}
 

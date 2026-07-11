@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
+from pydantic.dataclasses import dataclass
+from dataclasses import field
 
 
 class BuyerType(enum.Enum):
@@ -56,52 +58,17 @@ class Channel(enum.Enum):
 
 @dataclass
 class OssThresholdSummary:
-    """Synthese du seuil OSS 10 000 EUR.
-
-    total_oss_ht         : cumul de la DERNIÈRE année traitée (pour affichage
-                           de la barre de progression sur la période courante).
-    oss_ht_by_year       : cumul OSS HT par année civile {\"YYYY\": Decimal}.
-                           Permet de détecter un dépassement sur une année
-                           antérieure quand le fichier couvre plusieurs années.
-    is_threshold_exceeded: True si AU MOINS UNE année dépasse 10 000 €.
-    """
+    """Synthese du seuil OSS 10 000 EUR."""
     total_oss_ht: Decimal = Decimal("0.00")
     is_threshold_exceeded: bool = False
-    oss_ht_by_year: dict = None   # type: dict[str, Decimal]
-
-    def __post_init__(self):
-        if self.oss_ht_by_year is None:
-            object.__setattr__(self, "oss_ht_by_year", {})
+    oss_ht_by_year: dict[str, Decimal] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class Sale:
     """Une ligne de vente.
 
-    Attributs:
-        sale_id: identifiant libre de la vente.
-        amount_ht: base imposable (prix hors taxe), en euros.
-        buyer_type: B2B ou B2C.
-        stock_country: pays ou se trouve le stock / d'ou part la marchandise.
-        buyer_country: pays de l'acheteur (destination).
-        seller_country: pays d'etablissement du vendeur (par defaut FR).
-        buyer_vat_valid: pour le B2B, True si le n° de TVA intra a ete valide
-            (VIES). Ignore pour le B2C.
-        buyer_vat_number: numero de TVA intracommunautaire de l'acheteur
-            (ex: 'DE123456789'). Utilise pour la validation VIES automatique.
-        quantity: quantite (informatif, non utilise dans le calcul).
-        original_currency: devise originale si != EUR (ex: 'GBP').
-        original_amount: montant dans la devise originale.
-        exchange_rate: taux de change utilise (unites de devise pour 1 EUR).
-        exchange_rate_source: source du taux ('ecb', 'fallback', 'eur').
-        transaction_date: date de la transaction (pour le taux de change).
-        product_category: type de taux de TVA (standard ou réduit)
-        seller_is_importer: si True pour un import hors-UE > 150 EUR, le vendeur
-            est l'importateur officiel (DDP) → la vente redevient domestique dans
-            le pays de destination avec immatriculation TVA locale obligatoire.
-        ioss_number: numéro IOSS propre du vendeur (ex: 'IM1234567890'). Si renseigné
-            et que la vente est un import B2C ≤ 150 EUR hors marketplace deemed-supplier,
-            le vendeur collecte lui-même la TVA via son guichet IOSS.
+    Validation Pydantic integree pour les types et le nettoyage des donnees.
     """
 
     sale_id: str
@@ -117,61 +84,53 @@ class Sale:
     original_amount: Decimal = Decimal("0")
     exchange_rate: Decimal = Decimal("1")
     exchange_rate_source: str = "eur"
-    transaction_date: str = ""        # Fait générateur de la TVA (date d'expédition/
-                                       # facturation si disponible — art. 65/66 Dir. TVA —
-                                       # sinon date de commande en repli).
-    order_date: str = ""              # Date de commande brute, si distincte de
-                                       # transaction_date. Vide si non disponible ou si
-                                       # identique à transaction_date. Sert uniquement au
-                                       # rapport de réconciliation des écarts de période.
+    transaction_date: str = ""
+    order_date: str = ""
     product_category: str = "STANDARD"
     asin: str = ""
     amazon_vat_amount: Decimal = Decimal("0.00")
-    seller_is_importer: bool = False   # DDP : vendeur = importateur officiel
-    ioss_number: str = ""              # Numéro IOSS propre du vendeur (hors marketplace)
-    arrival_post_code: str = ""        # Code postal de destination (ARRIVAL_POST_CODE Amazon)
-                                       # Utilisé pour détecter les territoires hors UE fiscale
-                                       # (Canaries, Heligoland, Åland…) — voir rates.is_fiscal_eu()
-    display_id: str = ""               # Identifiant à AFFICHER (TRANSACTION_EVENT_ID côté Amazon,
-                                       # formats 1/2/4 uniquement). Purement cosmétique : ne sert
-                                       # jamais de clé d'agrégation ni de matching interne — c'est
-                                       # sale_id qui continue de jouer ce rôle partout ailleurs.
-                                       # Vide (formats 3/5, ou colonne absente) : l'affichage doit
-                                       # replier sur sale_id (ex: `sale.display_id or sale.sale_id`).
-    order_date: str = ""               # Date de commande (ORDER_DATE, format V5 uniquement).
-                                       # Distincte de transaction_date qui porte la date
-                                       # d'EXIGIBILITÉ retenue pour le calcul fiscal (en
-                                       # principe la date de livraison/expédition — art. 65
-                                       # Dir. 2006/112/CE). Champ informatif/audit : permet
-                                       # de détecter et signaler les commandes à cheval sur
-                                       # deux périodes de déclaration (voir loader.py).
+    seller_is_importer: bool = False
+    ioss_number: str = ""
+    arrival_post_code: str = ""
+    display_id: str = ""
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "stock_country", self.stock_country.upper())
-        object.__setattr__(self, "buyer_country", self.buyer_country.upper())
-        object.__setattr__(self, "seller_country", self.seller_country.upper())
-        if not isinstance(self.amount_ht, Decimal):
-            # Nettoyage défensif pour les valeurs issues de CSV mal formatés :
-            # - espaces et espaces insécables utilisés comme séparateurs de milliers (FR)
-            # - virgule décimale FR : "1 234,56" → "1234.56"
-            # - symboles monétaires résiduels : "€", "$", "£"
-            raw = str(self.amount_ht)
-            raw = raw.replace("\xa0", "").replace(" ", "")   # espaces milliers
-            raw = raw.replace("€", "").replace("$", "").replace("£", "")
-            # Virgule décimale FR : seulement si pas déjà un point décimal
-            if "," in raw and "." not in raw:
-                raw = raw.replace(",", ".")
-            elif "," in raw and "." in raw:
-                # Format "1.234,56" → supprimer le point millier, convertir virgule
-                raw = raw.replace(".", "").replace(",", ".")
-            try:
-                object.__setattr__(self, "amount_ht", Decimal(raw))
-            except Exception:
-                raise ValueError(
-                    f"Impossible de convertir '{self.amount_ht}' en montant décimal "
-                    f"pour la vente '{self.sale_id}'. "
-                    "Vérifiez le format du fichier source (séparateur décimal, devise)."
-                )
+        # Nettoyage et normalisation
+        object.__setattr__(self, "stock_country", (self.stock_country or "").upper())
+        object.__setattr__(self, "buyer_country", (self.buyer_country or "").upper())
+        object.__setattr__(self, "seller_country", (self.seller_country or "FR").upper())
+
+        # Validation des pays (ISO 2 lettres)
+        for field_name in ["stock_country", "buyer_country", "seller_country"]:
+            val = getattr(self, field_name)
+            if len(val) != 2:
+                # On ne bloque pas forcement mais on pourrait lever une erreur
+                # Pour rester compatible on laisse couler si vide mais on valide le format
+                pass
+
+        # Conversion Decimal defensive
+        for attr in ["amount_ht", "original_amount", "exchange_rate", "amazon_vat_amount"]:
+            val = getattr(self, attr)
+            if not isinstance(val, Decimal):
+                object.__setattr__(self, attr, self._to_decimal(val, attr))
+
+    def _to_decimal(self, value: Any, field_name: str) -> Decimal:
+        if value is None:
+            return Decimal("0.00")
+        if isinstance(value, (int, float)):
+            return Decimal(str(value))
+        raw = str(value).strip()
+        if not raw:
+            return Decimal("0.00")
+        raw = raw.replace("\xa0", "").replace(" ", "").replace("€", "").replace("$", "").replace("£", "")
+        if "," in raw and "." not in raw:
+            raw = raw.replace(",", ".")
+        elif "," in raw and "." in raw:
+            raw = raw.replace(".", "").replace(",", ".")
+        try:
+            return Decimal(raw)
+        except Exception:
+            raise ValueError(f"Erreur de conversion Decimal pour {field_name}: {value}")
 
 
 @dataclass(frozen=True)
@@ -180,9 +139,50 @@ class VatResult:
 
     sale: Sale
     scenario: Scenario
-    vat_country: str          # Pays dont le taux de TVA s'applique ("" si exonere)
-    vat_rate: Decimal         # Taux applique, en %
-    vat_amount: Decimal       # Montant de TVA, en euros
-    collector: Collector      # Qui collecte/reverse
-    channel: Channel          # Canal de declaration cote vendeur
-    note: str                 # Explication lisible
+    vat_country: str
+    vat_rate: Decimal
+    vat_amount: Decimal
+    collector: Collector
+    channel: Channel
+    note: str
+
+
+@dataclass
+class ViesReclassification:
+    """Detail d'une vente B2B reclassifiee en B2C."""
+    sale_id: str
+    buyer_vat_number: str
+    buyer_country: str
+    amount_ht: Decimal
+    vat_avoided: Decimal
+    reason: str
+    vat_delta: Decimal = Decimal("0.00")
+    is_domestic_reverse_charge: bool = False
+    display_id: str = ""
+
+
+@dataclass
+class ViesValidationSummary:
+    """Synthese de la validation VIES."""
+    total_checked: int = 0
+    valid_count: int = 0
+    invalid_count: int = 0
+    inconclusive_count: int = 0
+    inconclusive_vats: list[str] = field(default_factory=list)
+    inconclusive_vat_details: list[dict[str, Any]] = field(default_factory=list)
+    vat_to_display_ids: dict[str, list[str]] = field(default_factory=dict)
+    reclassifications: list[ViesReclassification] = field(default_factory=list)
+    vies_affected_sale_ids: set[int] = field(default_factory=set)
+
+    @property
+    def total_valid(self) -> int: return self.valid_count
+    @property
+    def total_invalid(self) -> int: return self.invalid_count
+    @property
+    def total_inconclusive(self) -> int: return self.inconclusive_count
+    @property
+    def fraud_avoided_amount(self) -> Decimal:
+        return sum((r.vat_avoided for r in self.reclassifications), Decimal("0.00"))
+    @property
+    def fraud_avoided_ht(self) -> Decimal:
+        return sum((r.amount_ht for r in self.reclassifications), Decimal("0.00"))

@@ -21,7 +21,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -100,12 +99,37 @@ _FETCH_MAX_ATTEMPTS = 3
 _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
 
 
+def _request_ecb(url: str, description: str) -> Optional[dict]:
+    """Effectue une requête à l'API BCE avec gestion des retries."""
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            is_last_attempt = attempt >= _FETCH_MAX_ATTEMPTS
+            if is_last_attempt:
+                logger.warning(
+                    "ECB API indisponible (%s) après %d tentative(s) : %s",
+                    description, attempt, exc,
+                )
+                return None
+            delay = _FETCH_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+            logger.debug(
+                "ECB API échec (%s, tentative %d/%d) : %s — retry dans %.0fs",
+                description, attempt, _FETCH_MAX_ATTEMPTS, exc, delay,
+            )
+            time.sleep(delay)
+        except (json.JSONDecodeError, ValueError) as exc:
+            logger.warning("Réponse ECB non parsable (%s) : %s", description, exc)
+            return None
+    return None
+
+
 def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
     """Interroge l'API ECB pour EUR/{currency} à une date donnée.
 
     Élargit la fenêtre à 7 jours pour couvrir weekends/jours fériés.
-    Retente jusqu'à _FETCH_MAX_ATTEMPTS fois avec un délai exponentiel
-    (1s / 2s / 4s) en cas d'erreur réseau ou HTTP transitoire (429, 5xx…).
     """
     currency = currency.upper()
     if currency == "EUR":
@@ -121,33 +145,8 @@ def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
         f"&detail=dataonly"
         f"&format=jsondata"
     )
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
 
-    data = None
-    for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            break  # succès, on sort de la boucle de retry
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
-            is_last_attempt = attempt >= _FETCH_MAX_ATTEMPTS
-            if is_last_attempt:
-                logger.warning(
-                    "ECB API indisponible pour %s au %s après %d tentative(s) : %s",
-                    currency, target_date, attempt, exc,
-                )
-                return None
-            delay = _FETCH_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
-            logger.debug(
-                "ECB API échec pour %s au %s (tentative %d/%d) : %s — retry dans %.0fs",
-                currency, target_date, attempt, _FETCH_MAX_ATTEMPTS, exc, delay,
-            )
-            time.sleep(delay)
-        except (json.JSONDecodeError, ValueError) as exc:
-            # Non transitoire : inutile de retenter.
-            logger.warning("Réponse ECB non parsable : %s", exc)
-            return None
-
+    data = _request_ecb(url, f"{currency} au {target_date}")
     if data is None:
         return None
 
@@ -158,6 +157,70 @@ def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         logger.warning("Structure ECB inattendue pour %s : %s", currency, exc)
         return None
+
+
+def _fetch_ecb_batch(
+    currencies: list[str], start_date: date, end_date: date
+) -> dict[str, dict[date, Decimal]]:
+    """Récupère les taux pour plusieurs devises sur une période donnée.
+
+    Utilise une seule requête groupée (batch) pour optimiser les performances
+    sur les fichiers multi-années.
+    """
+    if not currencies:
+        return {}
+
+    # On demande 7 jours de plus au début pour avoir un taux de repli (weekend/férié)
+    # pour le premier jour de la période demandée.
+    start = start_date - timedelta(days=7)
+    ccy_key = "+".join(sorted(set(c.upper() for c in currencies)))
+    url = (
+        f"{ECB_BASE_URL}/D.{ccy_key}.EUR.SP00.A"
+        f"?startPeriod={start.isoformat()}"
+        f"&endPeriod={end_date.isoformat()}"
+        f"&detail=dataonly"
+        f"&format=jsondata"
+    )
+
+    data = _request_ecb(url, f"batch {ccy_key} du {start} au {end_date}")
+    if not data:
+        return {}
+
+    try:
+        # 1. Extraire la liste des dates (dimension observation)
+        dim_obs = data["structure"]["dimensions"]["observation"]
+        date_list = [date.fromisoformat(d["id"]) for d in dim_obs[0]["values"]]
+
+        # 2. Identifier la dimension CURRENCY dans les séries
+        series_dims = data["structure"]["dimensions"]["series"]
+        ccy_dim_idx = -1
+        for i, dim in enumerate(series_dims):
+            if dim["id"] == "CURRENCY":
+                ccy_dim_idx = i
+                break
+        if ccy_dim_idx == -1:
+            return {}
+
+        ccy_list = [v["id"] for v in series_dims[ccy_dim_idx]["values"]]
+
+        # 3. Extraire les taux pour chaque série
+        results: dict[str, dict[date, Decimal]] = {}
+        all_series = data["dataSets"][0]["series"]
+        for s_key, s_data in all_series.items():
+            indices = [int(i) for i in s_key.split(":")]
+            ccy = ccy_list[indices[ccy_dim_idx]]
+            
+            ccy_rates: dict[date, Decimal] = {}
+            obs = s_data.get("observations", {})
+            for idx_str, val_list in obs.items():
+                d = date_list[int(idx_str)]
+                ccy_rates[d] = Decimal(str(val_list[0]))
+            results[ccy] = ccy_rates
+        
+        return results
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        logger.warning("Erreur lors du parsing du batch ECB : %s", exc)
+        return {}
 
 
 # ------------------------------------------------------------------
@@ -206,70 +269,78 @@ def prefetch_rates(
     max_workers: int = 8,
     progress_callback=None,
 ) -> None:
-    """Pré-charge en parallèle les taux BCE pour une liste de (devise, date).
+    """Pré-charge les taux BCE pour une liste de (devise, date).
 
-    À appeler UNE FOIS avant le traitement d'un fichier. Les taux sont
-    mis en cache mémoire + disque et réutilisés automatiquement par get_rate().
-    Les paires déjà en cache sont ignorées (pas de requête inutile).
+    Optimisé : utilise des requêtes par lots (batch) pour minimiser les appels
+    réseau, particulièrement efficace sur les fichiers multi-années.
 
     Args:
         currency_dates: liste de tuples (devise, date).
-        max_workers: threads parallèles (défaut 8, limité par l'API BCE).
-        progress_callback: optionnel, callable(done: int, total: int) appelé
-            après chaque taux traité, depuis le thread principal (sûr avec
-            les widgets Streamlit type st.progress appelés par app.py).
-            `total` correspond au nombre de taux réellement à récupérer
-            (paires déjà en cache exclues) — si tout est déjà en cache,
-            le callback n'est jamais appelé.
+        max_workers: (obsolète pour le mode batch, conservé pour compatibilité).
+        progress_callback: optionnel, callable(done: int, total: int).
     """
-    # Dédupliquer + ignorer ce qui est déjà en cache.
-    # HRK exclu : taux fixe irrévocable depuis le 01/01/2023, pas d'appel BCE nécessaire.
     _FIXED_RATE_CURRENCIES = {"EUR", "HRK"}
     to_fetch: list[tuple[str, date]] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, date]] = set()
+
     for currency, d in currency_dates:
         currency = currency.upper()
         if currency in _FIXED_RATE_CURRENCIES:
             continue
         key = _cache_key(currency, d)
-        if key not in _rate_cache and key not in seen:
+        if key not in _rate_cache and (currency, d) not in seen:
             to_fetch.append((currency, d))
-            seen.add(key)
+            seen.add((currency, d))
 
     if not to_fetch:
         logger.debug("Prefetch BCE : tous les taux déjà en cache.")
         return
 
+    # Groupement par devises pour déterminer la période globale
+    currencies = sorted({c for c, d in to_fetch})
+    all_dates = [d for c, d in to_fetch]
+    min_date = min(all_dates)
+    max_date = max(all_dates)
+
     logger.info(
-        "Prefetch BCE : %d taux à charger (%d threads)...",
-        len(to_fetch), min(max_workers, len(to_fetch))
+        "Prefetch BCE : Chargement batch pour %d devises sur la période %s à %s",
+        len(currencies), min_date, max_date
     )
 
-    def _fetch_one(args: tuple[str, date]) -> tuple[str, Optional[Decimal]]:
-        currency, d = args
-        return _cache_key(currency, d), _fetch_ecb_rate(currency, d)
+    batch_results = _fetch_ecb_batch(currencies, min_date, max_date)
 
-    total = len(to_fetch)
-    done = 0
     loaded = 0
-    with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as pool:
-        futures = {pool.submit(_fetch_one, item): item for item in to_fetch}
-        for future in as_completed(futures):
-            key, rate = future.result()
-            if rate is not None:
-                with _cache_lock:
-                    _rate_cache[key] = rate
-                loaded += 1
-            done += 1
-            if progress_callback is not None:
-                try:
-                    progress_callback(done, total)
-                except Exception:
-                    pass
+    total = len(to_fetch)
+    
+    # On remplit le cache pour les dates demandées en utilisant les résultats du batch
+    # avec la règle du "dernier taux connu" (carry forward) pour les weekends/jours fériés.
+    for i, (ccy, target_date) in enumerate(to_fetch, start=1):
+        ccy = ccy.upper()
+        rate = None
+        if ccy in batch_results:
+            ccy_rates = batch_results[ccy]
+            # Recherche du taux exact ou du plus récent (jusqu'à 7 jours en arrière)
+            for days in range(8):
+                d = target_date - timedelta(days=days)
+                if d in ccy_rates:
+                    rate = ccy_rates[d]
+                    break
+        
+        if rate is not None:
+            key = _cache_key(ccy, target_date)
+            with _cache_lock:
+                _rate_cache[key] = rate
+            loaded += 1
+        
+        if progress_callback:
+            try:
+                progress_callback(i, total)
+            except Exception:
+                pass
 
     if loaded:
         _save_disk_cache()
-    logger.info("Prefetch BCE terminé : %d/%d taux chargés.", loaded, len(to_fetch))
+    logger.info("Prefetch BCE terminé : %d/%d taux mis en cache via batch.", loaded, total)
 
 
 def convert_to_eur(
