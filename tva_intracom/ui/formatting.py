@@ -19,8 +19,6 @@ import pandas as pd
 import streamlit as st
 from tva_intracom.i18n import _
 
-from tva_intracom.rates import COUNTRY_NAMES
-
 
 def _fec_period_end_date(period: str) -> str:
     """Calcule la date de fin de période au format AAAAMMJJ (FEC EcritureDate)
@@ -141,7 +139,7 @@ def _country_label(code: str) -> str:
     if not code:
         return ""
     _c = str(code).upper().strip()
-    return COUNTRY_NAMES.get(_c, _c)
+    return _(f"country_{_c}")
 
 
 # Helpers column_config réutilisables

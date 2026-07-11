@@ -61,20 +61,14 @@ def render_telechargements(ctx: TabContext) -> None:
     # « GATING BILLING » — pour être également utilisables dans les autres
     # onglets (Déclarations, VIES, Audit Amazon).
     if _period_detected_range:
-        st.info(f"📅 Période auto-détectée : **{period_label}** "
-                f"(transactions du {_period_detected_range[0]} au {_period_detected_range[1]}). "
-        )
+        st.info(_("period_detected_info", period=period_label, start=_period_detected_range[0], end=_period_detected_range[1]))
 
     if not _can_export and period_label:
-        st.warning(
-            f"🔒 Les exports de la période **{period_label}** ne sont pas encore "
-            f"débloqués. Cliquez sur un bouton d'export ci-dessous pour être "
-            f"redirigé directement vers le paiement Stripe ({_unlock_label_suffix})."
-        )
+        st.warning(_("period_gated_warning", period=period_label, suffix=_unlock_label_suffix))
 
-    st.subheader("📥 Téléchargements")
+    st.subheader(_("tab_downloads"))
     with st.container():
-        with st.spinner("Génération du fichier Excel (tous onglets)…"):
+        with st.spinner(_("dl_generation_excel")):
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
                 _vies_ids = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
                 xlsx_path = export_xlsx(results, xlsx_tmp.name, scope_id=_vies_scope_id, summary=summary,
@@ -89,23 +83,23 @@ def render_telechargements(ctx: TabContext) -> None:
         st.divider()
 
         # 1. Rapport principal — pleine largeur, bouton primaire
-        st.markdown("#### 📊 Contrôle & Audit")
+        st.markdown(_("dl_audit_header"))
         _gated_download(
-            "📊 Rapport complet (.xlsx)",
+            _("dl_main_report_btn"),
             data=xlsx_bytes,
-            file_name=f"Rapport TVA intracommunautaire principal - {nom_entreprise} - {period_label}.xlsx",
+            file_name=_("dl_main_report_filename", company=nom_entreprise, period=period_label),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary", use_container_width=True,
         )
-        st.caption("Contient tous les onglets : calculs détaillés, VIES, transferts FBA et audit.")
+        st.caption(_("dl_main_report_caption"))
 
         st.divider()
 
         # 2. Guichet Unique OSS
-        st.markdown("#### 🇪🇺 Guichet Unique (OSS)")
+        st.markdown(_("dl_oss_header"))
         oss_results_dl = [r for r in results_net if r.scenario == Scenario.OSS_B2C]
         if oss_results_dl:
-            st.caption("Fichiers pour la déclaration trimestrielle OSS (ventes B2C cross-border).")
+            st.caption(_("dl_oss_caption"))
 
             # Ligne XML (Prioritaire)
             # ── Détection en amont des soldes OSS négatifs ──────────
@@ -117,15 +111,15 @@ def render_telechargements(ctx: TabContext) -> None:
                 _all_resolved = bool(_suggestions) and all(s.fully_resolved for s in _suggestions)
                 _any_matched = any(s.matched for s in _suggestions)
                 if _any_matched:
-                    with st.expander("🔎 Rattachement automatique d'avoirs détecté", expanded=True):
+                    with st.expander(_("dl_oss_negative_expander"), expanded=True):
                         for s in _suggestions:
                             _lbl = f"{_country_label(s.bucket.departure)} → {_country_label(s.bucket.arrival)} ({s.bucket.vat_rate}%)"
                             if s.matched:
                                 _origins = ", ".join(sorted({m.origin_period for m in s.matched}))
-                                st.markdown(f"**{_lbl}** — {len(s.matched)} avoir(s) rattaché(s) (période d'origine : {_origins}).")
+                                st.markdown(_("dl_oss_negative_matched", label=_lbl, count=len(s.matched), origins=_origins))
                             if s.unmatched_count:
-                                st.markdown(f"⚠️ **{_lbl}** — {s.unmatched_count} avoir(s) sans origine (HT {float(s.unmatched_ht):,.2f} €).")
-                        _confirm_corrections = st.checkbox("✅ Inclure le bloc de correction automatique dans le XML", key="confirm_oss_corrections")
+                                st.markdown(_("dl_oss_negative_unmatched", label=_lbl, count=s.unmatched_count, ht=f"{float(s.unmatched_ht):,.2f}"))
+                        _confirm_corrections = st.checkbox(_("dl_oss_confirm_corrections"), key="confirm_oss_corrections")
 
             try:
                 oss_xml_bytes = generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
@@ -178,7 +172,7 @@ def render_telechargements(ctx: TabContext) -> None:
         else:
             st.caption(_("local_declarations_caption"))
             _local_countries = sorted({r.vat_country for r in _local_tax_data})
-            export_country = st.selectbox("Sélectionnez le pays à exporter", _local_countries, format_func=lambda c: f"{_country_label(c)} ({c})", key="dl_country_select")
+            export_country = st.selectbox(_("dl_select_country_label"), _local_countries, format_func=lambda c: f"{_country_label(c)} ({c})", key="dl_country_select")
 
             def _build_local_csv(country):
                 import io as _il, csv as _cl
@@ -246,16 +240,16 @@ def render_telechargements(ctx: TabContext) -> None:
                 country_vat = float(summary.net_local_by_country.get(export_country, 0))
 
             m1, m2, m3 = st.columns(3)
-            m1.metric(f"TVA due — {_country_label(export_country)}", f"{country_vat:,.2f} EUR")
-            m2.metric("Taux standard", meta_sel[3])
-            m3.metric("Taux réduit", meta_sel[4])
-            _gated_download(f"📥 Télécharger Déclaration {_country_label(export_country)} (.csv)", data=_build_local_csv(export_country), file_name=f"Déclaration TVA {_country_label(export_country)} - {nom_entreprise} - {period_label}.csv", mime="text/csv", use_container_width=True)
+            m1.metric(_("dl_local_vat_due_metric", country=_country_label(export_country)), f"{country_vat:,.2f} EUR")
+            m2.metric(_("dl_standard_rate_metric"), meta_sel[3])
+            m3.metric(_("dl_reduced_rate_metric"), meta_sel[4])
+            _gated_download(_("dl_local_csv_btn", country=_country_label(export_country)), data=_build_local_csv(export_country), file_name=_("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label), mime="text/csv", use_container_width=True)
 
         st.divider()
 
         # 6. Comptabilité
-        st.markdown("#### 📒 Comptabilité")
-        st.caption("Export au format FEC (séparateur tabulation) pour import dans votre logiciel comptable.")
+        st.markdown(_("dl_fec_header"))
+        st.caption(_("dl_fec_caption"))
         _fec_ecriture_date = _fec_period_end_date(period_label)
-        fec_bytes = generate_fec_bytes(results_net, period=period_label, ecriture_date=_fec_ecriture_date, piece_ref=f"Import Amazon {period_label}")
-        _gated_download("📥 Journal des ventes (FEC .txt)", data=fec_bytes, file_name=f"Export Comptable FEC - {nom_entreprise} - {period_label}.txt", mime="text/plain", use_container_width=True)
+        fec_bytes = generate_fec_bytes(results_net, period=period_label, ecriture_date=_fec_ecriture_date, piece_ref=_("dl_fec_piece_ref", period=period_label))
+        _gated_download(_("dl_fec_btn"), data=fec_bytes, file_name=_("dl_fec_filename", company=nom_entreprise, period=period_label), mime="text/plain", use_container_width=True)

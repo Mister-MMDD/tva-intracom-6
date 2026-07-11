@@ -103,7 +103,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     _auth_url = amazon_spapi.get_authorization_url(state=_state)
                     st.link_button(_("amazon_connect_btn"), _auth_url)
                 except Exception as _err:
-                    st.error(f"Erreur configuration : {_err}")
+                    st.error(_("amazon_config_err", error=_err))
 
         # ── Validation & Devises ──────────────────────────────────────────────────
         with st.expander(_("validation_devise_header"), expanded=False):
@@ -335,7 +335,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
                 # Affichage de l'identité (fixe)
                 st.markdown(f"🏢 **{nom_entreprise}**")
-                st.caption(f"SIREN : **{siren_entreprise}**")
+                st.caption(f"{_('siren_label')} : **{siren_entreprise}**")
 
                 try:
                     _existing_vats = json.loads(_match.get("vat_numbers_json") or "{}") if _match else {}
@@ -344,7 +344,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
                 _tva_fr_fixed = _existing_vats.get("FR") or _match.get("tva_number") or ""
                 if _tva_fr_fixed:
-                    st.caption(f"TVA FR : **{_tva_fr_fixed}**")
+                    st.caption(f"{_('tva_fr_label')} : **{_tva_fr_fixed}**")
 
                 st.markdown("---")
                 st.markdown(f"**{_('fiscal_params_title')}**")
@@ -606,14 +606,14 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                             _price_txt = (
                                                 f"<span style='text-decoration:line-through;color:gray'>{_t['unit_amount']:.2f} {_c['currency'].upper()}</span> "
                                                 f"→ <span style='color:#2ca02c;font-weight:bold'>{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()}</span> "
-                                                f"({_t['discount_label']}, code {_t['discount_code']}) / SIREN"
+                                                f"({_t['discount_label']}, code {_t['discount_code']}) / {_('siren_label')}"
                                             )
                                         else:
-                                            _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / SIREN"
+                                            _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / {_('siren_label')}"
                                     else:
                                         _price_txt = "—"
                                     if _t.get("flat_amount") is not None:
-                                        _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} fixe)"
+                                        _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} {_('fixed_amount')})"
                                     _rows.append({_("col_managed_sirens"): _range, _("col_price"): _price_txt})
                                     _prev_bound = _up_to if _up_to is not None else _prev_bound
                                 # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown

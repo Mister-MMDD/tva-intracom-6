@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 from tva_intracom.i18n import _
 
-from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _render_filter_bar
+from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _render_filter_bar, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
 
@@ -83,70 +83,70 @@ def render_audit(ctx: TabContext) -> None:
                 _df_full = pd.DataFrame(rows)
                 _df_filt = _render_filter_bar(_df_full, key_suffix)
                 _cfg = _smart_money_df(_df_filt,
-                    money_cols=["HT (EUR)", "TVA Amazon (EUR)", "TVA moteur (EUR)", "Écart (EUR)"],
-                    pct_cols=["Taux Amazon (%)", "Taux moteur (%)"])
+                    money_cols=[_("col_ht_eur"), _("col_tva_amz_eur"), _("col_tva_moteur_eur"), _("col_gap_eur")],
+                    pct_cols=[_("col_rate_amz_pct"), _("col_rate_moteur_pct")])
                 _gated_preview_table(_df_filt, _can_export, column_config=_cfg)
 
             sub1, sub2, sub3, sub4, sub5 = st.tabs([
-                f"⚙️ Écarts de taux ({len(ecarts_autres_tab)})",
-                f"🚨 Risque VIES ({len(ecarts_vies_tab)})",
-                f"🇬🇧 Royaume-Uni ({len(ecarts_gb_tab)})",
-                f"♻️ Autoliquidation art.194 ({len(ecarts_b2b_dom_tab)})",
-                f"⚠️ TVA Amazon manquante ({len(ecarts_amz_manquante_tab)})",
+                _("audit_tab_rate_gaps", count=len(ecarts_autres_tab)),
+                _("audit_tab_vies_risk", count=len(ecarts_vies_tab)),
+                _("audit_tab_uk", count=len(ecarts_gb_tab)),
+                _("audit_tab_art194", count=len(ecarts_b2b_dom_tab)),
+                _("audit_tab_missing_amz", count=len(ecarts_amz_manquante_tab)),
             ])
             with sub1:
                 if ecarts_autres_tab:
-                    total = sum(r["Écart (EUR)"] for r in ecarts_autres_tab)
-                    st.error(f"🚨 **{len(ecarts_autres_tab)} écart(s)** — Total : {total:+.2f} EUR. Ouvrez un ticket Amazon Seller Central.")
+                    total = sum(r[_("col_gap_eur")] for r in ecarts_autres_tab)
+                    st.error(_("audit_taux_error", count=len(ecarts_autres_tab), total=_fmt(total)))
                     _audit_df(ecarts_autres_tab, "audit_taux")
                 else:
-                    st.success("✅ Aucun écart de paramétrage de taux.")
+                    st.success(_("audit_taux_success"))
             with sub2:
-                if not enable_vies: st.info("ℹ️ Activez VIES pour auditer les numéros B2B.")
+                if not enable_vies: st.info(_("audit_vies_info"))
                 elif ecarts_vies_tab:
-                    total = sum(r["Écart (EUR)"] for r in ecarts_vies_tab)
-                    st.error(f"Risque fiscal (requalification VIES) : {abs(total):,.2f} EUR")
+                    total = sum(r[_("col_gap_eur")] for r in ecarts_vies_tab)
+                    st.error(_("audit_vies_error", amount=_fmt(abs(total))))
                     _audit_df(ecarts_vies_tab, "audit_vies")
                 else:
-                    st.success("✅ Aucun risque VIES détecté.")
+                    st.success(_("audit_vies_success"))
             with sub3:
-                st.info("💡 TVA britannique collectée par Amazon depuis le Brexit. Normal, hors déclarations UE.")
+                st.info(_("audit_uk_info"))
                 if ecarts_gb_tab:
-                    st.metric("Écart technique UK", f"{sum(r['Écart (EUR)'] for r in ecarts_gb_tab):,.2f} EUR")
+                    st.metric(_("audit_uk_metric"), f"{sum(r[_('col_gap_eur')] for r in ecarts_gb_tab):,.2f} EUR")
                     _audit_df(ecarts_gb_tab, "audit_gb")
                 else:
-                    st.success("✅ Aucune transaction UK.")
+                    st.success(_("audit_uk_success"))
             with sub4:
-                st.info("💡 Ventes B2B où l'acheteur autoliquide la TVA (art.194 dir.2006/112/CE — ES, IT, PL, CZ…). Amazon collecte, le moteur calcule 0€. Normal.")
+                st.info(_("audit_art194_info"))
                 if ecarts_b2b_dom_tab:
-                    total = sum(r["Écart (EUR)"] for r in ecarts_b2b_dom_tab)
-                    st.metric("TVA collectée par Amazon (autoliquidation)", f"{abs(total):,.2f} EUR")
+                    total = sum(r[_("col_gap_eur")] for r in ecarts_b2b_dom_tab)
+                    st.metric(_("audit_art194_metric"), f"{abs(total):,.2f} EUR")
                     _audit_df(ecarts_b2b_dom_tab, "audit_art194")
                 else:
-                    st.success("✅ Aucune vente en autoliquidation avec écart.")
+                    st.success(_("audit_art194_success"))
             with sub5:
-                st.info("⚠️ Le moteur calcule une TVA due mais Amazon n'a rien collecté (0€). Vérifier le paramétrage Amazon.")
+                st.info(_("audit_manquante_info"))
                 if ecarts_amz_manquante_tab:
-                    total = sum(r["Écart (EUR)"] for r in ecarts_amz_manquante_tab)
-                    st.metric("TVA potentiellement manquante", f"{abs(total):,.2f} EUR")
+                    total = sum(r[_("col_gap_eur")] for r in ecarts_amz_manquante_tab)
+                    st.metric(_("audit_manquante_metric"), f"{abs(total):,.2f} EUR")
                     _audit_df(ecarts_amz_manquante_tab, "audit_manquante")
                     import io as _io2, csv as _csv2
                     _buf2 = _io2.StringIO(); _w2 = _csv2.writer(_buf2, delimiter=";")
-                    _w2.writerow(["ID vente","Stock→Dest","Scenario","HT (EUR)","TVA Amazon (EUR)","TVA moteur (EUR)","Ecart (EUR)"])
+                    _w2.writerow([_("vies_col_id"),_("col_stock_dest"),_("col_scenario"),_("col_ht_eur"),_("col_tva_amz_eur"),_("col_tva_moteur_eur"),_("col_gap_eur")])
                     for _rw in ecarts_amz_manquante_tab:
-                        _w2.writerow([_rw["ID"],_rw["Stock→Dest"],_rw["Scénario"],
-                            str(_rw["HT (EUR)"]).replace(".",","),str(_rw["TVA Amazon (EUR)"]).replace(".",","),
-                            str(_rw["TVA moteur (EUR)"]).replace(".",","),str(_rw["Écart (EUR)"]).replace(".",",")])
-                    _gated_download("⬇️ Exporter TVA Amazon manquante (.csv)",
+                        _w2.writerow([_rw["ID"],_rw[_("col_stock_dest")],_rw[_("col_scenario")],
+                            str(_rw[_("col_ht_eur")]).replace(".",","),str(_rw[_("col_tva_amz_eur")]).replace(".",","),
+                            str(_rw[_("col_tva_moteur_eur")]).replace(".",","),str(_rw[_("col_gap_eur")]).replace(".",",")])
+                    _gated_download(_("audit_dl_manquante_btn"),
                         data=("\ufeff"+_buf2.getvalue()).encode("utf-8"),
-                        file_name=f"Écarts TVA Amazon Manquante - {nom_entreprise} - {period_label}.csv", mime="text/csv")
+                        file_name=_("audit_dl_manquante_filename", company=nom_entreprise, period=period_label), mime="text/csv")
                 else:
-                    st.success("✅ Amazon collecte correctement la TVA sur toutes les ventes.")
+                    st.success(_("audit_manquante_success"))
             if nb_arrondis > 0:
-                st.caption(f"ℹ️ {nb_arrondis} micro-écart(s) d'arrondi (<= 0.05 EUR) masqués.")
+                st.caption(_("audit_rounding_caption", count=nb_arrondis))
 
     with audit_sub2:
-        st.subheader("Mouvements de stock inter-entrepôts (FC_Transfer / Inbound)")
+        st.subheader(_("audit_fba_header"))
         local_sales_outside_fr = [s for s in all_sales if s.stock_country==s.buyer_country and s.stock_country!="FR"]
         if local_sales_outside_fr:
             by_c = {}
@@ -155,17 +155,17 @@ def render_audit(ctx: TabContext) -> None:
                 by_c[s.stock_country]["nb"]+=1; by_c[s.stock_country]["ht"]+=float(s.amount_ht)
             at_risk = [c for c in by_c if c not in countries_with_vat]
             ok = [c for c in by_c if c in countries_with_vat]
-            if at_risk: st.error(f"🚨 Ventes locales sans immatriculation : **{', '.join(at_risk)}**")
-            if ok: st.success(f"✅ Pays couverts : **{', '.join(ok)}**")
-            _df_loc = pd.DataFrame([{"ID": c, "Dest":c, "Pays":c,"Ventes":d["nb"],"Volume HT (EUR)":round(d["ht"],2),
-                "Statut":"✅ OK" if c in countries_with_vat else "🚨 Immatriculation requise"}
+            if at_risk: st.error(_("audit_local_sales_error", countries=', '.join(at_risk)))
+            if ok: st.success(_("audit_local_sales_success", countries=', '.join(ok)))
+            _df_loc = pd.DataFrame([{"ID": c, "Dest":c, _("type_column_label"):c, _("col_sales_count"):d["nb"], _("col_volume_ht_eur"):round(d["ht"],2),
+                _("col_status"):_("audit_status_ok") if c in countries_with_vat else _("audit_status_required")}
                 for c,d in by_c.items()])
             _df_loc_filt = _render_filter_bar(_df_loc, "stock_loc")
-            _loc_cfg = _smart_money_df(_df_loc_filt, money_cols=["Volume HT (EUR)"])
+            _loc_cfg = _smart_money_df(_df_loc_filt, money_cols=[_("col_volume_ht_eur")])
             _gated_preview_table(_df_loc_filt, _can_export, column_config=_loc_cfg)
         if all_fc_transfers:
-            st.caption(f"{len(all_fc_transfers)} transfert(s) FC détecté(s).")
-            with st.expander("Voir les transferts FBA"):
+            st.caption(_("audit_fba_count_caption", count=len(all_fc_transfers)))
+            with st.expander(_("audit_fba_expander")):
                 _df_fc = pd.DataFrame(all_fc_transfers)
                 if "ID" not in _df_fc.columns and "transaction_id" in _df_fc.columns:
                     _df_fc["ID"] = _df_fc["transaction_id"]
@@ -175,4 +175,4 @@ def render_audit(ctx: TabContext) -> None:
                 _df_fc_filt = _render_filter_bar(_df_fc, "fba_transfers")
                 _gated_preview_table(_df_fc_filt, _can_export)
         else:
-            st.info("Aucun transfert FC détecté.")
+            st.info(_("audit_fba_none"))

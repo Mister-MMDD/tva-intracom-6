@@ -194,11 +194,11 @@ def render_declarations(ctx: TabContext) -> None:
     # pays — un "→" (OSS/local par pays) ou "📦" (DDP par pays) marque
     # une ligne de détail par pays ; le reste (France CA3, OSS total,
     # IOSS, Fisc local total) est une ligne agrégée.
-    _recap_df.insert(0, "Type", _recap_df[_("col_canal")].apply(
+    _recap_df.insert(0, _("type_column_label"), _recap_df[_("col_canal")].apply(
         lambda c: _("type_pays") if str(c).startswith("  →") or str(c).startswith("📦") else _("type_total")
     ))
-    _recap_cfg["Type"] = st.column_config.TextColumn("Type", width="small")
-    _recap_cfg["Canal"] = st.column_config.TextColumn("Canal", width="large")
+    _recap_cfg[_("type_column_label")] = st.column_config.TextColumn(_("type_column_label"), width="small")
+    _recap_cfg[_("canal_column_label")] = st.column_config.TextColumn(_("canal_column_label"), width="large")
 
     if _can_export:
         st.dataframe(_recap_df, use_container_width=True, hide_index=True,
@@ -218,7 +218,7 @@ def render_declarations(ctx: TabContext) -> None:
 
         # Masquage conditionnel
         for idx, row in _recap_preview.iterrows():
-            if row["Type"] == _("type_total"):
+            if row[_("type_column_label")] == _("type_total"):
                 # Ligne Total : on masque seulement la TVA
                 for col in tva_cols:
                     if col in _recap_preview.columns:
@@ -230,7 +230,7 @@ def render_declarations(ctx: TabContext) -> None:
                         _recap_preview.at[idx, col] = _("locked_premium")
 
         # Affichage (on retire la colonne Type pour l'aperçu comme avant)
-        st.table(_recap_preview.drop(columns=["Type"]))
+        st.table(_recap_preview.drop(columns=[_("type_column_label")]))
         st.caption(_("locked_preview_caption"))
 
     if summary.refund_count:
@@ -250,33 +250,23 @@ def render_declarations(ctx: TabContext) -> None:
     _declared_net_ht = summary.total_ht + summary.refund_total_ht
     _bucket_net_ht = summary.net_ht_total
     _coherence_delta = _declared_net_ht - _bucket_net_ht
-    with st.expander("🧮 Contrôle de cohérence comptable", expanded=abs(_coherence_delta) > Decimal("0.01")):
+    with st.expander(_("coherence_header"), expanded=abs(_coherence_delta) > Decimal("0.01")):
         _bucket_rows = [
-            {"Canal fiscal": b, "CA HT net (EUR)": float(v)}
+            {_("col_fiscal_canal"): b, _("col_net_ht_eur"): float(v)}
             for b, v in summary.net_ht_by_bucket.items() if v != 0
         ]
         if _bucket_rows:
             _gated_preview_table(pd.DataFrame(_bucket_rows), _can_export,
-                column_config={"CA HT net (EUR)": _money_col("CA HT net (EUR)")})
+                column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))})
         c1, c2, c3 = st.columns(3)
-        c1.metric("CA HT net déclaré", f"{float(_declared_net_ht):,.2f} €")
-        c2.metric("CA HT net (somme des canaux)", f"{float(_bucket_net_ht):,.2f} €")
-        c3.metric("Écart", f"{float(_coherence_delta):,.2f} €")
+        c1.metric(_("kpi_declared_net_ht"), f"{float(_declared_net_ht):,.2f} €")
+        c2.metric(_("kpi_sum_canals_net_ht"), f"{float(_bucket_net_ht):,.2f} €")
+        c3.metric(_("kpi_gap"), f"{float(_coherence_delta):,.2f} €")
         if abs(_coherence_delta) > Decimal("0.01"):
-            st.error(
-                "⛔ Écart détecté entre le CA HT déclaré et la somme des canaux fiscaux — "
-                "un scénario de vente échappe probablement à la ventilation par canal "
-                "(voir « Autre / non classé » ci-dessus si présent). À investiguer avant "
-                "de considérer les déclarations comme fiables."
-            )
+            st.error(_("coherence_error"))
         else:
-            st.success("✅ Cohérence interne vérifiée : le CA HT déclaré correspond à la somme des canaux fiscaux.")
-        st.caption(
-            "Ce contrôle vérifie la cohérence interne du calcul (aucune vente perdue "
-            "entre les canaux). Il ne remplace pas un rapprochement avec votre relevé "
-            "de règlements Amazon, qui inclut des éléments hors périmètre de cet outil "
-            "(commissions, frais logistiques, remises)."
-        )
+            st.success(_("coherence_success"))
+        st.caption(_("coherence_caption"))
 
     # Exposé pour l'onglet Téléchargements (voir docstring de ce module).
     ctx.oss_tva_net_total = _oss_tva_net_total

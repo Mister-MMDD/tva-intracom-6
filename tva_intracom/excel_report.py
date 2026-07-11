@@ -322,12 +322,12 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         tva_amazon = float(getattr(r.sale, "amazon_vat_amount", Decimal("0")))
         tva_moteur = float(r.vat_amount)
         if dep == "GB" or arr == "GB":
-            return "GB — Flux post-Brexit"
+            return _("xl_audit_nature_gb")
         if id(r.sale) in vies_affected_sale_ids and tva_amazon == 0:
-            return "Risque VIES"
+            return _("xl_audit_nature_vies")
         if sid in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):
-            return "Autoliquidation nationale (art.194)"
-        return "Écart de taux / Divers"
+            return _("xl_audit_nature_art194")
+        return _("xl_audit_nature_taux")
 
     # ── Section 1 : Réconciliation agrégée ──────────────────────────────
     ws.title = _("xl_tab_audit")
@@ -539,7 +539,7 @@ def _write_intrastat_tab(
             except ValueError:
                 seuil_annee, confirme = _seuil_annee_ref, _seuil_confirme
             any_unconfirmed = any_unconfirmed or not confirme
-            for sens_label, key_sens in [(_("Introductions"), "intro"), (_("Expéditions"), "expe")]:
+            for sens_label, key_sens in [(_("xl_intrastat_introductions"), "intro"), (_("xl_intrastat_dispatches"), "expe")]:
                 cumul = seuil_par_annee[annee][key_sens]
                 pct = float(cumul / seuil_annee * 100) if seuil_annee else 0.0
                 statut = (_("xl_intrastat_status_exceeded") if pct >= 100
@@ -731,7 +731,7 @@ def _write_calendar_tab(
     ws.cell(row=1, column=1, value=_("xl_cal_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
     ws.cell(row=2, column=1,
-            value=_("xl_cal_meta", date=today.isoformat(), country=seller_country, period=(period or _("non spécifiée")))).font = Font(italic=True, size=10, color="595959")
+            value=_("xl_cal_meta", date=today.isoformat(), country=seller_country, period=(period or _("xl_cal_unspecified")))).font = Font(italic=True, size=10, color="595959")
     ws.row_dimensions[2].height = 20
     ws.row_dimensions[3].height = 8
 
@@ -800,7 +800,7 @@ def _write_calendar_tab(
         deadline    = _deadline_oss(last_q_day)
         _write_row(
             "OSS",
-            _("Dépôt + paiement déclaration OSS"),
+            _("xl_cal_oss_task"),
             f"T{q} {yr}",
             deadline,
             "guichet-entreprises.fr / portail OSS DGFIP",
@@ -825,7 +825,7 @@ def _write_calendar_tab(
         deadline = _date(next_yr, next_mo, 24)
         _write_row(
             "CA3 / TVA FR",
-            _("Dépôt CA3 + paiement TVA France"),
+            _("xl_cal_ca3_task"),
             f"{yr}-{mo:02d}",
             deadline,
             "impots.gouv.fr (espace professionnel) → Déclarer → TVA",
@@ -884,8 +884,8 @@ def _write_calendar_tab(
         next_yr = yr if mo < 12 else yr + 1
         deadline = _date(next_yr, next_mo, 24)
         _write_row(
-            _("Relevé TVA intracom (ESL)"),
-            _("Relevé des livraisons B2B intra-UE exonérées"),
+            _("xl_cal_esl_task"),
+            _("xl_cal_esl_desc"),
             f"{yr}-{mo:02d}",
             deadline,
             "impots.gouv.fr → DES (Déclaration Européenne de Services) / ESL",

@@ -173,10 +173,10 @@ def render_visualisations(ctx: TabContext) -> None:
         _col_ca_sales = _("viz_evolution_ca_sales")
         _col_refunds_ht = _("viz_evolution_refunds_ht")
         _col_vat_net = _("viz_evolution_vat_net")
-        _col_month = _("Mois") # Ou clé i18n
+        _col_month = _("month_column_label")
         
         _df_monthly = pd.DataFrame([
-            {"Mois": _mois_label(m),
+            {_col_month: _mois_label(m),
              _col_ca_sales: _monthly[m]["CA HT"],
              _col_refunds_ht: _monthly[m]["Remb. HT"],
              _col_vat_net: _monthly[m]["TVA due"] + _monthly[m]["TVA remb."]}
@@ -186,17 +186,17 @@ def render_visualisations(ctx: TabContext) -> None:
         with _tviz1:
             fig_time = go.Figure()
             fig_time.add_trace(go.Bar(
-                name=_col_ca_sales, x=_df_monthly["Mois"],
+                name=_col_ca_sales, x=_df_monthly[_col_month],
                 y=_df_monthly[_col_ca_sales], marker_color="#1f77b4",
                 hovertemplate="%{x}<br>" + _col_ca_sales + " : %{y:,.2f} €<extra></extra>",
             ))
             fig_time.add_trace(go.Bar(
-                name=_col_refunds_ht, x=_df_monthly["Mois"],
+                name=_col_refunds_ht, x=_df_monthly[_col_month],
                 y=_df_monthly[_col_refunds_ht], marker_color="#d62728",
                 hovertemplate="%{x}<br>" + _col_refunds_ht + " : %{y:,.2f} €<extra></extra>",
             ))
             fig_time.add_trace(go.Scatter(
-                name=_col_vat_net, x=_df_monthly["Mois"],
+                name=_col_vat_net, x=_df_monthly[_col_month],
                 y=_df_monthly[_col_vat_net], mode="lines+markers",
                 line=dict(color="#ff7f0e", width=2), yaxis="y2",
                 hovertemplate="%{x}<br>" + _col_vat_net + " : %{y:,.2f} €<extra></extra>",

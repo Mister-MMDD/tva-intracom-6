@@ -231,7 +231,7 @@ if uploaded_files:
         if len(unique_platforms) > 1:
             st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
     if all_warnings:
-        with st.expander(f"⚠️ Avertissements d'import ({len(all_warnings)})"):
+        with st.expander(_("import_warnings_header", count=len(all_warnings))):
             for w in all_warnings: st.text(w)
 
     all_period_mismatches = []

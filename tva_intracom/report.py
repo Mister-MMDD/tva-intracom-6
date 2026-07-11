@@ -125,11 +125,11 @@ def _bucket_label(r: "VatResult") -> str:
     y sont ajoutés.
     """
     if r.channel == Channel.IOSS:
-        return "Guichet IOSS (vendeur)"
+        return _("bucket_ioss_vendeur")
     if r.collector == Collector.AMAZON:
-        return "Deemed supplier (Amazon)"
+        return _("bucket_deemed_supplier")
     if r.scenario == Scenario.B2B_REVERSE_CHARGE:
-        return "B2B exonéré (autoliquidation intracom)"
+        return _("bucket_b2b_exempt")
     # Autoliquidation nationale B2B domestique hors FR (engine.py ~L239-257) :
     # vente B2B entre assujettis dans un même pays UE (hors FR) relevant
     # d'un régime national de reverse charge. Distinct de B2B_REVERSE_CHARGE
@@ -138,18 +138,18 @@ def _bucket_label(r: "VatResult") -> str:
     # échapperait aux tests channel FR_DOMESTIC/LOCAL_REGISTRATION plus bas
     # sans ce test explicite.
     if r.scenario == Scenario.DOMESTIC and r.collector == Collector.BUYER:
-        return "Autoliquidation nationale B2B (hors FR)"
+        return _("bucket_reverse_charge_nat")
     if r.channel == Channel.OSS:
-        return "Guichet OSS"
+        return _("bucket_oss")
     if r.channel == Channel.FR_DOMESTIC:
-        return "TVA domestique France (CA3)"
+        return _("bucket_fr_domestic")
     if r.channel == Channel.LOCAL_REGISTRATION:
-        return "Immatriculation TVA locale"
+        return _("bucket_local_registration")
     if r.scenario == Scenario.EXPORT:
-        return "Export hors UE"
+        return _("bucket_export")
     if r.scenario == Scenario.IMPORT_STANDARD:
-        return "Import (TVA douane, hors IOSS)"
-    return "Autre / non classé"
+        return _("bucket_import")
+    return _("bucket_other")
 
 
 def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = False) -> None:
