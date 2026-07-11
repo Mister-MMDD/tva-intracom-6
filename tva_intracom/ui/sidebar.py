@@ -31,6 +31,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from tva_intracom.i18n import _
 
 from tva_intracom import auth as tva_auth
 from tva_intracom import billing as tva_billing
@@ -79,84 +80,84 @@ def render_sidebar(auth_ctx) -> SidebarResult:
     _stripe_cancel_url = auth_ctx.stripe_cancel_url
 
     with st.sidebar:
-        st.header("\u2699\ufe0f Options")
+        st.header(_("options_header"))
 
         # Rappel pour le thème si l'utilisateur ne le trouve plus
-        st.caption("🎨 **Thème** : Accessible via le menu `⋮` > `Settings` > `Theme`.")
-        file_format = st.radio("Plateforme source", _PLATFORM_OPTIONS, index=0)
+        st.caption(_("theme_caption"))
+        file_format = st.radio(_("platform_source"), _PLATFORM_OPTIONS, index=0)
 
         # ── Connexion Amazon SP-API ───────────────────────────────────────────────
-        with st.expander("🔗 Connexion Amazon SP-API", expanded=False):
+        with st.expander(_("amazon_conn_header"), expanded=False):
             _amz_creds = tva_auth.get_amazon_credentials(_current_user.id)
             if _amz_creds:
-                st.success(f"✅ Connecté à Amazon (ID: {_amz_creds['selling_partner_id']})")
-                if st.button("🔌 Déconnecter Amazon", key="btn_disconnect_amazon"):
+                st.success(_("amazon_connected", id=_amz_creds['selling_partner_id']))
+                if st.button(_("amazon_disconnect_btn"), key="btn_disconnect_amazon"):
                     tva_auth.delete_amazon_credentials(_current_user.id)
                     st.rerun()
             else:
-                st.info("Autorisez l'accès à vos données Amazon pour automatiser l'import.")
+                st.info(_("amazon_info_auth"))
                 # On génère un 'state' pour sécuriser l'OAuth (optionnel mais recommandé)
                 _state = secrets.token_hex(8)
                 from tva_intracom import amazon_spapi
                 try:
                     _auth_url = amazon_spapi.get_authorization_url(state=_state)
-                    st.link_button("🚀 Connecter mon compte Amazon", _auth_url)
+                    st.link_button(_("amazon_connect_btn"), _auth_url)
                 except Exception as _err:
                     st.error(f"Erreur configuration : {_err}")
 
         # ── Validation & Devises ──────────────────────────────────────────────────
-        with st.expander("\U0001f50d Validation & Devises", expanded=False):
+        with st.expander(_("validation_devise_header"), expanded=False):
             # Fonctions toujours actives sur ce compte — cases grisées et
             # verrouillées (disabled=True) pour informer l'utilisateur qu'elles
             # sont bien activées, sans lui laisser la possibilité de les désactiver.
-            st.checkbox("Valider les numéros TVA B2B via VIES", value=True, disabled=True,
-                help="Toujours activé : interroge les serveurs de l'UE pour vérifier chaque numéro de TVA B2B.")
+            st.checkbox(_("vies_checkbox"), value=True, disabled=True,
+                help=_("vies_help"))
             enable_vies = True
             on_invalid_behavior = "reclassify"
-            st.checkbox("Convertir devises via taux BCE", value=True, disabled=True,
-                help="Toujours activé : convertit automatiquement les montants non-EUR au taux BCE.")
+            st.checkbox(_("fx_checkbox"), value=True, disabled=True,
+                help=_("fx_help"))
             convert_fx = True
 
         # ── Cache VIES ────────────────────────────────────────────────────────────
-        with st.expander("\U0001f5c4\ufe0f Cache VIES", expanded=False):
+        with st.expander(_("cache_vies_header"), expanded=False):
             try:
                 _cs = vies_cache_stats(_vies_scope_id)
-                _ttl_days = st.slider("TTL du cache (jours)", min_value=7, max_value=365,
+                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=7, max_value=365,
                     value=_cs["ttl_days"], step=7,
-                    help="Durée avant revalidation automatique d'un numéro de TVA auprès de VIES.")
+                    help=_("ttl_cache_help"))
                 if _ttl_days != _cs["ttl_days"]:
                     set_cache_ttl(_ttl_days)
                     st.rerun()
                 _c1, _c2, _c3 = st.columns(3)
-                _c1.metric("Total", _cs["total"])
-                _c2.metric("✅ Frais", _cs["fresh"])
-                _c3.metric("⏳ Expirés", _cs["expired"])
+                _c1.metric(_("total"), _cs["total"])
+                _c2.metric(_("fresh"), _cs["fresh"])
+                _c3.metric(_("expired"), _cs["expired"])
                 if _cs["total"] > 0:
                     st.caption(
-                        f"Valides : {_cs['valid']} · Invalides : {_cs['invalid']} · "
-                        f"Vérifié au plus tôt : {(_cs['oldest_check'] or '—')[:10]}")
+                        f"{_('valid')} : {_cs['valid']} · {_('invalid')} : {_cs['invalid']} · "
+                        f"{_('oldest_check')} : {(_cs['oldest_check'] or '—')[:10]}")
                 if _cs.get("manual_total", 0) > 0:
-                    st.markdown("**🖊️ Classifications manuelles**")
+                    st.markdown(f"**{_('manual_classifications')}**")
                     _m1, _m2 = st.columns(2)
-                    _m1.metric("✅ Valides (B2B)", _cs["manual_valid"])
-                    _m2.metric("❌ Invalides (B2C)", _cs["manual_invalid"])
+                    _m1.metric(_("manual_valid"), _cs["manual_valid"])
+                    _m2.metric(_("manual_invalid"), _cs["manual_invalid"])
                 if _cs["expired"] > 0:
-                    if st.button(f"🗑️ Purger {_cs['expired']} entrée(s) expirée(s)", key="purge_vies_cache"):
+                    if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
                         n = purge_expired_cache(_vies_scope_id)
-                        st.success(f"{n} entrée(s) supprimée(s).")
+                        st.success(_("purge_success", count=n))
                         st.rerun()
             except Exception as _e:
-                st.caption(f"Cache VIES indisponible : {_e}")
+                st.caption(_("cache_unavailable", error=_e))
 
         # ── Paramètres du fichier ─────────────────────────────────────────────────
-        with st.expander("\U0001f4e6 Paramètres du fichier", expanded=False):
-            encoding = st.selectbox("Encodage du fichier", ["utf-8","latin-1","cp1252"], index=0)
+        with st.expander(_("file_params_header"), expanded=False):
+            encoding = st.selectbox(_("file_encoding"), ["utf-8","latin-1","cp1252"], index=0)
 
         # ── Catalogue Produits ────────────────────────────────────────────────────
-        with st.expander("\U0001f4cb Catalogue Produits (taux réduits)", expanded=False):
-            catalog_file = st.file_uploader("Importer le catalogue Amazon",
+        with st.expander(_("catalog_header"), expanded=False):
+            catalog_file = st.file_uploader(_("catalog_upload"),
                 type=["csv","tsv","txt","xlsx"],
-                help="Colonnes ASIN + PRODUCT-TAX-CODE pour taux réduits.")
+                help=_("catalog_help"))
             asin_to_category = {}
             if catalog_file is not None:
                 try:
@@ -174,9 +175,9 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     if asin_col and cat_col:
                         asin_to_category = {str(a).strip().upper(): str(c).strip().upper()
                             for a, c in zip(df_cat[asin_col], df_cat[cat_col]) if pd.notna(a) and pd.notna(c)}
-                        st.success(f"\U0001f4c8 {len(asin_to_category)} ASIN mappés.")
+                        st.success(_("catalog_success", count=len(asin_to_category)))
                 except Exception as e:
-                    st.error(f"Erreur catalogue : {e}")
+                    st.error(_("catalog_error", error=e))
 
         # ── Entreprise & Paramètres ───────────────────────────────────────────────
         # Ces paramètres sont liés au SIREN sélectionné et sauvegardés en base.
@@ -189,9 +190,9 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         tva_fr = ""
         local_vat_numbers: dict[str, str] = {}
 
-        with st.expander("\U0001f4c5 Entreprise & Paramètres", expanded=False):
-            st.markdown("**Période fiscale**")
-            st.caption("La période est auto-détectée depuis les dates de vos transactions.")
+        with st.expander(_("company_header"), expanded=False):
+            st.markdown(f"**{_('fiscal_period_title')}**")
+            st.caption(_("fiscal_period_caption"))
 
             # ── Affichage de la période auto-détectée (depuis session_state) ──
             _sidebar_results = st.session_state.get("_results", [])
@@ -221,54 +222,49 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         _qmax = (_em - 1) // 3 + 1
                         _detected = f"{_sy}-Q{_qmin}" if _qmin == _qmax else f"{_sy}-Q{_qmin}_Q{_qmax}"
                     st.markdown(
-                        f"✅ Période détectée : **{_detected}**  \n"
-                        f"<small style='color:grey'>{_sd[0][:10]} → {_sd[-1][:10]}</small>",
+                        _("fiscal_period_detected", period=_detected, start=_sd[0][:10], end=_sd[-1][:10]),
                         unsafe_allow_html=True,
                     )
             elif not _sidebar_results:
-                st.caption("_(aucune donnée chargée)_")
+                st.caption(_("fiscal_period_none"))
 
             oss_period = "__auto__"
 
             st.divider()
-            st.markdown("**Identité & Paramètres TVA**")
+            st.markdown(f"**{_('identity_vat_params_title')}**")
             try:
                 _registered_sirens = tva_billing.list_registered_sirens(_current_user.id)
                 _siren_quota_status = tva_billing.get_siren_quota_status(_current_user.id)
             except Exception as _siren_list_err:
                 _registered_sirens = []
                 _siren_quota_status = None
-                st.caption(f"⚠️ Liste des SIREN indisponible : {_siren_list_err}")
+                st.caption(_("siren_list_unavailable", error=_siren_list_err))
 
             _siren_over_quota = bool(_siren_quota_status and _siren_quota_status.blocked)
             if _siren_over_quota:
-                st.error(
-                    f"🔒 Ce compte a {_siren_quota_status.registered_count} SIREN enregistrés "
-                    f"pour un quota de {_siren_quota_status.quota}. Tous les exports sont "
-                    f"bloqués tant que {_siren_quota_status.over_quota_by} SIREN n'ont pas été "
-                    "retirés (section **💳 Abonnements & forfaits** ci-dessous)."
-                )
+                st.error(_("siren_quota_blocked", count=_siren_quota_status.registered_count, quota=_siren_quota_status.quota, over=_siren_quota_status.over_quota_by))
 
             _siren_options = [r["siren"] for r in _registered_sirens]
+            _new_siren_label = _("new_siren_option")
             _siren_label_by_value = {
-                r["siren"]: f"{r['company_name'] or '(sans nom)'} — {r['siren']}"
+                r["siren"]: f"{r['company_name'] or _('no_name')} — {r['siren']}"
                 for r in _registered_sirens
             }
-            _siren_label_by_value["➕ Nouveau SIREN…"] = "➕ Nouveau SIREN…"
+            _siren_label_by_value[_new_siren_label] = _new_siren_label
             _siren_choice = st.selectbox(
-                "SIREN client",
-                options=_siren_options + ["➕ Nouveau SIREN…"],
+                _("siren_client_label"),
+                options=_siren_options + [_new_siren_label],
                 index=0 if _siren_options else 0,
                 format_func=lambda v: _siren_label_by_value.get(v, v),
-            ) if _siren_options else "➕ Nouveau SIREN…"
+            ) if _siren_options else _new_siren_label
 
-            if _siren_choice == "➕ Nouveau SIREN…":
+            if _siren_choice == _new_siren_label:
                 _can_add_siren, _siren_quota_msg = (True, "")
                 try:
                     _can_add_siren, _siren_quota_msg = tva_billing.can_register_new_siren(_current_user.id)
                 except Exception as _quota_err:
                     _can_add_siren, _siren_quota_msg = True, ""
-                    st.caption(f"⚠️ Vérification du quota indisponible : {_quota_err}")
+                    st.caption(_("quota_check_unavailable", error=_quota_err))
 
                 if not _can_add_siren:
                     st.error(f"🔒 {_siren_quota_msg}")
@@ -285,23 +281,23 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     except Exception:
                         local_vat_numbers = {}
                 else:
-                    nom_entreprise   = st.text_input("Nom de l'entreprise", "Mon Entreprise E-commerce", key="nom_new")
-                    siren_entreprise = st.text_input("Numéro SIREN", "123456789", key="siren_new")
+                    nom_entreprise   = st.text_input(_("company_name_label"), _("default_company_name"), key="nom_new")
+                    siren_entreprise = st.text_input(_("siren_number_label"), "123456789", key="siren_new")
 
                     st.markdown("---")
-                    ioss_number = st.text_input("Numéro IOSS propre (optionnel)", placeholder="ex: IM1234567890", key="ioss_new",
-                        help="Si renseigné, les imports B2C ≤ 150 € hors marketplace seront traités en IOSS_DIRECT.")
-                    seller_is_importer = st.toggle("Vendeur = importateur officiel (DDP)", value=False, key="ddp_new")
-                    apply_fr_under_threshold = st.toggle("Appliquer TVA FR sous le seuil OSS (10 000 €)", value=False, key="oss_thr_new")
-                    countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local",
+                    ioss_number = st.text_input(_("ioss_number_label"), placeholder="ex: IM1234567890", key="ioss_new",
+                        help=_("ioss_help"))
+                    seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new")
+                    apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label"), value=False, key="oss_thr_new")
+                    countries_with_vat = st.multiselect(_("local_vat_countries_label"),
                         options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
 
                     local_vat_numbers = {}
                     _missing_vat_input = False
                     if countries_with_vat:
-                        st.caption("Numéros de TVA locaux (obligatoires) :")
+                        st.caption(_("local_vat_numbers_caption"))
                         for ccode in sorted(countries_with_vat):
-                            _v = st.text_input(f"Numéro de TVA {ccode}", key=f"vat_num_new_{ccode}",
+                            _v = st.text_input(_("vat_number_for", country=ccode), key=f"vat_num_new_{ccode}",
                                                placeholder=f"ex: {ccode}123456789")
                             local_vat_numbers[ccode] = _v.strip()
                             if not _v.strip():
@@ -309,13 +305,13 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
                     tva_fr = local_vat_numbers.get("FR", "")
 
-                    if st.button("💾 Enregistrer ce SIREN", key="btn_register_siren"):
+                    if st.button(_("save_siren_btn"), key="btn_register_siren"):
                         if not siren_entreprise.strip():
-                            st.warning("Le numéro SIREN est requis.")
+                            st.warning(_("siren_required"))
                         elif siren_entreprise.strip() in _siren_options:
-                            st.error(f"🚫 Le SIREN {siren_entreprise.strip()} est déjà enregistré sur ce compte.")
+                            st.error(_("siren_already_registered", siren=siren_entreprise.strip()))
                         elif _missing_vat_input:
-                            st.warning("Veuillez remplir le numéro de TVA pour chaque pays sélectionné.")
+                            st.warning(_("missing_vat_numbers"))
                         else:
                             try:
                                 tva_billing.register_siren(
@@ -327,10 +323,10 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                     countries_with_vat=",".join(countries_with_vat),
                                     vat_numbers_json=json.dumps(local_vat_numbers)
                                 )
-                                st.success("✅ SIREN enregistré.")
+                                st.success(_("siren_save_success"))
                                 st.rerun()
                             except Exception as _reg_err:
-                                st.error(f"Erreur d'enregistrement : {_reg_err}")
+                                st.error(_("siren_save_error", error=_reg_err))
             else:
                 _match = next((r for r in _registered_sirens if r["siren"] == _siren_choice), None)
                 nom_entreprise   = _match["company_name"] if _match else ""
@@ -350,10 +346,10 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     st.caption(f"TVA FR : **{_tva_fr_fixed}**")
 
                 st.markdown("---")
-                st.markdown("**Paramètres fiscaux**")
+                st.markdown(f"**{_('fiscal_params_title')}**")
 
                 # Option pour déverrouiller la modification des numéros déjà enregistrés
-                allow_edit_ids = st.checkbox("🔓 Modifier les identifiants (IOSS, TVA)", value=False, help="Cochez pour modifier les numéros déjà enregistrés.")
+                allow_edit_ids = st.checkbox(_("edit_ids_checkbox"), value=False, help=_("edit_ids_help"))
 
                 # IOSS
                 _ioss_val = _match.get("ioss_number") or ""
@@ -361,30 +357,30 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     st.caption(f"IOSS : **{_ioss_val}**")
                     ioss_number = _ioss_val
                 else:
-                    ioss_number = st.text_input("Numéro IOSS propre (optionnel)",
+                    ioss_number = st.text_input(_("ioss_number_label"),
                         value=_ioss_val,
                         placeholder="ex: IM1234567890", key="ioss_edit")
 
-                seller_is_importer = st.toggle("Vendeur = importateur officiel (DDP)", value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
-                apply_fr_under_threshold = st.toggle("Appliquer TVA FR sous le seuil OSS (10 000 €)", value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
+                seller_is_importer = st.toggle(_("ddp_label"), value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
+                apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label"), value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
 
                 _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
                 _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
 
-                countries_with_vat = st.multiselect("Pays où vous avez un numéro TVA local",
+                countries_with_vat = st.multiselect(_("local_vat_countries_label"),
                     options=sorted(list(EU_COUNTRIES)), default=_default_vat_countries, key="vat_countries_edit")
 
                 local_vat_numbers = {}
                 _missing_vat_input = False
                 if countries_with_vat:
-                    st.caption("Numéros de TVA locaux :")
+                    st.caption(_("local_vat_numbers_caption"))
                     for ccode in sorted(countries_with_vat):
                         _val = _existing_vats.get(ccode, "")
                         if _val and not allow_edit_ids:
                             st.caption(f"✅ {ccode} : **{_val}**")
                             local_vat_numbers[ccode] = _val
                         else:
-                            _v = st.text_input(f"Numéro de TVA {ccode}",
+                            _v = st.text_input(_("vat_number_for", country=ccode),
                                                value=_val,
                                                key=f"vat_num_edit_{ccode}",
                                                placeholder=f"ex: {ccode}123456789")
@@ -395,9 +391,9 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 # Mise à jour de tva_fr pour le XML OSS (toujours basé sur le numéro FR)
                 tva_fr = local_vat_numbers.get("FR", _tva_fr_fixed)
 
-                if st.button("💾 Enregistrer les modifications", key="btn_update_siren"):
+                if st.button(_("save_changes_btn"), key="btn_update_siren"):
                     if _missing_vat_input:
-                        st.warning("Veuillez remplir le numéro de TVA pour chaque pays sélectionné.")
+                        st.warning(_("missing_vat_numbers"))
                     else:
                         try:
                             tva_billing.register_siren(
@@ -409,10 +405,10 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                 countries_with_vat=",".join(countries_with_vat),
                                 vat_numbers_json=json.dumps(local_vat_numbers)
                             )
-                            st.success("✅ Paramètres mis à jour.")
+                            st.success(_("update_success"))
                             st.rerun()
                         except Exception as _reg_err:
-                            st.error(f"Erreur de mise à jour : {_reg_err}")
+                            st.error(_("update_error", error=_reg_err))
 
                 # Option de retrait du SIREN (toujours visible si déjà enregistré)
                 if _match:
@@ -420,55 +416,55 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     if _match.get("pending_removal_at"):
                         import datetime as _dt
                         _eff_date = _dt.datetime.fromtimestamp(_match["pending_removal_at"]).strftime("%d/%m/%Y")
-                        st.warning(f"⏳ Retrait programmé le {_eff_date}.")
-                        if st.button("↩️ Annuler le retrait", key=f"btn_cancel_removal_{siren_entreprise}", use_container_width=True):
+                        st.warning(_("removal_pending", date=_eff_date))
+                        if st.button(_("cancel_removal_btn"), key=f"btn_cancel_removal_{siren_entreprise}", use_container_width=True):
                             tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
                             st.rerun()
                     else:
-                        if st.button("🗑️ Retirer ce SIREN", key=f"btn_remove_entreprise_{siren_entreprise}",
-                                    help="Le retrait sera effectif à la fin de la période de facturation en cours.",
+                        if st.button(_("remove_siren_btn"), key=f"btn_remove_entreprise_{siren_entreprise}",
+                                    help=_("remove_siren_help"),
                                     use_container_width=True):
                             # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
                             _eff = tva_billing.request_siren_removal(_current_user.id, siren_entreprise)
                             import datetime as _dt
                             if _eff <= time.time() + 5:
-                                st.success("✅ SIREN retiré.")
+                                st.success(_("remove_success"))
                             else:
-                                st.info(f"Retrait programmé le {_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')}.")
+                                st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
                             st.rerun()
 
         # ── Abonnements & forfaits ────────────────────────────────────────────────
-        with st.expander("\U0001f4b3 Abonnements & forfaits", expanded=True):
+        with st.expander(_("billing_header"), expanded=True):
             _sub_status = None
             try:
                 _sub_status = tva_billing.get_subscription_status(_current_user.id)
             except Exception as _sub_err:
-                st.caption(f"⚠️ Statut d'abonnement indisponible : {_sub_err}")
+                st.caption(_("sub_status_unavailable", error=_sub_err))
 
-            _plan_label = {"business": "Pro", "cabinet": "Cabinet"}.get(
+            _plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
                 _sub_status.plan if _sub_status else None, _sub_status.plan if _sub_status else "—")
-            _interval_label = {"month": "mensuel", "year": "annuel"}.get(
+            _interval_label = {"month": _("interval_monthly"), "year": _("interval_yearly")}.get(
                 _sub_status.billing_interval if _sub_status else None, "")
 
             if _sub_status and _sub_status.active:
-                st.success(f"✅ Abonnement **{_plan_label}** actif ({_interval_label})"
+                st.success(_("sub_active_msg", plan=_plan_label, interval=_interval_label)
                     + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
 
                 # Gestion des SIREN pour un abonnement Cabinet (ajout via la section
                 # Entreprise, retrait différé ici, effectif à la date anniversaire).
                 if _sub_status.plan == "cabinet" and _registered_sirens:
-                    st.markdown("**SIREN gérés par cet abonnement**")
+                    st.markdown(f"**{_('sirens_managed_title')}**")
                     for _r in _registered_sirens:
                         _c1, _c2 = st.columns([2, 1])
-                        _label = f"{_r['company_name'] or '(sans nom)'} — {_r['siren']}"
+                        _label = f"{_r['company_name'] or _('no_name')} — {_r['siren']}"
                         if _r.get("pending_removal_at"):
-                            _c1.caption(f"{_label} · ⏳ retrait programmé")
+                            _c1.caption(f"{_label} · {_('removal_scheduled_short')}")
                         else:
                             _c1.caption(_label)
-                            if _c2.button("Retirer", key=f"btn_remove_{_r['siren']}", use_container_width=True):
+                            if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", use_container_width=True):
                                 _eff = tva_billing.request_siren_removal(_current_user.id, _r["siren"])
                                 import datetime as _dt
-                                st.info(f"Retrait programmé le {_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')}.")
+                                st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
                                 st.rerun()
 
                 try:
@@ -476,7 +472,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         _current_user.id,
                         return_url=_stripe_cancel_url(),
                     )
-                    st.link_button("Gérer mon abonnement (Stripe)", _portal_url)
+                    st.link_button(_("manage_sub_stripe_btn"), _portal_url)
                 except Exception:
                     pass
 
@@ -485,42 +481,39 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 _credits = tva_billing.list_purchased_credits(_current_user.id)
                 if _credits:
                     st.markdown("---")
-                    st.markdown("**🔓 Périodes débloquées (Achats uniques)**")
+                    st.markdown(f"**{_('unlocked_periods_title')}**")
                     for _c in _credits:
                         from datetime import datetime as _dt
                         _at = _dt.fromtimestamp(_c["at"]).strftime("%d/%m/%Y")
-                        st.caption(f"✅ **{_c['period']}** — acheté le {_at}")
+                        st.caption(f"✅ **{_c['period']}** — {_('purchased_at', date=_at)}")
             except Exception as _credit_err:
-                st.caption(f"⚠️ Historique d'achats indisponible : {_credit_err}")
+                st.caption(_("purchase_history_unavailable", error=_credit_err))
             else:
                 if _sub_status and _sub_status.status:
                     # Abonnement existant mais inactif (annulé/expiré) : état actuel
                     # affiché pour information, sans historique complet.
-                    st.warning(f"⏹️ Dernier abonnement **{_plan_label}** — statut : {_sub_status.status}"
-                        + (f" (expiré le {__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y')})"
+                    st.warning(_("last_sub_msg", plan=_plan_label, status=_sub_status.status)
+                        + (f" ({_('expired_at', date=__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y'))})"
                            if _sub_status.current_period_end else ""))
 
-                st.caption(
-                    "Achat unique par déclaration, ou abonnement illimité — "
-                    "mensuel ou annuel."
-                )
+                st.caption(_("billing_caption"))
 
-                with st.expander("📋 Voir la grille tarifaire", expanded=False):
+                with st.expander(_("pricing_grid_expander"), expanded=False):
                     try:
                         _grid = tva_billing.get_pricing_grid(_current_user.id)
                     except Exception as _grid_err:
                         _grid = None
-                        st.caption(f"⚠️ Grille tarifaire indisponible : {_grid_err}")
+                        st.caption(_("pricing_grid_unavailable", error=_grid_err))
 
                     if _grid:
                         try:
                             _promotions = tva_billing.list_available_promotions(_current_user.id)
                         except Exception as _promo_list_err:
                             _promotions = []
-                            st.error(f"Codes promotionnels indisponibles : {_promo_list_err}")
+                            st.error(_("promo_codes_unavailable", error=_promo_list_err))
 
                         if _promotions:
-                            st.markdown("**Codes promotionnels disponibles**")
+                            st.markdown(f"**{_('available_promo_codes_title')}**")
                             for _promo_item in _promotions:
                                 if _promo_item.get("percent_off") is not None:
                                     _reduc = f"{_promo_item['percent_off']:g}%"
@@ -531,54 +524,52 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
                                 _conditions = []
                                 if _promo_item.get("first_time_only"):
-                                    _conditions.append("1ère commande uniquement")
+                                    _conditions.append(_("promo_first_time"))
                                 if _promo_item.get("minimum_amount") is not None:
                                     _conditions.append(
-                                        f"montant min. {_promo_item['minimum_amount']:.2f} "
-                                        f"{(_promo_item.get('minimum_amount_currency') or 'eur').upper()}"
+                                        _("promo_min_amount", amount=_promo_item['minimum_amount'], currency=(_promo_item.get('minimum_amount_currency') or 'eur').upper())
                                     )
                                 if _promo_item.get("stock_remaining") is not None:
-                                    _conditions.append(f"{_promo_item['stock_remaining']} code(s) restant(s)")
+                                    _conditions.append(_("promo_stock_remaining", count=_promo_item['stock_remaining']))
                                 if _promo_item.get("expires_at"):
                                     import datetime as _dt
                                     _conditions.append(
-                                        "valable jusqu'au "
-                                        + _dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y")
+                                        _("promo_expires_at", date=_dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y"))
                                     )
-                                _conditions_txt = " · ".join(_conditions) if _conditions else "sans condition particulière"
+                                _conditions_txt = " · ".join(_conditions) if _conditions else _("promo_no_conditions")
 
                                 _eligible = _promo_item.get("eligible")
                                 if _eligible is True:
                                     st.success(f"✅ **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
                                 elif _eligible is False:
                                     _reasons_txt = ", ".join(_promo_item.get("ineligible_reasons", []))
-                                    st.warning(f"❌ **{_promo_item['code']}** — {_reduc} — {_conditions_txt} (non éligible : {_reasons_txt})")
+                                    st.warning(_("promo_ineligible_msg", code=_promo_item['code'], reduc=_reduc, conditions=_conditions_txt, reasons=_reasons_txt))
                                 else:
                                     st.markdown(f"- **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
 
                         if _grid.get("payg"):
                             _p = _grid["payg"]
-                            _payg_label = _p.get("name") or "Achat unique"
+                            _payg_label = _p.get("name") or _("payg_label_default")
                             if _p.get("discounted_amount") is not None:
                                 st.markdown(
                                     f"**{_payg_label}** — "
                                     f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
                                     f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
-                                    f"({_p['discount_label']}, code {_p['discount_code']}) / déclaration",
+                                    f"({_p['discount_label']}, code {_p['discount_code']}) / {_('per_declaration')}",
                                     unsafe_allow_html=True,
                                 )
                             else:
                                 st.markdown(f"**{_payg_label}** — {_p['amount']:.2f} "
-                                    f"{_p['currency'].upper()} / déclaration")
+                                    f"{_p['currency'].upper()} / {_('per_declaration')}")
 
                         if _grid.get("business"):
                             _biz_lines = []
                             _biz_label = None
-                            for _iv, _lbl in (("month", "mois"), ("year", "an")):
+                            for _iv, _lbl in (("month", _("per_month")), ("year", _("per_year"))):
                                 _b = _grid["business"].get(_iv)
                                 if _b and _b["amount"] is not None:
                                     if _biz_label is None:
-                                        _biz_label = _b.get("name") or "Pro"
+                                        _biz_label = _b.get("name") or _("plan_pro")
                                     if _b.get("discounted_amount") is not None:
                                         _biz_lines.append(
                                             f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
@@ -598,12 +589,12 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                 .cabinet-table td { padding: 8px; border-bottom: 1px solid rgba(250, 250, 250, 0.1); }
                                 </style>
                             """, unsafe_allow_html=True)
-                            for _iv, _lbl in (("month", "mensuel"), ("year", "annuel")):
+                            for _iv, _lbl in (("month", _("billing_monthly")), ("year", _("billing_yearly"))):
                                 _c = _grid["cabinet"].get(_iv)
                                 if not _c or not _c.get("tiers"):
                                     continue
-                                _cab_label = _c.get("name") or "Cabinet"
-                                st.markdown(f"**{_cab_label} — {_lbl}** (min. 3 SIREN)")
+                                _cab_label = _c.get("name") or _("plan_cabinet")
+                                st.markdown(f"**{_cab_label} — {_lbl}** ({_('min_3_sirens')})")
                                 _rows = []
                                 _prev_bound = 0
                                 for _t in _c["tiers"]:
@@ -622,7 +613,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                         _price_txt = "—"
                                     if _t.get("flat_amount") is not None:
                                         _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} fixe)"
-                                    _rows.append({"SIREN gérés": _range, "Tarif": _price_txt})
+                                    _rows.append({_("col_managed_sirens"): _range, _("col_price"): _price_txt})
                                     _prev_bound = _up_to if _up_to is not None else _prev_bound
                                 # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown
                                 # avec l'export HTML du DataFrame pour conserver le formattage.
@@ -633,15 +624,12 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
                 if not (_sub_status and _sub_status.active):
                     _detected_period_for_payg = st.session_state.get("_period_label", "")
-                    st.markdown("**Achat unique** — une déclaration, la période détectée dans votre fichier")
+                    st.markdown(f"**{_('payg_title')}** — {_('payg_subtitle')}")
                     if not _detected_period_for_payg:
-                        st.caption(
-                            "📂 Importez d'abord un fichier (zone de dépôt principale) pour "
-                            "que la période à débloquer soit détectée."
-                        )
+                        st.caption(_("payg_no_period_warning"))
                     else:
-                        st.caption(f"📅 Période détectée qui sera débloquée : **{_detected_period_for_payg}**")
-                        if st.button("Acheter cette période — Achat unique", key="btn_payg_sidebar"):
+                        st.caption(_("payg_detected_period_msg", period=_detected_period_for_payg))
+                        if st.button(_("payg_buy_btn"), key="btn_payg_sidebar"):
                             try:
                                 _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}"
                                 if _payg_cache_key not in st.session_state:
@@ -651,17 +639,17 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                         success_url=_stripe_success_url("export_ok=1"),
                                         cancel_url=_stripe_cancel_url(),
                                     )
-                                st.link_button("→ Continuer vers le paiement", st.session_state[_payg_cache_key])
+                                st.link_button(_("continue_to_payment_btn"), st.session_state[_payg_cache_key])
                             except Exception as _payg_err:
                                 st.session_state.pop(_payg_cache_key, None)
                                 st.error(f"Erreur : {_payg_err}")
 
-                    _sub_interval = st.radio("Facturation", ["Mensuel", "Annuel"],
+                    _sub_interval = st.radio(_("billing_interval_label"), [_("billing_monthly_choice"), _("billing_yearly_choice")],
                         horizontal=True, key="sub_interval_choice")
-                    _interval_code = "month" if _sub_interval == "Mensuel" else "year"
+                    _interval_code = "month" if _sub_interval == _("billing_monthly_choice") else "year"
 
-                    st.markdown("**Pro** — accès illimité, 1 SIREN")
-                    if st.button("S'abonner — Pro", key="btn_sub_business"):
+                    st.markdown(f"**{_('plan_pro')}** — {_('plan_pro_desc')}")
+                    if st.button(_("subscribe_pro_btn"), key="btn_sub_business"):
                         try:
                             _url = tva_billing.create_subscription_checkout_session(
                                 user_id=_current_user.id, email=_current_user.email,
@@ -669,17 +657,16 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                 success_url=_stripe_success_url("export_ok=1"),
                                 cancel_url=_stripe_cancel_url(),
                             )
-                            st.link_button("→ Continuer vers le paiement", _url)
+                            st.link_button(_("continue_to_payment_btn"), _url)
                         except Exception as _biz_err:
                             st.error(f"Erreur : {_biz_err}")
 
-                    st.markdown("**Cabinet** — accès illimité, tarif dégressif par SIREN géré (3 SIREN minimum)")
-                    _cabinet_qty = st.number_input("Nombre de SIREN gérés", min_value=3, max_value=500,
+                    st.markdown(f"**{_('plan_cabinet')}** — {_('plan_cabinet_desc')}")
+                    _cabinet_qty = st.number_input(_("managed_sirens_qty_label"), min_value=3, max_value=500,
                         value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
                         key="cabinet_siren_qty",
-                        help="Minimum 3 SIREN for the forfait Cabinet. Doit couvrir au moins "
-                             "le nombre de SIREN déjà enregistrés sur ce compte.")
-                    if st.button("S'abonner — Cabinet", key="btn_sub_cabinet"):
+                        help=_("managed_sirens_qty_help"))
+                    if st.button(_("subscribe_cabinet_btn"), key="btn_sub_cabinet"):
                         try:
                             _url = tva_billing.create_subscription_checkout_session(
                                 user_id=_current_user.id, email=_current_user.email,
@@ -688,9 +675,28 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                 success_url=_stripe_success_url("export_ok=1"),
                                 cancel_url=_stripe_cancel_url(),
                             )
-                            st.link_button("→ Continuer vers le paiement", _url)
+                            st.link_button(_("continue_to_payment_btn"), _url)
                         except Exception as _cab_err:
                             st.error(f"Erreur : {_cab_err}")
+
+    return SidebarResult(
+        file_format=file_format,
+        enable_vies=enable_vies,
+        on_invalid_behavior=on_invalid_behavior,
+        convert_fx=convert_fx,
+        encoding=encoding,
+        asin_to_category=asin_to_category,
+        ioss_number=ioss_number,
+        seller_is_importer=seller_is_importer,
+        apply_fr_under_threshold=apply_fr_under_threshold,
+        countries_with_vat=countries_with_vat,
+        nom_entreprise=nom_entreprise,
+        siren_entreprise=siren_entreprise,
+        tva_fr=tva_fr,
+        local_vat_numbers=local_vat_numbers,
+        oss_period=oss_period,
+        siren_quota_status=_siren_quota_status,
+    )
 
     return SidebarResult(
         file_format=file_format,

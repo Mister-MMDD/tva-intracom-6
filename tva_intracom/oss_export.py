@@ -29,6 +29,7 @@ from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
 from .models import Scenario, VatResult
+from .i18n import _
 from .ecb_rates import convert_to_eur_for_oss
 
 _CENT = Decimal("0.01")
@@ -512,7 +513,7 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     # Titre
     ws.merge_cells("A1:J1")
     t = ws["A1"]
-    t.value = f"ÉTAT RÉCAPITULATIF OSS — {period}"
+    t.value = _("oss_export_title", period=period)
     t.font = Font(bold=True, size=13, color=_WHITE, name="Arial")
     t.fill = PatternFill("solid", start_color=_BLUE_HEADER)
     t.alignment = Alignment(horizontal="center", vertical="center")
@@ -520,16 +521,18 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
 
     ws.merge_cells("A2:J2")
     sub = ws["A2"]
-    sub.value = "Guichet unique OSS — à déclarer auprès de l'administration fiscale française (URSSAF / DGFiP)"
+    sub.value = _("oss_export_subtitle")
     sub.font = Font(italic=True, size=9, color="595959", name="Arial")
     sub.alignment = Alignment(horizontal="center")
 
     # Headers colonnes
-    headers = ["Code pays", "Pays", "Taux TVA",
-               "Base vente (€)", "TVA vente (€)",
-               "Base avoir (€)", "TVA avoir (€)",
-               "Base nette (€)", "TVA nette (€)",
-               "Nb transactions"]
+    headers = [
+        _("oss_col_country_code"), _("oss_col_country"), _("oss_col_vat_rate"),
+        _("oss_col_base_sales"), _("oss_col_vat_sales"),
+        _("oss_col_base_refunds"), _("oss_col_vat_refunds"),
+        _("oss_col_base_net"), _("oss_col_vat_net"),
+        _("oss_col_nb_tx")
+    ]
     widths =  [12,           22,     10,
                16,             15,
                16,             15,
@@ -559,8 +562,8 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     # Ligne total
     n = len(data.oss_by_country)
     total_row = n + 4
-    _total_cell(ws, total_row, 1, "TOTAL").alignment = Alignment(horizontal="center", vertical="center")
-    _total_cell(ws, total_row, 2, f"{n} pays")
+    _total_cell(ws, total_row, 1, _("TOTAL")).alignment = Alignment(horizontal="center", vertical="center")
+    _total_cell(ws, total_row, 2, _("oss_total_countries", count=n))
     _total_cell(ws, total_row, 3, "")
     _total_cell(ws, total_row, 4, f"=SUM(D4:D{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
     _total_cell(ws, total_row, 5, f"=SUM(E4:E{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
@@ -575,11 +578,7 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     note_row = total_row + 2
     ws.merge_cells(f"A{note_row}:J{note_row}")
     n_cell = ws[f"A{note_row}"]
-    n_cell.value = (
-        "⚠️  Ce document est un récapitulatif indicatif. « Base/TVA nette » (vente + avoir) est le "
-        "montant à déclarer sur le portail OSS. "
-        "Vérifiez les montants avant dépôt sur le portail OSS URSSAF (https://www.impots.gouv.fr)."
-    )
+    n_cell.value = _("oss_footer_note")
     n_cell.font = Font(italic=True, size=8, color="C00000", name="Arial")
 
 
@@ -589,13 +588,17 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
 
     ws.merge_cells("A1:H1")
     t = ws["A1"]
-    t.value = "DÉTAIL DES VENTES OSS (B2C intracommunautaires)"
+    t.value = _("oss_detail_title")
     t.font = Font(bold=True, size=12, color=_WHITE, name="Arial")
     t.fill = PatternFill("solid", start_color=_ORANGE_HDR)
     t.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 25
 
-    headers = ["ID vente", "Date", "Stock", "Destination", "Pays dest.", "Base HT (€)", "Taux TVA", "TVA (€)"]
+    headers = [
+        _("oss_detail_col_id"), _("oss_detail_col_date"), _("oss_detail_col_stock"),
+        _("oss_detail_col_dest"), _("oss_detail_col_dest_name"),
+        _("oss_detail_col_base_ht"), _("oss_detail_col_vat_rate"), _("oss_detail_col_vat_amount")
+    ]
     widths =  [20,         14,     10,      14,             16,            16,             11,          14]
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         _hdr_cell(ws, 2, col, h, _ORANGE_LIGHT, fg=_ORANGE_HDR, size=9)
@@ -623,7 +626,7 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
     tr = n + 3
     for col in range(1, 6):
         _total_cell(ws, tr, col, "")
-    _total_cell(ws, tr, 5, "TOTAL")
+    _total_cell(ws, tr, 5, _("TOTAL"))
     _total_cell(ws, tr, 6, f"=SUM(F3:F{tr-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
     _total_cell(ws, tr, 7, "")
     _total_cell(ws, tr, 8, f"=SUM(H3:H{tr-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
@@ -635,7 +638,7 @@ def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
 
     ws.merge_cells("A1:F1")
     t = ws["A1"]
-    t.value = f"ÉTAT RÉCAPITULATIF — LIVRAISONS INTRACOMMUNAUTAIRES B2B — {period}"
+    t.value = _("b2b_recap_title", period=period)
     t.font = Font(bold=True, size=12, color=_WHITE, name="Arial")
     t.fill = PatternFill("solid", start_color=_GREEN_HDR)
     t.alignment = Alignment(horizontal="center", vertical="center")
@@ -643,11 +646,14 @@ def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
 
     ws.merge_cells("A2:F2")
     sub = ws["A2"]
-    sub.value = "Autoliquidation — Exonéré de TVA (art. 262 ter I CGI) — À reporter sur DES / état récapitulatif"
+    sub.value = _("b2b_recap_subtitle")
     sub.font = Font(italic=True, size=9, color="595959", name="Arial")
     sub.alignment = Alignment(horizontal="center")
 
-    headers = ["ID vente", "Date", "N° TVA acheteur", "Code pays", "Pays acheteur", "Montant HT (€)"]
+    headers = [
+        _("b2b_col_id"), _("b2b_col_date"), _("b2b_col_vat_number"),
+        _("b2b_col_country_code"), _("b2b_col_buyer_country"), _("b2b_col_amount_ht")
+    ]
     widths  = [20,         14,     22,                 12,          20,               18]
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         _hdr_cell(ws, 3, col, h, _GREEN_LIGHT, fg=_GREEN_HDR, size=9)
@@ -669,16 +675,13 @@ def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
     tr = n + 4
     for col in range(1, 6):
         _total_cell(ws, tr, col, "")
-    _total_cell(ws, tr, 5, "TOTAL HT")
+    _total_cell(ws, tr, 5, _("TOTAL HT"))
     _total_cell(ws, tr, 6, f"=SUM(F4:F{tr-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
 
     note_row = tr + 2
     ws.merge_cells(f"A{note_row}:F{note_row}")
     n_cell = ws[f"A{note_row}"]
-    n_cell.value = (
-        "⚠️  Vérifiez chaque numéro TVA via le service VIES (https://ec.europa.eu/taxation_customs/vies/) "
-        "avant de déposer votre état récapitulatif."
-    )
+    n_cell.value = _("b2b_footer_note")
     n_cell.font = Font(italic=True, size=8, color="C00000", name="Arial")
 
 
@@ -722,20 +725,15 @@ def build_b2b_excel(results: List[VatResult], output_path: str | Path, period: s
 
 
 def build_oss_csv(results: List[VatResult], period: str = "") -> tuple[bytes, bytes]:
-    """Génère les deux CSV : OSS URSSAF et B2B récapitulatif.
-
-    Returns:
-        Tuple (oss_csv_bytes, b2b_csv_bytes) encodés UTF-8 avec BOM
-        (compatible Excel direct).
-    """
+    """Génère les deux CSV : OSS URSSAF et B2B récapitulatif."""
     data = _aggregate(results, period=period)
 
     # --- CSV OSS URSSAF ---
     oss_buf = io.StringIO()
     oss_writer = csv.writer(oss_buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-    oss_writer.writerow([f"État récapitulatif OSS — {period}"])
+    oss_writer.writerow([_("oss_csv_title", period=period)])
     oss_writer.writerow([])
-    oss_writer.writerow(["Code pays", "Pays", "Taux TVA (%)", "Base HT (EUR)", "TVA due (EUR)", "Nb transactions"])
+    oss_writer.writerow([_("oss_col_country_code"), _("oss_col_country"), _("oss_csv_col_rate_pct"), _("oss_csv_col_base_eur"), _("oss_csv_col_vat_eur"), _("oss_col_nb_tx")])
     for line in data.oss_by_country:
         oss_writer.writerow([
             line.country,
@@ -747,7 +745,7 @@ def build_oss_csv(results: List[VatResult], period: str = "") -> tuple[bytes, by
         ])
     oss_writer.writerow([])
     oss_writer.writerow([
-        "TOTAL", "",
+        _("TOTAL"), "",
         "",
         str(data.total_oss_ht).replace(".", ","),
         str(data.total_oss_vat).replace(".", ","),
@@ -757,9 +755,9 @@ def build_oss_csv(results: List[VatResult], period: str = "") -> tuple[bytes, by
     # --- CSV B2B ---
     b2b_buf = io.StringIO()
     b2b_writer = csv.writer(b2b_buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-    b2b_writer.writerow([f"État récapitulatif B2B intracommunautaire — {period}"])
+    b2b_writer.writerow([_("b2b_csv_title", period=period)])
     b2b_writer.writerow([])
-    b2b_writer.writerow(["ID vente", "Date", "N° TVA acheteur", "Code pays", "Pays acheteur", "Montant HT (EUR)"])
+    b2b_writer.writerow([_("b2b_col_id"), _("b2b_col_date"), _("b2b_col_vat_number"), _("b2b_col_country_code"), _("b2b_col_buyer_country"), _("b2b_csv_col_amount_eur")])
     for line in data.b2b_lines:
         b2b_writer.writerow([
             line.sale_id,
@@ -770,7 +768,7 @@ def build_oss_csv(results: List[VatResult], period: str = "") -> tuple[bytes, by
             str(line.amount_ht).replace(".", ","),
         ])
     b2b_writer.writerow([])
-    b2b_writer.writerow(["TOTAL", "", "", "", "", str(data.total_b2b_ht).replace(".", ",")])
+    b2b_writer.writerow([_("TOTAL"), "", "", "", "", str(data.total_b2b_ht).replace(".", ",")])
 
     # UTF-8 BOM pour compatibilité Excel
     oss_bytes = ("\ufeff" + oss_buf.getvalue()).encode("utf-8")

@@ -11,6 +11,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from tva_intracom.i18n import _
 
 from tva_intracom.rates import COUNTRY_ISO3
 from tva_intracom.ui.formatting import _country_label
@@ -31,33 +32,37 @@ def render_visualisations(ctx: TabContext) -> None:
 
     # 1. TVA France (CA3)
     if summary.net_fr_domestic_vat != 0:
-        viz_data_by_country.setdefault("FR", {})["France (CA3)"] = float(summary.net_fr_domestic_vat)
+        viz_data_by_country.setdefault("FR", {})[_("viz_france_ca3")] = float(summary.net_fr_domestic_vat)
 
     # 2. TVA OSS
     # Note: On utilise summary.net_oss_by_country qui contient (Ventes + Remboursements)
     for c, a in summary.net_oss_by_country.items():
         if a != 0:
-            viz_data_by_country.setdefault(c, {})["Guichet OSS"] = float(a)
+            viz_data_by_country.setdefault(c, {})[_("viz_oss_window")] = float(a)
 
     # 3. TVA Locale
     # Note: On utilise summary.net_local_by_country qui contient (Ventes + Remboursements)
     for c, a in summary.net_local_by_country.items():
         if a != 0:
-            viz_data_by_country.setdefault(c, {})["Fisc local"] = float(a)
+            viz_data_by_country.setdefault(c, {})[_("viz_local_tax")] = float(a)
 
     # Total net par pays pour le tri et la carte
     vat_net_by_country = {c: sum(types.values()) for c, types in viz_data_by_country.items()}
 
-    st.subheader("TVA due par pays (Net)")
+    st.subheader(_("viz_vat_by_country_subheader"))
     if not _can_export:
-        st.info("🔒 Détail par pays verrouillé. Débloquez la période pour visualiser la répartition géographique.")
+        st.info(_("viz_locked_geography_info"))
     elif viz_data_by_country:
         # Préparation des données pour un Bar Chart empilé (Stacked Bar)
         # On trie par total décroissant
         sorted_countries = sorted(vat_net_by_country.keys(), key=lambda c: -vat_net_by_country[c])
 
-        types = ["France (CA3)", "Guichet OSS", "Fisc local"]
-        colors = {"France (CA3)": "#2ca02c", "Guichet OSS": "#1f77b4", "Fisc local": "#9467bd"}
+        types = [_("viz_france_ca3"), _("viz_oss_window"), _("viz_local_tax")]
+        colors = {
+            _("viz_france_ca3"): "#2ca02c", 
+            _("viz_oss_window"): "#1f77b4", 
+            _("viz_local_tax"): "#9467bd"
+        }
 
         fig_bar = go.Figure()
         for t in types:
@@ -74,9 +79,9 @@ def render_visualisations(ctx: TabContext) -> None:
                     # Modification de la bulle d'aide : une ligne pour le total pays, 
                     # une ligne pour le canal spécifique (CA3, OSS, etc.)
                     hovertemplate=(
-                        "<b>%{x}</b><br>"
-                        "Total pays : %{customdata:,.2f} €<br>"
-                        "%{fullData.name} : %{y:,.2f} €"
+                        _("viz_tooltip_pays") +
+                        _("viz_tooltip_total_pays") +
+                        _("viz_tooltip_canal") +
                         "<extra></extra>"
                     ),
                     marker_color=colors.get(t),
@@ -86,7 +91,7 @@ def render_visualisations(ctx: TabContext) -> None:
 
         fig_bar.update_layout(
             barmode='relative', # 'relative' permet d'empiler correctement les négatifs si besoin
-            yaxis_title="Montant TVA Net (EUR)",
+            yaxis_title=_("viz_yaxis_vat_title"),
             height=450,
             margin=dict(t=40, b=40),
             # On place la légende en haut pour éviter la superposition avec la barre d'outils (modebar)
@@ -98,11 +103,11 @@ def render_visualisations(ctx: TabContext) -> None:
 
     ch1, ch2 = st.columns(2)
     with ch1:
-        st.subheader(f"Répartition : Vous vs {platform_name}")
+        st.subheader(_("viz_repartition_you_market_subheader", platform=platform_name))
         pie_l, pie_v, pie_c = [], [], []
-        if float(summary.total_you_owe)>0: pie_l.append("Vous"); pie_v.append(float(summary.total_you_owe)); pie_c.append("#2ca02c")
+        if float(summary.total_you_owe)>0: pie_l.append(_("viz_you")); pie_v.append(float(summary.total_you_owe)); pie_c.append("#2ca02c")
         if float(summary.amazon_vat)>0: pie_l.append(platform_name); pie_v.append(float(summary.amazon_vat)); pie_c.append("#ff7f0e")
-        if float(summary.import_vat)>0: pie_l.append("Douane"); pie_v.append(float(summary.import_vat)); pie_c.append("#9467bd")
+        if float(summary.import_vat)>0: pie_l.append(_("viz_customs")); pie_v.append(float(summary.import_vat)); pie_c.append("#9467bd")
         if pie_v:
             fig_pie = go.Figure(go.Pie(labels=pie_l, values=pie_v,
                 marker=dict(colors=pie_c), hole=0.4, textinfo="label+percent"))
@@ -111,16 +116,16 @@ def render_visualisations(ctx: TabContext) -> None:
             st.plotly_chart(fig_pie, use_container_width=True)
 
     with ch2:
-        st.subheader("🗺️ Carte de la TVA en Europe (Net)")
+        st.subheader(_("viz_map_subheader"))
         if not _can_export:
-            st.info("🔒 Carte interactive verrouillée. Débloquez la période pour visualiser les zones fiscales.")
+            st.info(_("viz_locked_map_info"))
         elif vat_net_by_country:
             map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt}
                 for c, amt in vat_net_by_country.items() if c in COUNTRY_ISO3]
             if map_data:
                 fig_map = px.choropleth(map_data, locations="iso_alpha", color="tva",
                     hover_name="pays", color_continuous_scale="YlOrRd", scope="europe",
-                    labels={"tva": "TVA Nette (EUR)"})
+                    labels={"tva": _("viz_map_label_vat")})
                 fig_map.update_layout(
                     height=400, 
                     margin=dict(t=10,b=10,l=0,r=0),
@@ -134,7 +139,7 @@ def render_visualisations(ctx: TabContext) -> None:
                 st.plotly_chart(fig_map, use_container_width=True)
 
     # ── B : Évolution temporelle ──────────────────────────────────────
-    st.subheader("📅 Évolution mensuelle")
+    st.subheader(_("viz_evolution_subheader"))
     _monthly: dict = {}
     for r in results:
         _d = r.sale.transaction_date
@@ -156,42 +161,51 @@ def render_visualisations(ctx: TabContext) -> None:
 
     if len(_monthly) >= 2:
         _months_sorted = sorted(_monthly.keys())
-        _MOIS_FR = {"01":"Jan","02":"Fév","03":"Mar","04":"Avr","05":"Mai","06":"Juin",
-                    "07":"Juil","08":"Août","09":"Sep","10":"Oct","11":"Nov","12":"Déc"}
+        _MOIS_MAP = {
+            "01": _("jan"), "02": _("feb"), "03": _("mar"), "04": _("apr"),
+            "05": _("may"), "06": _("jun"), "07": _("jul"), "08": _("aug"),
+            "09": _("sep"), "10": _("oct"), "11": _("nov"), "12": _("dec")
+        }
         def _mois_label(ym: str) -> str:
             y, m = ym.split("-")
-            return f"{_MOIS_FR.get(m, m)} {y}"
+            return f"{_MOIS_MAP.get(m, m)} {y}"
+        
+        _col_ca_sales = _("viz_evolution_ca_sales")
+        _col_refunds_ht = _("viz_evolution_refunds_ht")
+        _col_vat_net = _("viz_evolution_vat_net")
+        _col_month = _("Mois") # Ou clé i18n
+        
         _df_monthly = pd.DataFrame([
             {"Mois": _mois_label(m),
-             "CA HT ventes": _monthly[m]["CA HT"],
-             "Remb. HT": _monthly[m]["Remb. HT"],
-             "TVA nette": _monthly[m]["TVA due"] + _monthly[m]["TVA remb."]}
+             _col_ca_sales: _monthly[m]["CA HT"],
+             _col_refunds_ht: _monthly[m]["Remb. HT"],
+             _col_vat_net: _monthly[m]["TVA due"] + _monthly[m]["TVA remb."]}
             for m in _months_sorted
         ])
         _tviz1, _tviz2 = st.columns(2)
         with _tviz1:
             fig_time = go.Figure()
             fig_time.add_trace(go.Bar(
-                name="CA HT ventes", x=_df_monthly["Mois"],
-                y=_df_monthly["CA HT ventes"], marker_color="#1f77b4",
-                hovertemplate="%{x}<br>CA HT : %{y:,.2f} €<extra></extra>",
+                name=_col_ca_sales, x=_df_monthly["Mois"],
+                y=_df_monthly[_col_ca_sales], marker_color="#1f77b4",
+                hovertemplate="%{x}<br>" + _col_ca_sales + " : %{y:,.2f} €<extra></extra>",
             ))
             fig_time.add_trace(go.Bar(
-                name="Remb. HT", x=_df_monthly["Mois"],
-                y=_df_monthly["Remb. HT"], marker_color="#d62728",
-                hovertemplate="%{x}<br>Remb. : %{y:,.2f} €<extra></extra>",
+                name=_col_refunds_ht, x=_df_monthly["Mois"],
+                y=_df_monthly[_col_refunds_ht], marker_color="#d62728",
+                hovertemplate="%{x}<br>" + _col_refunds_ht + " : %{y:,.2f} €<extra></extra>",
             ))
             fig_time.add_trace(go.Scatter(
-                name="TVA nette", x=_df_monthly["Mois"],
-                y=_df_monthly["TVA nette"], mode="lines+markers",
+                name=_col_vat_net, x=_df_monthly["Mois"],
+                y=_df_monthly[_col_vat_net], mode="lines+markers",
                 line=dict(color="#ff7f0e", width=2), yaxis="y2",
-                hovertemplate="%{x}<br>TVA nette : %{y:,.2f} €<extra></extra>",
+                hovertemplate="%{x}<br>" + _col_vat_net + " : %{y:,.2f} €<extra></extra>",
             ))
             fig_time.update_layout(
                 barmode="relative", height=360,
                 xaxis=dict(type="category"),
-                yaxis=dict(title="CA HT (EUR)", tickformat=",.0f"),
-                yaxis2=dict(title="TVA (EUR)", overlaying="y", side="right",
+                yaxis=dict(title=_("viz_evolution_yaxis_ca"), tickformat=",.0f"),
+                yaxis2=dict(title=_("viz_evolution_yaxis_vat"), overlaying="y", side="right",
                             showgrid=False, tickformat=",.0f"),
                 legend=dict(orientation="h", y=1.08),
                 margin=dict(t=40, b=40),
@@ -200,7 +214,7 @@ def render_visualisations(ctx: TabContext) -> None:
             st.plotly_chart(fig_time, use_container_width=True)
         with _tviz2:
             # ── F : Répartition par scénario ─────────────────────────
-            st.markdown("**Répartition par scénario**")
+            st.markdown(_("viz_scenario_markdown"))
             _scen_counts: dict = {}
             _scen_ht: dict = {}
             for r in results:
@@ -210,19 +224,19 @@ def render_visualisations(ctx: TabContext) -> None:
             _scen_data = sorted(_scen_counts.items(), key=lambda x: -x[1])
             fig_scen = go.Figure()
             fig_scen.add_trace(go.Bar(
-                name="Nb transactions",
-                x=[s for s, _ in _scen_data],
-                y=[n for _, n in _scen_data],
+                name=_("viz_nb_transactions"),
+                x=[s for s, _unused in _scen_data],
+                y=[n for _unused, n in _scen_data],
                 marker_color="#1f77b4",
-                text=[str(n) for _, n in _scen_data],
+                text=[str(n) for _unused, n in _scen_data],
                 textposition="auto",
             ))
             fig_scen.update_layout(height=360, margin=dict(t=20, b=60),
-                xaxis_tickangle=-30, yaxis_title="Nb transactions")
+                xaxis_tickangle=-30, yaxis_title=_("viz_nb_transactions"))
             st.plotly_chart(fig_scen, use_container_width=True)
             st.caption(" · ".join(
-                f"**{s}** : {n} tx · {_scen_ht.get(s, 0):,.0f} € HT"
+                _("viz_scen_caption", scen=s, n=n, ht=f"{_scen_ht.get(s, 0):,.0f}")
                 for s, n in _scen_data
             ))
     elif _monthly:
-        st.caption("_(données sur 1 seul mois — graphique temporel non pertinent)_")
+        st.caption(_("viz_single_month_caption"))

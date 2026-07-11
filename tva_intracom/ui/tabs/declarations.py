@@ -15,6 +15,7 @@ from decimal import Decimal
 
 import pandas as pd
 import streamlit as st
+from tva_intracom.i18n import _
 
 from tva_intracom.models import Channel
 from tva_intracom.oss_export import aggregate_oss_results
@@ -33,7 +34,7 @@ def render_declarations(ctx: TabContext) -> None:
     period_label = ctx.period_label
     _can_export = ctx.can_export
 
-    st.subheader("Ce que vous devez reverser")
+    st.subheader(_("what_you_must_remit"))
 
     # OSS : source unique de vérité = aggregate_oss_results() (même
     # fonction que celle utilisée par les exports Excel/CSV/XML OSS),
@@ -71,34 +72,34 @@ def render_declarations(ctx: TabContext) -> None:
 
     recap_data = [
         {
-            "Canal": "TVA domestique France (CA3)",
-            "CA HT Brut (EUR)": float(fr_ht_brut),
-            "CA HT Remb. (EUR)": float(fr_ht_remb) if fr_ht_remb else None,
-            "CA HT Net (EUR)": float(fr_ht_brut + fr_ht_remb),
-            "TVA Brute (EUR)": float(summary.fr_domestic_vat),
-            "TVA Remb. (EUR)": float(summary.refund_fr_domestic_vat) if summary.refund_count else None,
-            "TVA Nette (EUR)": float(summary.net_fr_domestic_vat)
+            _("col_canal"): _("canal_vat_fr"),
+            _("col_ca_ht_brut"): float(fr_ht_brut),
+            _("col_ca_ht_remb"): float(fr_ht_remb) if fr_ht_remb else None,
+            _("col_ca_ht_net"): float(fr_ht_brut + fr_ht_remb),
+            _("col_tva_brute"): float(summary.fr_domestic_vat),
+            _("col_tva_remb"): float(summary.refund_fr_domestic_vat) if summary.refund_count else None,
+            _("col_tva_nette"): float(summary.net_fr_domestic_vat)
         },
         {
-            "Canal": "Guichet OSS (total)",
-            "CA HT Brut (EUR)": float(_oss_ht_vente_total),
-            "CA HT Remb. (EUR)": float(_oss_ht_remb_total) if _oss_ht_remb_total else None,
-            "CA HT Net (EUR)": float(_oss_ht_net_total),
-            "TVA Brute (EUR)": float(_oss_tva_vente_total),
-            "TVA Remb. (EUR)": float(_oss_tva_remb_total) if summary.refund_count else None,
-            "TVA Nette (EUR)": float(_oss_tva_net_total)
+            _("col_canal"): _("canal_oss_total"),
+            _("col_ca_ht_brut"): float(_oss_ht_vente_total),
+            _("col_ca_ht_remb"): float(_oss_ht_remb_total) if _oss_ht_remb_total else None,
+            _("col_ca_ht_net"): float(_oss_ht_net_total),
+            _("col_tva_brute"): float(_oss_tva_vente_total),
+            _("col_tva_remb"): float(_oss_tva_remb_total) if summary.refund_count else None,
+            _("col_tva_nette"): float(_oss_tva_net_total)
         },
     ]
     for country in sorted(_oss_country_totals):
         _c = _oss_country_totals[country]
         recap_data.append({
-            "Canal": f"  → {_country_label(country)} ({country})",
-            "CA HT Brut (EUR)": float(_c["ht_vente"]),
-            "CA HT Remb. (EUR)": float(_c["ht_remb"]) if _c["ht_remb"] else None,
-            "CA HT Net (EUR)": float(_c["ht_net"]),
-            "TVA Brute (EUR)": float(_c["tva_vente"]),
-            "TVA Remb. (EUR)": float(_c["tva_remb"]) if summary.refund_count else None,
-            "TVA Nette (EUR)": float(_c["tva_net"])
+            _("col_canal"): f"  → {_country_label(country)} ({country})",
+            _("col_ca_ht_brut"): float(_c["ht_vente"]),
+            _("col_ca_ht_remb"): float(_c["ht_remb"]) if _c["ht_remb"] else None,
+            _("col_ca_ht_net"): float(_c["ht_net"]),
+            _("col_tva_brute"): float(_c["tva_vente"]),
+            _("col_tva_remb"): float(_c["tva_remb"]) if summary.refund_count else None,
+            _("col_tva_nette"): float(_c["tva_net"])
         })
 
     _ioss_results = [r for r in results if r.scenario.value == "IOSS_DIRECT"]
@@ -109,13 +110,13 @@ def render_declarations(ctx: TabContext) -> None:
         _ioss_ht_brut = sum(r.sale.amount_ht for r in _ioss_results)
         _ioss_ht_remb = sum(r.sale.amount_ht for r in _ioss_refund_results)
         recap_data.append({
-            "Canal": "🌐 Guichet IOSS (propre numéro vendeur)",
-            "CA HT Brut (EUR)": float(_ioss_ht_brut),
-            "CA HT Remb. (EUR)": float(_ioss_ht_remb) if _ioss_ht_remb else None,
-            "CA HT Net (EUR)": float(_ioss_ht_brut + _ioss_ht_remb),
-            "TVA Brute (EUR)": float(_ioss_tva_brute),
-            "TVA Remb. (EUR)": float(_ioss_tva_remb) if _ioss_tva_remb else None,
-            "TVA Nette (EUR)": float(_ioss_tva_brute + _ioss_tva_remb)
+            _("col_canal"): _("canal_ioss_vendeur"),
+            _("col_ca_ht_brut"): float(_ioss_ht_brut),
+            _("col_ca_ht_remb"): float(_ioss_ht_remb) if _ioss_ht_remb else None,
+            _("col_ca_ht_net"): float(_ioss_ht_brut + _ioss_ht_remb),
+            _("col_tva_brute"): float(_ioss_tva_brute),
+            _("col_tva_remb"): float(_ioss_tva_remb) if _ioss_tva_remb else None,
+            _("col_tva_nette"): float(_ioss_tva_brute + _ioss_tva_remb)
         })
 
     _ddp_results = [r for r in results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
@@ -131,15 +132,15 @@ def render_declarations(ctx: TabContext) -> None:
             _acc["ht_remb"] += r.sale.amount_ht
             _acc["tva_remb"] += r.vat_amount
         for _ccode, _vals in sorted(_ddp_agg.items()):
-            _label = "TVA DDP France (CA3)" if _ccode == "FR" else f"TVA DDP {_country_label(_ccode)} (immat. locale)"
+            _label = _("canal_ddp_fr") if _ccode == "FR" else _("canal_ddp_local", country=_country_label(_ccode))
             recap_data.append({
-                "Canal": f"📦 {_label}",
-                "CA HT Brut (EUR)": float(_vals["ht_brut"]),
-                "CA HT Remb. (EUR)": float(_vals["ht_remb"]) if _vals["ht_remb"] else None,
-                "CA HT Net (EUR)": float(_vals["ht_brut"] + _vals["ht_remb"]),
-                "TVA Brute (EUR)": float(_vals["tva_brute"]),
-                "TVA Remb. (EUR)": float(_vals["tva_remb"]) if _vals["tva_remb"] else None,
-                "TVA Nette (EUR)": float(_vals["tva_brute"] + _vals["tva_remb"])
+                _("col_canal"): f"📦 {_label}",
+                _("col_ca_ht_brut"): float(_vals["ht_brut"]),
+                _("col_ca_ht_remb"): float(_vals["ht_remb"]) if _vals["ht_remb"] else None,
+                _("col_ca_ht_net"): float(_vals["ht_brut"] + _vals["ht_remb"]),
+                _("col_tva_brute"): float(_vals["tva_brute"]),
+                _("col_tva_remb"): float(_vals["tva_remb"]) if _vals["tva_remb"] else None,
+                _("col_tva_nette"): float(_vals["tva_brute"] + _vals["tva_remb"])
             })
 
     if summary.local_by_country:
@@ -158,13 +159,13 @@ def render_declarations(ctx: TabContext) -> None:
         _local_tva_remb_total = sum(getattr(summary, "refund_local_by_country", {}).values(), _ZERO)
 
         recap_data.append({
-            "Canal": "Fisc local (hors FR) — Total",
-            "CA HT Brut (EUR)": float(_local_ht_brut_total),
-            "CA HT Remb. (EUR)": float(_local_ht_remb_total) if _local_ht_remb_total else None,
-            "CA HT Net (EUR)": float(_local_ht_brut_total + _local_ht_remb_total),
-            "TVA Brute (EUR)": float(_local_tva_brute_total),
-            "TVA Remb. (EUR)": float(_local_tva_remb_total) if summary.refund_count else None,
-            "TVA Nette (EUR)": float(_local_tva_brute_total + _local_tva_remb_total)
+            _("col_canal"): _("canal_local_hors_fr"),
+            _("col_ca_ht_brut"): float(_local_ht_brut_total),
+            _("col_ca_ht_remb"): float(_local_ht_remb_total) if _local_ht_remb_total else None,
+            _("col_ca_ht_net"): float(_local_ht_brut_total + _local_ht_remb_total),
+            _("col_tva_brute"): float(_local_tva_brute_total),
+            _("col_tva_remb"): float(_local_tva_remb_total) if summary.refund_count else None,
+            _("col_tva_nette"): float(_local_tva_brute_total + _local_tva_remb_total)
         })
         for country in sorted(summary.local_by_country):
             _ht_brut = local_ht_brut_by_country.get(country, _ZERO)
@@ -172,17 +173,17 @@ def render_declarations(ctx: TabContext) -> None:
             _tva_brute = summary.local_by_country[country]
             _tva_remb = float(getattr(summary, "refund_local_by_country", {}).get(country, 0))
             recap_data.append({
-                "Canal": f"  → {_country_label(country)} ({country})",
-                "CA HT Brut (EUR)": float(_ht_brut),
-                "CA HT Remb. (EUR)": float(_ht_remb) if _ht_remb else None,
-                "CA HT Net (EUR)": float(_ht_brut + _ht_remb),
-                "TVA Brute (EUR)": float(_tva_brute),
-                "TVA Remb. (EUR)": float(_tva_remb) if summary.refund_count else None,
-                "TVA Nette (EUR)": float(_tva_brute + Decimal(str(_tva_remb)))
+                _("col_canal"): f"  → {_country_label(country)} ({country})",
+                _("col_ca_ht_brut"): float(_ht_brut),
+                _("col_ca_ht_remb"): float(_ht_remb) if _ht_remb else None,
+                _("col_ca_ht_net"): float(_ht_brut + _ht_remb),
+                _("col_tva_brute"): float(_tva_brute),
+                _("col_tva_remb"): float(_tva_remb) if summary.refund_count else None,
+                _("col_tva_nette"): float(_tva_brute + Decimal(str(_tva_remb)))
             })
     _recap_cols = [
-        "CA HT Brut (EUR)", "CA HT Remb. (EUR)", "CA HT Net (EUR)",
-        "TVA Brute (EUR)", "TVA Remb. (EUR)", "TVA Nette (EUR)"
+        _("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net"),
+        _("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")
     ]
     _recap_df = pd.DataFrame(recap_data)
     _recap_cfg = _smart_money_df(
@@ -193,8 +194,8 @@ def render_declarations(ctx: TabContext) -> None:
     # pays — un "→" (OSS/local par pays) ou "📦" (DDP par pays) marque
     # une ligne de détail par pays ; le reste (France CA3, OSS total,
     # IOSS, Fisc local total) est une ligne agrégée.
-    _recap_df.insert(0, "Type", _recap_df["Canal"].apply(
-        lambda c: "↳ Pays" if str(c).startswith("  →") or str(c).startswith("📦") else "Total"
+    _recap_df.insert(0, "Type", _recap_df[_("col_canal")].apply(
+        lambda c: _("type_pays") if str(c).startswith("  →") or str(c).startswith("📦") else _("type_total")
     ))
     _recap_cfg["Type"] = st.column_config.TextColumn("Type", width="small")
     _recap_cfg["Canal"] = st.column_config.TextColumn("Canal", width="large")
@@ -207,8 +208,8 @@ def render_declarations(ctx: TabContext) -> None:
         # - Lignes Total : CA visible, TVA verrouillée.
         # - Lignes Pays : tout verrouillé.
         _recap_preview = _recap_df.copy()
-        tva_cols = ["TVA Brute (EUR)", "TVA Remb. (EUR)", "TVA Nette (EUR)"]
-        ca_cols = ["CA HT Brut (EUR)", "CA HT Remb. (EUR)", "CA HT Net (EUR)"]
+        tva_cols = [_("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")]
+        ca_cols = [_("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net")]
 
         # On s'assure que les colonnes sont de type object pour accepter les strings de verrouillage
         for col in tva_cols + ca_cols:
@@ -217,26 +218,23 @@ def render_declarations(ctx: TabContext) -> None:
 
         # Masquage conditionnel
         for idx, row in _recap_preview.iterrows():
-            if row["Type"] == "Total":
+            if row["Type"] == _("type_total"):
                 # Ligne Total : on masque seulement la TVA
                 for col in tva_cols:
                     if col in _recap_preview.columns:
-                        _recap_preview.at[idx, col] = "[🔒 Verrouillé Option Premium]"
+                        _recap_preview.at[idx, col] = _("locked_premium")
             else:
                 # Ligne Pays : on masque tout (CA et TVA)
                 for col in tva_cols + ca_cols:
                     if col in _recap_preview.columns:
-                        _recap_preview.at[idx, col] = "[🔒 Verrouillé Option Premium]"
+                        _recap_preview.at[idx, col] = _("locked_premium")
 
         # Affichage (on retire la colonne Type pour l'aperçu comme avant)
         st.table(_recap_preview.drop(columns=["Type"]))
-        st.caption(
-            "🔒 Aperçu limité : débloquez cette période (achat ou abonnement) "
-            "pour voir le détail par pays et les montants de TVA dus."
-        )
+        st.caption(_("locked_preview_caption"))
 
     if summary.refund_count:
-        st.info(f"🔄 **{summary.refund_count} remboursement(s)** — HT : {float(summary.refund_total_ht):,.2f} €")
+        st.info(_("refund_summary_info", count=summary.refund_count, ht=f"{float(summary.refund_total_ht):,.2f}"))
 
     # ── Contrôle de Cohérence Comptable ─────────────────────────────
     # Rapproche le CA HT net déclaré (total_ht - remboursements) avec

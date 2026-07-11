@@ -21,12 +21,12 @@ en France opérant sur des places de marché (Amazon FBA, formats 1 à 5).
 |---|---|---|---|---|
 | **DOMESTIC** | Stock et acheteur dans le même pays UE | TVA locale du pays | Vendeur | CA3 (FR) ou immatriculation locale |
 | **OSS_B2C** | B2C intra-UE transfrontalier, stock EU, acheteur EU différent | TVA du pays de **destination** | Vendeur | Guichet **OSS** (déclaré en France) |
-| **DEEMED_SUPPLIER** | Vendeur hors UE, ou import ≤ 150 € marketplace B2C | Amazon collecte et reverse | **Amazon** | — (vous recevez net) |
-| **B2B_REVERSE_CHARGE** | B2B intra-UE avec n° TVA VIES valide | Exonération, autoliquidation acheteur | Acheteur | — (facturation HT) |
-| **EXPORT** | Acheteur hors UE | Exonéré | — | — |
-| **IMPORT_STANDARD** | Import > 150 € hors UE, B2C | TVA d'importation (douane) | Importateur | — |
+| **DEEMED_SUPPLIER** | Vendeur hors UE, ou import ≤ 150 € marketplace B2C | Amazon collecte et reverse | **Amazon** | EXONERATION (collecté par tiers) |
+| **B2B_REVERSE_CHARGE** | B2B intra-UE avec n° TVA VIES valide | Exonération, autoliquidation acheteur | Acheteur | EXONERATION (autoliquidation) |
+| **EXPORT** | Acheteur hors UE | Exonéré | — | EXONERATION (export) |
+| **IMPORT_STANDARD** | Import > 150 € hors UE, B2C | TVA d'importation (douane) | Importateur | EXONERATION (douane) |
 | **IOSS_DIRECT** | Import ≤ 150 €, vendeur avec son propre numéro IOSS | Vendeur collecte via IOSS | Vendeur | Guichet IOSS |
-| **IMPORT_SELLER_AS_IMPORTER** | Import > 150 €, vendeur = importateur officiel (DDP) | Vente domestique dans le pays de destination | Vendeur | Immatriculation locale |
+| **IMPORT_SELLER_AS_IMPORTER** | Import > 150 €, vendeur = importateur officiel (DDP) | Vente domestique dans le pays de destination | Vendeur | CA3 (FR) ou immatriculation locale |
 
 **Cas FBA (stocks hors FR) :** tout pays UE distinct de FR où réside du stock Amazon
 déclenche une obligation d'immatriculation TVA locale, signalée dans le rapport et
@@ -49,6 +49,11 @@ tva-intracom/
 ├── tests/
 ├── tva_intracom/
 │   ├── data/
+│   ├── i18n/
+│   │   ├── __init__.py
+│   │   ├── en.toml                   texte pour l'anglais
+│   │   ├── fr.toml                   texte pour le français
+│   │   ├── i18n.py                   choix de la langue
 │   ├── parsers/
 │   │   ├── amazon/                   Sous-package d'import Amazon (formats 1-5)
 │   │   │   ├── __init__.py
@@ -66,7 +71,8 @@ tva-intracom/
 │   ├── __init__.py
 │   ├── amazon_adapter.py             Passerelle de compatibilité entre les anciens modèles de données et le nouveau package.
 │   ├── auth.py                       Authentification magic link + jeton de session
-│   │                                 (Postgres/Supabase), envoi d'e-mail via l'API Resend
+│   │                                 (Postgres/Supabase), envoi d'e-mail via l'API Resend.
+│   │                                 Gère le chiffrement Fernet des PII (Amazon DPP).
 │   ├── billing.py                    Facturation Stripe (PAYG + Pro + Cabinet, Customer
 │   │                                 Portal, quotas SIREN, grille tarifaire, webhooks,
 │   │                                 quotas d'export en base Postgres/Supabase)
@@ -87,6 +93,26 @@ tva-intracom/
 │   ├── report.py                     ReportSummary, build_report, render_report
 │   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
 │   ├── vies.py                       Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
+│   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
+│   │   ├── __init__.py
+│   │   ├── theme.py                  Configuration de page + CSS de marque (apply_theme())
+│   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
+│   │   │                             _gated_preview_table, _fec_period_end_date…)
+│   │   ├── auth_flow.py              Authentification complète : magic link, cookie de session,
+│   │   │                             callback OAuth Amazon SP-API, écran de connexion/déconnexion
+│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, catalogue produits,
+│   │   │                             abonnements & forfaits Stripe)
+│   │   ├── billing_gate.py           Détection de période, gating crédit PAYG/abonnement/quota
+│   │   │                             SIREN/conformité TVA-IOSS, téléchargements gatés
+│   │   └── tabs/                     Un module par onglet de l'app, tous consommant un TabContext
+│   │       ├── __init__.py
+│   │       ├── context.py            TabContext — état partagé construit une fois avant les onglets
+│   │       ├── declarations.py       Onglet "💶 Déclarations"
+│   │       ├── detail_ventes.py      Onglet "📋 Détail ventes"
+│   │       ├── vies.py               Onglet "🛡️ VIES"
+│   │       ├── audit.py              Onglet "🔬 Audit Amazon"
+│   │       ├── telechargements.py    Onglet "📥 Téléchargements"
+│   │       └── visualisations.py     Onglet "📊 Visualisations"
 │   
 ├── vercel_webhook/
 │   └── api/
@@ -94,7 +120,8 @@ tva-intracom/
 │       └── stripe_webhook.py         Endpoint webhook Stripe, déployé sur Vercel — charge
 │                                     tva_intracom/billing.py par chemin de fichier (monorepo)
 ├── .gitignore
-├── app.py                            Interface Streamlit (auth, calcul, exports gatés par abonnement)
+├── app.py                            Interface Streamlit — orchestrateur (auth, upload, calcul,
+│                                     construction du contexte, appel des modules tva_intracom/ui/)
 ├── conftest.py
 ├── generer_donnees_10k.py
 ├── generer_donnees_multian.py
@@ -128,7 +155,40 @@ tva-intracom/
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
 | `auth.py` | Authentification par magic link (Postgres/Supabase), envoi d'e-mail via l'API Resend |
 | `billing.py` | Facturation Stripe : Checkout PAYG, Pro et Cabinet (mensuel/annuel, paliers dégressifs), Customer Portal, quotas SIREN par compte, grille tarifaire lue en direct sur Stripe, traitement des webhooks (`checkout.session.completed`, `customer.subscription.*`), quotas stockés en Postgres/Supabase, pool de connexions résilient aux coupures du pooler |
-| `app.py` | Interface Streamlit (racine du dépôt, pas dans `tva_intracom/`) |
+| `app.py` | Orchestrateur Streamlit (racine du dépôt, pas dans `tva_intracom/`) — upload, calcul (avec cache `st.session_state`), construction du contexte, appel des modules `ui/` |
+
+---
+
+## Architecture de l'interface Streamlit (`tva_intracom/ui/`)
+
+`app.py` a été réduit à un rôle d'orchestrateur (~650 lignes) : upload des
+fichiers, calcul TVA mis en cache, puis délégation de tout le rendu à
+`tva_intracom/ui/`. Chaque module reprend le code d'origine **à
+l'identique** (aucune logique métier modifiée), simplement isolé et
+paramétré par un objet de contexte plutôt que par des variables globales
+du script.
+
+| Module | Rôle |
+|---|---|
+| `ui/theme.py` | `apply_theme()` — configuration de page Streamlit (titre, icône, layout) et injection du CSS de marque |
+| `ui/formatting.py` | Helpers d'affichage réutilisés par plusieurs onglets : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df`, `_gated_preview_table`, `_fec_period_end_date` |
+| `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
+| `ui/sidebar.py` | `SidebarResult` + `render_sidebar()` — tous les accordéons de la barre latérale (connexion SP-API, Validation & Devises, Cache VIES, Paramètres du fichier, Catalogue Produits, Entreprise & Paramètres avec gestion des SIREN, Abonnements & forfaits Stripe) |
+| `ui/billing_gate.py` | `BillingGate` + `build_billing_gate()` — détection du `period_label`, gating crédit PAYG/abonnement actif, gating quota SIREN, gating conformité (TVA locales/IOSS manquants), méthode `gated_download()` utilisée par tous les exports de tous les onglets |
+| `ui/tabs/context.py` | `TabContext` — dataclass regroupant tout l'état nécessaire aux onglets (résultats moteur, statut billing, paramètres entreprise, données brutes d'import), construite une fois avant l'affichage des onglets |
+| `ui/tabs/declarations.py` | Onglet **💶 Déclarations** — récapitulatif "Ce que vous devez reverser" (CA3, OSS par pays, IOSS, DDP, Fisc local), barre de seuil OSS, Contrôle de Cohérence Comptable |
+| `ui/tabs/detail_ventes.py` | Onglet **📋 Détail ventes** — 4 sous-onglets : Ce que vous devez / Géré par des tiers / Ligne par ligne / Remboursements |
+| `ui/tabs/vies.py` | Onglet **🛡️ VIES** — KPIs de validation, classification manuelle des numéros non vérifiés (`st.fragment`), overrides persistés, reclassifications B2B→B2C |
+| `ui/tabs/audit.py` | Onglet **🔬 Audit Amazon** — écarts TVA Amazon par catégorie (taux, VIES, UK, autoliquidation art.194, TVA manquante), mouvements de stock FBA |
+| `ui/tabs/telechargements.py` | Onglet **📥 Téléchargements** — génération de tous les exports (Excel complet, XML/Excel/CSV OSS, CA3 HTML, B2B, déclarations locales par pays, FEC) |
+| `ui/tabs/visualisations.py` | Onglet **📊 Visualisations** — TVA due par pays, répartition Vous/Amazon/Douane, carte Europe, évolution mensuelle, répartition par scénario |
+
+**Dépendance intentionnelle entre onglets** : `ui/tabs/declarations.py`
+calcule `_oss_tva_net_total` et le stocke sur `ctx.oss_tva_net_total` ;
+`ui/tabs/telechargements.py` le relit pour l'export CSV de la déclaration
+locale française. Ce couplage existait déjà dans l'ancien script monolithique
+(variables partagées dans le même scope) — il est resté volontairement
+explicite plutôt que dupliqué, voir la docstring de `context.py`.
 
 ---
 
@@ -358,6 +418,10 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
   l'entreprise et la période (ex: `Export OSS URSSAF - MonEntreprise - 2026-Q1.csv`).
 - **Barre de progression** sur le parsing des rapports Amazon volumineux, via le
   paramètre `progress_callback` de `load_amazon_report()`.
+- **Découpage modulaire** : l'ancien `app.py` monolithique (~3000 lignes) a été
+  scindé en un package `tva_intracom/ui/` (thème, formatage, auth, sidebar,
+  gating billing, un module par onglet) — voir la section dédiée ci-dessus.
+  `app.py` ne fait plus que 650 lignes et se limite à l'orchestration.
 
 ---
 

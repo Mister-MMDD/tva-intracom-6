@@ -16,6 +16,10 @@ from datetime import datetime, timedelta
 import math
 import pandas as pd
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
+from tva_intracom.i18n import _, init_i18n, language_selector
+
+# Initialisation I18N
+init_i18n()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +37,7 @@ from tva_intracom.excel_report import export_xlsx
 from tva_intracom.models import Scenario, BuyerType, Channel, Collector
 from tva_intracom.report import build_report
 from tva_intracom.oss_export import build_oss_excel, build_oss_csv
-from tva_intracom.ca3_report import generate_ca3_html_report_v2  # (et autres imports nécessaires)
+from tva_intracom.ca3_report import generate_ca3_html_report_v2
 from tva_intracom.fec_export import generate_fec_bytes
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.oss_export import aggregate_oss_results, find_oss_negative_buckets
@@ -41,12 +45,11 @@ from tva_intracom import billing as tva_billing
 
 _ZERO = Decimal("0.00")
 from tva_intracom.rates import (
-        COUNTRY_NAMES,
-        COUNTRY_ISO3,
-        COUNTRY_FISCAL_META,
-        STANDARD_VAT_RATES,
-    )
-
+    COUNTRY_NAMES,
+    COUNTRY_ISO3,
+    COUNTRY_FISCAL_META,
+    STANDARD_VAT_RATES,
+)
 
 from tva_intracom.ui.theme import apply_theme, _PLATFORM_OPTIONS
 from tva_intracom.ui.formatting import (
@@ -60,10 +63,6 @@ from tva_intracom.ui.formatting import (
 )
 
 # =============================================================================
-# SIDEBAR
-# =============================================================================
-
-# =============================================================================
 # PAGE CONFIG + PURGE CACHE MAL-PREFIXÉ (une fois par session)
 # =============================================================================
 apply_theme()
@@ -72,7 +71,7 @@ from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
 
 cookie_manager = ensure_cookie_manager()
 
-st.title("\U0001f1ea\U0001f1fa Moteur de TVA Intracommunautaire")
+st.title(f"🇪🇺 {_('title')}")
 
 _auth_ctx = run_auth_flow(cookie_manager)
 _current_user = _auth_ctx.current_user
@@ -83,6 +82,7 @@ _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 
 from tva_intracom.ui.sidebar import render_sidebar
 
+language_selector()
 _sb = render_sidebar(_auth_ctx)
 file_format = _sb.file_format
 enable_vies = _sb.enable_vies
@@ -100,14 +100,15 @@ tva_fr = _sb.tva_fr
 local_vat_numbers = _sb.local_vat_numbers
 oss_period = _sb.oss_period
 _siren_quota_status = _sb.siren_quota_status
+
 # =============================================================================
 # UPLOAD
 # =============================================================================
 uploaded_files = st.file_uploader(
-    "Déposez vos fichiers ici (un ou plusieurs mois)",
+    _("upload_label"),
     type=["csv","tsv","txt","xlsx","xls"],
     accept_multiple_files=True,
-    help="CSV, TSV, ou Excel. Plusieurs fichiers pour agréger plusieurs mois.",
+    help=_("upload_help"),
 )
 
 if uploaded_files:
@@ -130,8 +131,7 @@ if uploaded_files:
             _seen_file_keys.add(_fkey)
             _deduped.append(_f)
     if _dup_names:
-        st.warning(f"⚠️ **{len(_dup_names)} fichier(s) en double ignoré(s)** : "
-            + ", ".join(f"`{n}`" for n in _dup_names))
+        st.warning(_("duplicate_files_warning", count=len(_dup_names), files=", ".join(f"`{n}`" for n in _dup_names)))
     uploaded_files = _deduped
 
     all_sales, all_refunds, all_fc_transfers = [], [], []
@@ -139,6 +139,9 @@ if uploaded_files:
     all_stock_countries, all_warnings, all_platforms = set(), [], []
     total_rows_sum = skipped_rows_sum = 0
     file_summaries, tmp_paths, _parse_results = [], [], []
+
+    # Placeholder stable pour éviter les sauts d'interface pendant l'analyse des fichiers
+    parse_progress_ph = st.empty()
 
     for uploaded_file in uploaded_files:
         _ext = Path(uploaded_file.name).suffix or ".csv"
@@ -149,21 +152,18 @@ if uploaded_files:
         try:
             parse_result = None
             if "Amazon" in file_format:
-                # Barre de progression : utile sur les gros rapports Amazon
-                # (des centaines de milliers de lignes) où le parsing peut
-                # sembler figer l'interface. Widgets détruits après usage.
                 _progress_label = (
-                    f"Analyse de {uploaded_file.name} (conversion devises BCE incluse)…"
-                    if convert_fx else f"Analyse de {uploaded_file.name}…"
+                    _("analysis_progress", name=uploaded_file.name)
+                    if convert_fx else _("analysis_progress_simple", name=uploaded_file.name)
                 )
-                _progress_bar = st.progress(0.0, text=_progress_label)
+                _progress_bar = parse_progress_ph.progress(0.0, text=_progress_label)
 
                 def _on_parse_progress(processed: int, total: int, _fname=uploaded_file.name) -> None:
                     pct = processed / total if total else 1.0
-                    _suffix = " (conv. BCE incluse)" if convert_fx else ""
+                    _suffix = f" ({_('fx_conv_suffix')})" if convert_fx else ""
                     _progress_bar.progress(
                         min(pct, 1.0),
-                        text=f"Analyse de {_fname} : {processed:,} / {total:,} lignes{_suffix}".replace(",", " "),
+                        text=_("analysis_progress_count", name=_fname, processed=f"{processed:,}".replace(",", " "), total=f"{total:,}".replace(",", " "), suffix=_suffix),
                     )
 
                 parse_result = parser_amazon.load_amazon_report(
@@ -171,7 +171,7 @@ if uploaded_files:
                     asin_to_category=asin_to_category,
                     progress_callback=_on_parse_progress,
                 )
-                _progress_bar.empty()
+                parse_progress_ph.empty()
             elif "Mirakl" in file_format:
                 parse_result = parser_mirakl.parse(tmp_path, encoding=encoding, convert_currencies=convert_fx)
             elif "Shopify" in file_format:
@@ -190,13 +190,13 @@ if uploaded_files:
                 total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
                 _parse_results.append(parse_result)
                 file_summaries.append({
-                    "Fichier": uploaded_file.name, "Source": platform,
-                    "Ventes": len(parse_result.sales), "Remboursements": len(parse_result.refunds),
-                    "FBA Trans.": len(parse_result.fc_transfers),
-                    "Retours phys.": getattr(parse_result, "return_rows", 0),
-                    "Invoices": getattr(parse_result, "invoice_rows", 0),
-                    "Credit notes": getattr(parse_result, "credit_note_rows", 0),
-                    "Lignes lues": parse_result.total_rows, "Ignorées": parse_result.skipped_rows
+                    _("col_file"): uploaded_file.name, _("col_source"): platform,
+                    _("col_sales"): len(parse_result.sales), _("col_refunds"): len(parse_result.refunds),
+                    _("col_fba_trans"): len(parse_result.fc_transfers),
+                    _("col_phys_returns"): getattr(parse_result, "return_rows", 0),
+                    _("col_invoices"): getattr(parse_result, "invoice_rows", 0),
+                    _("col_credit_notes"): getattr(parse_result, "credit_note_rows", 0),
+                    _("col_rows_read"): parse_result.total_rows, _("col_ignored"): parse_result.skipped_rows
                 })
         except Exception as e:
             st.error(f"Erreur sur **{uploaded_file.name}** : {e}")
@@ -211,23 +211,20 @@ if uploaded_files:
     _total_skipped      = sum(getattr(pr, "skipped_rows", 0) for pr in _parse_results)
 
     # Résumé import
-    _return_part  = f", {_total_returns} retours physiques sans montant" if _total_returns else ""
-    _invoice_part = f", {_total_invoice} invoice" if _total_invoice else ""
-    _credit_part  = f", {_total_credit_note} credit_note" if _total_credit_note else ""
-    _skip_part    = f", {_total_skipped} ignorées" if _total_skipped else ""
+    _return_part  = _("summary_part_returns", count=_total_returns) if _total_returns else ""
+    _invoice_part = _("summary_part_invoices", count=_total_invoice) if _total_invoice else ""
+    _credit_part  = _("summary_part_credits", count=_total_credit_note) if _total_credit_note else ""
+    _skip_part    = _("summary_part_skipped", count=_total_skipped) if _total_skipped else ""
 
     if len(uploaded_files) == 1:
         fs = file_summaries[0]
-        st.info(f"**Import {platform_name}** : {fs['Ventes']} ventes, {fs['Remboursements']} remb., "
-                f"{len(all_fc_transfers)} transferts FBA{_return_part}{_invoice_part}{_credit_part}{_skip_part}.")
+        st.info(_("import_summary_single", platform=platform_name, sales=fs[_('col_sales')], refunds=fs[_('col_refunds')], fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part))
     else:
-        st.success(f"**{len(uploaded_files)} fichiers agrégés** — {len(all_sales)} ventes, {len(all_refunds)} remb., "
-                   f"{len(all_fc_transfers)} transferts FBA{_return_part}{_invoice_part}{_credit_part}{_skip_part} "
-                   f"({total_rows_sum} lignes).")
-        with st.expander(f"Détail par fichier ({len(uploaded_files)} fichiers)"):
+        st.success(_("import_summary_multi", count=len(uploaded_files), sales=len(all_sales), refunds=len(all_refunds), fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part, total_rows=total_rows_sum))
+        with st.expander(_("file_detail_expander", count=len(uploaded_files))):
             st.table(file_summaries)
         if len(unique_platforms) > 1:
-            st.warning(f"⚠️ Sources différentes : {', '.join(unique_platforms)}. Vérifiez que ce mix est intentionnel.")
+            st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
     if all_warnings:
         with st.expander(f"⚠️ Avertissements d'import ({len(all_warnings)})"):
             for w in all_warnings: st.text(w)
@@ -237,22 +234,15 @@ if uploaded_files:
         all_period_mismatches.extend(getattr(pr, "period_mismatches", []))
     if all_period_mismatches:
         with st.expander(
-            f"📅 Écarts de période commande / expédition ({len(all_period_mismatches)})",
-            expanded=False,
+                _("period_mismatch_title", count=len(all_period_mismatches)),
+                expanded=False,
         ):
-            st.caption(
-                "Commandes dont la date de commande et la date d'expédition (fait "
-                "générateur retenu pour le calcul fiscal — art. 65 Dir. 2006/112/CE) "
-                "ne tombent pas dans le même mois civil. La TVA a été calculée sur "
-                "la date d'expédition. Vérifiez que cela ne fait pas basculer ces "
-                "ventes dans une période de déclaration OSS/CA3 différente de celle "
-                "attendue."
-            )
+            st.caption(_("period_mismatch_caption"))
             st.dataframe(
                 pd.DataFrame([
-                    {"ID vente": m["sale_id"], "Date commande": m["order_date"],
-                     "Date expédition (retenue)": m["shipment_date"],
-                     "HT (EUR)": float(m["amount_ht"])}
+                    {_("period_mismatch_col_id"): m["sale_id"], _("period_mismatch_col_order"): m["order_date"],
+                     _("period_mismatch_col_shipment"): m["shipment_date"],
+                     _("period_mismatch_col_amount"): float(m["amount_ht"])}
                     for m in all_period_mismatches
                 ]),
                 use_container_width=True, hide_index=True,
@@ -267,29 +257,29 @@ if uploaded_files:
                 if _k not in _fx_used:
                     _fx_used[_k] = {"rate": float(_s.exchange_rate), "date": _s.transaction_date[:7] if _s.transaction_date else ""}
         if _fx_used:
-            with st.expander(f"💱 Taux de change BCE utilisés ({len(_fx_used)} devise(s))"):
+            with st.expander(_("bce_rates_title", count=len(_fx_used))):
                 for (_ccy, _src), _info in sorted(_fx_used.items()):
-                    _src_lbl = {"ecb": "BCE officiel", "fallback": "Taux Amazon (fallback BCE)", "eur": "EUR natif"}.get(_src, _src)
+                    _src_lbl = {_("bce_source_official"): "BCE officiel", "fallback": _("bce_source_fallback"), "eur": _("bce_source_native")}.get(_src, _src)
                     st.caption(f"**{_ccy}** : 1 EUR = {_info['rate']:.4f} {_ccy} — source : {_src_lbl} — période : {_info['date'] or '?'}")
 
     sales, refunds = all_sales, all_refunds
 
     try:
         if not sales:
-            st.error("Aucune vente exploitable.")
+            st.error(_("no_sale_error"))
             st.stop()
 
         import dataclasses as _dc
         if ioss_number or seller_is_importer:
             sales = [_dc.replace(s,
-                ioss_number=ioss_number.strip() if ioss_number else s.ioss_number,
-                seller_is_importer=seller_is_importer if seller_is_importer else s.seller_is_importer)
-                for s in sales]
+                                 ioss_number=ioss_number.strip() if ioss_number else s.ioss_number,
+                                 seller_is_importer=seller_is_importer if seller_is_importer else s.seller_is_importer)
+                     for s in sales]
 
         if not convert_fx:
             foreign = {s.original_currency for s in sales if s.original_currency and s.original_currency != "EUR"}
             if foreign:
-                st.warning(f"⚠️ Devises non-EUR : {', '.join(sorted(foreign))} — Activez conversion BCE.")
+                st.warning(_("foreign_currency_warning", currencies=', '.join(sorted(foreign))))
 
         # === CALCUL (mis en cache dans session_state) ===
         _vies_retry_nonce = st.session_state.get("_vies_retry_nonce", 0)
@@ -302,40 +292,47 @@ if uploaded_files:
             apply_fr_under_threshold,
             _vies_retry_nonce,
         )
+
+        calc_progress_ph = st.empty()
+
         vies_summary = None
         if st.session_state.get("_calc_key") != _cache_key:
             vies_summary = None
             if enable_vies:
-                _vies_progress_ph = st.empty()
-                _vies_bar = st.progress(0.0, text="Vérification des numéros de TVA (VIES)…")
+                with calc_progress_ph.container():
+                    _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
 
-                def _vies_progress_cb(done: int, total: int) -> None:
-                    if total <= 0:
-                        return
-                    _vies_bar.progress(
-                        min(done / total, 1.0),
-                        text=f"Vérification VIES : {done}/{total}",
-                    )
+                    def _vies_progress_cb(done: int, total: int) -> None:
+                        if total <= 0:
+                            return
+                        _vies_bar.progress(
+                            min(done / total, 1.0),
+                            text=_("calc_progress_vies_count", done=done, total=total),
+                        )
 
-                results, vies_summary, oss_summary = compute_all_with_vies(
-                    sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
-                    on_invalid=on_invalid_behavior, marketplace_name=platform_name,
-                    apply_fr_under_threshold=apply_fr_under_threshold,
-                    refunds=refunds if refunds else None,
-                    vies_progress_callback=_vies_progress_cb)
-                _vies_bar.empty()
-                _vies_progress_ph.empty()
-                with st.spinner("Calcul TVA en cours..."):
-                    refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
-                    summary = build_report(results, refund_results=refund_results or None)
-            else:
-                with st.spinner("Calcul TVA en cours..."):
-                    results, oss_summary = compute_all(
-                        sales, marketplace_name=platform_name, asin_to_category=asin_to_category,
+                    results, vies_summary, oss_summary = compute_all_with_vies(
+                        sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
+                        on_invalid=on_invalid_behavior, marketplace_name=platform_name,
                         apply_fr_under_threshold=apply_fr_under_threshold,
-                        refunds=refunds if refunds else None)
-                    refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
-                    summary = build_report(results, refund_results=refund_results or None)
+                        refunds=refunds if refunds else None,
+                        vies_progress_callback=_vies_progress_cb)
+
+                calc_progress_ph.empty()
+                with calc_progress_ph.container():
+                    with st.spinner(_("calc_progress_vat")):
+                        refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
+                        summary = build_report(results, refund_results=refund_results or None)
+                calc_progress_ph.empty()
+            else:
+                with calc_progress_ph.container():
+                    with st.spinner(_("calc_progress_vat")):
+                        results, oss_summary = compute_all(
+                            sales, marketplace_name=platform_name, asin_to_category=asin_to_category,
+                            apply_fr_under_threshold=apply_fr_under_threshold,
+                            refunds=refunds if refunds else None)
+                        refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
+                        summary = build_report(results, refund_results=refund_results or None)
+                calc_progress_ph.empty()
             st.session_state["_calc_key"]       = _cache_key
             st.session_state["_results"]        = results
             st.session_state["_refund_results"] = refund_results
@@ -349,13 +346,8 @@ if uploaded_files:
             vies_summary   = st.session_state["_vies_summary"]
             oss_summary    = st.session_state["_oss_summary"]
 
-        # Alertes VIES (numéros non vérifiés)
         if vies_summary and vies_summary.total_inconclusive > 0:
-            st.error(
-                f"🚨 **Attention : {vies_summary.total_inconclusive} numéro(s) de TVA n'ont pas pu être vérifiés auprès de VIES** "
-                "(problème de connexion aux serveurs de l'UE). "
-                "Allez dans l'onglet **🛡️ VIES** pour les classifier manuellement ou réessayer la vérification."
-            )
+            st.error(_("vies_inconclusive_error", count=vies_summary.total_inconclusive))
 
         # Segmentation écarts pour KPI
         _vies_ids_kpi     = getattr(vies_summary, 'vies_affected_sale_ids', set()) if vies_summary else set()
@@ -393,50 +385,43 @@ if uploaded_files:
         unregistered = all_stock_countries - set(countries_with_vat)
         pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
         unregistered_local = pay_eu - set(countries_with_vat)
-        
+
         registration_needed = {}
-        # 1. Stock detection
         for c in unregistered:
             if c: registration_needed.setdefault(c, {"stock": False, "sales": False, "ddp": False})["stock"] = True
-        # 2. Local sales detection
         for c in unregistered_local:
             if c: registration_needed.setdefault(c, {"stock": False, "sales": False, "ddp": False})["sales"] = True
-        # 3. DDP detection
         if seller_is_importer:
             _ddp_unrg = {r.vat_country for r in results
-                if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"
-                and r.vat_country != "FR" and r.vat_country not in countries_with_vat}
+                         if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"
+                         and r.vat_country != "FR" and r.vat_country not in countries_with_vat}
             for c in _ddp_unrg:
                 if c: registration_needed.setdefault(c, {"stock": False, "sales": False, "ddp": False})["ddp"] = True
 
         if registration_needed:
             _reg_list = ", ".join(sorted(registration_needed.keys()))
-            with st.expander(f"🚨 **Plan d'action Immatriculations : {_reg_list}**", expanded=True):
-                st.write("Les pays suivants nécessitent une immatriculation TVA locale pour régulariser votre situation :")
+            with st.expander(_("action_plan_title", countries=_reg_list), expanded=True):
+                st.write(_("action_plan_intro"))
                 for c in sorted(registration_needed.keys()):
                     reasons = []
                     icons = ""
                     data = registration_needed[c]
                     if data["stock"]:
                         icons += "📦 "
-                        reasons.append("Stock détecté (transferts FBA)")
+                        reasons.append(_("action_reason_stock"))
                     if data["sales"]:
                         icons += "💰 "
-                        reasons.append("Ventes locales taxables")
+                        reasons.append(_("action_reason_sales"))
                     if data["ddp"]:
                         icons += "🛃 "
-                        reasons.append("Importation DDP")
-                    
+                        reasons.append(_("action_reason_ddp"))
+
                     st.markdown(f"- **{_country_label(c)} ({c})** : {icons} — *Raison : {' + '.join(reasons)}*")
-                
+
                 critical_blocking = [c for c in registration_needed if c in ["DE", "FR"]]
                 if critical_blocking:
                     _c_list = " et ".join(f"**{_country_label(c)} ({c})**" for c in sorted(critical_blocking))
-                    st.warning(
-                        f"⚠️ **Attention : Risque de blocage Amazon**  \n"
-                        f"Pour {_c_list}, Amazon bloque les comptes vendeurs "
-                        "sans certificat de TVA valide. Régularisez votre situation au plus vite pour éviter toute interruption d'activité."
-                    )
+                    st.warning(_("amazon_blocking_warning", countries=_c_list))
 
         # =====================================================================
         # KPIs — toujours visibles
@@ -460,7 +445,6 @@ if uploaded_files:
             font-size: 1.6rem;
             font-weight: 700;
         }
-        <style>
         .badge-alert {
             display: inline-block;
             background-color: color-mix(in srgb, #d62728 15%, transparent);
@@ -475,7 +459,6 @@ if uploaded_files:
         """, unsafe_allow_html=True)
 
         def _kpi_card(label: str, value: str, accent: str, help_text: str = "") -> str:
-            """accent : couleur hex (ex '#1f77b4' neutre, '#d97706' à faire, '#2ca02c' géré, '#d62728' alerte)"""
             title_attr = f' title="{help_text}"' if help_text else ""
             return f"""
             <div class="kpi-card" style="--kpi-accent:{accent}"{title_attr}>
@@ -484,32 +467,36 @@ if uploaded_files:
             </div>
             """
 
-        st.header("📊 Récapitulatif")
-        c1, c2, c3, c4 = st.columns(4)
+        # =====================================================================
+        # TABLEAU DE BORD
+        # =====================================================================
+        with st.container():
+            st.header(_("recapitulatif_header"))
+            c1, c2, c3, c4 = st.columns(4)
 
-        ca_brut = float(summary.total_ht)
-        ca_remb = float(getattr(summary, "refund_total_ht", 0))
-        ca_net  = ca_brut + ca_remb
+            ca_brut = float(summary.total_ht)
+            ca_remb = float(getattr(summary, "refund_total_ht", 0))
+            ca_net  = ca_brut + ca_remb
 
-        with c1:
-            st.markdown(_kpi_card("CA HT total", _fmt(ca_net), "#1f4e79",
-                                  f"CA net de remboursements. Brut : {_fmt(ca_brut)} · Remb : {_fmt(ca_remb)}"), unsafe_allow_html=True)
-        with c2:
-            st.markdown(_kpi_card("TVA à reverser (vous)", _fmt(float(summary.total_you_owe)), "#d97706",
-                                  "TVA France (CA3) + OSS + IOSS — à votre charge."), unsafe_allow_html=True)
-        with c3:
-            st.markdown(_kpi_card(f"TVA gérée par {platform_name}", _fmt(float(summary.amazon_vat)), "#2ca02c",
-                                  "Collectée et reversée par Amazon (deemed supplier)."), unsafe_allow_html=True)
-        with c4:
-            if abs(total_ecarts_autres) > 0.05:
-                st.markdown(_kpi_card("🚨 Écarts de taux Amazon", f"{total_ecarts_autres:+.2f} €", "#d62728"),
-                            unsafe_allow_html=True)
-                st.markdown('<span class="badge-alert">⚠ Erreur paramétrage</span>', unsafe_allow_html=True)
-            else:
-                st.markdown(_kpi_card("✅ Concordance Amazon", "0 €", "#2ca02c"), unsafe_allow_html=True)
+            with c1:
+                st.markdown(_kpi_card(_("kpi_ca_ht"), _fmt(ca_net), "#1f4e79",
+                                      _("kpi_ca_ht_help", gross=_fmt(ca_brut), refunds=_fmt(ca_remb))), unsafe_allow_html=True)
+            with c2:
+                st.markdown(_kpi_card(_("kpi_vat_you_owe"), _fmt(float(summary.total_you_owe)), "#d97706",
+                                      _("kpi_vat_you_owe_help")), unsafe_allow_html=True)
+            with c3:
+                st.markdown(_kpi_card(_("kpi_vat_amazon", platform=platform_name), _fmt(float(summary.amazon_vat)), "#2ca02c",
+                                      _("kpi_vat_amazon_help", platform=platform_name)), unsafe_allow_html=True)
+            with c4:
+                if abs(total_ecarts_autres) > 0.05:
+                    st.markdown(_kpi_card(_("amazon_config_error"), f"{total_ecarts_autres:+.2f} €", "#d62728"),
+                                unsafe_allow_html=True)
+                    st.markdown(f'<span class="badge-alert">{_("config_error_badge")}</span>', unsafe_allow_html=True)
+                else:
+                    st.markdown(_kpi_card(_("amazon_config_success"), "0 €", "#2ca02c"), unsafe_allow_html=True)
 
         # =====================================================================
-        # GATING BILLING — calculé AVANT les onglets (voir tva_intracom/ui/billing_gate.py)
+        # GATING BILLING
         # =====================================================================
         from tva_intracom.ui.billing_gate import build_billing_gate
 
@@ -535,19 +522,17 @@ if uploaded_files:
         _gated_download = _gate.gated_download
         _get_payg_checkout_url = _gate.get_payg_checkout_url
 
-
         # =====================================================================
         # ONGLETS PRINCIPAUX
         # =====================================================================
         tab_decl, tab_detail, tab_vies, tab_audit, tab_dl, tab_viz = st.tabs([
-            "💶 Déclarations",
-            "📋 Détail ventes",
-            "🛡️ VIES",
-            "🔬 Audit Amazon",
-            "📥 Téléchargements",
-            "📊 Visualisations",
+            _("tab_declarations"),
+            _("tab_sales_detail"),
+            _("tab_vies"),
+            _("tab_amazon_audit", platform=platform_name),
+            _("tab_downloads"),
+            _("tab_visualizations"),
         ])
-
 
         # =====================================================================
         # CONSTRUCTION DU CONTEXTE PARTAGÉ + RENDU DES ONGLETS
@@ -585,43 +570,29 @@ if uploaded_files:
             platform_name=platform_name,
         )
 
-        with tab_decl:
-            render_declarations(_tab_ctx)
-
-        with tab_detail:
-            render_detail_ventes(_tab_ctx)
-
-        with tab_vies:
-            render_vies(_tab_ctx)
-
-        with tab_audit:
-            render_audit(_tab_ctx)
-
-        with tab_dl:
-            render_telechargements(_tab_ctx)
-
-        with tab_viz:
-            render_visualisations(_tab_ctx)
-
+        with tab_decl: render_declarations(_tab_ctx)
+        with tab_detail: render_detail_ventes(_tab_ctx)
+        with tab_vies: render_vies(_tab_ctx)
+        with tab_audit: render_audit(_tab_ctx)
+        with tab_dl: render_telechargements(_tab_ctx)
+        with tab_viz: render_visualisations(_tab_ctx)
 
     except Exception as exc:
-        st.error(f"Erreur lors du traitement : {exc}")
+        st.error(_("processing_error", error=exc))
         raise
     finally:
         for _p in tmp_paths: _p.unlink(missing_ok=True)
 
 else:
-    # Aucun fichier chargé (ou fichier retiré) : la période détectée d'un
-    # run précédent ne doit pas rester affichée/exploitable dans la sidebar.
     st.session_state.pop("_period_label", None)
     st.markdown("---")
     col_a, col_b = st.columns([2,1])
     with col_a:
-        st.markdown("""
-            ### Comment utiliser
+        st.markdown(f"""
+            ### {_('how_to_use_title')}
 
-            1. **Configuration** : Renseignez votre **SIREN**, vos **numéros de TVA locaux** (France et Europe) ainsi que votre numéro **IOSS** (si applicable) dans la section **Entreprise & Paramètres** de la barre latérale.
-            2. **Import Amazon** : Déposez votre rapport de transactions Amazon (**VAT Transactions Report** au format .tsv, .txt, .csv ou .xlsx) dans la zone de dépôt ci-dessus.
-            3. **Vérification** : Le moteur calcule automatiquement la TVA due par pays, valide les numéros B2B via VIES et audite les collectes effectuées par Amazon.
-            4. **Déclarations** : Consultez les résultats par onglet et téléchargez vos fichiers (XML OSS, rapport CA3, journal FEC, Excel d'audit complet).
+            {_('how_to_use_step1')}
+            {_('how_to_use_step2')}
+            {_('how_to_use_step3')}
+            {_('how_to_use_step4')}
         """)

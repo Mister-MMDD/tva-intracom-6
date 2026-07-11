@@ -36,7 +36,7 @@ def validate_oss_xml(xml_bytes: bytes, xsd_path: str | Path | None = None) -> tu
     try:
         from lxml import etree
     except ImportError:
-        return True, "Validation ignorée : bibliothèque 'lxml' non installée."
+        return True, _("xml_validation_no_lxml")
 
     schemas_dir = Path(__file__).parent.parent / "schemas"
     
@@ -63,23 +63,24 @@ def validate_oss_xml(xml_bytes: bytes, xsd_path: str | Path | None = None) -> tu
             schema = etree.XMLSchema(schema_root)
             parser = etree.XMLParser(schema=schema)
             etree.fromstring(xml_bytes, parser)
-            results.append((True, f"Conforme à {path.name}"))
+            results.append((True, _("xml_validation_conform", name=path.name)))
         except Exception as exc:
-            results.append((False, f"Erreur {path.name} : {str(exc)}"))
+            results.append((False, _("xml_validation_error", name=path.name, error=str(exc))))
 
     if not found_any:
-        return True, f"Validation ignorée : aucun schéma XSD trouvé dans {schemas_dir}"
+        return True, _("xml_validation_no_xsd", dir=schemas_dir)
 
     # Si on a trouvé des schémas, on est valide si au moins UN schéma valide le XML
     # (car ils peuvent correspondre à différentes versions/niveaux de détail).
     if any(r[0] for r in results):
         success_msgs = [r[1] for r in results if r[0]]
-        return True, "Le fichier XML est conforme : " + " | ".join(success_msgs)
+        return True, _("xml_validation_success", msgs=" | ".join(success_msgs))
     else:
         err_msgs = [r[1] for r in results]
-        return False, "Échec de conformité XSD : " + " | ".join(err_msgs)
+        return False, _("xml_validation_failed", msgs=" | ".join(err_msgs))
 
 from tva_intracom.models import VatResult
+from tva_intracom.i18n import _
 from tva_intracom.rates import STANDARD_VAT_RATES, is_eu
 from tva_intracom.oss_export import (
     aggregate_oss_results, find_oss_negative_buckets, COUNTRY_NAMES,
@@ -153,10 +154,7 @@ def generate_oss_xml(
     # Les deux sont normalisés vers "YYYY-QN" avant injection dans le XML.
     # Une période vide produit une erreur explicite plutôt qu'un XML silencieusement invalide.
     if not period or not period.strip():
-        raise ValueError(
-            "La période OSS est vide. "
-            "Renseignez le champ période avant de générer le XML (ex: '2026-Q1')."
-        )
+        raise ValueError(_("xml_period_empty_err"))
     period = period.strip()
     # Normaliser T → Q (format FR → format international)
     period = re.sub(r"(?i)-T([1-4])$", lambda m: f"-Q{m.group(1)}", period)
@@ -184,11 +182,7 @@ def generate_oss_xml(
         re.compile(r"^\d{4}-\d{4}$"),             # 2025-2026
     ]
     if not any(p.match(period) for p in _VALID_PERIODS):
-        raise ValueError(
-            f"Format de période OSS invalide : '{period}'. "
-            "Formats acceptés : '2026-Q1' (trimestriel), '2026-S1' (semestriel), "
-            "'2026' (annuel), '2026-Q1_Q3' (plage), '2025-2026' (multi-année)."
-        )
+        raise ValueError(_("xml_period_format_err", period=period))
 
     aggregated_data = aggregate_oss_data(results, period=period)
 
@@ -226,38 +220,29 @@ def generate_oss_xml(
                 still_blocking.append(sug)
 
         if still_blocking and not ignore_negatives:
-            details = "\n".join(
-                f"  - {COUNTRY_NAMES.get(b.bucket.departure, b.bucket.departure)} → "
-                f"{COUNTRY_NAMES.get(b.bucket.arrival, b.bucket.arrival)} ({b.bucket.vat_rate}%) : "
-                f"HT={b.bucket.base_ht:.2f} €, TVA={b.bucket.vat_amount:.2f} €"
-                + (
-                    f" — {len(b.matched)} avoir(s) rattaché(s) automatiquement, "
-                    f"{b.unmatched_count} avoir(s) SANS origine identifiée "
-                    f"(HT={b.unmatched_ht:.2f} €, TVA={b.unmatched_vat_amount:.2f} €) à traiter manuellement"
-                    if b.matched else
-                    " — aucun avoir rattachable automatiquement (origine non trouvée dans ce fichier)"
-                )
-                for b in still_blocking
-            )
+            details_list = []
+            for b in still_blocking:
+                matching_txt = ""
+                if b.matched:
+                    matching_txt = _("xml_matching_success", count=len(b.matched), unmatched_count=b.unmatched_count, unmatched_ht=b.unmatched_ht, unmatched_vat=b.unmatched_vat_amount)
+                else:
+                    matching_txt = _("xml_matching_none")
+                
+                details_list.append(_("xml_negative_detail_line", 
+                                      dep=COUNTRY_NAMES.get(b.bucket.departure, b.bucket.departure),
+                                      arr=COUNTRY_NAMES.get(b.bucket.arrival, b.bucket.arrival),
+                                      rate=b.bucket.vat_rate,
+                                      ht=b.bucket.base_ht,
+                                      tva=b.bucket.vat_amount,
+                                      matching=matching_txt))
+            
+            details = "\n".join(details_list)
+            
             raise ValueError(
-                "Solde OSS négatif détecté pour la période "
-                f"'{period}' sur le(s) couple(s) pays/taux suivant(s) :\n{details}\n\n"
-                "Le formulaire OSS n'accepte pas de montant négatif dans le corps "
-                "de la déclaration. Cela survient en général quand des avoirs "
-                "(remboursements) de la période excèdent les ventes du même "
-                "pays/taux, ce qui indique souvent qu'ils se rapportent à une "
-                "vente d'une période déjà déclarée — auquel cas il faut les "
-                "saisir comme correction de la période d'origine sur le portail "
-                "OSS (bloc CorrectionsOfVatReturns), et non les inclure dans "
-                "cette déclaration."
-                + (
-                    "\n\nCertains avoirs n'ont pas pu être rattachés automatiquement "
-                    "à une vente d'origine (la vente correspondante n'est pas présente "
-                    "dans le fichier importé, ou aucun sale_id identique n'a été trouvé) "
-                    "— vérifiez-les manuellement avant de régénérer le XML."
-                    if any(b.matched for b in still_blocking) or confirm_corrections
-                    else ""
-                )
+                _("xml_negative_balance_err", 
+                  period=period, 
+                  details=details, 
+                  suffix=(_("xml_negative_unmatched_suffix") if (any(b.matched for b in still_blocking) or confirm_corrections) else ""))
             )
 
         # Reconstruire l'agrégation du corps principal en excluant les avoirs

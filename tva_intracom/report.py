@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional, Set
 
 from .models import Channel, Collector, Scenario, VatResult
+from .i18n import _
 from .rates import is_eu
 
 _ZERO = Decimal("0.00")
@@ -133,7 +134,7 @@ def _bucket_label(r: "VatResult") -> str:
     # vente B2B entre assujettis dans un même pays UE (hors FR) relevant
     # d'un régime national de reverse charge. Distinct de B2B_REVERSE_CHARGE
     # (qui ne couvre que l'intracommunautaire cross-border) : ici
-    # scenario=DOMESTIC mais collector=BUYER / channel=NONE, donc ce cas
+    # scenario=DOMESTIC mais collector=BUYER / channel=EXONERATION, donc ce cas
     # échapperait aux tests channel FR_DOMESTIC/LOCAL_REGISTRATION plus bas
     # sans ce test explicite.
     if r.scenario == Scenario.DOMESTIC and r.collector == Collector.BUYER:

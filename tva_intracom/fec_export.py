@@ -38,6 +38,7 @@ from decimal import Decimal
 from typing import Iterable
 
 from .models import Collector, Scenario, VatResult
+from .i18n import _
 
 # ---------------------------------------------------------------------------
 # Plan comptable — comptes génériques paramétrables.
@@ -66,13 +67,13 @@ ACCOUNTS = {
 
 # Codes journaux standards
 JOURNALS = {
-    "VEN": "Journal des ventes",
-    "ACH": "Journal des achats",
+    "VEN": _("fec_journal_sales"),
+    "ACH": _("fec_journal_purchases"),
 }
 
 # Valeurs par défaut historiques (pour compatibilité si non surchargées)
 JOURNAL_CODE = "VEN"
-JOURNAL_LIB = "Journal des ventes"
+JOURNAL_LIB = _("fec_journal_sales")
 
 
 @dataclass(frozen=True)
@@ -125,9 +126,9 @@ def _journal_info_for(results: Iterable[VatResult]) -> tuple[str, str]:
     Pour l'instant, ce module agrège des ventes Amazon -> 'VEN'.
     L'argument 'results' est conservé pour une extension future aux achats.
     """
-    _ = results  # Utilisation future
+    unused_results = results  # Utilisation future
     code = "VEN"
-    lib = JOURNALS.get(code, "Journal des ventes")
+    lib = JOURNALS.get(code, _("fec_journal_sales"))
     return code, lib
 
 
@@ -178,14 +179,14 @@ def _fmt_amount(v: Decimal) -> str:
 
 def _scenario_label(scenario: Scenario) -> str:
     return {
-        Scenario.OSS_B2C: "Vente OSS",
-        Scenario.DOMESTIC: "Vente domestique",
-        Scenario.DEEMED_SUPPLIER: "Vente deemed supplier (Amazon)",
-        Scenario.B2B_REVERSE_CHARGE: "Vente B2B exonérée (autoliquidation)",
-        Scenario.EXPORT: "Export hors UE",
-        Scenario.IMPORT_STANDARD: "Import standard",
-        Scenario.IOSS_DIRECT: "Vente IOSS",
-        Scenario.IMPORT_SELLER_AS_IMPORTER: "Import DDP (vendeur importateur)",
+        Scenario.OSS_B2C: _("fec_scenario_oss"),
+        Scenario.DOMESTIC: _("fec_scenario_domestic"),
+        Scenario.DEEMED_SUPPLIER: _("fec_scenario_deemed"),
+        Scenario.B2B_REVERSE_CHARGE: _("fec_scenario_b2b"),
+        Scenario.EXPORT: _("fec_scenario_export"),
+        Scenario.IMPORT_STANDARD: _("fec_scenario_import_std"),
+        Scenario.IOSS_DIRECT: _("fec_scenario_ioss"),
+        Scenario.IMPORT_SELLER_AS_IMPORTER: _("fec_scenario_ddp"),
     }.get(scenario, scenario.value)
 
 
@@ -234,7 +235,7 @@ def build_fec_rows(
 
         scenario_lbl = _scenario_label(key.scenario)
         country_lbl = key.vat_country or 'N/A'
-        label = f"{scenario_lbl} {country_lbl} {key.vat_rate}% ({period}, {bucket.count} ventes)"
+        label = _("fec_entry_label", scenario=scenario_lbl, country=country_lbl, rate=key.vat_rate, period=period, count=bucket.count)
         num_str = str(ecriture_num)
 
         # Génération de numéro de pièce séquentiel robuste basé sur la date
@@ -266,15 +267,15 @@ def build_fec_rows(
         flip = (net_ht + (net_vat if has_vat_line else Decimal("0.00"))) < Decimal("0.00")
 
         if not flip:
-            rows.append(_line(ACCOUNTS["CLIENT"], "Clients Amazon", abs_client, Decimal("0.00")))
-            rows.append(_line(sale_account, "Ventes marchandises", Decimal("0.00"), abs_ht))
+            rows.append(_line(ACCOUNTS["CLIENT"], _("fec_account_client_lib"), abs_client, Decimal("0.00")))
+            rows.append(_line(sale_account, _("fec_account_sales_lib"), Decimal("0.00"), abs_ht))
             if has_vat_line:
-                rows.append(_line(key.channel_account, "TVA collectée", Decimal("0.00"), abs_vat))
+                rows.append(_line(key.channel_account, _("fec_account_vat_lib"), Decimal("0.00"), abs_vat))
         else:
-            rows.append(_line(ACCOUNTS["CLIENT"], "Clients Amazon", Decimal("0.00"), abs_client))
-            rows.append(_line(sale_account, "Ventes marchandises", abs_ht, Decimal("0.00")))
+            rows.append(_line(ACCOUNTS["CLIENT"], _("fec_account_client_lib"), Decimal("0.00"), abs_client))
+            rows.append(_line(sale_account, _("fec_account_sales_lib"), abs_ht, Decimal("0.00")))
             if has_vat_line:
-                rows.append(_line(key.channel_account, "TVA collectée", abs_vat, Decimal("0.00")))
+                rows.append(_line(key.channel_account, _("fec_account_vat_lib"), abs_vat, Decimal("0.00")))
 
         ecriture_num += 1
 

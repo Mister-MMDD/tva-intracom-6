@@ -53,7 +53,7 @@ class Channel(enum.Enum):
     OSS = "OSS"                      # Guichet unique OSS (declare en France)
     IOSS = "IOSS"                    # Guichet unique IOSS (imports ≤ 150 EUR, propre numéro)
     LOCAL_REGISTRATION = "LOCAL"     # Immatriculation TVA locale dans le pays
-    NONE = "NONE"                    # Aucun reversement par le vendeur
+    EXONERATION = "EXONERATION"      # Aucun reversement par le vendeur (exclu du flux de taxation vendeur)
 
 
 @dataclass

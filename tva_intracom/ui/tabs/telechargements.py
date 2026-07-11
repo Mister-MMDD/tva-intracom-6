@@ -15,6 +15,7 @@ import tempfile
 from decimal import Decimal
 
 import streamlit as st
+from tva_intracom.i18n import _
 
 from tva_intracom.models import Scenario
 from tva_intracom.ca3_report import generate_ca3_html_report_v2
@@ -132,50 +133,50 @@ def render_telechargements(ctx: TabContext) -> None:
                 oss_xml_bytes = generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
 
             if oss_xml_bytes:
-                _gated_download("📥 Télécharger XML OSS (impots.gouv.fr)", data=oss_xml_bytes, file_name=f"Déclaration XML OSS - {nom_entreprise} - {period_label}.xml", mime="application/xml", use_container_width=True, type="primary")
+                _gated_download(_("dl_xml_oss_btn"), data=oss_xml_bytes, file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml", use_container_width=True, type="primary")
 
             # Ligne Excel (Détail)
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as oss_tmp:
                 oss_xlsx_path = build_oss_excel(results_net, oss_tmp.name, period=period_label)
             with open(oss_xlsx_path,"rb") as f: oss_xlsx_bytes = f.read()
-            _gated_download("📊 État récapitulatif OSS (.xlsx)", data=oss_xlsx_bytes, file_name=f"État Récapitulatif OSS - {nom_entreprise} - {period_label}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            _gated_download(_("dl_xlsx_oss_btn"), data=oss_xlsx_bytes, file_name=_("dl_xlsx_oss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         else:
-            st.info("ℹ️ Aucune vente OSS détectée.")
+            st.info(_("no_oss_sales_info"))
 
         st.divider()
 
         # 3. France CA3
-        st.markdown("#### 🇫🇷 France (CA3)")
-        st.caption("Rapport préparatoire pour votre déclaration CA3 mensuelle/trimestrielle en France.")
+        st.markdown(_("france_ca3_header"))
+        st.caption(_("france_ca3_caption"))
         ca3_html = generate_ca3_html_report_v2(
             results=results, refund_results=refund_results, company_name=nom_entreprise, siren=siren_entreprise,
             period_label=period_label, all_fc_transfers=all_fc_transfers, seller_country="FR",
         )
-        _gated_download("📥 Rapport préparatoire CA3 (HTML)", data=ca3_html.encode("utf-8"), file_name=f"Rapport Préparatoire CA3 - {nom_entreprise} - {period_label}.html", mime="text/html", use_container_width=True)
+        _gated_download(_("dl_ca3_html_btn"), data=ca3_html.encode("utf-8"), file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html", use_container_width=True)
 
         st.divider()
 
         # 4. Livraisons B2B
-        st.markdown("#### 🤝 Livraisons B2B")
+        st.markdown(_("b2b_deliveries_header"))
         b2b_results_dl = [r for r in results_net if r.scenario == Scenario.B2B_REVERSE_CHARGE]
         if b2b_results_dl:
-            st.caption(f"{len(b2b_results_dl)} livraisons intracommunautaires B2B exonérées (HT {float(summary.reverse_charge_ht):,.2f} €).")
+            st.caption(_("b2b_deliveries_caption", count=len(b2b_results_dl), ht=f"{float(summary.reverse_charge_ht):,.2f}"))
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as b2b_tmp:
                 b2b_xlsx_path = build_b2b_excel(results_net, b2b_tmp.name, period=period_label)
             with open(b2b_xlsx_path, "rb") as f: b2b_xlsx_bytes = f.read()
-            _gated_download("📊 Récapitulatif Livraisons B2B (.xlsx)", data=b2b_xlsx_bytes, file_name=f"Récapitulatif Livraisons B2B - {nom_entreprise} - {period_label}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            _gated_download(_("dl_xlsx_b2b_btn"), data=b2b_xlsx_bytes, file_name=_("dl_xlsx_b2b_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         else:
-            st.info("ℹ️ Aucune livraison B2B détectée.")
+            st.info(_("no_b2b_sales_info"))
 
         st.divider()
 
         # 5. Déclarations Locales (hors FR)
-        st.markdown("#### 🌍 Déclarations Locales (hors FR)")
+        st.markdown(_("local_declarations_header"))
         _local_tax_data = [r for r in results_net if r.channel.value == "LOCAL" and r.vat_country]
         if not _local_tax_data:
-            st.info("ℹ️ Aucune vente en immatriculation locale détectée (hors France, OSS et IOSS).")
+            st.info(_("no_local_sales_info"))
         else:
-            st.caption("Fichiers pré-formatés avec les codes cases spécifiques à chaque pays (Kennzahl, Casilla...).")
+            st.caption(_("local_declarations_caption"))
             _local_countries = sorted({r.vat_country for r in _local_tax_data})
             export_country = st.selectbox("Sélectionnez le pays à exporter", _local_countries, format_func=lambda c: f"{_country_label(c)} ({c})", key="dl_country_select")
 

@@ -29,7 +29,7 @@ from .models import (
     ViesReclassification,
     ViesValidationSummary,
 )
-from .rates import is_eu, is_fiscal_eu, vat_rate, vat_rate_at_date, has_rate_changed
+from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate, vat_rate_at_date, has_rate_changed
 from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES
 from datetime import date as _date
 from .vies import normalize_full_vat as _normalize_full_vat_canonical
@@ -120,6 +120,14 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # On traite ce cas EN PREMIER pour éviter d'interroger vat_rate inutilement
     # ------------------------------------------------------------------
     if not buyer_eu:
+        # On affine la note selon que le pays est hors-UE ou s'il s'agit d'un 
+        # territoire d'un pays membre exclu du territoire fiscal (ex: Canaries).
+        is_excl_territory = is_eu(sale.buyer_country) and is_non_fiscal_eu(sale.buyer_country, sale.arrival_post_code)
+        prefix_note = (
+            "Territoire exclu du territoire fiscal de l'UE" 
+            if is_excl_territory 
+            else "Exportation hors UE"
+        )
         return VatResult(
             sale=sale,
             scenario=Scenario.EXPORT,
@@ -127,9 +135,9 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             vat_rate=Decimal("0"),
             vat_amount=Decimal("0.00"),
             collector=Collector.SELLER,
-            channel=Channel.NONE,
+            channel=Channel.EXONERATION,
             note=(
-                "Exportation hors UE : exonérée de TVA (Art. 262 du CGI — "
+                f"{prefix_note} : exonérée de TVA (Art. 262 du CGI — "
                 "https://bit.ly/Art262CGI). Justificatif de sortie du "
                 "territoire requis."
             ),
@@ -183,7 +191,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_rate=tax_rate,
                 vat_amount=tax_amount,
                 collector=Collector.AMAZON,
-                channel=Channel.NONE,
+                channel=Channel.EXONERATION,
                 note=f"{marketplace_name} collecte la TVA ({tax_rate}%) sur {sale.buyer_country}."
             )
 
@@ -199,7 +207,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_rate=Decimal("0"),
                 vat_amount=Decimal("0.00"),
                 collector=Collector.BUYER,
-                channel=Channel.NONE,
+                channel=Channel.EXONERATION,
                 note=(
                     "Livraison intracommunautaire B2B exonérée avec autoliquidation "
                     "par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter)."
@@ -227,7 +235,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     vat_rate=Decimal("0"),
                     vat_amount=Decimal("0.00"),
                     collector=Collector.BUYER,
-                    channel=Channel.NONE,
+                    channel=Channel.EXONERATION,
                     note=(
                         f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
                         f"identifiant fiscal national sans préfixe TVA intracom. "
@@ -308,7 +316,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_rate=Decimal("0"),
                 vat_amount=Decimal("0.00"),
                 collector=Collector.BUYER,
-                channel=Channel.NONE,
+                channel=Channel.EXONERATION,
                 note=(
                     f"Vente B2B domestique {sale.stock_country} : autoliquidation nationale. "
                     f"L'acheteur assujetti (n° {'TVA: ' + sale.buyer_vat_number if sale.buyer_vat_number else 'inconnu'}) "
@@ -370,7 +378,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_rate=tax_rate,
                 vat_amount=tax_amount,
                 collector=Collector.BUYER,
-                channel=Channel.NONE,
+                channel=Channel.EXONERATION,
                 note=(
                     f"Import > {IOSS_THRESHOLD} EUR depuis pays tiers : TVA d'importation "
                     f"{sale.buyer_country} ({tax_rate}%) due a la douane par l'importateur "

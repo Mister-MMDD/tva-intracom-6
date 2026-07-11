@@ -31,6 +31,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import streamlit as st
+from tva_intracom.i18n import _
 import extra_streamlit_components as stx
 
 from tva_intracom import auth as tva_auth
@@ -51,10 +52,7 @@ class AuthContext:
 
     def stripe_success_url(self, extra_qs: str = "") -> str:
         """URL de retour post-paiement Stripe, avec le jeton de session courant
-        pour éviter une déconnexion (voir tva_intracom/auth.py :
-        create_session_token / get_user_by_session_token). Sans ça, la
-        redirection Stripe (navigation complète du navigateur) fait perdre la
-        session Streamlit et forcerait à redemander un lien de connexion."""
+        pour éviter une déconnexion."""
         _tok = st.query_params.get("session_token", "")
         _qs = f"session_token={_tok}" if _tok else ""
         if extra_qs:
@@ -69,11 +67,8 @@ class AuthContext:
 def ensure_cookie_manager() -> "stx.CookieManager":
     """Instancie le gestionnaire de cookies et exécute la maintenance
     ponctuelle (purge du cache VIES mal préfixé) une fois par session."""
-    # Instanciation du gestionnaire de cookies
-    # On utilise un délai pour laisser le temps au composant JS de s'initialiser
     cookie_manager = stx.CookieManager()
 
-    # Petit délai d'attente pour l'initialisation du composant CookieManager au premier chargement
     if not cookie_manager.get_all():
         time.sleep(0.1)
 
@@ -91,29 +86,17 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     """Exécute le flux complet d'authentification.
 
     Bloque l'exécution du script (st.stop()) tant que l'utilisateur n'est
-    pas authentifié — comportement identique à l'ancien bloc top-level
-    de app.py. Retourne un AuthContext une fois la connexion établie.
+    pas authentifié. Retourne un AuthContext une fois la connexion établie.
     """
-    # =========================================================================
-    # AUTHENTIFICATION — magic link par e-mail (voir tva_intracom/auth.py)
-    # =========================================================================
     if "auth_user" not in st.session_state:
         st.session_state["auth_user"] = None
 
-    # ── Bypass d'authentification en développement local UNIQUEMENT ────────
-    # Contrôlé par le secret LOCAL_DEV_BYPASS_AUTH, qui ne doit exister QUE dans
-    # le fichier .streamlit/secrets.toml local (jamais commité, cf. .gitignore) —
-    # jamais défini dans les secrets Streamlit Cloud de production. Permet de
-    # développer sans dépendre de Resend (limité à une adresse en mode test),
-    # tout en gardant la possibilité de tester plusieurs adresses/domaines
-    # (utile pour la portée du cache VIES par domaine, et les quotas SIREN par
-    # compte) : on saisit l'adresse de son choix, sans envoi réel de mail.
     try:
         _local_bypass = bool(st.secrets.get("LOCAL_DEV_BYPASS_AUTH", False))
     except Exception:
         _local_bypass = False
 
-    # ── Restauration de session via Cookie (Conformité Amazon DPP) ──────────
+    # ── Restauration de session via Cookie ──────────────────────────────────
     _cookie_token = cookie_manager.get("tva_session_token")
 
     if _cookie_token and st.session_state.get("auth_user") is None:
@@ -121,15 +104,12 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         if _restored_user is not None:
             st.session_state["auth_user"] = _restored_user
 
-    # ── Consommation du lien magique (seulement si pas déjà connecté) ──────
+    # ── Consommation du lien magique ────────────────────────────────────────
     _qp_token = st.query_params.get("login_token")
     if _qp_token:
         if st.session_state.get("auth_user") is None:
-            # On demande une confirmation manuelle (clic) pour éviter que les robots
-            # d'indexation de mails ne "consomment" le lien à usage unique avant l'utilisateur.
-            st.info("👋 Bienvenue ! Cliquez sur le bouton ci-dessous pour finaliser votre connexion.")
-            if st.button("🚀 Confirmer la connexion", key="confirm_magic_link"):
-                # Récupération de l'IP pour le rate limiting : purement best-effort.
+            st.info(_("magic_link_welcome"))
+            if st.button(_("magic_link_confirm_btn"), key="confirm_magic_link"):
                 _ip = "unknown"
                 try:
                     from streamlit.web.server.websocket_headers import _get_websocket_headers  # type: ignore[import]
@@ -145,33 +125,28 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     st.error(f"⛔ {e}")
                     _u = None
                 except Exception as e:
-                    st.error(f"⛔ Erreur lors de la connexion : {e}")
+                    st.error(_("magic_link_error", error=str(e)))
                     _u = None
 
                 if _u is not None:
                     st.session_state["auth_user"] = _u
                     _new_session_token = tva_auth.create_session_token(_u.id)
 
-                    # On écrit le cookie
                     cookie_manager.set(
                         "tva_session_token",
                         _new_session_token,
                         expires_at=datetime.now() + timedelta(days=30),
                         key="set_cookie_on_login"
                     )
-                    # On nettoie l'URL et on relance
                     st.query_params.clear()
                     st.rerun()
                 else:
-                    st.error("⛔ Lien de connexion invalide, expiré ou déjà consommé. Redemandez-en un ci-dessous.")
+                    st.error(_("magic_link_invalid"))
             st.stop()
         else:
-            # L'utilisateur est déjà connecté (peut-être via le cookie juste avant)
-            # On nettoie juste l'URL pour être propre
             st.query_params.clear()
             st.rerun()
 
-    # Cas particulier : migration d'un ancien lien session_token vers cookie
     _qp_session_token = st.query_params.get("session_token")
     if _qp_session_token:
         cookie_manager.set("tva_session_token", _qp_session_token, expires_at=datetime.now() + timedelta(days=30))
@@ -184,14 +159,11 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     if _spapi_code and _spapi_selling_partner_id:
         from tva_intracom import amazon_spapi
         try:
-            # 1. Échange du code contre les tokens
             _tokens = amazon_spapi.exchange_code_for_token(_spapi_code)
             _refresh_token = _tokens.get("refresh_token")
             _access_token = _tokens.get("access_token")
 
             if _refresh_token:
-                # 2. On essaie de récupérer l'e-mail Amazon pour identifier/créer l'utilisateur
-                # (Login with Amazon / LWA Profile)
                 _amz_email = None
                 try:
                     if _access_token:
@@ -201,39 +173,36 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
                 _current_u = st.session_state.get("auth_user")
 
-                # Cas A : Connexion (Login with Amazon) - On n'est pas encore connecté
                 if _current_u is None and _amz_email:
-
                     _current_u = tva_auth.get_or_create_user(_amz_email)
                     st.session_state["auth_user"] = _current_u
                     _new_token = tva_auth.create_session_token(_current_u.id)
                     cookie_manager.set("tva_session_token", _new_token, expires_at=datetime.now() + timedelta(days=30))
 
-                # Cas B : Liaison (L'utilisateur est déjà connecté, on lie juste le compte Amazon)
                 if _current_u:
                     tva_auth.save_amazon_credentials(
                         _current_u.id, _spapi_selling_partner_id, _refresh_token
                     )
-                    st.success(f"✅ Compte Amazon lié avec succès ({_current_u.email}) !")
+                    st.success(_("amazon_linked_success", email=_current_u.email))
                     time.sleep(1)
                 else:
-                    st.error("Impossible d'identifier votre compte Amazon. Connectez-vous d'abord par e-mail.")
+                    st.error(_("amazon_linked_error"))
             else:
-                st.error("Erreur : Aucun refresh token reçu d'Amazon.")
+                st.error(_("amazon_no_refresh_token"))
         except Exception as _e:
-            st.error(f"Erreur lors de la connexion Amazon : {_e}")
+            st.error(_("amazon_auth_general_error", error=str(_e)))
 
-        # On nettoie l'URL
         st.query_params.clear()
         st.rerun()
 
+    # ── Interface de connexion non-authentifiée ────────────────────────────
     if st.session_state["auth_user"] is None:
-        st.info("🔐 Connectez-vous pour utiliser le moteur de TVA.")
+        st.info(_("auth_required_info"))
 
         if _local_bypass:
-            st.warning("🛠️ Mode développement local — connexion directe, sans envoi de mail.")
-            _dev_email = st.text_input("Adresse e-mail (n'importe laquelle, pour test)", key="dev_login_email_input")
-            if st.button("Se connecter (dev)", key="btn_dev_login"):
+            st.warning(_("dev_bypass_warning"))
+            _dev_email = st.text_input(_("dev_email_label"), key="dev_login_email_input")
+            if st.button(_("dev_login_btn"), key="btn_dev_login"):
                 if _dev_email and "@" in _dev_email:
                     _dev_user = tva_auth.get_or_create_user(_dev_email)
                     st.session_state["auth_user"] = _dev_user
@@ -245,43 +214,43 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     )
                     st.rerun()
                 else:
-                    st.warning("Adresse e-mail invalide.")
+                    st.warning(_("invalid_email_warning"))
             st.stop()
 
-        _login_email = st.text_input("Adresse e-mail", key="login_email_input")
+        _login_email = st.text_input(_("email_label"), key="login_email_input")
         _col_magic, _col_amazon = st.columns(2)
 
-        if _col_magic.button("Recevoir un lien de connexion", key="btn_send_magic_link", use_container_width=True):
+        if _col_magic.button(_("send_magic_link_btn"), key="btn_send_magic_link", use_container_width=True):
             if _login_email and "@" in _login_email:
                 _token = tva_auth.create_magic_link(_login_email)
                 _base_url = st.secrets.get("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
                 _login_url = f"{_base_url}/?login_token={_token}"
                 try:
                     tva_auth.send_magic_link_email(_login_email, _login_url)
-                    st.success(f"✅ Lien envoyé à {_login_email}.")
+                    st.success(_("magic_link_sent_success", email=_login_email))
                 except Exception as _mail_err:
-                    st.error(f"⛔ Échec de l'envoi : {_mail_err}")
+                    st.error(_("magic_link_sent_error", error=str(_mail_err)))
             else:
-                st.warning("Adresse e-mail invalide.")
+                st.warning(_("invalid_email_warning"))
 
         with _col_amazon:
             from tva_intracom import amazon_spapi
             _state = secrets.token_hex(8)
             try:
                 _auth_url = amazon_spapi.get_authorization_url(state=_state)
-                st.link_button("🚀 Connexion via Amazon", _auth_url, use_container_width=True, type="primary")
+                st.link_button(_("amazon_login_btn"), _auth_url, use_container_width=True, type="primary")
             except Exception:
-                st.error("Amazon non configuré.")
+                st.error(_("amazon_not_configured_error"))
 
         st.stop()
 
+    # ── Barre d'état connecté ──────────────────────────────────────────────
     _current_user = st.session_state["auth_user"]
     _col_user, _col_logout = st.columns([5, 1])
-    _col_user.caption(f"Connecté : {_current_user.email}")
-    if _col_logout.button("🚪 Déconnexion", key="btn_logout"):
+    _col_user.caption(_("logged_in_as", email=_current_user.email))
+    if _col_logout.button(_("logout_btn"), key="btn_logout"):
         st.session_state["auth_user"] = None
         try:
-            # On vérifie si le cookie existe avant de tenter de le supprimer
             if "tva_session_token" in cookie_manager.get_all():
                 cookie_manager.delete("tva_session_token")
         except Exception:
@@ -290,8 +259,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.rerun()
 
     _app_base_url = st.secrets.get("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
-
-    # Portée du cache VIES (isolation compte/domaine — voir tva_intracom/vies.py)
     _vies_scope_id = _vies_resolve_scope_id(_current_user.email)
 
     return AuthContext(

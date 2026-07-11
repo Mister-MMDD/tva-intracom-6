@@ -10,6 +10,7 @@ from decimal import Decimal
 
 import pandas as pd
 import streamlit as st
+from tva_intracom.i18n import _
 
 from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _render_filter_bar
 from tva_intracom.ui.tabs.context import TabContext
@@ -29,14 +30,14 @@ def render_audit(ctx: TabContext) -> None:
     vies_summary = ctx.vies_summary
 
     audit_sub1, audit_sub2 = st.tabs([
-        "⚖️ Écarts TVA Amazon",
-        "📦 Mouvements stock FBA",
+        _("subtab_amazon_gaps"),
+        _("subtab_fba_inventory"),
     ])
 
     with audit_sub1:
         has_amazon_vat = any(getattr(r.sale,"amazon_vat_amount",Decimal("0"))>0 for r in results)
         if not has_amazon_vat:
-            st.info("ℹ️ Aucune TVA Amazon disponible. Cet onglet nécessite le format Amazon 3 (2024+).")
+            st.info(_("no_amazon_vat_info"))
         else:
             _vies_affected_ids = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
             _vies_rc_ids_app: set[str] = set()

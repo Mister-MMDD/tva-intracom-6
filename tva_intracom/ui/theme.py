@@ -8,6 +8,7 @@ appeler `apply_theme()` en tête de script.
 from __future__ import annotations
 
 import streamlit as st
+from tva_intracom.i18n import _
 
 _PLATFORM_OPTIONS = [
     "Amazon VAT Transactions Report (TSV), txt, CSV",

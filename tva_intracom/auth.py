@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -36,38 +37,33 @@ MAGIC_LINK_TTL_SECONDS = 15 * 60
 # (?session_token=...) et ne doit jamais être envoyé par e-mail.
 SESSION_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 
-_pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
+_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+_pool_lock = threading.Lock()
 
 
-def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None:
-        dsn = st.secrets.get("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
-        
-        if not dsn:
-            raise RuntimeError(
-                "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
-                "d'authentification. Configurez ce secret côté Streamlit Cloud et Vercel."
-            )
-        _pool = psycopg2.pool.SimpleConnectionPool(1, 5, dsn, sslmode="require")
-        _init_schema()
+        with _pool_lock:
+            if _pool is None:
+                dsn = st.secrets.get("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+                
+                if not dsn:
+                    raise RuntimeError(
+                        "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
+                        "d'authentification. Configurez ce secret côté Streamlit Cloud et Vercel."
+                    )
+                # Utilisation de ThreadedConnectionPool pour la sécurité multi-thread de Streamlit
+                new_pool = psycopg2.pool.ThreadedConnectionPool(1, 10, dsn, sslmode="require")
+                _init_schema(new_pool)
+                _pool = new_pool
     return _pool
 
 
 def _run(fn):
     """Exécute fn(conn, cur) avec une connexion prise dans le pool, avec un
     retry unique si la connexion s'avère fermée côté serveur.
-
-    Contexte : le pool (`_pool`) est un objet global qui survit à toutes les
-    reruns du script tant que le process Python tourne (Streamlit local en
-    particulier). Le connecteur Supabase utilisé ici (port 6543, pooler
-    PgBouncer en mode transaction) recycle agressivement les connexions
-    inactives côté serveur — psycopg2.pool ne le détecte pas tant qu'on n'a
-    pas essayé de s'en servir, d'où `psycopg2.InterfaceError: connection
-    already closed` après un moment d'inactivité (typiquement après un F5 en
-    localhost, session Streamlit restée ouverte sans requête depuis un
-    moment). On jette alors tout le pool et on en recrée un pour retenter
-    une fois, plutôt que de laisser planter la page."""
+    """
     global _pool
     last_exc: Exception | None = None
     for _attempt in range(2):
@@ -84,12 +80,13 @@ def _run(fn):
                 pool.putconn(conn, close=True)
             except Exception:
                 pass
-            _pool = None  # force la recréation d'un pool neuf au prochain tour
+            with _pool_lock:
+                _pool = None  # force la recréation d'un pool neuf au prochain tour
     raise last_exc
 
 
-def _init_schema() -> None:
-    conn = _pool.getconn()
+def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
+    conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
@@ -144,7 +141,7 @@ def _init_schema() -> None:
                 """
             )
     finally:
-        _pool.putconn(conn)
+        pool.putconn(conn)
 
 
 @dataclass

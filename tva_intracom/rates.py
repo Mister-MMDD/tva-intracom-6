@@ -90,17 +90,98 @@ EU_COUNTRIES: Set[str] = set(COUNTRY_NAMES.keys())
 # ---------------------------------------------------------------------------
 # Territoires exclus du territoire fiscal de l'UE (TVA)
 # ---------------------------------------------------------------------------
+# Territoires exclus du territoire fiscal de l'UE (TVA)
+# ---------------------------------------------------------------------------
 NON_FISCAL_EU_POSTCODES: Dict[str, Dict] = {
-    "ES": {"prefixes": ["35", "38", "51", "52"]},
-    "FR": {"prefixes": ["97", "98"]},
-    "DE": {"prefixes": ["27498", "78266"]},
-    "GR": {"prefixes": ["63086", "63087", "63088"]},
-    "IT": {"prefixes": ["23030", "22060"]},
-    "FI": {"prefixes": ["22"]},
+    "ES": {
+        "prefixes": [
+            "35",  # Îles Canaries – hors TVA UE
+            "38",  # Îles Canaries – hors TVA UE
+            "51",  # Ceuta – hors TVA UE
+            "52",  # Melilla – hors TVA UE
+        ]
+    },
+
+    "FR": {
+        "prefixes": [
+            "97",  # DOM (Guadeloupe, Martinique, Guyane, Réunion, Mayotte) – dans l’UE mais hors TVA
+            "98",  # TOM (Polynésie, Nouvelle-Calédonie, etc.) – hors UE et hors TVA
+            "975", # Saint-Pierre-et-Miquelon – hors UE et hors TVA
+            "984", # Terres australes et antarctiques françaises – hors UE et hors TVA
+            "986", # Wallis-et-Futuna – hors UE et hors TVA
+            "987", # Polynésie française – hors UE et hors TVA
+            "988", # Nouvelle-Calédonie – hors UE et hors TVA
+        ],
+    },
+
+    "DE": {
+        "prefixes": [
+            "27498", # Helgoland – hors TVA UE
+            "78266", # Büsingen – hors TVA UE
+        ]
+    },
+
+    "GR": {
+        "prefixes": [
+            "63086", # Mont Athos – hors TVA UE
+            "63087", # Mont Athos – hors TVA UE
+            "63088", # Mont Athos – hors TVA UE
+        ]
+    },
+
+    "IT": {
+        "prefixes": [
+            "23030", # Livigno – hors TVA UE
+            "22060", # Campione d’Italia – hors TVA UE
+            "22061", # Lac de Lugano (zone italienne) – hors TVA UE
+        ]
+    },
+
+    "FI": {
+        "prefixes": [
+            "22",   # Îles Åland – hors TVA UE
+        ]
+    },
+
+    "DK": {
+        "country_codes": [
+            "GL",  # Groenland – hors UE et hors TVA
+            "FO",  # Îles Féroé – hors UE et hors TVA
+        ]
+    },
+
+    "NL": {
+        "country_codes": [
+            "CW",  # Curaçao – hors UE et hors TVA
+            "AW",  # Aruba – hors UE et hors TVA
+            "SX",  # Sint-Maarten – hors UE et hors TVA
+            "BQ",  # Bonaire, Saba, Saint-Eustache – hors UE et hors TVA
+        ]
+    },
+
+    "CY": {
+        "notes": [
+            "CY-NORTH",  # Chypre du Nord – hors TVA UE (absence de contrôle effectif)
+            "GB-SBA",    # Bases britanniques d’Akrotiri et Dhekelia – hors TVA UE
+        ]
+    },
 }
 
+
 def is_non_fiscal_eu(country: str, post_code: str | None) -> bool:
+    """Retourne True si le territoire est exclu du territoire fiscal de l'UE (TVA).
+    
+    Gère à la fois les pays ayant leur propre code ISO (ex: GL pour le Groenland)
+    et les régions identifiées par leur code postal (ex: 35 pour les Canaries).
+    """
     code = country.upper()
+
+    # 1. Vérification par code pays direct (cas GL, FO, CW, AW, etc.)
+    for rules in NON_FISCAL_EU_POSTCODES.values():
+        if code in rules.get("country_codes", []) or code in rules.get("notes", []):
+            return True
+
+    # 2. Vérification par préfixe de code postal
     if code not in NON_FISCAL_EU_POSTCODES:
         return False
     if not post_code:
@@ -116,11 +197,16 @@ def is_eu(country: str) -> bool:
     return country.upper() in EU_COUNTRIES
 
 def is_fiscal_eu(country: str, post_code: str | None = None) -> bool:
-    if not is_eu(country):
+    """Retourne True si le territoire appartient au territoire fiscal de l'UE.
+    
+    Un territoire est dans le territoire fiscal s'il est dans l'UE (is_eu)
+    ET qu'il n'est pas explicitement exclu (is_non_fiscal_eu).
+    """
+    # Si c'est un territoire exclu (même s'il a son propre code pays), on renvoie False
+    if is_non_fiscal_eu(country, post_code):
         return False
-    if post_code and is_non_fiscal_eu(country, post_code):
-        return False
-    return True
+    # Sinon, on vérifie s'il appartient à l'UE
+    return is_eu(country)
 
 # Taux standard courants (2026)
 STANDARD_VAT_RATES: Dict[str, Decimal] = {

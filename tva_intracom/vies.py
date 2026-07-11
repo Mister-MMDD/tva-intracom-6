@@ -56,6 +56,7 @@ import psycopg2
 import psycopg2.pool
 from psycopg2.extras import execute_values
 import streamlit as st
+from .i18n import _
 from .security import encrypt_data as _enc, decrypt_data as _dec
 
 logger = logging.getLogger(__name__)
@@ -80,18 +81,33 @@ _RETRY_BASE_DELAY = 1.0  # secondes, doublé à chaque tentative (1 → 2 → 4)
 # même si, par accident, deux clients du même webmail existaient.
 PERSONAL_EMAIL_DOMAINS = {
     "gmail.com", "googlemail.com",
-    "outlook.com", "outlook.fr", "hotmail.com", "hotmail.fr",
-    "live.com", "live.fr", "msn.com",
+    "outlook.com", "outlook.fr", "hotmail.com", "hotmail.fr", "live.com", "live.fr", "msn.com",
     "yahoo.com", "yahoo.fr", "yahoo.co.uk",
     "icloud.com", "me.com", "mac.com",
     "aol.com",
-    "gmx.com", "gmx.fr", "gmx.net",
+    "gmx.com", "gmx.fr", "gmx.net", "gmx.de", "web.de", "t-online.de",
     "laposte.net",
     "orange.fr", "wanadoo.fr",
-    "free.fr", "sfr.fr", "bbox.fr", "neuf.fr", "numericable.fr", "aliceadsl.fr",
-    "protonmail.com", "proton.me", "pm.me",
-    "yandex.com", "yandex.ru",
+    "free.fr",
+    "sfr.fr", "bbox.fr", "neuf.fr", "numericable.fr", "aliceadsl.fr",
     "mail.com", "zoho.com",
+    "yandex.com", "yandex.ru", "mail.ru",
+    "qq.com", "163.com", "126.com",
+    "naver.com",
+    "rediffmail.com",
+    "protonmail.com", "proton.me", "pm.me", "aleeas.com"
+    "startmail.com",
+    "mailfence.com",
+    "countermail.com",
+    "hushmail.com",
+    "runbox.com",
+    "posteo.de",
+    "kolabnow.com",
+    "disroot.org",
+    "ctemplar.com",
+    "privateemail.com",
+    "migadu.com",
+
 }
 
 

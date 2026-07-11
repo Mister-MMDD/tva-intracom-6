@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+from tva_intracom.i18n import _
 
 from tva_intracom.ui.formatting import _fmt, _gated_preview_table, _smart_money_df, _render_filter_bar
 from tva_intracom.ui.tabs.context import TabContext
@@ -20,14 +21,20 @@ def render_detail_ventes(ctx: TabContext) -> None:
     _can_export = ctx.can_export
 
     sub_a, sub_b, sub_c, sub_d = st.tabs([
-        "💸 Ce que vous devez", "🤝 Géré par des tiers", "📄 Ligne par ligne",
-        f"🔄 Remboursements ({len(refund_results or [])})",
+        _("subtab_what_you_owe"), _("subtab_managed_by_tiers"), _("subtab_row_by_row"),
+        _("subtab_refunds", count=len(refund_results or [])),
     ])
 
     with sub_a:
-        st.caption("Ventes dont vous êtes responsable de la TVA.")
+        st.caption(_("what_you_owe_caption"))
         your_results = [r for r in results if r.collector.value == "SELLER"]
-        sort_yours = st.radio("Trier par", ["Pays","Taux","HT"], horizontal=True, key="sort_yours")
+        _sort_opts = {
+            _("sort_country"): "Pays",
+            _("sort_rate"): "Taux",
+            _("sort_ht"): "HT"
+        }
+        sort_yours_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_yours")
+        sort_yours = _sort_opts[sort_yours_lbl]
         if sort_yours == "Pays": your_results.sort(key=lambda r: r.vat_country)
         elif sort_yours == "Taux": your_results.sort(key=lambda r: -r.vat_rate)
         else: your_results.sort(key=lambda r: -r.sale.amount_ht)
@@ -45,7 +52,7 @@ def render_detail_ventes(ctx: TabContext) -> None:
         _your_df_filt = _render_filter_bar(_your_df_full, "your")
 
         # Pagination
-        _ps_your = st.select_slider("Lignes par page", options=[100, 250, 500, 1000, "Toutes"],
+        _ps_your = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
             value=250, key="page_size_your")
         _n_your = len(_your_df_filt)
         _lim_your = _n_your if _ps_your == "Toutes" else int(_ps_your)

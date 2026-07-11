@@ -70,7 +70,7 @@ class TestExport:
         assert res.vat_rate == Decimal("0")
         assert res.vat_amount == Decimal("0.00")
         assert res.collector == Collector.SELLER
-        assert res.channel == Channel.NONE
+        assert res.channel == Channel.EXONERATION
 
     def test_export_to_us(self):
         sale = make_sale(buyer_country="US", amount_ht=Decimal("500"))
@@ -169,7 +169,7 @@ class TestDeemedSupplier:
         res = compute_vat(sale)
         assert res.scenario == Scenario.DEEMED_SUPPLIER
         assert res.collector == Collector.AMAZON
-        assert res.channel == Channel.NONE
+        assert res.channel == Channel.EXONERATION
 
     def test_seller_non_eu_intra_eu_stock_b2c(self):
         """Vendeur non-UE, stock UE, acheteur UE, B2C → deemed supplier."""
@@ -225,7 +225,7 @@ class TestB2BReverseCharge:
         assert res.vat_rate == Decimal("0")
         assert res.vat_amount == Decimal("0.00")
         assert res.collector == Collector.BUYER
-        assert res.channel == Channel.NONE
+        assert res.channel == Channel.EXONERATION
 
     def test_reverse_charge_invalid_vat_not_triggered(self):
         """TVA invalide (non validée) → pas d'autoliquidation."""
@@ -418,7 +418,7 @@ class TestImportStandard:
         res = compute_vat(sale)
         assert res.scenario == Scenario.IMPORT_STANDARD
         assert res.collector == Collector.BUYER
-        assert res.channel == Channel.NONE
+        assert res.channel == Channel.EXONERATION
         assert res.vat_country == "FR"
 
     def test_import_standard_vat_rate(self):

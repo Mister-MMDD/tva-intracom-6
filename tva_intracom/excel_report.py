@@ -14,6 +14,10 @@ from openpyxl.utils import get_column_letter
 
 from .models import VatResult
 from .report import ReportSummary, build_report
+from .i18n import _
+from .rates import COUNTRY_NAMES
+
+_COUNTRY_NAMES_XL = COUNTRY_NAMES
 
 _CENT = Decimal("0.01")
 
@@ -21,14 +25,11 @@ def _round(amount: Decimal) -> Decimal:
     return amount.quantize(_CENT, rounding=ROUND_HALF_UP)
 
 # Noms complets des pays pour l'affichage dans Excel
-_COUNTRY_NAMES_XL: dict[str, str] = {
-    "AT":"Autriche","BE":"Belgique","BG":"Bulgarie","HR":"Croatie","CY":"Chypre",
-    "CZ":"Tchéquie","DK":"Danemark","EE":"Estonie","FI":"Finlande","FR":"France",
-    "DE":"Allemagne","GR":"Grèce","HU":"Hongrie","IE":"Irlande","IT":"Italie",
-    "LV":"Lettonie","LT":"Lituanie","LU":"Luxembourg","MT":"Malte","NL":"Pays-Bas",
-    "PL":"Pologne","PT":"Portugal","RO":"Roumanie","SK":"Slovaquie","SI":"Slovénie",
-    "ES":"Espagne","SE":"Suède","GB":"Royaume-Uni",
-}
+def _get_country_name(code: str) -> str:
+    # On pourrait traduire COUNTRY_NAMES ici via i18n si on voulait
+    # mais pour l'instant on garde la logique existante ou on utilise i18n
+    # On va privilégier COUNTRY_NAMES qui est déjà complet.
+    return COUNTRY_NAMES.get(code.upper(), code)
 
 _HEADER_FONT_WHITE = Font(bold=True, size=11, color="FFFFFF")
 _TITLE_FONT = Font(bold=True, size=12, color="1F497D")
@@ -80,13 +81,13 @@ def _auto_width(ws) -> None:
 
 
 def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) -> None:
-    ws.title = "Recapitulatif"
+    ws.title = _("xl_tab_recap")
     
-    ws.cell(row=1, column=1, value="SYNTHÈSE DE LA TVA ET ACTIVITÉ E-COMMERCE").font = _TITLE_FONT
+    ws.cell(row=1, column=1, value=_("xl_recap_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
 
     # Entêtes de la grille de synthèse
-    headers = ["Indicateur / Flux Fiscal", "Montant Brut (Ventes)", "Remboursements", "Montant Net"]
+    headers = [_("xl_recap_col_indicator"), _("xl_recap_col_gross"), _("xl_recap_col_refunds"), _("xl_recap_col_net")]
     _set_header(ws, 3, headers, fill=_BLUE_HEADER_FILL)
     ws.row_dimensions[3].height = 22
 
@@ -102,14 +103,14 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
 
     # [Libellé, Montant Brut (positif), Remboursements (négatif ou 0)]
     data_structure = [
-        ("Chiffre d'Affaires global (Hors Taxes)",          summary.total_ht,          ref_tot_ht),
-        ("TVA France (Déclaration CA3)",                     summary.fr_domestic_vat,   ref_fr),
-        ("TVA Guichet Unique OSS (Total Europe)",            oss_brut,                  ref_oss),
-        ("TVA Collectée par Amazon (Deemed Supplier)",       summary.amazon_vat,        ref_amz),
-        ("TVA Locale Autre Fisc (Immatriculation requise)",  local_brut,                ref_local),
-        ("TVA Importation en Douane",                        summary.import_vat,        _z),
-        ("Ventes B2B Exonérées (Autoliquidation, HT)",       summary.reverse_charge_ht, _z),
-        ("Exportations hors UE (Exonérées, HT)",             summary.export_ht,         _z),
+        (_("xl_indicator_ca_ht"),          summary.total_ht,          ref_tot_ht),
+        (_("xl_indicator_vat_fr"),         summary.fr_domestic_vat,   ref_fr),
+        (_("xl_indicator_vat_oss"),        oss_brut,                  ref_oss),
+        (_("xl_indicator_vat_amazon"),     summary.amazon_vat,        ref_amz),
+        (_("xl_indicator_vat_local"),      local_brut,                ref_local),
+        (_("xl_indicator_vat_import"),     summary.import_vat,        _z),
+        (_("xl_indicator_b2b_exempt"),     summary.reverse_charge_ht, _z),
+        (_("xl_indicator_export_exempt"),   summary.export_ht,         _z),
     ]
 
     current_row = 4
@@ -146,7 +147,7 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
 
     # Ligne de Total final "TVA net à payer par vous"
     current_row += 1
-    ws.cell(row=current_row, column=1, value="TOTAL TVA NETTE À REVERSER PAR VOS SOINS (CA3 + OSS + Local)").font = _BOLD_FONT
+    ws.cell(row=current_row, column=1, value=_("xl_recap_total_remit")).font = _BOLD_FONT
 
     # Formules dynamiques : CA3 + OSS + Local (Amazon et Import exclus — collectés par tiers)
     _total_brut_formula  = f"=B{_row_ca3}+B{_row_oss}+B{_row_local}"
@@ -174,15 +175,15 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
     # comptable de retrouver le même contrôle d'intégrité dans le livrable
     # Excel, sans avoir accès à l'interface Streamlit.
     current_row += 3
-    ws.cell(row=current_row, column=1, value="CONTRÔLE DE COHÉRENCE ET INTÉGRITÉ TECHNIQUE").font = _TITLE_FONT
+    ws.cell(row=current_row, column=1, value=_("xl_audit_integrity_title")).font = _TITLE_FONT
     ws.row_dimensions[current_row].height = 22
     current_row += 1
     ws.cell(row=current_row, column=1,
-        value="Vérifie l'intégrité du fichier et la ventilation par canal (test d'intégrité interne).")
+        value=_("xl_audit_integrity_help"))
     current_row += 2
 
     _bucket_header_row = current_row
-    _set_header(ws, _bucket_header_row, ["Indicateur d'audit / Canal fiscal", "Valeur de contrôle"], fill=_BLUE_HEADER_FILL)
+    _set_header(ws, _bucket_header_row, [_("xl_audit_col_channel"), _("xl_audit_col_control")], fill=_BLUE_HEADER_FILL)
     current_row += 1
     _bucket_first_data_row = current_row
     net_ht_by_bucket = getattr(summary, "net_ht_by_bucket", {})
@@ -199,7 +200,7 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
     _bucket_last_data_row = max(current_row - 1, _bucket_first_data_row)
 
     current_row += 1
-    ws.cell(row=current_row, column=1, value="Total CA HT (somme des canaux)").font = _BOLD_FONT
+    ws.cell(row=current_row, column=1, value=_("xl_audit_total_ht")).font = _BOLD_FONT
     _c_bucket_total = ws.cell(
         row=current_row, column=2,
         value=f"=SUM(B{_bucket_first_data_row}:B{_bucket_last_data_row})",
@@ -208,13 +209,13 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
     _c_bucket_total.font = _BOLD_FONT
 
     current_row += 1
-    ws.cell(row=current_row, column=1, value="CA HT net déclaré (référence, cf. ligne 1 ci-dessus)")
+    ws.cell(row=current_row, column=1, value=_("xl_audit_declared_net_ht"))
     _declared_net_ht = float(summary.total_ht + summary.refund_total_ht)
     _c_declared = ws.cell(row=current_row, column=2, value=_declared_net_ht)
     _c_declared.number_format = _EUR_FORMAT
 
     current_row += 1
-    ws.cell(row=current_row, column=1, value="Écart de réconciliation (doit être 0,00 €)").font = _BOLD_FONT
+    ws.cell(row=current_row, column=1, value=_("xl_audit_reconciliation_gap")).font = _BOLD_FONT
     _c_delta = ws.cell(row=current_row, column=2, value=f"=B{current_row - 1}-B{current_row - 2}")
     _c_delta.number_format = _EUR_FORMAT
     _c_delta.font = _BOLD_FONT
@@ -222,11 +223,11 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
     # --- Injection des Hash Totals techniques en fin de tableau ---
     if hash_totals:
         current_row += 2
-        ws.cell(row=current_row, column=1, value="Nombre total de lignes traitées (Ventes + Avoirs)")
+        ws.cell(row=current_row, column=1, value=_("xl_audit_total_rows"))
         ws.cell(row=current_row, column=2, value=hash_totals.get("count", 0)).font = Font(name="Courier New")
         
         current_row += 1
-        ws.cell(row=current_row, column=1, value="Signature numérique du fichier (Hash ID)")
+        ws.cell(row=current_row, column=1, value=_("xl_audit_file_signature"))
         ws.cell(row=current_row, column=2, value=hash_totals.get("id_hash", 0)).font = Font(name="Courier New", bold=True)
 
     _auto_width(ws)
@@ -236,10 +237,10 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
     ws.title = tab_title
     
     headers = [
-        "ID Transaction", "Date", "Depart", "Arrivee", "Type Acheteur",
-        "Montant HT", "Scenario Fiscal", "Pays Taxe", "Taux TVA", "Montant TVA",
-        "TVA Amazon (EUR)", "Ecart Moteur/Amazon (EUR)",
-        "Collecteur", "Canal/Marketplace", "Note Technique"
+        _("xl_col_tx_id"), _("xl_col_date"), _("xl_col_from"), _("xl_col_to"), _("xl_col_buyer_type"),
+        _("xl_col_amount_ht"), _("xl_col_scenario"), _("xl_col_vat_country"), _("xl_col_vat_rate"), _("xl_col_vat_amount"),
+        _("xl_col_vat_amazon"), _("xl_col_vat_gap"),
+        _("xl_col_collector"), _("xl_col_channel"), _("xl_col_note")
     ]
     
     header_fill = _ORANGE_HEADER_FILL if is_refund_tab else _BLUE_HEADER_FILL
@@ -329,14 +330,12 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         return "Écart de taux / Divers"
 
     # ── Section 1 : Réconciliation agrégée ──────────────────────────────
-    ws.title = "Audit & Réconciliation"
+    ws.title = _("xl_tab_audit")
     ws.cell(row=1, column=1,
-            value="RÉCONCILIATION AGRÉGÉE — Amazon vs Moteur").font = _TITLE_FONT
+            value=_("xl_audit_agg_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 24
     ws.cell(row=2, column=1,
-            value="Agrégation par nature d'écart et pays de destination. "
-                  "Écart % = (Amazon − Moteur) / Moteur. "
-                  "Les catégories > 5% d'écart moyen méritent une vérification paramétrage.").font = Font(italic=True, size=9, color="595959")
+            value=_("xl_audit_agg_help")).font = Font(italic=True, size=9, color="595959")
     ws.row_dimensions[2].height = 18
     ws.row_dimensions[3].height = 8
 
@@ -362,10 +361,10 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
             detail_rows.append((r, nat, dep, arr, tva_amz, tva_mot, ecart))
 
     _set_header(ws, 4, [
-        "Nature d'écart", "Pays destination",
-        "Nb lignes", "CA HT total (€)",
-        "TVA Amazon (€)", "TVA Moteur (€)",
-        "Écart (€)", "Écart %", "Niveau de risque",
+        _("xl_audit_col_nature"), _("xl_audit_col_dest"),
+        _("xl_audit_col_count"), _("xl_audit_col_ca_ht"),
+        _("xl_audit_col_vat_amz"), _("xl_audit_col_vat_mot"),
+        _("xl_audit_col_gap_abs"), _("xl_audit_col_gap_pct"), _("xl_audit_col_risk"),
     ], fill=_ORANGE_HEADER_FILL)
     ws.row_dimensions[4].height = 22
 
@@ -373,11 +372,11 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     for (nat, arr), d in sorted(agg.items()):
         ecart_abs = d["amz"] - d["mot"]
         pct = (ecart_abs / d["mot"] * 100) if d["mot"] != 0 else Decimal("0")
-        risque = ("🔴 Élevé" if abs(float(pct)) > 10
-                  else "🟡 Moyen" if abs(float(pct)) > 3
-                  else "🟢 Faible")
+        risque = (_("xl_risk_high") if abs(float(pct)) > 10
+                  else _("xl_risk_medium") if abs(float(pct)) > 3
+                  else _("xl_risk_low"))
         ws.cell(row=row, column=1, value=nat)
-        ws.cell(row=row, column=2, value=f"{_COUNTRY_NAMES_XL.get(arr, arr)} ({arr})")
+        ws.cell(row=row, column=2, value=f"{_get_country_name(arr)} ({arr})")
         ws.cell(row=row, column=3, value=d["n"])
         ws.cell(row=row, column=4, value=float(d["ht"])).number_format = _EUR_FORMAT
         ws.cell(row=row, column=5, value=float(d["amz"])).number_format = _EUR_FORMAT
@@ -392,19 +391,19 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         row += 1
 
     if row == 5:
-        ws.cell(row=5, column=1, value="Aucun écart détecté — Amazon et le moteur sont en accord.").font = Font(italic=True)
+        ws.cell(row=5, column=1, value=_("xl_no_gap_detected")).font = Font(italic=True)
         row = 6
 
     # ── Section 2 : Détail ligne par ligne ──────────────────────────────
     row += 2
     ws.cell(row=row, column=1,
-            value="DÉTAIL LIGNE PAR LIGNE").font = Font(bold=True, size=11, color="1F497D")
+            value=_("xl_audit_detail_title")).font = Font(bold=True, size=11, color="1F497D")
     ws.row_dimensions[row].height = 20
     row += 1
     _set_header(ws, row, [
-        "ID Vente", "Nature", "Flux",
-        "Scénario", "HT (€)",
-        "TVA Amazon (€)", "TVA Moteur (€)", "Écart (€)",
+        _("xl_detail_col_sale_id"), _("xl_detail_col_nature"), _("xl_detail_col_flow"),
+        _("xl_detail_col_scenario"), _("xl_detail_col_ht"),
+        _("xl_detail_col_vat_amz"), _("xl_detail_col_vat_mot"), _("xl_detail_col_gap"),
     ])
     ws.row_dimensions[row].height = 22
     row += 1
@@ -423,36 +422,19 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         row += 1
 
     if not detail_rows:
-        ws.cell(row=row, column=1, value="Aucune ligne en écart.").font = Font(italic=True)
+        ws.cell(row=row, column=1, value=_("xl_no_line_gap")).font = Font(italic=True)
 
     _auto_width(ws)
 
 
 def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
-    """Onglet Historique VIES : piste d'audit de chaque vérification effectuée.
-
-    S'appuie sur vies.get_vies_history() — table append-only jamais écrasée
-    (contrairement au cache TTL vies_cache). Permet de prouver, en cas de
-    contrôle, le statut VIES tel qu'il était au moment de chaque vérification
-    (ex: client valide en janvier, radié en décembre).
-
-    Limite légale à connaître : VIES ne renvoie que le statut COURANT d'un
-    numéro au moment de l'interrogation — il n'existe pas d'API permettant
-    d'interroger le statut "tel qu'il était" à une date passée. Cet onglet
-    journalise donc ce que VIES répondait à CHAQUE vérification effectuée
-    par cet outil, pas le statut réel à la date de chaque vente. Si un
-    numéro n'a été vérifié qu'une fois (lors du traitement le plus récent),
-    une seule ligne apparaîtra même s'il couvre des ventes étalées sur
-    plusieurs mois.
-
-    L'historique est scopé par compte/domaine (voir tva_intracom/vies.py) :
-    seules les vérifications appartenant au scope_id du compte courant sont
-    affichées, même quand la donnée provenait à l'origine du cache mutualisé.
-    """
+    """Onglet Historique VIES : piste d'audit de chaque vérification effectuée."""
     from .vies import get_vies_history_bulk
 
+    ws.title = _("xl_tab_vies")
     _set_header(ws, 1, [
-        "N° TVA", "Date vérification (UTC)", "Statut", "Pays", "Raison sociale", "Erreur"
+        _("xl_vies_col_vat"), _("xl_vies_col_checked_at"), _("xl_vies_col_status"),
+        _("xl_vies_col_country"), _("xl_vies_col_name"), _("xl_vies_col_error")
     ])
     ws.row_dimensions[1].height = 22
 
@@ -472,7 +454,7 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
         for entry in history:
             ws.cell(row=row, column=1, value=vat)
             ws.cell(row=row, column=2, value=entry["checked_at"])
-            ws.cell(row=row, column=3, value="Valide" if entry["valid"] else "Invalide")
+            ws.cell(row=row, column=3, value=_("xl_vies_status_valid") if entry["valid"] else _("xl_vies_status_invalid"))
             ws.cell(row=row, column=4, value=entry["country_code"])
             ws.cell(row=row, column=5, value=entry["name"])
             ws.cell(row=row, column=6, value=entry["error"])
@@ -480,7 +462,7 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
             row += 1
 
     if row == 2:
-        ws.cell(row=2, column=1, value="Aucun historique VIES disponible (cache local vide).")
+        ws.cell(row=2, column=1, value=_("xl_vies_no_history"))
     _auto_width(ws)
 
 
@@ -490,38 +472,13 @@ def _write_intrastat_tab(
     results: list,
     seller_country: str = "FR",
 ) -> None:
-    """Onglet Intrastat / EMEBI (statistique) — aide au remplissage de la déclaration.
-
-    Depuis 2022, la douane française a scindé l'ancienne "DEB" en deux
-    obligations distinctes, qui NE partagent PAS le même seuil :
-    - EMEBI (Enquête statistique, cet onglet) : déclenchée uniquement au-delà
-      du seuil annuel (voir jauge ci-dessous), par sens de flux.
-    - État récapitulatif de TVA (ESL/DES) : obligation FISCALE séparée, dès
-      le 1er euro, pour les livraisons intracommunautaires B2B exonérées
-      (art. 289 B CGI). Cette échéance est générée dans l'onglet
-      "Calendrier Fiscal" (voir `_write_calendar_tab`) et n'est PAS
-      conditionnée par le seuil EMEBI ci-dessous — un flux sous le seuil
-      EMEBI peut donc rester soumis à l'ESL.
-
-    Chaque ligne = un flux (pays_départ, pays_arrivée, ASIN) avec :
-    - Nature de la transaction : 11 (transfert de stock, art. 17 dir. 2006/112/CE)
-    - Valeur statistique : prix de vente moyen HT (approximation, valeur d'achat idéale)
-    - Masse nette et quantité : non calculables depuis les données Amazon (à compléter)
-    - Code NC / CN8 : à compléter par le déclarant (Amazon ne fournit pas le code douanier)
-
-    ⚠ Ce tableau est une AIDE AU REMPLISSAGE et non une déclaration valide. Le
-    dépôt se fait sur le portail Pro.douane (https://pro.douane.gouv.fr). Le
-    seuil utilisé est celui de `rates.INTRASTAT_EMEBI_THRESHOLDS_FR` : s'il
-    n'est pas explicitement confirmé pour l'année en cours, un avertissement
-    est affiché à l'utilisateur (voir `seuil_confirme` ci-dessous).
-    """
+    """Onglet Intrastat / EMEBI (statistique) — aide au remplissage de la déclaration."""
     from .rates import intrastat_emebi_threshold_for_year
 
-    ws.title = "Intrastat (EMEBI)"
+    ws.title = _("xl_tab_intrastat")
     GREEN_FILL = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
 
-    ws.cell(row=1, column=1,
-            value="AIDE AU REMPLISSAGE — ENQUÊTE STATISTIQUE EMEBI (ex-DEB/DEA)").font = _TITLE_FONT
+    ws.cell(row=1, column=1, value=_("xl_intrastat_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
 
     # Année de référence pour le seuil : année en cours au moment de la génération.
@@ -529,18 +486,11 @@ def _write_intrastat_tab(
     _seuil_annee_ref, _seuil_confirme = intrastat_emebi_threshold_for_year(_current_year)
     _seuil_warning = (
         "" if _seuil_confirme else
-        f"  |  ⚠ Seuil {_current_year} non confirmé — dernière valeur connue reprise par extrapolation, à vérifier sur pro.douane.gouv.fr."
+        _("xl_intrastat_unconfirmed_warning", year=_current_year)
     )
 
     # Note légale
-    note = ws.cell(row=2, column=1, value=(
-        f"Déclarant présumé : {seller_country}  |  "
-        f"Seuil EMEBI {_current_year} : {_seuil_annee_ref:,.0f} €/an (introductions et expéditions ; "
-        "obligation STATISTIQUE — distincte de l'état récapitulatif TVA/ESL, exigible dès 1€, voir onglet Calendrier Fiscal).  |  "
-        "Dépôt sur pro.douane.gouv.fr  |  Periodicité : mensuelle, avant le 10e jour ouvré du mois suivant.  |  "
-        "⚠ Code NC (CN8) et masse nette à compléter — non fournis par Amazon."
-        f"{_seuil_warning}"
-    ))
+    note = ws.cell(row=2, column=1, value=_("xl_intrastat_note", seller_country=seller_country, year=_current_year, threshold=_seuil_annee_ref, warning=_seuil_warning))
     note.font = Font(italic=True, size=10, color="C00000")
     ws.row_dimensions[2].height = 30
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=13)
@@ -553,7 +503,7 @@ def _write_intrastat_tab(
     from collections import defaultdict
     flux: dict[tuple, dict] = defaultdict(lambda: {"qty": 0, "nb": 0, "designation": ""})
     for t in all_fc_transfers:
-        _, date_str, asin, designation, dep, arr, qty = _parse_fc_transfer(t)
+        tx_id_unused, date_str, asin, designation, dep, arr, qty = _parse_fc_transfer(t)
         if not dep or not arr:
             continue
         mois = date_str[:7] if date_str else "—"
@@ -563,10 +513,6 @@ def _write_intrastat_tab(
         flux[key]["designation"]  = flux[key]["designation"] or designation
 
     # ── Jauge de seuil annuel (EMEBI) ───────────────────────────────────
-    # Cumul par année civile et par sens (intro/expé), toutes ASIN confondus,
-    # pour anticiper le franchissement de l'obligation déclarative EMEBI.
-    # Le seuil est recalculé PAR ANNÉE (il peut varier d'une année sur
-    # l'autre) plutôt que codé en dur — voir rates.INTRASTAT_EMEBI_THRESHOLDS_FR.
     seuil_par_annee: dict[str, dict] = defaultdict(lambda: {"intro": Decimal("0"), "expe": Decimal("0")})
     for (dep, arr, asin, mois), data in flux.items():
         annee = mois[:4] if mois and mois != "—" else "—"
@@ -579,11 +525,11 @@ def _write_intrastat_tab(
 
     current_row = 4
     if seuil_par_annee:
-        ws.cell(row=current_row, column=1,
-                value="SUIVI DU SEUIL ANNUEL EMEBI (obligation statistique — seuil par année, voir colonne dédiée)").font = Font(bold=True, size=11, color="C00000")
+        ws.cell(row=current_row, column=1, value=_("xl_intrastat_seuil_title")).font = Font(bold=True, size=11, color="C00000")
         current_row += 1
         _set_header(ws, current_row, [
-            "Année", "Sens", "Valeur cumulée estimée (€)", "Seuil EMEBI de l'année (€)", "% du seuil", "Statut",
+            _("xl_intrastat_col_year"), _("xl_intrastat_col_sens"), _("xl_intrastat_col_cumul"),
+            _("xl_intrastat_col_threshold"), _("xl_intrastat_col_pct"), _("xl_intrastat_col_status"),
         ], fill=PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"))
         current_row += 1
         any_unconfirmed = False
@@ -593,14 +539,14 @@ def _write_intrastat_tab(
             except ValueError:
                 seuil_annee, confirme = _seuil_annee_ref, _seuil_confirme
             any_unconfirmed = any_unconfirmed or not confirme
-            for sens_label, key_sens in [("Introductions", "intro"), ("Expéditions", "expe")]:
+            for sens_label, key_sens in [(_("Introductions"), "intro"), (_("Expéditions"), "expe")]:
                 cumul = seuil_par_annee[annee][key_sens]
                 pct = float(cumul / seuil_annee * 100) if seuil_annee else 0.0
-                statut = ("🔴 SEUIL DÉPASSÉ" if pct >= 100
-                          else "🟡 Proche du seuil (>80%)" if pct >= 80
-                          else "🟢 Sous le seuil")
+                statut = (_("xl_intrastat_status_exceeded") if pct >= 100
+                          else _("xl_intrastat_status_near") if pct >= 80
+                          else _("xl_intrastat_status_ok"))
                 if not confirme:
-                    statut += " (seuil non confirmé)"
+                    statut += _("xl_intrastat_status_unconfirmed")
                 ws.cell(row=current_row, column=1, value=annee)
                 ws.cell(row=current_row, column=2, value=sens_label)
                 c_v = ws.cell(row=current_row, column=3, value=float(cumul))
@@ -614,9 +560,64 @@ def _write_intrastat_tab(
                 ws.row_dimensions[current_row].height = 18
                 current_row += 1
         cap = ws.cell(row=current_row, column=1,
-                value="⚠ Valeurs estimées (prix vente moyen HT × qté) — à recouper avec la valeur d'achat réelle."
-                + (" Seuil(s) marqué(s) 'non confirmé' : à revérifier sur pro.douane.gouv.fr avant toute décision." if any_unconfirmed else ""))
+                value=_("xl_intrastat_footer", unconfirmed=(_("xl_intrastat_unconfirmed_footer") if any_unconfirmed else "")))
         cap.font = Font(italic=True, size=9, color="7f7f7f")
+        current_row += 2
+    else:
+        ws.cell(row=current_row, column=1, value=_("xl_intrastat_no_transfer")).font = Font(italic=True)
+        current_row += 2
+
+    # ── Détail introductions / expéditions (UE → seller_country) ────────
+    for flow_label_key, is_intro in [
+        ("xl_intrastat_intro_label", True),
+        ("xl_intrastat_expe_label", False),
+    ]:
+        ws.cell(row=current_row, column=1, value=_(flow_label_key, country=seller_country)).font = Font(bold=True, size=11, color="375623")
+        current_row += 1
+        _set_header(ws, current_row, [
+            _("xl_intrastat_col_period"), _("xl_intrastat_col_origin"), _("xl_intrastat_col_dest_cc"),
+            _("xl_intrastat_col_flow_code"), _("xl_intrastat_col_nature_tx"),
+            _("xl_intrastat_col_asin"), _("xl_intrastat_col_desc"),
+            _("xl_intrastat_col_cn8"), _("xl_intrastat_col_qty"), _("xl_intrastat_col_mass"),
+            _("xl_intrastat_col_val_stat"), _("xl_intrastat_col_delivery"), _("xl_intrastat_col_remark"),
+        ], fill=GREEN_FILL)
+        ws.row_dimensions[current_row].height = 22
+        current_row += 1
+
+        rows_written = 0
+        sens = _("Intro") if is_intro else _("Expé")
+        for (dep, arr, asin, mois), data in sorted(flux.items()):
+            if is_intro and arr != seller_country:
+                continue
+            if not is_intro and dep != seller_country:
+                continue
+
+            qty    = data["qty"]
+            desc   = data["designation"][:80] if data["designation"] else ""
+            avg    = asin_avg.get(asin, Decimal("0"))
+            valeur = _round(Decimal(str(qty)) * avg) if avg else Decimal("0")
+
+            ws.cell(row=current_row, column=1,  value=mois)
+            ws.cell(row=current_row, column=2,  value=f"{_get_country_name(dep)} ({dep})")
+            ws.cell(row=current_row, column=3,  value=f"{_get_country_name(arr)} ({arr})")
+            ws.cell(row=current_row, column=4,  value=sens)
+            ws.cell(row=current_row, column=5,  value=_("xl_intrastat_transfer_desc"))
+            ws.cell(row=current_row, column=6,  value=asin)
+            ws.cell(row=current_row, column=7,  value=desc)
+            ws.cell(row=current_row, column=8,  value=_("xl_intrastat_to_complete"))
+            ws.cell(row=current_row, column=9,  value=qty)
+            ws.cell(row=current_row, column=10, value=_("xl_intrastat_to_complete"))
+            c_v = ws.cell(row=current_row, column=11, value=float(valeur))
+            c_v.number_format = _EUR_FORMAT
+            ws.cell(row=current_row, column=12, value="DAP / DDP")
+            ws.cell(row=current_row, column=13, value=_("xl_intrastat_estimated_val_remark"))
+            ws.row_dimensions[current_row].height = 18
+            current_row += 1
+            rows_written += 1
+
+        if rows_written == 0:
+            ws.cell(row=current_row, column=1, value=_("xl_intrastat_no_flow_detected", sens=sens))
+            current_row += 1
         current_row += 2
     else:
         ws.cell(row=current_row, column=1,
@@ -719,44 +720,25 @@ def _write_calendar_tab(
     period: str = "",
     seller_country: str = "FR",
 ) -> None:
-    """Onglet Calendrier Fiscal — prochaines échéances déduites des données traitées.
-
-    Génère le calendrier des obligations déclaratives et de paiement,
-    en distinguant par canal (OSS, CA3/TVA locale FR, Intrastat) et
-    en recalculant dynamiquement les dates limites à partir :
-    - de la période OSS déclarée (trimestriel)
-    - des mois couverts par les ventes (CA3 mensuelle)
-    - des mois couverts par les transferts FC (Intrastat mensuelle)
-
-    Sources légales :
-    - OSS : art. 369 sexdecies Dir. 2006/112/CE → dépôt + paiement avant le
-      dernier jour du mois suivant la fin du trimestre (art. 369 septdecies).
-    - CA3 : art. 287 CGI, régime normal → dépôt mensuel, 24e du mois suivant
-      (ou 19e pour régime simplif. trimestriel — non couvert ici).
-    - Intrastat : art. 7 Règl. UE 2019/2152 → avant le 10e jour ouvré du mois
-      suivant le mois de référence.
-    - Relevé de TVA intracommunautaire (Recap. Statement / ESL) : même délai que CA3.
-    """
-    ws.title = "Calendrier Fiscal"
+    """Onglet Calendrier Fiscal — prochaines échéances déduites des données traitées."""
+    ws.title = _("xl_tab_calendar")
     PURPLE_FILL = PatternFill(start_color="6B3FA0", end_color="6B3FA0", fill_type="solid")
     GREEN_FILL  = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
     ORANGE_FILL = _ORANGE_HEADER_FILL
     RED_FILL    = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid")
     today       = _date.today()
 
-    ws.cell(row=1, column=1,
-            value="CALENDRIER DES ÉCHÉANCES DÉCLARATIVES ET DE PAIEMENT").font = _TITLE_FONT
+    ws.cell(row=1, column=1, value=_("xl_cal_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
     ws.cell(row=2, column=1,
-            value=f"Généré le {today.isoformat()}  |  Déclarant : {seller_country}  |  "
-                  f"Période analysée : {period or 'non spécifiée'}").font = Font(italic=True, size=10, color="595959")
+            value=_("xl_cal_meta", date=today.isoformat(), country=seller_country, period=(period or _("non spécifiée")))).font = Font(italic=True, size=10, color="595959")
     ws.row_dimensions[2].height = 20
     ws.row_dimensions[3].height = 8
 
     _set_header(ws, 4, [
-        "Canal", "Obligation", "Période de référence",
-        "Date limite légale", "Jours restants", "Statut",
-        "Portail / action", "Base légale",
+        _("xl_cal_col_channel"), _("xl_cal_col_obligation"), _("xl_cal_col_ref_period"),
+        _("xl_cal_col_deadline"), _("xl_cal_col_remaining"), _("xl_cal_col_status"),
+        _("xl_cal_col_portal"), _("xl_cal_col_legal"),
     ], fill=PURPLE_FILL)
     ws.row_dimensions[4].height = 22
 
@@ -765,7 +747,7 @@ def _write_calendar_tab(
     def _write_row(canal, obligation, periode_ref, deadline, portail, base_legale, fill):
         nonlocal row
         jours = (deadline - today).days
-        statut = "✅ À venir" if jours > 7 else ("⚠️ Urgent" if jours >= 0 else "🔴 Dépassé")
+        statut = _("xl_cal_status_upcoming") if jours > 7 else (_("xl_cal_status_urgent") if jours >= 0 else _("xl_cal_status_overdue"))
         ws.cell(row=row, column=1, value=canal).fill = fill
         ws.cell(row=row, column=1).font = Font(bold=True, color="FFFFFF")
         ws.cell(row=row, column=2, value=obligation)
@@ -818,7 +800,7 @@ def _write_calendar_tab(
         deadline    = _deadline_oss(last_q_day)
         _write_row(
             "OSS",
-            "Dépôt + paiement déclaration OSS",
+            _("Dépôt + paiement déclaration OSS"),
             f"T{q} {yr}",
             deadline,
             "guichet-entreprises.fr / portail OSS DGFIP",
@@ -843,7 +825,7 @@ def _write_calendar_tab(
         deadline = _date(next_yr, next_mo, 24)
         _write_row(
             "CA3 / TVA FR",
-            "Dépôt CA3 + paiement TVA France",
+            _("Dépôt CA3 + paiement TVA France"),
             f"{yr}-{mo:02d}",
             deadline,
             "impots.gouv.fr (espace professionnel) → Déclarer → TVA",
@@ -854,7 +836,7 @@ def _write_calendar_tab(
     # ── 3. Intrastat ─────────────────────────────────────────────────────
     intrastat_months: set[tuple[int, int]] = set()
     for t in all_fc_transfers:
-        _, date_str, _, _, dep, arr, _ = _parse_fc_transfer(t)
+        tx_id_unused, date_str, asin_unused, desc_unused, dep, arr, qty_unused = _parse_fc_transfer(t)
         if not dep or not arr:
             continue
         if dep != seller_country and arr != seller_country:
@@ -878,7 +860,7 @@ def _write_calendar_tab(
                 d_limit += timedelta(days=1)
         _write_row(
             "EMEBI (Intrastat)",
-            f"Enquête statistique EMEBI {seller_country} (introductions + expéditions, sous réserve de seuil — voir onglet dédié)",
+            _("Enquête statistique EMEBI {country} (introductions + expéditions, sous réserve de seuil — voir onglet dédié)", country=seller_country),
             f"{yr}-{mo:02d}",
             d_limit,
             "pro.douane.gouv.fr → EMEBI/Intrastat",
@@ -902,8 +884,8 @@ def _write_calendar_tab(
         next_yr = yr if mo < 12 else yr + 1
         deadline = _date(next_yr, next_mo, 24)
         _write_row(
-            "Relevé TVA intracom (ESL)",
-            "Relevé des livraisons B2B intra-UE exonérées",
+            _("Relevé TVA intracom (ESL)"),
+            _("Relevé des livraisons B2B intra-UE exonérées"),
             f"{yr}-{mo:02d}",
             deadline,
             "impots.gouv.fr → DES (Déclaration Européenne de Services) / ESL",
@@ -912,8 +894,9 @@ def _write_calendar_tab(
         )
 
     if row == 5:
-        ws.cell(row=5, column=1,
-                value="Aucune échéance calculable (aucune vente traitée, aucun transfert FC).").font = Font(italic=True)
+        ws.cell(row=5, column=1, value=_("xl_cal_no_deadline")).font = Font(italic=True)
+
+    _auto_width(ws)
 
     _auto_width(ws)
 
@@ -979,15 +962,15 @@ def _build_asin_avg_price(results: list) -> dict[str, Decimal]:
 
 def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
     """Onglet Mouvements Stock FBA — détail de chaque transfert."""
-    ws.title = "Transferts FBA Détail"
+    ws.title = _("xl_tab_fba")
     _set_header(ws, 1, [
-        "Transaction ID", "Date", "ASIN", "Désignation",
-        "Qté", "Départ", "Arrivée", "Type mouvement",
+        _("xl_fba_col_tx_id"), _("xl_fba_col_date"), _("xl_fba_col_asin"), _("xl_fba_col_desc"),
+        _("xl_fba_col_qty"), _("xl_fba_col_dep"), _("xl_fba_col_arr"), _("xl_fba_col_type"),
     ], fill=_ORANGE_HEADER_FILL)
     ws.row_dimensions[1].height = 22
 
     if not all_fc_transfers:
-        ws.cell(row=2, column=1, value="Aucun transfert FBA détecté.")
+        ws.cell(row=2, column=1, value=_("xl_fba_none"))
         _auto_width(ws)
         return
 
@@ -1218,12 +1201,12 @@ def _write_fba_aic_tab(
 
 def _write_oss_tab(ws, summary: ReportSummary) -> None:
     """Onglet OSS détaillé : Brut / Remboursements / Net par pays de destination."""
-    ws.title = "Détail OSS par pays"
+    ws.title = _("xl_tab_oss")
 
-    ws.cell(row=1, column=1, value="DÉCLARATION OSS — DÉTAIL PAR PAYS DE DESTINATION").font = _TITLE_FONT
+    ws.cell(row=1, column=1, value=_("xl_oss_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
 
-    headers = ["Pays destination", "Code", "TVA Brute (ventes)", "Remboursements TVA", "TVA Nette à reverser"]
+    headers = [_("xl_oss_col_country"), _("xl_oss_col_code"), _("xl_oss_col_vat_gross"), _("xl_oss_col_vat_refunds"), _("xl_oss_col_vat_net")]
     _set_header(ws, 3, headers, fill=_BLUE_HEADER_FILL)
     ws.row_dimensions[3].height = 22
 
@@ -1238,7 +1221,7 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
         refund = summary.refund_oss_by_country.get(country, _z) if getattr(summary, "refund_oss_by_country", None) else _z
         net    = brut + refund
 
-        ws.cell(row=row, column=1, value=_COUNTRY_NAMES_XL.get(country, country))
+        ws.cell(row=row, column=1, value=_get_country_name(country))
         ws.cell(row=row, column=2, value=country)
 
         c_brut = ws.cell(row=row, column=3, value=float(brut))
@@ -1257,7 +1240,7 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
 
     # Ligne de total
     row += 1
-    ws.cell(row=row, column=1, value="TOTAL OSS").font = _BOLD_FONT
+    ws.cell(row=row, column=1, value=_("xl_oss_total")).font = _BOLD_FONT
     for col, formula in [(3, f"=SUM(C4:C{row-2})"), (4, f"=SUM(D4:D{row-2})"), (5, f"=C{row}+D{row}")]:
         c = ws.cell(row=row, column=col, value=formula)
         c.number_format = _EUR_FORMAT
@@ -1269,18 +1252,11 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
 
 
 def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None) -> None:
-    """Onglet TVA locale par pays (immatriculation locale hors OSS).
-
-    countries_with_vat : liste des pays où le vendeur a déclaré être
-    immatriculé (paramètres UI). Sert uniquement à un marquage visuel
-    d'alerte ici — n'affecte aucun calcul de TVA (voir engine.py, la
-    classification OSS/local ne dépend que de stock_country vs
-    buyer_country, jamais de cette liste).
-    """
-    ws.title = "TVA Locale par pays"
+    """Onglet TVA locale par pays (immatriculation locale hors OSS)."""
+    ws.title = _("xl_tab_local")
     countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
 
-    ws.cell(row=1, column=1, value="TVA LOCALE — IMMATRICULATION LOCALE PAR PAYS").font = _TITLE_FONT
+    ws.cell(row=1, column=1, value=_("xl_local_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
 
     _z = Decimal("0.00")
@@ -1291,16 +1267,11 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     header_row = 3
     if unregistered:
-        ws.cell(row=2, column=1, value=(
-            "⚠️ Immatriculation non confirmée dans les paramètres pour : "
-            + ", ".join(unregistered)
-            + " — vérifiez que la déclaration TVA locale correspondante est "
-            "bien effectuée dans ces pays avant de considérer ce rapport comme définitif."
-        )).font = _ALERT_FONT
+        ws.cell(row=2, column=1, value=_("xl_local_unregistered_warning", countries=", ".join(unregistered))).font = _ALERT_FONT
         ws.cell(row=2, column=1).fill = _ALERT_FILL
         ws.row_dimensions[2].height = 18
 
-    headers = ["Pays", "Code", "TVA due (ventes)", "Remboursements TVA", "TVA Nette", "Statut immatriculation"]
+    headers = [_("xl_local_col_country"), _("xl_local_col_code"), _("xl_local_col_vat_due"), _("xl_local_col_vat_refunds"), _("xl_local_col_vat_net"), _("xl_local_col_status")]
     _set_header(ws, header_row, headers, fill=_ORANGE_HEADER_FILL)
     ws.row_dimensions[header_row].height = 22
 
@@ -1311,7 +1282,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         net    = brut + refund
         is_registered = country in countries_with_vat
 
-        ws.cell(row=row, column=1, value=_COUNTRY_NAMES_XL.get(country, country))
+        ws.cell(row=row, column=1, value=_get_country_name(country))
         ws.cell(row=row, column=2, value=country)
 
         for col, val in [(3, float(brut)), (4, float(refund))]:
@@ -1325,7 +1296,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
         c_status = ws.cell(
             row=row, column=6,
-            value="✅ Immatriculé (déclaré)" if is_registered else "🚨 Non confirmé — à vérifier",
+            value=_("xl_local_status_registered") if is_registered else _("xl_local_status_unconfirmed"),
         )
         if not is_registered:
             c_status.font = _ALERT_FONT
@@ -1336,7 +1307,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     # Total
     row += 1
-    ws.cell(row=row, column=1, value="TOTAL LOCAL").font = _BOLD_FONT
+    ws.cell(row=row, column=1, value=_("xl_local_total")).font = _BOLD_FONT
     for col, formula in [(3, f"=SUM(C{header_row+1}:C{row-2})"), (4, f"=SUM(D{header_row+1}:D{row-2})"), (5, f"=C{row}+D{row}")]:
         c = ws.cell(row=row, column=col, value=formula)
         c.number_format = _EUR_FORMAT
@@ -1348,31 +1319,20 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
 
 def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
-    """Onglet INVOICE / CREDIT_NOTE — écritures de facturation Amazon hors
-    vente/remboursement (SALES_CHANNEL=AMAZON_FEE : commissions, FBA,
-    éco-contribution EPR, services de compte…), listées pour traçabilité
-    et rapprochement comptable (TVA potentiellement autoliquidée) — non
-    intégrées au calcul de TVA sur les ventes.
-    """
-    ws.title = "INVOICE & CREDIT_NOTE"
+    """Onglet INVOICE / CREDIT_NOTE."""
+    ws.title = _("xl_tab_invoice_cn")
 
-    ws.cell(row=1, column=1, value="ÉCRITURES INVOICE / CREDIT_NOTE (hors ventes/remboursements)").font = _TITLE_FONT
+    ws.cell(row=1, column=1, value=_("xl_inv_cn_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
-    ws.cell(row=2, column=1, value=(
-        "Lignes du rapport Amazon de type INVOICE ou CREDIT_NOTE : ni vente ni "
-        "remboursement client, exclues du calcul de TVA sur les ventes. Listées "
-        "ici pour rapprochement comptable — vérifier le traitement TVA "
-        "applicable (souvent autoliquidation sur prestations de services "
-        "Amazon, art. 283-2 CGI)."
-    ))
+    ws.cell(row=2, column=1, value=_("xl_inv_cn_help"))
     ws.row_dimensions[2].height = 18
 
-    headers = ["Type", "Date", "Marketplace", "Programme", "Référence", "Montant HT", "TVA", "Devise"]
+    headers = [_("xl_inv_cn_col_type"), _("xl_inv_cn_col_date"), _("xl_inv_cn_col_market"), _("xl_inv_cn_col_program"), _("xl_inv_cn_col_ref"), _("xl_inv_cn_col_ht"), _("xl_inv_cn_col_vat"), _("xl_inv_cn_col_currency")]
     _set_header(ws, 4, headers, fill=_BLUE_HEADER_FILL)
     ws.row_dimensions[4].height = 22
 
     if not invoice_credit_notes:
-        ws.cell(row=5, column=1, value="Aucune écriture INVOICE / CREDIT_NOTE détectée.")
+        ws.cell(row=5, column=1, value=_("xl_inv_cn_none"))
         _auto_width(ws)
         return
 
@@ -1401,7 +1361,7 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
         row += 1
 
     row += 1
-    ws.cell(row=row, column=1, value="TOTAL").font = _BOLD_FONT
+    ws.cell(row=row, column=1, value=_("xl_total")).font = _BOLD_FONT
     c_ht = ws.cell(row=row, column=6, value=float(_round(total_ht)))
     c_ht.number_format = _EUR_FORMAT
     c_ht.font = _HEADER_FONT_WHITE
