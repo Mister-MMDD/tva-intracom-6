@@ -876,7 +876,7 @@ ca3_row_e1_label = "Esportazioni fuori dall'Unione Europea (in partenza da {coun
 ca3_total_ca = "FATTURATO TOTALE"
 ca3_remb_note = "La colonna « Incluse note di credito » elenca i rimborsi/note di credito per il periodo già inclusi nella base netta — ai fini della riconciliazione, queste non sono caselle di modulo separate."
 
-ca3_b_title = "B. IVA dovuta — suddivisione per aliquota (operazioni nella Francia continentale)"
+ca3_sec_b_title  = "B. IVA dovuta — suddivisione per aliquota (operazioni nella Francia continentale)"
 ca3_col_cadre = "Casella"
 ca3_col_section = "Sezione fiscale"
 ca3_col_b_base_sales = "Base vendite"

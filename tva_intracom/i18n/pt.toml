@@ -876,7 +876,7 @@ ca3_row_e1_label = "Exportações para fora da União Europeia (com partida de {
 ca3_total_ca = "VOLUME DE NEGÓCIOS TOTAL"
 ca3_remb_note = "A coluna « Incluindo notas de crédito » lista os reembolsos/notas de crédito do período já incluídos na base líquida — para fins de reconciliação, estes não são caixas separadas do Formulário."
 
-ca3_b_title = "B. IVA Devido — divisão por taxa (transações na França Continental)"
+ca3_sec_b_title = "B. IVA Devido — divisão por taxa (transações na França Continental)"
 ca3_col_cadre = "Caixa"
 ca3_col_section = "Secção fiscal"
 ca3_col_b_base_sales = "Base de vendas"
