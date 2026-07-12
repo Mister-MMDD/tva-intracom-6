@@ -582,6 +582,8 @@ xl_recap_col_net = "Nettobetrag"
 
 xl_indicator_ca_ht = "Gesamtumsatz (ohne MwSt)"
 xl_indicator_vat_fr = "MwSt Frankreich (CA3-Erklärung)"
+xl_indicator_vat_home_generic = "MwSt {country} (Lokale Inlandserklärung)"
+xl_recap_currency_note = "Betraege umgerechnet in {currency} zum EZB-Kurs vom {date} (indikativ — der gesetzlich geschuldete Betrag bleibt der vom Modul in EUR berechnete Betrag)."
 xl_indicator_vat_oss = "MwSt One-Stop-Shop (Gesamt Europa)"
 xl_indicator_vat_amazon = "Von Amazon erhobene MwSt (Deemed Supplier)"
 xl_indicator_vat_local = "Andere lokale MwSt-Meldungen (Registrierung erforderlich)"
@@ -733,6 +735,9 @@ xl_cal_meta = "Generiert am {date}  |  Anmelder: {country}  |  Analysierter Zeit
 xl_cal_unspecified = "nicht angegeben"
 xl_cal_oss_task = "Einreichung + Zahlung der OSS-Erklärung"
 xl_cal_ca3_task = "Einreichung CA3 + Zahlung MwSt Frankreich"
+xl_cal_home_task = "Einreichung Inlandserklarung + Zahlung MwSt {country}"
+xl_cal_local_portal_generic = "Nationales Steuerportal des Herkunftslandes (Inlandsumsatzsteuererklaerung)"
+xl_cal_local_legal_generic = "Nationale Umsatzsteuerregelung des Herkunftslandes — bei der lokalen Steuerbehoerde zu pruefen"
 xl_cal_esl_task = "Zusammenfassende Meldung (ZM) / ESL"
 xl_cal_esl_desc = "Meldung steuerfreier innergemeinschaftlicher B2B-Lieferungen"
 xl_cal_col_channel = "Kanal"
@@ -913,7 +918,6 @@ ca3_notice_text = "Diese Erklärung isoliert strikt den nationalen Markt von {co
 
 # FEC Export
 fec_journal_sales = "Verkaufsjournal"
-fec_journal_purchases = „Einkaufsjournal“
 fec_scenario_oss = "OSS-Verkauf"
 fec_scenario_domestic = "Inländischer Verkauf"
 fec_scenario_deemed = "Deemed Supplier Verkauf (Amazon)"

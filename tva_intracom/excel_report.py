@@ -15,7 +15,8 @@ from openpyxl.utils import get_column_letter
 from .models import VatResult
 from .report import ReportSummary, build_report
 from .i18n import _
-from .rates import COUNTRY_NAMES
+from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
+from . import ecb_rates
 
 _COUNTRY_NAMES_XL = COUNTRY_NAMES
 
@@ -23,6 +24,33 @@ _CENT = Decimal("0.01")
 
 def _round(amount: Decimal) -> Decimal:
     return amount.quantize(_CENT, rounding=ROUND_HALF_UP)
+
+
+def _home_currency(seller_country: str) -> str:
+    """Devise locale du pays d'origine du compte (rates.COUNTRY_CURRENCIES)."""
+    return COUNTRY_CURRENCIES.get((seller_country or "FR").upper(), "EUR")
+
+
+def _currency_format(currency_code: str) -> str:
+    return f'#,##0.00 "{currency_code}"'
+
+
+def _to_home_currency(amount: Decimal, currency_code: str, conv_date: _date) -> Decimal:
+    """Convertit un montant (calculé en EUR par le moteur fiscal) vers la devise
+    locale du pays d'origine, au taux BCE en vigueur à `conv_date` (taux spot au
+    moment de la génération du rapport — indicatif : le montant légalement dû
+    reste celui calculé en EUR par le moteur, cf. ca3_report.py / oss_xml.py).
+    En cas d'indisponibilité du taux BCE, le montant EUR d'origine est renvoyé
+    tel quel plutôt que de faire échouer l'export."""
+    if not currency_code or currency_code.upper() == "EUR":
+        return amount
+    try:
+        converted, _rate, _info = ecb_rates.convert_to_currency(
+            amount, "EUR", currency_code, conv_date,
+        )
+        return converted
+    except Exception:
+        return amount
 
 # Noms complets des pays pour l'affichage dans Excel
 def _get_country_name(code: str) -> str:
@@ -80,11 +108,34 @@ def _auto_width(ws) -> None:
         ws.column_dimensions[col_letter].width = max(length + 4, 12)
 
 
-def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) -> None:
+def _write_recap(
+        ws,
+        summary: ReportSummary,
+        hash_totals: dict | None = None,
+        seller_country: str = "FR",
+) -> None:
     ws.title = _("xl_tab_recap")
 
     ws.cell(row=1, column=1, value=_("xl_recap_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
+
+    # Devise locale du pays d'origine du compte (home_country) : les montants
+    # calculés en EUR par le moteur fiscal sont convertis pour affichage, au
+    # taux BCE du jour de génération du rapport (voir _to_home_currency).
+    _currency = _home_currency(seller_country)
+    _conv_date = _date.today()
+    _fmt_home = _currency_format(_currency)
+
+    def _conv(amount: Decimal) -> Decimal:
+        return _to_home_currency(amount, _currency, _conv_date)
+
+    if _currency != "EUR":
+        _note = ws.cell(
+            row=2, column=1,
+            value=_("xl_recap_currency_note", currency=_currency, date=_conv_date.isoformat()),
+        )
+        _note.font = Font(italic=True, size=9, color="7f7f7f")
+        ws.row_dimensions[2].height = 16
 
     # Entêtes de la grille de synthèse
     headers = [_("xl_recap_col_indicator"), _("xl_recap_col_gross"), _("xl_recap_col_refunds"), _("xl_recap_col_net")]
@@ -101,10 +152,18 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
     local_brut  = sum(summary.local_by_country.values(), _z) if summary.local_by_country else _z
     ref_local   = sum(summary.refund_local_by_country.values(), _z) if getattr(summary, "refund_local_by_country", None) else _z
 
+    # Libellé du poste "domestique pays d'origine" : dynamique dès que le
+    # compte n'est pas rattaché à la France (home_country ≠ FR) — voir
+    # README section "Pays d'origine du compte".
+    if (seller_country or "FR").upper() == "FR":
+        _home_label = _("xl_indicator_vat_fr")
+    else:
+        _home_label = _("xl_indicator_vat_home_generic", country=_get_country_name(seller_country))
+
     # [Libellé, Montant Brut (positif), Remboursements (négatif ou 0)]
     data_structure = [
         (_("xl_indicator_ca_ht"),          summary.total_ht,          ref_tot_ht),
-        (_("xl_indicator_vat_fr"),         summary.fr_domestic_vat,   ref_fr),
+        (_home_label,                      summary.fr_domestic_vat,   ref_fr),
         (_("xl_indicator_vat_oss"),        oss_brut,                  ref_oss),
         (_("xl_indicator_vat_amazon"),     summary.amazon_vat,        ref_amz),
         (_("xl_indicator_vat_local"),      local_brut,                ref_local),
@@ -124,15 +183,15 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
     for idx, (label, brut_val, refund_val) in enumerate(data_structure):
         ws.cell(row=current_row, column=1, value=label)
 
-        c_brut = ws.cell(row=current_row, column=2, value=float(brut_val))
-        c_brut.number_format = _EUR_FORMAT
+        c_brut = ws.cell(row=current_row, column=2, value=float(_conv(brut_val)))
+        c_brut.number_format = _fmt_home
 
-        c_ref = ws.cell(row=current_row, column=3, value=float(refund_val))
-        c_ref.number_format = _EUR_FORMAT
+        c_ref = ws.cell(row=current_row, column=3, value=float(_conv(refund_val)))
+        c_ref.number_format = _fmt_home
 
         # Formule Excel pour le Net dynamique
         c_net = ws.cell(row=current_row, column=4, value=f"=B{current_row}+C{current_row}")
-        c_net.number_format = _EUR_FORMAT
+        c_net.number_format = _fmt_home
         c_net.font = _BOLD_FONT
         c_net.fill = _LIGHT_GRAY_FILL
 
@@ -154,16 +213,16 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
     _total_refund_formula = f"=C{_row_ca3}+C{_row_oss}+C{_row_local}"
 
     v_total_due = ws.cell(row=current_row, column=2, value=_total_brut_formula)
-    v_total_due.number_format = _EUR_FORMAT
+    v_total_due.number_format = _fmt_home
     v_total_due.font = _BOLD_FONT
 
     r_total_due = ws.cell(row=current_row, column=3, value=_total_refund_formula)
-    r_total_due.number_format = _EUR_FORMAT
+    r_total_due.number_format = _fmt_home
     r_total_due.font = _BOLD_FONT
 
     # Net à payer global final
     net_total_due = ws.cell(row=current_row, column=4, value=f"=B{current_row}+C{current_row}")
-    net_total_due.number_format = _EUR_FORMAT
+    net_total_due.number_format = _fmt_home
     net_total_due.font = _HEADER_FONT_WHITE
     net_total_due.fill = _ORANGE_HEADER_FILL
     ws.row_dimensions[current_row].height = 20
@@ -191,8 +250,8 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
         if _bucket_val == 0:
             continue
         ws.cell(row=current_row, column=1, value=_bucket_label_)
-        _c_bucket = ws.cell(row=current_row, column=2, value=float(_bucket_val))
-        _c_bucket.number_format = _EUR_FORMAT
+        _c_bucket = ws.cell(row=current_row, column=2, value=float(_conv(_bucket_val)))
+        _c_bucket.number_format = _fmt_home
         if _bucket_label_ == "Autre / non classé":
             ws.cell(row=current_row, column=1).font = _BOLD_FONT
             _c_bucket.fill = _ORANGE_HEADER_FILL
@@ -205,19 +264,19 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
         row=current_row, column=2,
         value=f"=SUM(B{_bucket_first_data_row}:B{_bucket_last_data_row})",
     )
-    _c_bucket_total.number_format = _EUR_FORMAT
+    _c_bucket_total.number_format = _fmt_home
     _c_bucket_total.font = _BOLD_FONT
 
     current_row += 1
     ws.cell(row=current_row, column=1, value=_("xl_audit_declared_net_ht"))
-    _declared_net_ht = float(summary.total_ht + summary.refund_total_ht)
+    _declared_net_ht = float(_conv(summary.total_ht + summary.refund_total_ht))
     _c_declared = ws.cell(row=current_row, column=2, value=_declared_net_ht)
-    _c_declared.number_format = _EUR_FORMAT
+    _c_declared.number_format = _fmt_home
 
     current_row += 1
     ws.cell(row=current_row, column=1, value=_("xl_audit_reconciliation_gap")).font = _BOLD_FONT
     _c_delta = ws.cell(row=current_row, column=2, value=f"=B{current_row - 1}-B{current_row - 2}")
-    _c_delta.number_format = _EUR_FORMAT
+    _c_delta.number_format = _fmt_home
     _c_delta.font = _BOLD_FONT
 
     # --- Injection des Hash Totals techniques en fin de tableau ---
@@ -619,70 +678,6 @@ def _write_intrastat_tab(
             ws.cell(row=current_row, column=1, value=_("xl_intrastat_no_flow_detected", sens=sens))
             current_row += 1
         current_row += 2
-    else:
-        ws.cell(row=current_row, column=1,
-                value="Aucun transfert de stock détecté — suivi de seuil non applicable.").font = Font(italic=True)
-        current_row += 2
-
-    # ── Détail introductions / expéditions (UE → seller_country) ────────
-    for flow_label, is_intro in [
-        (f"INTRODUCTIONS — flux entrant vers {seller_country} depuis UE", True),
-        (f"EXPÉDITIONS  — flux sortant de {seller_country} vers UE", False),
-    ]:
-        ws.cell(row=current_row, column=1, value=flow_label).font = Font(bold=True, size=11, color="375623")
-        current_row += 1
-        _set_header(ws, current_row, [
-            "Période", "Pays origine", "Pays destination",
-            "Code flux", "Nature transaction",
-            "ASIN", "Désignation produit",
-            "Code NC (CN8)*", "Qté", "Masse nette (kg)*",
-            "Valeur stat. estimée (€)", "Condition de livraison", "Remarque",
-        ], fill=GREEN_FILL)
-        ws.row_dimensions[current_row].height = 22
-        current_row += 1
-
-        rows_written = 0
-        # BUGFIX : `sens` ne dépend que de `is_intro` (invariant de boucle), pas
-        # des variables de la boucle. Défini ici plutôt qu'à l'intérieur du for :
-        # sinon, si `flux` ne contient aucune entrée pour ce sens (aucun transfert
-        # FC détecté), le corps de boucle ne s'exécute jamais et la référence à
-        # `sens` plus bas (bloc "Aucun transfert détecté") lève UnboundLocalError.
-        sens = "Intro" if is_intro else "Expé"
-        for (dep, arr, asin, mois), data in sorted(flux.items()):
-            if is_intro and arr != seller_country:
-                continue
-            if not is_intro and dep != seller_country:
-                continue
-
-            qty    = data["qty"]
-            desc   = data["designation"][:80] if data["designation"] else ""
-            avg    = asin_avg.get(asin, Decimal("0"))
-            valeur = _round(Decimal(str(qty)) * avg) if avg else Decimal("0")
-
-            ws.cell(row=current_row, column=1,  value=mois)
-            ws.cell(row=current_row, column=2,  value=f"{_COUNTRY_NAMES_XL.get(dep, dep)} ({dep})")
-            ws.cell(row=current_row, column=3,  value=f"{_COUNTRY_NAMES_XL.get(arr, arr)} ({arr})")
-            ws.cell(row=current_row, column=4,  value=sens)
-            ws.cell(row=current_row, column=5,  value="11 — Transfert stock (art. 17 dir. 2006/112/CE)")
-            ws.cell(row=current_row, column=6,  value=asin)
-            ws.cell(row=current_row, column=7,  value=desc)
-            ws.cell(row=current_row, column=8,  value="À COMPLÉTER")   # CN8
-            ws.cell(row=current_row, column=9,  value=qty)
-            ws.cell(row=current_row, column=10, value="À COMPLÉTER")   # masse nette
-            c_v = ws.cell(row=current_row, column=11, value=float(valeur))
-            c_v.number_format = _EUR_FORMAT
-            ws.cell(row=current_row, column=12, value="DAP / DDP")
-            ws.cell(row=current_row, column=13,
-                    value="Valeur estimée (prix vente moy. HT × qté) — remplacer par valeur d'achat")
-            ws.row_dimensions[current_row].height = 18
-            current_row += 1
-            rows_written += 1
-
-        if rows_written == 0:
-            ws.cell(row=current_row, column=1,
-                    value=f"Aucun transfert {sens} détecté dans les fichiers importés.")
-            current_row += 1
-        current_row += 2
 
     _auto_width(ws)
 
@@ -823,13 +818,21 @@ def _write_calendar_tab(
         next_mo = mo + 1 if mo < 12 else 1
         next_yr = yr if mo < 12 else yr + 1
         deadline = _date(next_yr, next_mo, 24)
+        if (seller_country or "FR").upper() == "FR":
+            _canal_label = "CA3 / TVA FR"
+            _task_label = _("xl_cal_ca3_task")
+        else:
+            _canal_label = f"TVA {seller_country}"
+            _task_label = _("xl_cal_home_task", country=seller_country)
         _write_row(
-            "CA3 / TVA FR",
-            _("xl_cal_ca3_task"),
+            _canal_label,
+            _task_label,
             f"{yr}-{mo:02d}",
             deadline,
-            "impots.gouv.fr (espace professionnel) → Déclarer → TVA",
-            "Art. 287 CGI — régime normal mensuel",
+            "impots.gouv.fr (espace professionnel) → Déclarer → TVA" if (seller_country or "FR").upper() == "FR"
+            else _("xl_cal_local_portal_generic"),
+            "Art. 287 CGI — régime normal mensuel" if (seller_country or "FR").upper() == "FR"
+            else _("xl_cal_local_legal_generic"),
             ORANGE_FILL,
         )
 
@@ -895,8 +898,6 @@ def _write_calendar_tab(
 
     if row == 5:
         ws.cell(row=5, column=1, value=_("xl_cal_no_deadline")).font = Font(italic=True)
-
-    _auto_width(ws)
 
     _auto_width(ws)
 
@@ -1420,7 +1421,7 @@ def export_xlsx(
 
     # 1. Page de synthèse
     ws_recap = wb.active
-    _write_recap(ws_recap, summary, hash_totals=hash_totals)
+    _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country)
 
     # 2. Séparation ventes / remboursements
     # Si refund_results est passé explicitement par app.py (cas normal), on fait
