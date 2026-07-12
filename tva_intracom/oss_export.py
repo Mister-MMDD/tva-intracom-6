@@ -30,7 +30,8 @@ from openpyxl.utils import get_column_letter
 
 from .models import Scenario, VatResult
 from .i18n import _
-from .ecb_rates import convert_to_eur_for_oss
+from .ecb_rates import convert_to_currency_for_oss
+from .rates import COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
 
 _CENT = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -47,29 +48,25 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
     """Retourne (ht, tva) d'un VatResult OSS, reconverti au besoin au taux BCE
     de clôture de la période déclarée (Règl. UE 2020/194, art. 5 bis).
 
-    Fonction PARTAGÉE — c'est la seule source de vérité pour la conversion de
-    devise appliquée à une ligne OSS. Utilisée à la fois par
-    `aggregate_oss_results()` (pour OSS_Résumé et le XML officiel) et par
-    l'onglet OSS_Détail, afin que les deux affichages utilisent strictement
-    le même montant pour une même vente en devise étrangère.
-
-    Si `period` est vide/non reconnu, ou si la vente est déjà en EUR, on
-    retombe sur `res.sale.amount_ht` / `res.vat_amount` tels quels
-    (comportement historique, taux du jour de la vente).
+    Si `period` est vide/non reconnu, ou si la vente est déjà dans la devise cible, on
+    retombe sur `res.sale.amount_ht` / `res.vat_amount` tels quels.
     """
     ht  = res.sale.amount_ht
     tva = res.vat_amount
+    
+    target_currency = COUNTRY_CURRENCIES.get(res.sale.seller_country, "EUR")
 
-    if period and res.sale.original_currency and res.sale.original_currency != "EUR":
+    if period and res.sale.original_currency and res.sale.original_currency != target_currency:
         try:
             tx_date = _date.fromisoformat((res.sale.transaction_date or "")[:10])
         except ValueError:
             tx_date = _date.today()
         sign = Decimal("-1") if ht < 0 else Decimal("1")
         try:
-            new_ht_abs, _rate_used, _src = convert_to_eur_for_oss(
+            new_ht_abs, _rate_used, _src = convert_to_currency_for_oss(
                 abs(res.sale.original_amount),
                 res.sale.original_currency,
+                target_currency,
                 period,
                 tx_date,
                 fallback_rate=res.sale.exchange_rate or None,

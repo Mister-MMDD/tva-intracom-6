@@ -82,7 +82,7 @@ def _auto_width(ws) -> None:
 
 def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) -> None:
     ws.title = _("xl_tab_recap")
-    
+
     ws.cell(row=1, column=1, value=_("xl_recap_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
 
@@ -179,7 +179,7 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
     ws.row_dimensions[current_row].height = 22
     current_row += 1
     ws.cell(row=current_row, column=1,
-        value=_("xl_audit_integrity_help"))
+            value=_("xl_audit_integrity_help"))
     current_row += 2
 
     _bucket_header_row = current_row
@@ -225,7 +225,7 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
         current_row += 2
         ws.cell(row=current_row, column=1, value=_("xl_audit_total_rows"))
         ws.cell(row=current_row, column=2, value=hash_totals.get("count", 0)).font = Font(name="Courier New")
-        
+
         current_row += 1
         ws.cell(row=current_row, column=1, value=_("xl_audit_file_signature"))
         ws.cell(row=current_row, column=2, value=hash_totals.get("id_hash", 0)).font = Font(name="Courier New", bold=True)
@@ -235,14 +235,14 @@ def _write_recap(ws, summary: ReportSummary, hash_totals: dict | None = None) ->
 
 def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bool = False) -> None:
     ws.title = tab_title
-    
+
     headers = [
         _("xl_col_tx_id"), _("xl_col_date"), _("xl_col_from"), _("xl_col_to"), _("xl_col_buyer_type"),
         _("xl_col_amount_ht"), _("xl_col_scenario"), _("xl_col_vat_country"), _("xl_col_vat_rate"), _("xl_col_vat_amount"),
         _("xl_col_vat_amazon"), _("xl_col_vat_gap"),
         _("xl_col_collector"), _("xl_col_channel"), _("xl_col_note")
     ]
-    
+
     header_fill = _ORANGE_HEADER_FILL if is_refund_tab else _BLUE_HEADER_FILL
     _set_header(ws, 1, headers, fill=header_fill)
     ws.row_dimensions[1].height = 22
@@ -273,7 +273,7 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
         ws.cell(row=i, column=3, value=str(sale.stock_country))
         ws.cell(row=i, column=4, value=str(sale.buyer_country))
         ws.cell(row=i, column=5, value=str(sale.buyer_type.value))
-        
+
         ws.cell(row=i, column=6, value=float(sale.amount_ht)).number_format = _EUR_FORMAT
         ws.cell(row=i, column=7, value=scenario_val)
         # Pays de taxe : disponible sur VatResult, "-" uniquement en mode degrade (Sale brut)
@@ -293,7 +293,7 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
         ws.cell(row=i, column=13, value=str(collector))
         ws.cell(row=i, column=14, value=str(channel))
         ws.cell(row=i, column=15, value=str(note))
-        
+
         ws.row_dimensions[i].height = 18
 
     _auto_width(ws)
@@ -374,7 +374,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         pct = (ecart_abs / d["mot"] * 100) if d["mot"] != 0 else Decimal("0")
         risque = (_("xl_risk_high") if abs(float(pct)) > 10
                   else _("xl_risk_medium") if abs(float(pct)) > 3
-                  else _("xl_risk_low"))
+        else _("xl_risk_low"))
         ws.cell(row=row, column=1, value=nat)
         ws.cell(row=row, column=2, value=f"{_get_country_name(arr)} ({arr})")
         ws.cell(row=row, column=3, value=d["n"])
@@ -467,10 +467,10 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
 
 
 def _write_intrastat_tab(
-    ws,
-    all_fc_transfers: list,
-    results: list,
-    seller_country: str = "FR",
+        ws,
+        all_fc_transfers: list,
+        results: list,
+        seller_country: str = "FR",
 ) -> None:
     """Onglet Intrastat / EMEBI (statistique) — aide au remplissage de la déclaration."""
     from .rates import intrastat_emebi_threshold_for_year
@@ -544,7 +544,7 @@ def _write_intrastat_tab(
                 pct = float(cumul / seuil_annee * 100) if seuil_annee else 0.0
                 statut = (_("xl_intrastat_status_exceeded") if pct >= 100
                           else _("xl_intrastat_status_near") if pct >= 80
-                          else _("xl_intrastat_status_ok"))
+                else _("xl_intrastat_status_ok"))
                 if not confirme:
                     statut += _("xl_intrastat_status_unconfirmed")
                 ws.cell(row=current_row, column=1, value=annee)
@@ -560,7 +560,7 @@ def _write_intrastat_tab(
                 ws.row_dimensions[current_row].height = 18
                 current_row += 1
         cap = ws.cell(row=current_row, column=1,
-                value=_("xl_intrastat_footer", unconfirmed=(_("xl_intrastat_unconfirmed_footer") if any_unconfirmed else "")))
+                      value=_("xl_intrastat_footer", unconfirmed=(_("xl_intrastat_unconfirmed_footer") if any_unconfirmed else "")))
         cap.font = Font(italic=True, size=9, color="7f7f7f")
         current_row += 2
     else:
@@ -714,11 +714,11 @@ def _deadline_oss(ref_date: _date) -> _date:
 
 
 def _write_calendar_tab(
-    ws,
-    results: list,
-    all_fc_transfers: list,
-    period: str = "",
-    seller_country: str = "FR",
+        ws,
+        results: list,
+        all_fc_transfers: list,
+        period: str = "",
+        seller_country: str = "FR",
 ) -> None:
     """Onglet Calendrier Fiscal — prochaines échéances déduites des données traitées."""
     ws.title = _("xl_tab_calendar")
@@ -908,29 +908,29 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
     """
     # Transaction ID
     tx_id = (
-        t.get("TRANSACTION_EVENT_ID") or t.get("transaction_event_id") or
-        t.get("ACTIVITY_TRANSACTION_ID") or t.get("activity_transaction_id") or ""
+            t.get("TRANSACTION_EVENT_ID") or t.get("transaction_event_id") or
+            t.get("ACTIVITY_TRANSACTION_ID") or t.get("activity_transaction_id") or ""
     )
     # Date
     date_str = (
-        t.get("TRANSACTION_COMPLETE_DATE") or t.get("transaction_complete_date") or
-        t.get("TAX_CALCULATION_DATE") or t.get("tax_calculation_date") or ""
+            t.get("TRANSACTION_COMPLETE_DATE") or t.get("transaction_complete_date") or
+            t.get("TAX_CALCULATION_DATE") or t.get("tax_calculation_date") or ""
     )[:10]
     # ASIN
     asin = (t.get("ASIN") or t.get("asin") or "").strip()
     # Désignation
     designation = (
-        t.get("ITEM_DESCRIPTION") or t.get("item_description") or
-        t.get("item_name") or ""
+            t.get("ITEM_DESCRIPTION") or t.get("item_description") or
+            t.get("item_name") or ""
     )
     # Pays départ / arrivée
     dep = (
-        t.get("DEPARTURE_COUNTRY") or t.get("departure_country") or
-        t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or ""
+            t.get("DEPARTURE_COUNTRY") or t.get("departure_country") or
+            t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or ""
     ).strip().upper()
     arr = (
-        t.get("ARRIVAL_COUNTRY") or t.get("arrival_country") or
-        t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or ""
+            t.get("ARRIVAL_COUNTRY") or t.get("arrival_country") or
+            t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or ""
     ).strip().upper()
     # Quantité
     try:
@@ -991,10 +991,10 @@ def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
 
 
 def _write_fba_aic_tab(
-    ws,
-    all_fc_transfers: list,
-    results: list,
-    countries_with_vat: list[str] | None = None,
+        ws,
+        all_fc_transfers: list,
+        results: list,
+        countries_with_vat: list[str] | None = None,
 ) -> None:
     """Onglet Analyse AIC (Acquisitions Intracommunautaires assimilées).
 
@@ -1376,18 +1376,18 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
 
 
 def export_xlsx(
-    results: List[VatResult],
-    output_path: str | Path,
-    scope_id: str,
-    summary: ReportSummary | None = None,
-    refund_results: List[VatResult] | None = None,
-    all_fc_transfers: list | None = None,
-    vies_affected_sale_ids: set | None = None,
-    vies_summary=None,
-    countries_with_vat: list[str] | None = None,
-    period: str = "",
-    seller_country: str = "FR",
-    invoice_credit_notes: list | None = None,
+        results: List[VatResult],
+        output_path: str | Path,
+        scope_id: str,
+        summary: ReportSummary | None = None,
+        refund_results: List[VatResult] | None = None,
+        all_fc_transfers: list | None = None,
+        vies_affected_sale_ids: set | None = None,
+        vies_summary=None,
+        countries_with_vat: list[str] | None = None,
+        period: str = "",
+        seller_country: str = "FR",
+        invoice_credit_notes: list | None = None,
 ) -> Path:
     """Genere le fichier Excel complet avec tous les onglets.
 
@@ -1396,7 +1396,7 @@ def export_xlsx(
                   vies.resolve_scope_id) — transmise à l'onglet Historique
                   VIES pour n'afficher que les vérifications de ce compte.
     """
-    
+
     if summary is None:
         summary = build_report(results)
 
@@ -1417,7 +1417,7 @@ def export_xlsx(
             hash_totals["id_hash"] += int(raw_id[-6:])
 
     wb = Workbook()
-    
+
     # 1. Page de synthèse
     ws_recap = wb.active
     _write_recap(ws_recap, summary, hash_totals=hash_totals)
@@ -1498,7 +1498,7 @@ def export_xlsx(
     _write_calendar_tab(
         ws_cal, results, all_fc_transfers or [],
         period=period, seller_country=seller_country,
-    )
+                         )
 
     # 13. Sauvegarde sur disque
     p = Path(output_path)

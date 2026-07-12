@@ -377,6 +377,41 @@ def convert_to_eur(
     )
 
 
+def convert_to_currency(
+    amount: Decimal,
+    source_currency: str,
+    target_currency: str,
+    target_date: date,
+    fallback_rate: Optional[Decimal] = None,
+) -> tuple[Decimal, Decimal, str]:
+    """Convertit un montant d'une devise source vers une devise cible via EUR.
+    
+    Retourne (montant_cible, taux_source_vers_cible, source_info).
+    """
+    source_currency = source_currency.upper()
+    target_currency = target_currency.upper()
+    
+    # 1. Conversion source -> EUR
+    eur_amount, rate_source, source_info = convert_to_eur(amount, source_currency, target_date, fallback_rate)
+    
+    if target_currency == "EUR":
+        return eur_amount, rate_source, source_info
+    
+    # 2. Conversion EUR -> cible
+    rate_target = get_rate(target_currency, target_date)
+    if rate_target is None:
+        # Fallback : si on ne peut pas avoir le taux cible, on reste en EUR et on avertit
+        logger.warning("Taux pour devise cible %s indisponible au %s. Reste en EUR.", target_currency, target_date)
+        return eur_amount, rate_source, source_info
+    
+    target_amount = (eur_amount * rate_target).quantize(_CENT, rounding=ROUND_HALF_UP)
+    
+    # Taux combiné (pour info)
+    combined_rate = (rate_target / rate_source) if rate_source else rate_target
+    
+    return target_amount, combined_rate, f"{source_info}_to_{target_currency.lower()}"
+
+
 def quarter_end_date(period: str) -> Optional[date]:
     """Calcule la date de clôture d'une période OSS pour la conversion devise.
 
@@ -421,25 +456,27 @@ def quarter_end_date(period: str) -> Optional[date]:
     return None
 
 
-def convert_to_eur_for_oss(
+def convert_to_currency_for_oss(
     original_amount: Decimal,
-    currency: str,
+    source_currency: str,
+    target_currency: str,
     period: str,
     transaction_date: date,
     fallback_rate: Optional[Decimal] = None,
 ) -> tuple[Decimal, Decimal, str]:
-    """Convertit un montant en EUR avec le taux BCE de clôture de période OSS.
+    """Convertit un montant vers la devise cible avec le taux BCE de clôture de période OSS.
 
     Si `period` n'est pas reconnu (plage multi-trimestres/années), on retombe
     sur le taux du jour de la transaction (comportement précédent) pour ne
     pas bloquer un cas d'usage existant — à traiter période par période en amont.
     """
-    currency = currency.upper()
-    if currency == "EUR":
-        return original_amount, Decimal("1"), "eur"
+    source_currency = source_currency.upper()
+    target_currency = target_currency.upper()
+    if source_currency == target_currency:
+        return original_amount, Decimal("1"), target_currency.lower()
 
     rate_date = quarter_end_date(period) or transaction_date
-    return convert_to_eur(original_amount, currency, rate_date, fallback_rate=fallback_rate)
+    return convert_to_currency(original_amount, source_currency, target_currency, rate_date, fallback_rate=fallback_rate)
 
 
 def get_rates_for_dates(

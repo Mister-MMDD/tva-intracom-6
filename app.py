@@ -71,6 +71,12 @@ from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
 
 cookie_manager = ensure_cookie_manager()
 
+# Le sélecteur de langue doit être utilisable AVANT la connexion (écran de
+# lien magique compris) — appelé ici, avant run_auth_flow()/st.stop(),
+# contrairement à l'ancien emplacement (après l'auth) qui le rendait
+# invisible tant que l'utilisateur n'était pas connecté.
+language_selector()
+
 st.title(f"🇪🇺 {_('title')}")
 
 _auth_ctx = run_auth_flow(cookie_manager)
@@ -85,7 +91,6 @@ _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 
 from tva_intracom.ui.sidebar import render_sidebar
 
-language_selector()
 _sb = render_sidebar(_auth_ctx)
 file_format = _sb.file_format
 enable_vies = _sb.enable_vies
@@ -103,6 +108,14 @@ tva_fr = _sb.tva_fr
 local_vat_numbers = _sb.local_vat_numbers
 oss_period = _sb.oss_period
 _siren_quota_status = _sb.siren_quota_status
+home_country = _sb.home_country
+
+# --- Configuration de la monnaie de référence ---
+from tva_intracom.rates import COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
+target_currency = COUNTRY_CURRENCIES.get(home_country, "EUR")
+currency_symbol = CURRENCY_SYMBOLS.get(target_currency, "€")
+st.session_state["target_currency"] = target_currency
+st.session_state["currency_symbol"] = currency_symbol
 
 # =============================================================================
 # UPLOAD
@@ -174,19 +187,19 @@ if uploaded_files:
                     )
 
                 parse_result = parser_amazon.load_amazon_report(
-                    tmp_path, encoding=encoding, convert_currencies=convert_fx,
+                    tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx,
                     asin_to_category=asin_to_category,
                     progress_callback=_on_parse_progress,
                 )
                 parse_progress_ph.empty()
             elif "Mirakl" in file_format:
-                parse_result = parser_mirakl.parse(tmp_path, encoding=encoding, convert_currencies=convert_fx)
+                parse_result = parser_mirakl.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
             elif "Shopify" in file_format:
-                parse_result = parser_shopify.parse(tmp_path, encoding=encoding, convert_currencies=convert_fx)
+                parse_result = parser_shopify.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
             elif "WooCommerce" in file_format:
-                parse_result = parser_woocommerce.parse(tmp_path, encoding=encoding, convert_currencies=convert_fx)
+                parse_result = parser_woocommerce.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
             elif "AliExpress" in file_format:
-                parse_result = parser_aliexpress.parse(tmp_path, encoding=encoding, convert_currencies=convert_fx)
+                parse_result = parser_aliexpress.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
             if parse_result is not None:
                 platform = parse_result.platform or file_format.split("(")[0].strip()
                 all_sales.extend(parse_result.sales); all_refunds.extend(parse_result.refunds)
@@ -298,6 +311,7 @@ if uploaded_files:
             ioss_number, seller_is_importer,
             tuple(sorted(countries_with_vat)),
             apply_fr_under_threshold,
+            home_country,
             _vies_retry_nonce,
         )
 
@@ -580,6 +594,7 @@ if uploaded_files:
             all_invoice_credit_notes=all_invoice_credit_notes,
             all_sales=all_sales,
             platform_name=platform_name,
+            home_country=home_country,
         )
 
         with tab_decl: render_declarations(_tab_ctx)

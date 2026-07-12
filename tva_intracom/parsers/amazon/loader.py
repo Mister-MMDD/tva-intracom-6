@@ -19,6 +19,7 @@ from typing import Callable, List, Optional, Set
 from ...models import BuyerType, Sale
 from ...vies_engine import _normalize_vat_id as normalize_vat
 from ...ecb_rates import prefetch_rates
+from ...rates import COUNTRY_CURRENCIES
 from .aggregate import preaggregate_v5
 from .classify import (
     BuyerClassification,
@@ -105,6 +106,7 @@ def _process_rows(
     result: AmazonImportResult,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     progress_step: int = 500,
+    target_currency: str = "EUR",
 ) -> None:
     """Traite chaque ligne agrégée et alimente result.sales / result.refunds.
 
@@ -308,10 +310,11 @@ def _process_rows(
                 fmt=fmt,
                 row=row,
                 convert_currencies=convert_currencies,
+                target_currency=target_currency,
             )
         except ValueError as exc:
             result.warnings.append(
-                f"Ligne {line_no} : conversion {currency}→EUR impossible ({exc}). "
+                f"Ligne {line_no} : conversion {currency}→{target_currency} impossible ({exc}). "
                 "Montant gardé en devise originale."
             )
             fx = type("_FX", (), {
@@ -319,7 +322,7 @@ def _process_rows(
                 "original_currency": currency,
                 "original_amount": amount_ht,
                 "exchange_rate": Decimal("1"),
-                "exchange_rate_source": "eur",
+                "exchange_rate_source": target_currency.lower(),
             })()
 
         # --- TVA Amazon ---
@@ -522,6 +525,7 @@ def load_amazon_report(
             prefetch_rates(to_prefetch, progress_callback=None)
 
     # Traitement principal (hors contexte fichier : fichier fermé proprement)
+    target_currency = COUNTRY_CURRENCIES.get(seller_country.upper(), "EUR")
     _process_rows(
         rows_to_process=rows_to_process,
         parser=parser,
@@ -531,6 +535,7 @@ def load_amazon_report(
         asin_to_category=asin_to_category,
         result=result,
         progress_callback=progress_callback,
+        target_currency=target_currency,
     )
 
     logger.info(

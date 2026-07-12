@@ -51,6 +51,7 @@ class TabContext:
     all_invoice_credit_notes: list
     all_sales: list
     platform_name: str
+    home_country: str = "FR"
 
     # Cross-onglet : rempli par render_declarations(), lu par
     # render_telechargements() — voir docstring du module.

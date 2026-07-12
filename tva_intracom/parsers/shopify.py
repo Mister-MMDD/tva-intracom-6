@@ -27,6 +27,7 @@ from typing import Optional
 
 from ..models import BuyerType, Sale
 from ..ecb_rates import prefetch_rates
+from ..rates import COUNTRY_CURRENCIES
 from . import ParseResult
 
 logger = logging.getLogger(__name__)
@@ -209,24 +210,25 @@ def parse(
             # Conversion devise.
             original_amount = amount_ht
             exchange_rate = Decimal("1")
-            exchange_rate_source = "eur"
+            target_currency = COUNTRY_CURRENCIES.get(seller_country.upper(), "EUR")
+            exchange_rate_source = target_currency.lower()
 
-            if convert_currencies and currency != "EUR":
-                from ..ecb_rates import convert_to_eur
+            if convert_currencies and currency != target_currency:
+                from ..ecb_rates import convert_to_currency
                 from datetime import date as date_type
 
                 tx_date_obj = _parse_date(tx_date)
                 if tx_date_obj is None:
                     tx_date_obj = date_type.today()
                 try:
-                    amount_ht, exchange_rate, exchange_rate_source = convert_to_eur(
-                        abs(amount_ht), currency, tx_date_obj
+                    amount_ht, exchange_rate, exchange_rate_source = convert_to_currency(
+                        abs(amount_ht), currency, target_currency, tx_date_obj
                     )
                     if is_refund:
                         amount_ht = -amount_ht
                 except ValueError:
                     result.warnings.append(
-                        f"Ligne {line_no}: conversion {currency}->EUR impossible."
+                        f"Ligne {line_no}: conversion {currency}->{target_currency} impossible."
                     )
 
             if is_refund:

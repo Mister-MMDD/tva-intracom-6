@@ -112,7 +112,7 @@ def render_audit(ctx: TabContext) -> None:
             with sub3:
                 st.info(_("audit_uk_info"))
                 if ecarts_gb_tab:
-                    st.metric(_("audit_uk_metric"), f"{sum(r[_('col_gap_eur')] for r in ecarts_gb_tab):,.2f} EUR")
+                    st.metric(_("audit_uk_metric"), _fmt(sum(r[_('col_gap_eur')] for r in ecarts_gb_tab)))
                     _audit_df(ecarts_gb_tab, "audit_gb")
                 else:
                     st.success(_("audit_uk_success"))
@@ -120,7 +120,7 @@ def render_audit(ctx: TabContext) -> None:
                 st.info(_("audit_art194_info"))
                 if ecarts_b2b_dom_tab:
                     total = sum(r[_("col_gap_eur")] for r in ecarts_b2b_dom_tab)
-                    st.metric(_("audit_art194_metric"), f"{abs(total):,.2f} EUR")
+                    st.metric(_("audit_art194_metric"), _fmt(abs(total)))
                     _audit_df(ecarts_b2b_dom_tab, "audit_art194")
                 else:
                     st.success(_("audit_art194_success"))
@@ -128,6 +128,7 @@ def render_audit(ctx: TabContext) -> None:
                 st.info(_("audit_manquante_info"))
                 if ecarts_amz_manquante_tab:
                     total = sum(r[_("col_gap_eur")] for r in ecarts_amz_manquante_tab)
+                    st.metric(_("audit_manquante_metric"), _fmt(abs(total)))
                     st.metric(_("audit_manquante_metric"), f"{abs(total):,.2f} EUR")
                     _audit_df(ecarts_amz_manquante_tab, "audit_manquante")
                     import io as _io2, csv as _csv2

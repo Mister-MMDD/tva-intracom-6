@@ -42,6 +42,31 @@ COUNTRY_NAMES: Dict[str, str] = {
     "MC": "Monaco",     "XI": "Irlande du Nord",
 }
 
+# ---------------------------------------------------------------------------
+# Devises par pays
+# ---------------------------------------------------------------------------
+
+COUNTRY_CURRENCIES: Dict[str, str] = {
+    "AT": "EUR", "BE": "EUR", "BG": "EUR", "HR": "EUR", "CY": "EUR",
+    "CZ": "CZK", "DK": "DKK", "EE": "EUR", "FI": "EUR", "FR": "EUR",
+    "DE": "EUR", "GR": "EUR", "HU": "HUF", "IE": "EUR", "IT": "EUR",
+    "LV": "EUR", "LT": "EUR", "LU": "EUR", "MT": "EUR", "NL": "EUR",
+    "PL": "PLN", "PT": "EUR", "RO": "RON", "SK": "EUR", "SI": "EUR",
+    "ES": "EUR", "SE": "SEK", "MC": "EUR", "XI": "GBP",
+}
+
+CURRENCY_SYMBOLS: Dict[str, str] = {
+    "EUR": "€",
+    "PLN": "zł",
+    "CZK": "Kč",
+    "HUF": "Ft",
+    "RON": "lei",
+    "SEK": "kr",
+    "DKK": "kr.",
+    "GBP": "£",
+    "BGN": "лв",
+}
+
 COUNTRY_ISO3: Dict[str, str] = {
     "AT": "AUT", "BE": "BEL", "BG": "BGR", "HR": "HRV", "CY": "CYP",
     "CZ": "CZE", "DK": "DNK", "EE": "EST", "FI": "FIN", "FR": "FRA",

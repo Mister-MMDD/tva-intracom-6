@@ -115,8 +115,11 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
     return df_filt
 
 
-def _fmt(value) -> str:
+def _fmt(value, symbol=None) -> str:
     """Formate un montant : 13 → '13 €', 13.5 → '13.50 €', 13.00 → '13 €'."""
+    if symbol is None:
+        symbol = st.session_state.get("currency_symbol", "€")
+    
     if value is None:
         return "—"
     try:
@@ -127,11 +130,11 @@ def _fmt(value) -> str:
     if math.isnan(v):
         return "—"
     if math.isinf(v):
-        return "∞ €"
+        return f"∞ {symbol}"
 
     if v == int(v):
-        return f"{int(v):,} €".replace(",", " ")
-    return f"{v:,.2f} €".replace(",", " ")
+        return f"{int(v):,} {symbol}".replace(",", " ")
+    return f"{v:,.2f} {symbol}".replace(",", " ")
 
 
 def _country_label(code: str) -> str:
@@ -144,11 +147,14 @@ def _country_label(code: str) -> str:
 
 # Helpers column_config réutilisables
 # ── Colonne monétaire : tri numérique conservé, affichage smart (0 déc. ou 2 déc.)
-def _money_col(label: str, help_txt: str = "") -> st.column_config.NumberColumn:
+def _money_col(label: str, help_txt: str = "", symbol=None) -> st.column_config.NumberColumn:
     """NumberColumn monétaire : entier si .00, sinon 2 décimales."""
+    if symbol is None:
+        symbol = st.session_state.get("currency_symbol", "€")
+        
     return st.column_config.NumberColumn(
         label,
-        format="%.2f €",   # Streamlit applique toujours 2 déc. dans l'affichage natif
+        format=f"%.2f {symbol}",   # Streamlit applique toujours 2 déc. dans l'affichage natif
         help=help_txt,
     )
 
@@ -275,6 +281,8 @@ def _gated_preview_table(
 
 def render_oss_threshold_bar(oss_summary: Any) -> None:
     """Affiche la barre de progression du seuil OSS 10 000 EUR."""
+    target_currency = st.session_state.get("target_currency", "EUR")
+    symbol = st.session_state.get("currency_symbol", "€")
 
     def _color(pct: float) -> str:
         """Vert -> orange -> rouge selon la proximité du seuil (pct entre 0 et 1)."""
@@ -283,7 +291,28 @@ def render_oss_threshold_bar(oss_summary: Any) -> None:
         return "#d62728"
 
     total_oss = float(oss_summary.total_oss_ht)
-    pct = min(total_oss / 10000.0, 1.0)
+    
+    # Le seuil est de 10 000 EUR. Si on est dans une autre devise, il faut convertir le seuil
+    # ou utiliser le montant EUR interne si disponible.
+    # Pour l'instant, on suppose que total_oss_ht est déjà dans la devise cible (converti lors de l'import).
+    # On a besoin du taux inverse pour afficher "10 000 €" converti.
+    limit_eur = 10000.0
+    if target_currency == "EUR":
+        limit_display = 10000.0
+        limit_text = "10 000 €"
+    else:
+        # On va chercher un taux récent pour l'affichage de la limite
+        from ..ecb_rates import get_rate
+        import datetime
+        rate = get_rate(target_currency, datetime.date.today())
+        if rate:
+            limit_display = 10000.0 * float(rate)
+            limit_text = _fmt(limit_display)
+        else:
+            limit_display = 10000.0 # fallback
+            limit_text = "10 000 EUR eq."
+
+    pct = min(total_oss / limit_display if limit_display > 0 else 0, 1.0)
     
     _oss_by_year = getattr(oss_summary, "oss_ht_by_year", {})
     if len(_oss_by_year) > 1:
@@ -294,9 +323,9 @@ def render_oss_threshold_bar(oss_summary: Any) -> None:
         _label = _("oss_threshold_label")
 
     st.write(f"**{_label}**")
-    st.progress(pct, text=f"{_fmt(total_oss)} / 10 000 €")
+    st.progress(pct, text=f"{_fmt(total_oss)} / {limit_text}")
     
-    if total_oss < 10000:
-        st.caption(_("oss_threshold_help", remaining=_fmt(10000 - total_oss)))
+    if total_oss < limit_display:
+        st.caption(_("oss_threshold_help", remaining=_fmt(limit_display - total_oss)))
     else:
         st.success(_("oss_threshold_exceeded"))

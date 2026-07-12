@@ -81,6 +81,11 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
         mc_amount = _vat_amount(sale.amount_ht, mc_rate)
         
         if sale.stock_country == "FR":
+            # Si le vendeur est établi en France, c'est du domestique FR_DOMESTIC
+            # Sinon, c'est du LOCAL_REGISTRATION en France.
+            is_home = sale.stock_country == sale.seller_country
+            channel = Channel.FR_DOMESTIC if is_home else Channel.LOCAL_REGISTRATION
+            
             return VatResult(
                 sale=sale,
                 scenario=Scenario.DOMESTIC,
@@ -88,12 +93,12 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_rate=mc_rate,
                 vat_amount=mc_amount,
                 collector=Collector.SELLER,
-                channel=Channel.FR_DOMESTIC,
+                channel=channel,
                 note=(
                     "Vente vers Monaco depuis un stock français : assimilée à une "
                     "vente domestique française (convention fiscale franco-monégasque "
                     "du 18 mai 1963 — https://bit.ly/Conv-FR-MC) — TVA FR "
-                    f"{mc_rate}% collectée, déclarée en CA3."
+                    f"{mc_rate}% collectée."
                 ),
             )
         else:
@@ -244,8 +249,15 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     ),
                 )
             else:
-                is_dest_fr = sale.buyer_country == "FR"
-                channel = Channel.FR_DOMESTIC if is_dest_fr else Channel.LOCAL_REGISTRATION
+                # Le pays d'origine (établissement) du vendeur n'est plus
+                # supposé être la France : c'est sale.seller_country (réglage
+                # de compte, voir auth.py/sidebar.py — défaut "FR"). Une vente
+                # dont le pays de destination EST ce pays d'origine reste
+                # taxée comme domestique "chez soi" (Channel.FR_DOMESTIC —
+                # nom conservé pour compatibilité, ne signifie plus
+                # littéralement "France" mais "pays d'origine du vendeur").
+                is_dest_home = sale.buyer_country == sale.seller_country
+                channel = Channel.FR_DOMESTIC if is_dest_home else Channel.LOCAL_REGISTRATION
                 return VatResult(
                     sale=sale,
                     scenario=Scenario.DOMESTIC,
@@ -260,8 +272,8 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                         f"Art.194 NON adopté en {sale.buyer_country} : "
                         f"vendeur collecte TVA {tax_rate}% — "
                         + (
-                            "déclaration CA3 (France)."
-                            if is_dest_fr
+                            f"déclaration domestique ({sale.seller_country})."
+                            if is_dest_home
                             else f"immatriculation TVA locale requise en {sale.buyer_country}."
                         )
                     ),
@@ -291,7 +303,14 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     is_domestic = sale.stock_country == sale.buyer_country
     
     if is_domestic:
-        is_fr = sale.stock_country == "FR"
+        # is_home : le stock est dans le pays d'origine (établissement) du
+        # vendeur — sale.seller_country, pas littéralement "FR" (réglage de
+        # compte global, voir auth.py). Nommé is_fr historiquement, renommé
+        # is_home pour éviter toute confusion : reste vrai pour un vendeur
+        # français par défaut (seller_country="FR"), mais se généralise à
+        # tout pays d'origine choisi par le compte.
+        is_home = sale.stock_country == sale.seller_country
+        is_fr = is_home  # alias conservé pour lisibilité du reste du bloc
 
         # Vente B2B domestique hors France : autoliquidation nationale.
         # En droit ES/IT/DE/etc., une vente entre deux assujettis dans le même pays
@@ -326,7 +345,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
 
         channel = Channel.FR_DOMESTIC if is_fr else Channel.LOCAL_REGISTRATION
         note = (
-            f"Vente domestique France : TVA française {tax_rate}% à déclarer sur CA3."
+            f"Vente domestique {sale.seller_country} : TVA {tax_rate}% à déclarer en local."
             if is_fr else
             f"Vente domestique {sale.stock_country} : TVA {tax_rate}%. "
             f"Immatriculation TVA locale requise en {sale.stock_country}."
@@ -347,15 +366,15 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             # DDP (Delivered Duty Paid) : le vendeur dédouane la marchandise,
             # la vente redevient une livraison locale dans le pays de destination.
             # Une immatriculation TVA locale dans ce pays est obligatoire.
-            is_dest_fr = sale.buyer_country == "FR"
-            channel = Channel.FR_DOMESTIC if is_dest_fr else Channel.LOCAL_REGISTRATION
+            is_dest_home = sale.buyer_country == sale.seller_country
+            channel = Channel.FR_DOMESTIC if is_dest_home else Channel.LOCAL_REGISTRATION
             note = (
                 f"Import > {IOSS_THRESHOLD} EUR, vendeur importateur officiel (DDP) : "
                 f"vente requalifiée en livraison domestique {sale.buyer_country}. "
                 f"TVA locale {tax_rate}% — "
                 + (
-                    "déclaration CA3 (France)."
-                    if is_dest_fr else
+                    f"déclaration domestique ({sale.seller_country})."
+                    if is_dest_home else
                     f"immatriculation TVA locale requise en {sale.buyer_country}."
                 )
             )
@@ -422,11 +441,9 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     prev_cumul = cumulative - sale.amount_ht   # cumul AVANT cette vente
 
     if cumulative <= Decimal("10000.00"):
-        # Encore sous le seuil : TVA FR.
-        # On force "FR" comme pays de taxation — le vendeur assujetti en France
-        # déclare cette TVA sur sa CA3 française, indépendamment de seller_country
-        # (qui peut être mal renseigné dans un fichier tiers ou vide).
-        # Recalcul local de la date (sale disponible dans ce scope)
+        # Encore sous le seuil : application de la TVA du pays d'origine.
+        # Le vendeur (et en dessous du seuil) applique sa propre TVA sur ses ventes intra-UE.
+        origin_country = sale.seller_country
         _oss_tx_date = None
         if sale.transaction_date:
             try:
@@ -434,16 +451,16 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                 _oss_tx_date = _d.fromisoformat(sale.transaction_date[:10])
             except ValueError:
                 pass
-        fr_rate = vat_rate("FR", product_category, tx_date=_oss_tx_date)
-        fr_vat_amount = _vat_amount(sale.amount_ht, fr_rate)
+        home_rate = vat_rate(origin_country, product_category, tx_date=_oss_tx_date)
+        home_vat_amount = _vat_amount(sale.amount_ht, home_rate)
         return VatResult(
             sale=sale, scenario=Scenario.DOMESTIC,
-            vat_country="FR",
-            vat_rate=fr_rate, vat_amount=fr_vat_amount,
+            vat_country=origin_country,
+            vat_rate=home_rate, vat_amount=home_vat_amount,
             collector=Collector.SELLER, channel=Channel.FR_DOMESTIC,
             note=(
                 f"Sous le seuil OSS ({cumulative:,.2f}/{Decimal('10000.00'):,.2f}€). "
-                "Option TVA FR activée."
+                f"Option TVA {origin_country} activée."
             ),
         )
     elif prev_cumul <= Decimal("10000.00"):

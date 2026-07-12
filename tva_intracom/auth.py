@@ -26,7 +26,6 @@ import psycopg2.pool
 import requests
 import streamlit as st
 from .config import get_secret
-from .security import encrypt_data as _enc, decrypt_data as _dec
 
 MAGIC_LINK_TTL_SECONDS = 15 * 60
 
@@ -98,9 +97,16 @@ def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
                     email TEXT UNIQUE NOT NULL,
                     created_at DOUBLE PRECISION NOT NULL,
                     is_cabinet BOOLEAN NOT NULL DEFAULT FALSE,
-                    cabinet_parent_id TEXT
+                    cabinet_parent_id TEXT,
+                    home_country TEXT NOT NULL DEFAULT 'FR'
                 )
                 """
+            )
+            # Ajout rétro-compatible pour les bases déjà existantes (le CREATE
+            # TABLE IF NOT EXISTS ci-dessus ne modifie pas une table déjà créée
+            # par une version antérieure du schéma).
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS home_country TEXT NOT NULL DEFAULT 'FR'"
             )
             cur.execute(
                 """
@@ -152,6 +158,7 @@ class User:
     email: str
     is_cabinet: bool = False
     cabinet_parent_id: Optional[str] = None
+    home_country: str = "FR"
 
 
 def get_or_create_user(email: str) -> User:
@@ -159,12 +166,12 @@ def get_or_create_user(email: str) -> User:
 
     def _fn(conn, cur):
         cur.execute(
-            "SELECT id, email, is_cabinet, cabinet_parent_id FROM tva_users WHERE email=%s",
+            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country FROM tva_users WHERE email=%s",
             (email,),
         )
         row = cur.fetchone()
         if row:
-            return User(id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3])
+            return User(id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3], home_country=row[4] or "FR")
         user_id = secrets.token_hex(12)
         cur.execute(
             "INSERT INTO tva_users (id, email, created_at) VALUES (%s, %s, %s)",
@@ -173,6 +180,21 @@ def get_or_create_user(email: str) -> User:
         return User(id=user_id, email=email)
 
     return _run(_fn)
+
+
+def set_home_country(user_id: str, country: str) -> None:
+    """Met à jour le pays d'origine (établissement) du compte — réglage
+    global, pas par SIREN (voir sidebar.py, section Entreprise & Paramètres).
+    """
+    country = (country or "FR").strip().upper()
+
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_users SET home_country=%s WHERE id=%s",
+            (country, user_id),
+        )
+
+    _run(_fn)
 
 
 def create_magic_link(email: str) -> str:
@@ -316,7 +338,7 @@ def get_user_by_session_token(token: str) -> Optional[User]:
 
     def _fetch_user(conn, cur):
         cur.execute(
-            "SELECT id, email, is_cabinet, cabinet_parent_id FROM tva_users WHERE id=%s",
+            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country FROM tva_users WHERE id=%s",
             (user_id,),
         )
         return cur.fetchone()
@@ -324,18 +346,10 @@ def get_user_by_session_token(token: str) -> Optional[User]:
     urow = _run(_fetch_user)
     if not urow:
         return None
-    return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3])
+    return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3], home_country=urow[4] or "FR")
 
 
 def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token: str) -> None:
-    """Enregistre les identifiants SP-API du vendeur.
-
-    Le refresh token est un jeton d'accès de longue durée aux données du
-    vendeur Amazon : il est chiffré (Fernet, `security.encrypt_data`) avant
-    insertion en base, au même titre que les autres PII/secrets applicatifs
-    (voir `billing.py` pour `company_name`). Ne jamais logger sa valeur en
-    clair.
-    """
     def _fn(conn, cur):
         now = time.time()
         cur.execute(
@@ -347,7 +361,7 @@ def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token
                 refresh_token = EXCLUDED.refresh_token,
                 updated_at = EXCLUDED.updated_at
             """,
-            (user_id, selling_partner_id, _enc(refresh_token), now, now),
+            (user_id, selling_partner_id, refresh_token, now, now),
         )
 
     _run(_fn)
@@ -361,7 +375,7 @@ def get_amazon_credentials(user_id: str) -> Optional[dict]:
         )
         row = cur.fetchone()
         if row:
-            return {"selling_partner_id": row[0], "refresh_token": _dec(row[1])}
+            return {"selling_partner_id": row[0], "refresh_token": row[1]}
         return None
 
     return _run(_fn)

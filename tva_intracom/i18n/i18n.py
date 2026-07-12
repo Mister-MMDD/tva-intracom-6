@@ -15,8 +15,8 @@ def load_translations(lang: str):
     file_path = I18N_DIR / f"{lang}.toml"
     
     if not file_path.exists():
-        logger.warning(f"Translation file not found: {file_path}. Falling back to fr.toml")
-        file_path = I18N_DIR / "fr.toml"
+        logger.warning(f"Translation file not found: {file_path}. Falling back to en.toml")
+        file_path = I18N_DIR / "en.toml"
     
     if not file_path.exists():
         logger.error(f"Critical: Translation file not found: {file_path}")
@@ -64,8 +64,14 @@ def language_selector():
     """Affiche un sélecteur de langue dans la barre latérale."""
     langs = {
         "fr": "🇫🇷 Français",
-        "en": "🇬🇧 English",
-    }
+        "en": "GB English",
+        "de": "DE Deutsch",
+        "es": "ES Español",
+        "pl": "PL Polski",
+        "pt": "PT Português",
+        "it": "IT Italiano"
+        }
+
     
     current_lang = st.session_state.get("language", "fr")
     options = list(langs.keys())

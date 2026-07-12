@@ -19,7 +19,7 @@ from tva_intracom.i18n import _
 
 from tva_intracom.models import Channel
 from tva_intracom.oss_export import aggregate_oss_results
-from tva_intracom.ui.formatting import _country_label, _gated_preview_table, _money_col, _smart_money_df
+from tva_intracom.ui.formatting import _country_label, _gated_preview_table, _money_col, _smart_money_df, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
 _ZERO = Decimal("0.00")
@@ -33,6 +33,7 @@ def render_declarations(ctx: TabContext) -> None:
     oss_summary = ctx.oss_summary
     period_label = ctx.period_label
     _can_export = ctx.can_export
+    home_country = ctx.home_country
 
     st.subheader(_("what_you_must_remit"))
 
@@ -66,16 +67,22 @@ def render_declarations(ctx: TabContext) -> None:
     _oss_ht_remb_total   = sum((v["ht_remb"]   for v in _oss_country_totals.values()), _ZERO)
     _oss_ht_net_total    = sum((v["ht_net"]    for v in _oss_country_totals.values()), _ZERO)
 
-    # France CA3
-    fr_ht_brut = sum(r.sale.amount_ht for r in results if r.channel == Channel.FR_DOMESTIC)
-    fr_ht_remb = sum(r.sale.amount_ht for r in (refund_results or []) if r.channel == Channel.FR_DOMESTIC)
+    # Home Country declaration (ex-France CA3)
+    home_ht_brut = sum(r.sale.amount_ht for r in results if r.channel == Channel.FR_DOMESTIC)
+    home_ht_remb = sum(r.sale.amount_ht for r in (refund_results or []) if r.channel == Channel.FR_DOMESTIC)
+
+    if home_country == "FR":
+        home_label = _("canal_vat_fr")
+    else:
+        # On utilise une version courte pour le tableau récap : "Déclaration [Pays]"
+        home_label = f"🏠 Déclaration {home_country}"
 
     recap_data = [
         {
-            _("col_canal"): _("canal_vat_fr"),
-            _("col_ca_ht_brut"): float(fr_ht_brut),
-            _("col_ca_ht_remb"): float(fr_ht_remb) if fr_ht_remb else None,
-            _("col_ca_ht_net"): float(fr_ht_brut + fr_ht_remb),
+            _("col_canal"): home_label,
+            _("col_ca_ht_brut"): float(home_ht_brut),
+            _("col_ca_ht_remb"): float(home_ht_remb) if home_ht_remb else None,
+            _("col_ca_ht_net"): float(home_ht_brut + home_ht_remb),
             _("col_tva_brute"): float(summary.fr_domestic_vat),
             _("col_tva_remb"): float(summary.refund_fr_domestic_vat) if summary.refund_count else None,
             _("col_tva_nette"): float(summary.net_fr_domestic_vat)
@@ -132,7 +139,11 @@ def render_declarations(ctx: TabContext) -> None:
             _acc["ht_remb"] += r.sale.amount_ht
             _acc["tva_remb"] += r.vat_amount
         for _ccode, _vals in sorted(_ddp_agg.items()):
-            _label = _("canal_ddp_fr") if _ccode == "FR" else _("canal_ddp_local", country=_country_label(_ccode))
+            if _ccode == home_country:
+                _label = _("canal_ddp_fr") if home_country == "FR" else f"TVA DDP {home_country}"
+            else:
+                _label = _("canal_ddp_local", country=_country_label(_ccode))
+
             recap_data.append({
                 _("col_canal"): f"📦 {_label}",
                 _("col_ca_ht_brut"): float(_vals["ht_brut"]),
@@ -143,6 +154,7 @@ def render_declarations(ctx: TabContext) -> None:
                 _("col_tva_nette"): float(_vals["tva_brute"] + _vals["tva_remb"])
             })
 
+    # 5. Déclarations Locales (hors pays d'origine)
     if summary.local_by_country:
         local_ht_brut_by_country = {}
         for r in results:
@@ -158,8 +170,14 @@ def render_declarations(ctx: TabContext) -> None:
         _local_tva_brute_total = sum(summary.local_by_country.values(), _ZERO)
         _local_tva_remb_total = sum(getattr(summary, "refund_local_by_country", {}).values(), _ZERO)
 
+        if home_country == "FR":
+            local_label = _("canal_local_hors_fr")
+        else:
+            # On renomme dynamiquement le libellé pour refléter le pays d'origine choisi
+            local_label = _("canal_local_hors_fr").replace("FR", home_country)
+
         recap_data.append({
-            _("col_canal"): _("canal_local_hors_fr"),
+            _("col_canal"): local_label,
             _("col_ca_ht_brut"): float(_local_ht_brut_total),
             _("col_ca_ht_remb"): float(_local_ht_remb_total) if _local_ht_remb_total else None,
             _("col_ca_ht_net"): float(_local_ht_brut_total + _local_ht_remb_total),
@@ -234,19 +252,9 @@ def render_declarations(ctx: TabContext) -> None:
         st.caption(_("locked_preview_caption"))
 
     if summary.refund_count:
-        st.info(_("refund_summary_info", count=summary.refund_count, ht=f"{float(summary.refund_total_ht):,.2f}"))
+        st.info(_("refund_summary_info", count=summary.refund_count, ht=_fmt(summary.refund_total_ht)))
 
     # ── Contrôle de Cohérence Comptable ─────────────────────────────
-    # Rapproche le CA HT net déclaré (total_ht - remboursements) avec
-    # la somme du CA HT ventilé par canal fiscal (ht_by_bucket dans
-    # report.py). Les deux sont calculés indépendamment (l'un lors de
-    # l'agrégation globale, l'autre lors de la classification par
-    # canal) donc un écart révèle un scénario non couvert par la
-    # ventilation plutôt qu'une simple tautologie.
-    #
-    # ⚠️ Ceci ne rapproche PAS avec le relevé Amazon (commissions,
-    # frais, remises promo non détaillées ici) : c'est un test
-    # d'intégrité interne du moteur, pas un lettrage bancaire complet.
     _declared_net_ht = summary.total_ht + summary.refund_total_ht
     _bucket_net_ht = summary.net_ht_total
     _coherence_delta = _declared_net_ht - _bucket_net_ht
@@ -259,9 +267,9 @@ def render_declarations(ctx: TabContext) -> None:
             _gated_preview_table(pd.DataFrame(_bucket_rows), _can_export,
                 column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))})
         c1, c2, c3 = st.columns(3)
-        c1.metric(_("kpi_declared_net_ht"), f"{float(_declared_net_ht):,.2f} €")
-        c2.metric(_("kpi_sum_canals_net_ht"), f"{float(_bucket_net_ht):,.2f} €")
-        c3.metric(_("kpi_gap"), f"{float(_coherence_delta):,.2f} €")
+        c1.metric(_("kpi_declared_net_ht"), _fmt(_declared_net_ht))
+        c2.metric(_("kpi_sum_canals_net_ht"), _fmt(_bucket_net_ht))
+        c3.metric(_("kpi_gap"), _fmt(_coherence_delta))
         if abs(_coherence_delta) > Decimal("0.01"):
             st.error(_("coherence_error"))
         else:

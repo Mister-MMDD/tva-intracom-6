@@ -61,8 +61,15 @@ def compute_local_vat_lines(
     vat_country = vat_country.upper()
     refund_results = refund_results or []
 
-    sales = [r for r in results if r.channel.value == "LOCAL" and r.vat_country == vat_country]
-    refunds = [r for r in refund_results if r.channel.value == "LOCAL" and r.vat_country == vat_country]
+    # Filtre élargi : channel LOCAL_REGISTRATION (immatriculation hors pays
+    # d'origine) OU FR_DOMESTIC. Ce dernier n'est émis par engine.py QUE
+    # lorsque vat_country == sale.seller_country (pays d'origine du compte,
+    # voir auth.py/sidebar.py) — jamais pour un autre pays. Élargir ainsi
+    # permet de réutiliser ce même module pour le rapport du pays d'ORIGINE
+    # quand celui-ci n'est pas la France (auquel cas ca3_report.py, qui
+    # suppose un vendeur français, n'est pas utilisé — voir telechargements.py).
+    sales = [r for r in results if r.channel.value in ("LOCAL", "FR_DOMESTIC") and r.vat_country == vat_country]
+    refunds = [r for r in refund_results if r.channel.value in ("LOCAL", "FR_DOMESTIC") and r.vat_country == vat_country]
 
     by_rate: Dict[str, Dict[str, Decimal]] = {}
 
@@ -119,6 +126,13 @@ def generate_local_vat_html_report(
     lines = compute_local_vat_lines(results, refund_results, vat_country)
 
     country_label = COUNTRY_NAMES.get(vat_country, vat_country)
+    
+    # Si c'est le pays d'origine, on adapte le titre
+    if vat_country == seller_country:
+        main_title = _("local_vat_main_title", country=country_label) + f" ({_('home_country_label')})"
+    else:
+        main_title = _("local_vat_main_title", country=country_label)
+
     meta = COUNTRY_FISCAL_META.get(
         vat_country,
         (f"Déclaration TVA — {country_label}", "Base imposable", "TVA", "—", "—"),
@@ -203,7 +217,7 @@ def generate_local_vat_html_report(
 </head>
 <body>
     <div class="hdr-banner">
-        <p class="title">{_("local_vat_main_title", country=country_label)}</p>
+        <p class="title">{main_title}</p>
         <p class="subtitle">{decl_name}</p>
     </div>
 

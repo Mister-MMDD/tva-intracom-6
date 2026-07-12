@@ -80,6 +80,9 @@ tva-intracom/
 │   │                                 Gère aussi le rattachement anti-abus Compte Amazon <-> SIREN.
 │   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
 │   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
+│   ├── local_vat_report.py           Équivalent générique du CA3 pour tout pays UE hors France
+│   │                                 (canal LOCAL_REGISTRATION/FR_DOMESTIC) : rapport HTML harmonisé
+│   │                                 visuellement au CA3 mais PAS un fac-similé du formulaire officiel
 │   ├── fec_export.py                 Export comptable FEC (art. A47 A-1 LPF) : journal des ventes
 │   │                                 agrégé par période/régime/pays/taux, plan comptable générique
 │   │                                 paramétrable (ACCOUNTS), écritures équilibrées débit/crédit
@@ -153,6 +156,7 @@ tva-intracom/
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
 | `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965) avec multi-validation XSD (DGFIP/UE) |
 | `ca3_report.py` | Génération du rapport CA3 (HTML uniquement — pas d'export EDI-TVA, voir Roadmap) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
+| `local_vat_report.py` | Équivalent générique du CA3 pour n'importe quel pays UE hors France (canal `LOCAL_REGISTRATION`, ou `FR_DOMESTIC` quand ce pays est le **pays d'origine** du compte) : `compute_local_vat_lines`, `generate_local_vat_html_report`. Ventilation base/TVA par taux réellement présent dans les données, style visuel harmonisé au CA3, mais **PAS un fac-similé du formulaire officiel** — un avertissement explicite figure dans chaque rapport généré. Codes de case indicatifs pour DE/ES/IT/PL/NL/BE/PT/SE/AT/CZ/RO/HU/IE (`rates.LOCAL_VAT_BOX_CODES`, non vérifiés exhaustivement contre un PDF officiel, contrairement au CA3) |
 | `fec_export.py` | Export comptable au format FEC (journal des ventes agrégé par régime/pays/taux, écritures équilibrées débit/crédit) — pré-remplissage pour import dans un logiciel comptable tiers, alternative légère à l'EDI-TVA (voir Roadmap) |
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
@@ -178,14 +182,14 @@ du script.
 | `ui/theme.py` | `apply_theme()` — configuration de page Streamlit (titre, icône, layout) et injection du CSS de marque |
 | `ui/formatting.py` | Helpers d'affichage réutilisés par plusieurs onglets : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df`, `_gated_preview_table`, `_fec_period_end_date` |
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
-| `ui/sidebar.py` | `SidebarResult` + `render_sidebar()` — tous les accordéons de la barre latérale (connexion SP-API, Validation & Devises, Cache VIES, Paramètres du fichier, Catalogue Produits, Entreprise & Paramètres avec gestion des SIREN, Abonnements & forfaits Stripe) |
+| `ui/sidebar.py` | `SidebarResult` + `render_sidebar()` — tous les accordéons de la barre latérale : **Pays d'origine** (`home_country`, tout premier réglage, voir section dédiée ci-dessous), connexion SP-API, Validation & Devises, Cache VIES, Paramètres du fichier, Catalogue Produits, Entreprise & Paramètres avec gestion des SIREN, Abonnements & forfaits Stripe |
 | `ui/billing_gate.py` | `BillingGate` + `build_billing_gate()` — détection du `period_label`, gating crédit PAYG/abonnement actif, gating quota SIREN, gating conformité (TVA locales/IOSS manquants), **rattachement anti-abus Compte Amazon <-> SIREN**, méthode `gated_download()` utilisée par tous les exports de tous les onglets |
 | `ui/tabs/context.py` | `TabContext` — dataclass regroupant tout l'état nécessaire aux onglets (résultats moteur, statut billing, paramètres entreprise, données brutes d'import), construite une fois avant l'affichage des onglets |
 | `ui/tabs/declarations.py` | Onglet **💶 Déclarations** — récapitulatif "Ce que vous devez reverser" (CA3, OSS par pays, IOSS, DDP, Fisc local), barre de seuil OSS, Contrôle de Cohérence Comptable |
 | `ui/tabs/detail_ventes.py` | Onglet **📋 Détail ventes** — 4 sous-onglets : Ce que vous devez / Géré par des tiers / Ligne par ligne / Remboursements |
 | `ui/tabs/vies.py` | Onglet **🛡️ VIES** — KPIs de validation, classification manuelle des numéros non vérifiés (`st.fragment`), overrides persistés, reclassifications B2B→B2C |
 | `ui/tabs/audit.py` | Onglet **🔬 Audit Amazon** — écarts TVA Amazon par catégorie (taux, VIES, UK, autoliquidation art.194, TVA manquante), mouvements de stock FBA |
-| `ui/tabs/telechargements.py` | Onglet **📥 Téléchargements** — génération de tous les exports (Excel complet, XML/Excel/CSV OSS, CA3 HTML, B2B, déclarations locales par pays, FEC) |
+| `ui/tabs/telechargements.py` | Onglet **📥 Téléchargements** — génération de tous les exports (Excel complet, XML/Excel/CSV OSS, déclaration du **pays d'origine** en premier — CA3 HTML si FR, rapport HTML générique sinon —, déclarations locales HTML/CSV pour tous les autres pays (dont la France si elle n'est pas le pays d'origine), B2B, FEC) |
 | `ui/tabs/visualisations.py` | Onglet **📊 Visualisations** — TVA due par pays, répartition Vous/Amazon/Douane, carte Europe, évolution mensuelle, répartition par scénario |
 
 **Dépendance intentionnelle entre onglets** : `ui/tabs/declarations.py`
@@ -197,7 +201,42 @@ explicite plutôt que dupliqué, voir la docstring de `context.py`.
 
 ---
 
-## Couche monétisation (SaaS)
+## Pays d'origine du compte (`home_country`)
+
+Réglage **global au compte** (pas par SIREN — contrairement à l'IOSS ou au mode
+DDP), affiché en tout premier dans la barre latérale, persisté en base
+(`tva_users.home_country`, défaut `"FR"`).
+
+- **Sélecteur de langue avant connexion** : `language_selector()` est
+  désormais appelé avant l'écran de connexion (magic link), pour que
+  l'interface entière — y compris l'écran de connexion lui-même — s'affiche
+  dans la langue choisie, sans attendre l'authentification.
+- **Impact sur le moteur fiscal** : `sale.seller_country` (déjà présent sur
+  chaque `Sale`, transmis via le paramètre `seller_country` de
+  `load_amazon_report()` et des autres parsers marketplace) reflète ce choix.
+  `engine.py` compare désormais le pays de stock/destination à
+  `sale.seller_country` plutôt qu'à un littéral `"FR"` figé, pour classer une
+  vente en régime domestique (`Channel.FR_DOMESTIC` — nom conservé pour
+  compatibilité, signifie désormais « domestique dans le pays d'origine du
+  compte », pas littéralement la France) ou en immatriculation locale
+  (`Channel.LOCAL_REGISTRATION`).
+  - Cas non concernés par cette généralisation (volontairement laissés en
+    l'état) : le cas Monaco (convention fiscale franco-monégasque du 18 mai
+    1963, spécifique à la France par nature) et le seuil OSS sous 10 000 €
+    opt-in (`apply_fr_under_threshold`, mécanisme OSS — aucun impact sur
+    l'OSS n'était souhaité).
+- **Impact sur l'onglet Téléchargements** : la déclaration du pays d'origine
+  s'affiche en premier — le CA3 (Cerfa, fac-similé vérifié) si le pays
+  d'origine est la France, sinon le rapport HTML générique de
+  `local_vat_report.py` pour ce pays. La section « Déclarations Locales »
+  regroupe ensuite tous les **autres** pays où une immatriculation locale est
+  détectée, France comprise si elle n'est pas le pays d'origine.
+- **Aucun impact sur l'OSS** : le guichet unique OSS reste toujours déclaré et
+  agrégé de la même façon, indépendamment du pays d'origine choisi.
+
+---
+
+
 
 - **Auth** : connexion par lien magique envoyé par e-mail (API Resend), jeton à usage
   unique valable 15 minutes, comptes stockés dans Supabase (table `tva_users`).
@@ -646,6 +685,17 @@ conversion BCE.
 ---
 
 ## Roadmap
+
+- ~~Vendeur toujours supposé établi en France~~ **Corrigé** : `engine.py`
+  comparait plusieurs classifications (domestique vs immatriculation locale)
+  à un littéral `"FR"` figé au lieu de `sale.seller_country`. Un nouveau
+  réglage de compte **Pays d'origine** (`home_country`, global, persisté en
+  base) permet désormais à un cabinet gérant un client établi hors de France
+  d'obtenir une classification fiscale correcte et un ordre d'affichage des
+  déclarations adapté (déclaration du pays d'origine en premier). Voir la
+  section dédiée ci-dessus. Volontairement non généralisés : le cas Monaco
+  (convention franco-monégasque, spécifique à la France) et le seuil OSS
+  sous 10 000 € (`apply_fr_under_threshold`, hors périmètre OSS demandé).
 
 - **Export EDI-TVA (télédéclaration CA3)** : actuellement, `ca3_report.py` ne
   produit qu'un rapport HTML (`generate_ca3_html_report_v2`) destiné à une

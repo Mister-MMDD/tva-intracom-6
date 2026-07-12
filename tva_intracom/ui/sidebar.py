@@ -24,6 +24,7 @@ Usage dans app.py :
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -34,7 +35,7 @@ from tva_intracom.i18n import _
 
 from tva_intracom import auth as tva_auth
 from tva_intracom import billing as tva_billing
-from tva_intracom.rates import EU_COUNTRIES
+from tva_intracom.rates import EU_COUNTRIES, COUNTRY_NAMES
 from tva_intracom.vies_engine import (
     get_cache_stats as vies_cache_stats,
     purge_expired_cache,
@@ -64,6 +65,7 @@ class SidebarResult:
     local_vat_numbers: dict[str, str] = field(default_factory=dict)
     oss_period: str = "__auto__"
     siren_quota_status: Any = None
+    home_country: str = "FR"
 
 
 def render_sidebar(auth_ctx) -> SidebarResult:
@@ -81,6 +83,31 @@ def render_sidebar(auth_ctx) -> SidebarResult:
     with st.sidebar:
         st.header(_("options_header"))
 
+        # ── Pays d'origine (établissement du vendeur) ──────────────────
+        # Réglage GLOBAL au compte (pas par SIREN) — conditionne la
+        # classification domestique/locale du moteur fiscal (engine.py,
+        # sale.seller_country) et l'ordre d'affichage des déclarations
+        # (déclaration du pays d'origine en premier, reste en "local").
+        # Persisté en base (tva_users.home_country), voir auth.py.
+        _home_countries = sorted(EU_COUNTRIES)
+        _current_home = getattr(_current_user, "home_country", "FR") or "FR"
+        try:
+            _home_index = _home_countries.index(_current_home)
+        except ValueError:
+            _home_index = _home_countries.index("FR") if "FR" in _home_countries else 0
+        home_country = st.selectbox(
+            _("home_country_label"),
+            options=_home_countries,
+            index=_home_index,
+            format_func=lambda c: f"{COUNTRY_NAMES.get(c, c)} ({c})",
+            key="home_country_select",
+            help=_("home_country_help"),
+        )
+        if home_country != _current_home:
+            tva_auth.set_home_country(_current_user.id, home_country)
+            _current_user.home_country = home_country
+            st.rerun()
+
         # Rappel pour le thème si l'utilisateur ne le trouve plus
         st.caption(_("theme_caption"))
         file_format = st.radio(_("platform_source"), _PLATFORM_OPTIONS, index=0)
@@ -95,12 +122,9 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     st.rerun()
             else:
                 st.info(_("amazon_info_auth"))
-                # 'state' persisté en session et vérifié au retour du callback
-                # (voir ui/auth_flow.py::get_or_create_spapi_oauth_state /
-                # run_auth_flow) — protection CSRF sur le flux OAuth.
+                # On génère un 'state' pour sécuriser l'OAuth (optionnel mais recommandé)
+                _state = secrets.token_hex(8)
                 from tva_intracom import amazon_spapi
-                from tva_intracom.ui.auth_flow import get_or_create_spapi_oauth_state
-                _state = get_or_create_spapi_oauth_state()
                 try:
                     _auth_url = amazon_spapi.get_authorization_url(state=_state)
                     st.link_button(_("amazon_connect_btn"), _auth_url)
@@ -699,23 +723,5 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         local_vat_numbers=local_vat_numbers,
         oss_period=oss_period,
         siren_quota_status=_siren_quota_status,
-    )
-
-    return SidebarResult(
-        file_format=file_format,
-        enable_vies=enable_vies,
-        on_invalid_behavior=on_invalid_behavior,
-        convert_fx=convert_fx,
-        encoding=encoding,
-        asin_to_category=asin_to_category,
-        ioss_number=ioss_number,
-        seller_is_importer=seller_is_importer,
-        apply_fr_under_threshold=apply_fr_under_threshold,
-        countries_with_vat=countries_with_vat,
-        nom_entreprise=nom_entreprise,
-        siren_entreprise=siren_entreprise,
-        tva_fr=tva_fr,
-        local_vat_numbers=local_vat_numbers,
-        oss_period=oss_period,
-        siren_quota_status=_siren_quota_status,
+        home_country=home_country,
     )

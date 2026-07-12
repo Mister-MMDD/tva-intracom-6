@@ -71,6 +71,7 @@ def render_visualisations(ctx: TabContext) -> None:
             totals = [vat_net_by_country[c] for c in sorted_countries]
             
             if any(v != 0 for v in vals):
+                symbol = st.session_state.get("currency_symbol", "€")
                 fig_bar.add_trace(go.Bar(
                     name=t,
                     x=[_country_label(c) for c in sorted_countries],
@@ -83,9 +84,9 @@ def render_visualisations(ctx: TabContext) -> None:
                         _("viz_tooltip_total_pays") +
                         _("viz_tooltip_canal") +
                         "<extra></extra>"
-                    ),
+                    ).replace("€", symbol),
                     marker_color=colors.get(t),
-                    text=[f"{v:,.2f}€" if v != 0 else "" for v in vals],
+                    text=[f"{v:,.2f}{symbol}" if v != 0 else "" for v in vals],
                     textposition="auto"
                 ))
 

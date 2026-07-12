@@ -54,6 +54,7 @@ def render_telechargements(ctx: TabContext) -> None:
     all_fc_transfers = ctx.all_fc_transfers
     all_invoice_credit_notes = ctx.all_invoice_credit_notes
     _oss_tva_net_total = ctx.oss_tva_net_total
+    home_country = getattr(ctx, "home_country", "FR") or "FR"
 
     results_net = results + (refund_results or [])
 
@@ -76,7 +77,7 @@ def render_telechargements(ctx: TabContext) -> None:
                     refund_results=refund_results, all_fc_transfers=all_fc_transfers,
                     vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
                     countries_with_vat=countries_with_vat,
-                    period=period_label, seller_country="FR",
+                    period=period_label, seller_country=home_country,
                     invoice_credit_notes=all_invoice_credit_notes)
             with open(xlsx_path,"rb") as f: xlsx_bytes = f.read()
 
@@ -140,14 +141,34 @@ def render_telechargements(ctx: TabContext) -> None:
 
         st.divider()
 
-        # 3. France CA3
-        st.markdown(_("france_ca3_header"))
-        st.caption(_("france_ca3_caption"))
-        ca3_html = generate_ca3_html_report_v2(
-            results=results, refund_results=refund_results, company_name=nom_entreprise, siren=siren_entreprise,
-            period_label=period_label, all_fc_transfers=all_fc_transfers, seller_country="FR",
-        )
-        _gated_download(_("dl_ca3_html_btn"), data=ca3_html.encode("utf-8"), file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html", use_container_width=True)
+        # 3. Déclaration du pays d'origine (établissement du vendeur)
+        # — CA3 (Cerfa) si le pays d'origine est la France (seul cas où le
+        # fac-similé Cerfa a été vérifié — voir ca3_report.py), sinon le
+        # rapport HTML générique (local_vat_report.py) pour CE pays.
+        # Aucun impact sur l'OSS : ce bloc ne touche que le canal
+        # DOMESTIC/FR_DOMESTIC, pas Channel.OSS.
+        if home_country == "FR":
+            st.markdown(_("france_ca3_header"))
+            st.caption(_("france_ca3_caption"))
+            ca3_html = generate_ca3_html_report_v2(
+                results=results, refund_results=refund_results, company_name=nom_entreprise, siren=siren_entreprise,
+                period_label=period_label, all_fc_transfers=all_fc_transfers, seller_country="FR",
+            )
+            _gated_download(_("dl_ca3_html_btn"), data=ca3_html.encode("utf-8"), file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html", use_container_width=True)
+        else:
+            st.markdown(_("home_country_declaration_header", country=_country_label(home_country)))
+            st.caption(_("home_country_declaration_caption"))
+            _home_html = generate_local_vat_html_report(
+                results=results, refund_results=refund_results, vat_country=home_country,
+                company_name=nom_entreprise, siren=siren_entreprise,
+                period_label=period_label, seller_country=home_country,
+            )
+            _gated_download(
+                _("dl_local_html_btn", country=_country_label(home_country)),
+                data=_home_html.encode("utf-8"),
+                file_name=_("dl_local_html_filename", country=home_country, company=nom_entreprise, period=period_label),
+                mime="text/html", use_container_width=True,
+            )
 
         st.divider()
 
@@ -165,8 +186,9 @@ def render_telechargements(ctx: TabContext) -> None:
 
         st.divider()
 
-        # 5. Déclarations Locales (hors FR)
+        # 5. Déclarations Locales (hors pays d'origine)
         st.markdown(_("local_declarations_header"))
+        st.caption(_("local_declarations_home_note", country=_country_label(home_country)))
         _local_tax_data = [r for r in results_net if r.channel.value == "LOCAL" and r.vat_country]
         if not _local_tax_data:
             st.info(_("no_local_sales_info"))
@@ -192,11 +214,11 @@ def render_telechargements(ctx: TabContext) -> None:
                 w.writerow([f"Pays : {_country_label(country)} ({country}) | Standard : {rate_std} | Reduit : {rate_red}"])
                 w.writerow([])
                 fmt_map = LOCAL_VAT_BOX_CODES  # source unique — voir tva_intracom/rates.py
-                if country == "FR":
+                if country == home_country:
                     w.writerow(["Base HT","Taux (%)","TVA","ID vente","Canal"])
                     for r in country_results:
                         w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),(r.sale.display_id or r.sale.sale_id),r.channel.value])
-                    w.writerow([]); w.writerow(["TOTAL TVA FR",str(summary.net_fr_domestic_vat).replace(".",",")])
+                    w.writerow([]); w.writerow([f"TOTAL TVA {home_country}",str(summary.net_fr_domestic_vat).replace(".",",")])
                     w.writerow(["TOTAL OSS",str(_oss_tva_net_total).replace(".",",")])
                 elif country in fmt_map:
                     headers, mapping = fmt_map[country]
@@ -221,7 +243,13 @@ def render_telechargements(ctx: TabContext) -> None:
                 return ("\ufeff"+buf.getvalue()).encode("utf-8")
 
             meta_sel = COUNTRY_FISCAL_META.get(export_country, ("", "", "", "—", "—"))
-            if export_country == "FR":
+            # export_country provient du pool "LOCAL" (jamais home_country,
+            # par construction du moteur — voir engine.py) : la branche
+            # summary.net_fr_domestic_vat ne peut être atteinte que si
+            # home_country == "FR" ET qu'une valeur "FR" apparaît malgré
+            # tout dans ce pool, ce qui n'arrive jamais. Gardée par
+            # défensivité uniquement.
+            if export_country == home_country:
                 country_vat = float(summary.net_fr_domestic_vat)
             else:
                 country_vat = float(summary.net_local_by_country.get(export_country, 0))
@@ -234,11 +262,11 @@ def render_telechargements(ctx: TabContext) -> None:
             with c1:
                 _gated_download(_("dl_local_csv_btn", country=_country_label(export_country)), data=_build_local_csv(export_country), file_name=_("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label), mime="text/csv", use_container_width=True)
             with c2:
-                if export_country != "FR":
+                if export_country != home_country:
                     _local_html = generate_local_vat_html_report(
                         results=results, refund_results=refund_results, vat_country=export_country,
                         company_name=nom_entreprise, siren=siren_entreprise,
-                        period_label=period_label, seller_country="FR",
+                        period_label=period_label, seller_country=home_country,
                     )
                     _gated_download(
                         _("dl_local_html_btn", country=_country_label(export_country)),

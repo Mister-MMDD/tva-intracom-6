@@ -11,7 +11,8 @@ from datetime import date as _date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
-from ...ecb_rates import convert_to_eur  # noqa: E402
+from ...ecb_rates import convert_to_eur, convert_to_currency  # noqa: E402
+from ...rates import COUNTRY_CURRENCIES
 from .constants import (
     REFUND_TYPES,
     is_national_tax_id,
@@ -116,8 +117,9 @@ def convert_currency(
     fmt: int,
     row: dict,
     convert_currencies: bool,
+    target_currency: str = "EUR",
 ) -> CurrencyResult:
-    """Convertit le montant en EUR si nécessaire.
+    """Convertit le montant vers la devise cible (EUR par défaut) si nécessaire.
 
     Retourne un CurrencyResult avec les métadonnées de conversion pour
     traçabilité (source du taux, taux utilisé, montant original).
@@ -125,9 +127,9 @@ def convert_currency(
     original_currency = currency
     original_amount   = amount_ht
     exchange_rate     = Decimal("1")
-    exchange_rate_source = "eur"
+    exchange_rate_source = target_currency.lower()
 
-    if not convert_currencies or currency == "EUR":
+    if not convert_currencies or currency == target_currency:
         return CurrencyResult(
             amount_ht=amount_ht,
             original_currency=original_currency,
@@ -136,7 +138,8 @@ def convert_currency(
             exchange_rate_source=exchange_rate_source,
         )
 
-    # Récupération du taux Amazon comme fallback BCE
+    # Récupération du taux Amazon comme fallback BCE (basé sur EUR)
+    # Amazon donne généralement le taux CCY/EUR.
     if fmt == 5:
         # Format 5 : INVOICE_LEVEL_EXCHANGE_RATE (plus précis, lié à la facture)
         raw_fx = row.get("invoice_level_exchange_rate", "").strip()
@@ -161,8 +164,9 @@ def convert_currency(
     if tx_date is None:
         tx_date = _date.today()
 
-    converted, exchange_rate, exchange_rate_source = convert_to_eur(
-        abs(amount_ht), currency, tx_date, fallback_rate=amazon_rate,
+    # Conversion vers la devise cible via EUR
+    converted, exchange_rate, exchange_rate_source = convert_to_currency(
+        abs(amount_ht), currency, target_currency, tx_date, fallback_rate=amazon_rate,
     )
     amount_ht = -converted if tx_type in REFUND_TYPES else converted
 

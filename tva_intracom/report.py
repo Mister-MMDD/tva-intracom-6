@@ -178,7 +178,8 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
     else:
         summary.total_ht += ht
         stock = r.sale.stock_country
-        if is_eu(stock) and stock != "FR":
+        # Un stockage hors du pays d'origine (établissement) crée une obligation d'immatriculation.
+        if is_eu(stock) and stock != r.sale.seller_country:
             summary.stock_countries_requiring_registration.add(stock)
 
         if r.channel == Channel.FR_DOMESTIC:
@@ -224,60 +225,67 @@ def build_report(
     return summary
 
 
-def _fmt(amount: Decimal) -> str:
-    return f"{amount:,.2f} EUR".replace(",", " ")
+def _fmt(amount: Decimal, symbol="EUR") -> str:
+    return f"{amount:,.2f} {symbol}".replace(",", " ")
 
 
-def render_report(summary: ReportSummary) -> str:
+def render_report(summary: ReportSummary, seller_country: str = "FR") -> str:
     """Rendu texte lisible du recapitulatif."""
+    from .rates import COUNTRY_CURRENCIES
+    symbol = COUNTRY_CURRENCIES.get(seller_country, "EUR")
+
     lines: List[str] = []
     lines.append("=" * 64)
     lines.append("RECAPITULATIF TVA INTRACOMMUNAUTAIRE")
     lines.append("=" * 64)
-    lines.append(f"Chiffre d'affaires HT total (ventes) : {_fmt(summary.total_ht)}")
+    lines.append(f"Chiffre d'affaires HT total (ventes) : {_fmt(summary.total_ht, symbol)}")
     if summary.refund_count:
-        lines.append(f"Remboursements HT ({summary.refund_count} lignes) : {_fmt(summary.refund_total_ht)}")
-        lines.append(f"CA HT net : {_fmt(summary.total_ht + summary.refund_total_ht)}")
+        lines.append(f"Remboursements HT ({summary.refund_count} lignes) : {_fmt(summary.refund_total_ht, symbol)}")
+        lines.append(f"CA HT net : {_fmt(summary.total_ht + summary.refund_total_ht, symbol)}")
     lines.append("")
 
     lines.append("--- Ce que VOUS devez reverser (net remboursements) ---")
-    lines.append(f"Fisc francais - TVA domestique (CA3) : {_fmt(summary.net_fr_domestic_vat)}")
+    
+    home_label = "Fisc francais - TVA domestique (CA3)" if seller_country == "FR" else f"Fisc {seller_country} - TVA domestique"
+    lines.append(f"{home_label} : {_fmt(summary.net_fr_domestic_vat, symbol)}")
+    
     if summary.refund_fr_domestic_vat:
-        lines.append(f"    dont remboursements : {_fmt(summary.refund_fr_domestic_vat)}")
+        lines.append(f"    dont remboursements : {_fmt(summary.refund_fr_domestic_vat, symbol)}")
+    
     lines.append(
-        f"Fisc francais - via guichet OSS (TVA pays destination) : "
-        f"{_fmt(summary.net_oss_total)}"
+        f"Fisc {seller_country if seller_country != 'FR' else 'francais'} - via guichet OSS (TVA pays destination) : "
+        f"{_fmt(summary.net_oss_total, symbol)}"
     )
     for country in sorted(summary.net_oss_by_country):
         net = summary.net_oss_by_country[country]
         refund = summary.refund_oss_by_country.get(country, _ZERO)
-        suffix = f" (dont remboursements : {_fmt(refund)})" if refund else ""
-        lines.append(f"    dont {country} : {_fmt(net)}{suffix}")
+        suffix = f" (dont remboursements : {_fmt(refund, symbol)})" if refund else ""
+        lines.append(f"    dont {country} : {_fmt(net, symbol)}{suffix}")
 
     if summary.ioss_vat:
-        lines.append(f"Fisc francais - via guichet IOSS (Import vendeur) : {_fmt(summary.ioss_vat)}")
+        lines.append(f"Fisc francais - via guichet IOSS (Import vendeur) : {_fmt(summary.ioss_vat, symbol)}")
 
     if summary.net_local_by_country:
         lines.append("Fisc locaux - immatriculation TVA requise :")
         for country in sorted(summary.net_local_by_country):
             lines.append(
-                f"    {country} : {_fmt(summary.net_local_by_country[country])}"
+                f"    {country} : {_fmt(summary.net_local_by_country[country], symbol)}"
             )
     else:
         lines.append("Fisc locaux - immatriculation TVA requise : aucune")
 
-    lines.append(f"=> Total TVA nette a reverser par vous : {_fmt(summary.total_you_owe)}")
+    lines.append(f"=> Total TVA nette a reverser par vous : {_fmt(summary.total_you_owe, symbol)}")
     lines.append("")
 
     lines.append("--- Gere par des tiers / sans reversement de votre part ---")
     lines.append(f"TVA collectee et reversee par Amazon (deemed supplier) : "
-                 f"{_fmt(summary.amazon_vat + summary.refund_amazon_vat)}")
+                 f"{_fmt(summary.amazon_vat + summary.refund_amazon_vat, symbol)}")
     lines.append(f"TVA d'importation (due en douane par l'importateur) : "
-                 f"{_fmt(summary.import_vat)}")
+                 f"{_fmt(summary.import_vat, symbol)}")
     lines.append(f"Ventes B2B exonerees (autoliquidation, HT) : "
-                 f"{_fmt(summary.reverse_charge_ht)}")
+                 f"{_fmt(summary.reverse_charge_ht, symbol)}")
     lines.append(f"Exportations hors UE (exonerees, HT) : "
-                 f"{_fmt(summary.export_ht)}")
+                 f"{_fmt(summary.export_ht, symbol)}")
     lines.append("")
 
     lines.append("--- Obligations d'immatriculation (stock FBA - Cas 4) ---")
