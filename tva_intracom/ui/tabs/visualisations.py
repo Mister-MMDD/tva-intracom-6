@@ -14,7 +14,7 @@ import streamlit as st
 from tva_intracom.i18n import _
 
 from tva_intracom.rates import COUNTRY_ISO3
-from tva_intracom.ui.formatting import _country_label
+from tva_intracom.ui.formatting import _country_label, _fmt, _get_conversion_rate
 from tva_intracom.ui.tabs.context import TabContext
 
 
@@ -25,6 +25,12 @@ def render_visualisations(ctx: TabContext) -> None:
     summary = ctx.summary
     platform_name = ctx.platform_name
     _can_export = ctx.can_export
+
+    # Devise cible du pays d'origine choisi (home_country) : tous les montants
+    # ci-dessous sont calculés en EUR par le moteur fiscal et convertis ici
+    # pour affichage (voir _get_conversion_rate, formatting.py).
+    _currency, _rate = _get_conversion_rate()
+    _currency_symbol = st.session_state.get("currency_symbol", "€")
 
     # Calcul des données nettes (Ventes + Remboursements) ventilées par type
     # Structure : { "FR": {"OSS": 0, "Local": 100}, "DE": {"OSS": 50, "Local": 0} }
@@ -66,9 +72,11 @@ def render_visualisations(ctx: TabContext) -> None:
 
         fig_bar = go.Figure()
         for t in types:
-            vals = [viz_data_by_country[c].get(t, 0) for c in sorted_countries]
+            # Conversion EUR (devise de calcul interne) -> devise cible du
+            # pays d'origine choisi, avant affichage (voir _get_conversion_rate).
+            vals = [viz_data_by_country[c].get(t, 0) * _rate for c in sorted_countries]
             # On prépare les totaux par pays pour les afficher dans la bulle d'aide (tooltip)
-            totals = [vat_net_by_country[c] for c in sorted_countries]
+            totals = [vat_net_by_country[c] * _rate for c in sorted_countries]
             
             if any(v != 0 for v in vals):
                 symbol = st.session_state.get("currency_symbol", "€")
@@ -121,7 +129,7 @@ def render_visualisations(ctx: TabContext) -> None:
         if not _can_export:
             st.info(_("viz_locked_map_info"))
         elif vat_net_by_country:
-            map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt}
+            map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt * _rate}
                 for c, amt in vat_net_by_country.items() if c in COUNTRY_ISO3]
             if map_data:
                 fig_map = px.choropleth(map_data, locations="iso_alpha", color="tva",
@@ -178,9 +186,9 @@ def render_visualisations(ctx: TabContext) -> None:
         
         _df_monthly = pd.DataFrame([
             {_col_month: _mois_label(m),
-             _col_ca_sales: _monthly[m]["CA HT"],
-             _col_refunds_ht: _monthly[m]["Remb. HT"],
-             _col_vat_net: _monthly[m]["TVA due"] + _monthly[m]["TVA remb."]}
+             _col_ca_sales: _monthly[m]["CA HT"] * _rate,
+             _col_refunds_ht: _monthly[m]["Remb. HT"] * _rate,
+             _col_vat_net: (_monthly[m]["TVA due"] + _monthly[m]["TVA remb."]) * _rate}
             for m in _months_sorted
         ])
         _tviz1, _tviz2 = st.columns(2)
@@ -189,18 +197,18 @@ def render_visualisations(ctx: TabContext) -> None:
             fig_time.add_trace(go.Bar(
                 name=_col_ca_sales, x=_df_monthly[_col_month],
                 y=_df_monthly[_col_ca_sales], marker_color="#1f77b4",
-                hovertemplate="%{x}<br>" + _col_ca_sales + " : %{y:,.2f} €<extra></extra>",
+                hovertemplate="%{x}<br>" + _col_ca_sales + f" : %{{y:,.2f}} {_currency_symbol}<extra></extra>",
             ))
             fig_time.add_trace(go.Bar(
                 name=_col_refunds_ht, x=_df_monthly[_col_month],
                 y=_df_monthly[_col_refunds_ht], marker_color="#d62728",
-                hovertemplate="%{x}<br>" + _col_refunds_ht + " : %{y:,.2f} €<extra></extra>",
+                hovertemplate="%{x}<br>" + _col_refunds_ht + f" : %{{y:,.2f}} {_currency_symbol}<extra></extra>",
             ))
             fig_time.add_trace(go.Scatter(
                 name=_col_vat_net, x=_df_monthly[_col_month],
                 y=_df_monthly[_col_vat_net], mode="lines+markers",
                 line=dict(color="#ff7f0e", width=2), yaxis="y2",
-                hovertemplate="%{x}<br>" + _col_vat_net + " : %{y:,.2f} €<extra></extra>",
+                hovertemplate="%{x}<br>" + _col_vat_net + f" : %{{y:,.2f}} {_currency_symbol}<extra></extra>",
             ))
             fig_time.update_layout(
                 barmode="relative", height=360,
@@ -236,7 +244,7 @@ def render_visualisations(ctx: TabContext) -> None:
                 xaxis_tickangle=-30, yaxis_title=_("viz_nb_transactions"))
             st.plotly_chart(fig_scen, use_container_width=True)
             st.caption(" · ".join(
-                _("viz_scen_caption", scen=s, n=n, ht=f"{_scen_ht.get(s, 0):,.0f}")
+                _("viz_scen_caption", scen=s, n=n, ht=f"{_scen_ht.get(s, 0) * _rate:,.0f}", currency=_currency_symbol)
                 for s, n in _scen_data
             ))
     elif _monthly:

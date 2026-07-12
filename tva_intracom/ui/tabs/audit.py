@@ -29,6 +29,10 @@ def render_audit(ctx: TabContext) -> None:
     period_label = ctx.period_label
     vies_summary = ctx.vies_summary
 
+    # Devise cible du pays d'origine choisi (home_country) — utilisée pour les
+    # libellés de colonnes dynamiques dans les deux sous-onglets ci-dessous.
+    _target_currency = st.session_state.get("target_currency", "EUR")
+
     audit_sub1, audit_sub2 = st.tabs([
         _("subtab_amazon_gaps"),
         _("subtab_fba_inventory"),
@@ -48,6 +52,13 @@ def render_audit(ctx: TabContext) -> None:
                     else: _vies_rc_ids_app.add(_rc.sale_id)
             from tva_intracom.rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES as _DRC_APP
             from tva_intracom.models import BuyerType as _BT_APP
+
+            # Libellés de colonnes dynamiques (devise cible) : voir en-tête de fonction.
+            _lbl_ht = _("col_ht_eur", currency=_target_currency)
+            _lbl_tva_amz = _("col_tva_amz_eur", currency=_target_currency)
+            _lbl_tva_mot = _("col_tva_moteur_eur", currency=_target_currency)
+            _lbl_gap = _("col_gap_eur", currency=_target_currency)
+
             ecarts_vies_tab, ecarts_b2b_dom_tab, ecarts_gb_tab, ecarts_autres_tab, ecarts_amz_manquante_tab = [], [], [], [], []
             nb_arrondis = 0
             for r in results:
@@ -58,9 +69,9 @@ def render_audit(ctx: TabContext) -> None:
                 row_d = {"ID":(r.sale.display_id or r.sale.sale_id),
                     "Stock→Dest":f"{r.sale.stock_country}→{r.sale.buyer_country}",
                     "Dest": r.sale.buyer_country,
-                    "Scénario":r.scenario.value,"HT (EUR)":float(r.sale.amount_ht),
-                    "TVA Amazon (EUR)":round(tva_amazon,2),"TVA moteur (EUR)":round(tva_moteur,2),
-                    "Écart (EUR)":round(ecart,2),
+                    "Scénario":r.scenario.value, _lbl_ht:float(r.sale.amount_ht),
+                    _lbl_tva_amz:round(tva_amazon,2), _lbl_tva_mot:round(tva_moteur,2),
+                    _lbl_gap:round(ecart,2),
                     "Taux Amazon (%)":round(tva_amazon/float(r.sale.amount_ht)*100,2) if r.sale.amount_ht else 0,
                     "Taux moteur (%)":float(r.vat_rate),
                     "Canal": r.channel.value}
@@ -83,7 +94,7 @@ def render_audit(ctx: TabContext) -> None:
                 _df_full = pd.DataFrame(rows)
                 _df_filt = _render_filter_bar(_df_full, key_suffix)
                 _cfg = _smart_money_df(_df_filt,
-                    money_cols=[_("col_ht_eur"), _("col_tva_amz_eur"), _("col_tva_moteur_eur"), _("col_gap_eur")],
+                    money_cols=[_lbl_ht, _lbl_tva_amz, _lbl_tva_mot, _lbl_gap],
                     pct_cols=[_("col_rate_amz_pct"), _("col_rate_moteur_pct")])
                 _gated_preview_table(_df_filt, _can_export, column_config=_cfg)
 
@@ -96,7 +107,7 @@ def render_audit(ctx: TabContext) -> None:
             ])
             with sub1:
                 if ecarts_autres_tab:
-                    total = sum(r[_("col_gap_eur")] for r in ecarts_autres_tab)
+                    total = sum(r[_lbl_gap] for r in ecarts_autres_tab)
                     st.error(_("audit_taux_error", count=len(ecarts_autres_tab), total=_fmt(total)))
                     _audit_df(ecarts_autres_tab, "audit_taux")
                 else:
@@ -104,7 +115,7 @@ def render_audit(ctx: TabContext) -> None:
             with sub2:
                 if not enable_vies: st.info(_("audit_vies_info"))
                 elif ecarts_vies_tab:
-                    total = sum(r[_("col_gap_eur")] for r in ecarts_vies_tab)
+                    total = sum(r[_lbl_gap] for r in ecarts_vies_tab)
                     st.error(_("audit_vies_error", amount=_fmt(abs(total))))
                     _audit_df(ecarts_vies_tab, "audit_vies")
                 else:
@@ -112,14 +123,14 @@ def render_audit(ctx: TabContext) -> None:
             with sub3:
                 st.info(_("audit_uk_info"))
                 if ecarts_gb_tab:
-                    st.metric(_("audit_uk_metric"), _fmt(sum(r[_('col_gap_eur')] for r in ecarts_gb_tab)))
+                    st.metric(_("audit_uk_metric"), _fmt(sum(r[_lbl_gap] for r in ecarts_gb_tab)))
                     _audit_df(ecarts_gb_tab, "audit_gb")
                 else:
                     st.success(_("audit_uk_success"))
             with sub4:
                 st.info(_("audit_art194_info"))
                 if ecarts_b2b_dom_tab:
-                    total = sum(r[_("col_gap_eur")] for r in ecarts_b2b_dom_tab)
+                    total = sum(r[_lbl_gap] for r in ecarts_b2b_dom_tab)
                     st.metric(_("audit_art194_metric"), _fmt(abs(total)))
                     _audit_df(ecarts_b2b_dom_tab, "audit_art194")
                 else:
@@ -127,17 +138,16 @@ def render_audit(ctx: TabContext) -> None:
             with sub5:
                 st.info(_("audit_manquante_info"))
                 if ecarts_amz_manquante_tab:
-                    total = sum(r[_("col_gap_eur")] for r in ecarts_amz_manquante_tab)
+                    total = sum(r[_lbl_gap] for r in ecarts_amz_manquante_tab)
                     st.metric(_("audit_manquante_metric"), _fmt(abs(total)))
-                    st.metric(_("audit_manquante_metric"), f"{abs(total):,.2f} EUR")
                     _audit_df(ecarts_amz_manquante_tab, "audit_manquante")
                     import io as _io2, csv as _csv2
                     _buf2 = _io2.StringIO(); _w2 = _csv2.writer(_buf2, delimiter=";")
-                    _w2.writerow([_("vies_col_id"),_("col_stock_dest"),_("col_scenario"),_("col_ht_eur"),_("col_tva_amz_eur"),_("col_tva_moteur_eur"),_("col_gap_eur")])
+                    _w2.writerow([_("vies_col_id"),_("col_stock_dest"),_("col_scenario"),_lbl_ht,_lbl_tva_amz,_lbl_tva_mot,_lbl_gap])
                     for _rw in ecarts_amz_manquante_tab:
                         _w2.writerow([_rw["ID"],_rw[_("col_stock_dest")],_rw[_("col_scenario")],
-                            str(_rw[_("col_ht_eur")]).replace(".",","),str(_rw[_("col_tva_amz_eur")]).replace(".",","),
-                            str(_rw[_("col_tva_moteur_eur")]).replace(".",","),str(_rw[_("col_gap_eur")]).replace(".",",")])
+                            str(_rw[_lbl_ht]).replace(".",","),str(_rw[_lbl_tva_amz]).replace(".",","),
+                            str(_rw[_lbl_tva_mot]).replace(".",","),str(_rw[_lbl_gap]).replace(".",",")])
                     _gated_download(_("audit_dl_manquante_btn"),
                         data=("\ufeff"+_buf2.getvalue()).encode("utf-8"),
                         file_name=_("audit_dl_manquante_filename", company=nom_entreprise, period=period_label), mime="text/csv")
@@ -158,11 +168,11 @@ def render_audit(ctx: TabContext) -> None:
             ok = [c for c in by_c if c in countries_with_vat]
             if at_risk: st.error(_("audit_local_sales_error", countries=', '.join(at_risk)))
             if ok: st.success(_("audit_local_sales_success", countries=', '.join(ok)))
-            _df_loc = pd.DataFrame([{"ID": c, "Dest":c, _("type_column_label"):c, _("col_sales_count"):d["nb"], _("col_volume_ht_eur"):round(d["ht"],2),
+            _df_loc = pd.DataFrame([{"ID": c, "Dest":c, _("type_column_label"):c, _("col_sales_count"):d["nb"], _("col_volume_ht_eur", currency=_target_currency):round(d["ht"],2),
                 _("col_status"):_("audit_status_ok") if c in countries_with_vat else _("audit_status_required")}
                 for c,d in by_c.items()])
             _df_loc_filt = _render_filter_bar(_df_loc, "stock_loc")
-            _loc_cfg = _smart_money_df(_df_loc_filt, money_cols=[_("col_volume_ht_eur")])
+            _loc_cfg = _smart_money_df(_df_loc_filt, money_cols=[_("col_volume_ht_eur", currency=_target_currency)])
             _gated_preview_table(_df_loc_filt, _can_export, column_config=_loc_cfg)
         if all_fc_transfers:
             st.caption(_("audit_fba_count_caption", count=len(all_fc_transfers)))

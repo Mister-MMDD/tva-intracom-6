@@ -14,11 +14,37 @@ from tva_intracom.ui.formatting import _fmt, _gated_preview_table, _smart_money_
 from tva_intracom.ui.tabs.context import TabContext
 
 
+def _orig_currency_cols(r, target_currency: str) -> tuple[str, object]:
+    """Colonnes 'Devise' / 'Montant orig.' d'une vente.
+
+    Affichées dès que la devise de transaction d'origine diffère de la devise
+    cible actuellement choisie (home_country) — et non plus seulement quand
+    elle diffère de l'EUR : si le compte est réglé sur une devise cible non-EUR,
+    une vente réalisée en EUR est elle aussi une conversion pertinente à tracer
+    pour l'audit (le HT/TVA affichés sont alors dans une autre devise que la
+    vente d'origine). Le montant est pré-formaté dans SA PROPRE devise
+    d'origine (symbole explicite -> _fmt n'applique aucune conversion), car
+    chaque ligne peut avoir une devise de transaction différente.
+    """
+    if r.sale.original_currency and r.sale.original_currency != target_currency:
+        return r.sale.original_currency, _fmt(r.sale.original_amount, symbol=r.sale.original_currency)
+    return "", ""
+
+
 def render_detail_ventes(ctx: TabContext) -> None:
     """Rendu complet de l'onglet Détail ventes."""
     results = ctx.results
     refund_results = ctx.refund_results
     _can_export = ctx.can_export
+
+    # Devise cible du pays d'origine choisi (home_country) : les libellés de
+    # colonnes HT/TVA affichent cette devise plutôt que "(EUR)" en dur — les
+    # montants eux-mêmes sont convertis par _fmt (voir formatting.py).
+    _target_currency = st.session_state.get("target_currency", "EUR")
+    _lbl_ht = _("col_ht_eur", currency=_target_currency)
+    _lbl_vat = _("col_vat_eur", currency=_target_currency)
+    _lbl_orig = _("col_orig_amount")
+    _orig_cfg = {_lbl_orig: st.column_config.TextColumn(_lbl_orig)}
 
     sub_a, sub_b, sub_c, sub_d = st.tabs([
         _("subtab_what_you_owe"), _("subtab_managed_by_tiers"), _("subtab_row_by_row"),
@@ -38,14 +64,16 @@ def render_detail_ventes(ctx: TabContext) -> None:
         if sort_yours == "Pays": your_results.sort(key=lambda r: r.vat_country)
         elif sort_yours == "Taux": your_results.sort(key=lambda r: -r.vat_rate)
         else: your_results.sort(key=lambda r: -r.sale.amount_ht)
-        _your_rows = [{
-            "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
-            _("col_ht_eur"):float(r.sale.amount_ht), _("col_rate_pct"):float(r.vat_rate),
-            _("col_vat_eur"):float(r.vat_amount), _("col_canal"):r.channel.value, _("col_scenario"):r.scenario.value,
-            _("col_currency"):r.sale.original_currency if r.sale.original_currency != "EUR" else "",
-            _("col_orig_amount"):float(r.sale.original_amount) if r.sale.original_currency != "EUR" else None,
-            _("col_note"):r.note}
-            for r in your_results]
+        _your_rows = []
+        for r in your_results:
+            _dev, _orig = _orig_currency_cols(r, _target_currency)
+            _your_rows.append({
+                "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
+                _lbl_ht:float(r.sale.amount_ht), _("col_rate_pct"):float(r.vat_rate),
+                _lbl_vat:float(r.vat_amount), _("col_canal"):r.channel.value, _("col_scenario"):r.scenario.value,
+                _("col_currency"):_dev,
+                _lbl_orig:_orig,
+                _("col_note"):r.note})
         _your_df_full = pd.DataFrame(_your_rows)
         
         # Filtres
@@ -60,9 +88,10 @@ def render_detail_ventes(ctx: TabContext) -> None:
         
         _your_df = _your_df_filt.head(_lim_your).copy()
         _your_cfg = _smart_money_df(_your_df,
-            money_cols=[_("col_ht_eur"), _("col_vat_eur"), _("col_orig_amount")],
+            money_cols=[_lbl_ht, _lbl_vat],
             pct_cols=[_("col_rate_pct")],
-            note_cols=[_("col_note")])
+            note_cols=[_("col_note")],
+            existing_config=_orig_cfg)
         _gated_preview_table(_your_df, _can_export, column_config=_your_cfg)
 
     with sub_b:
@@ -70,7 +99,7 @@ def render_detail_ventes(ctx: TabContext) -> None:
         third_results = [r for r in results if r.collector.value != "SELLER"]
         _third_rows = [{
             "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
-            _("col_ht_eur"):float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
+            _lbl_ht:float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
             _("col_collector"):r.collector.value, _("col_canal"):r.channel.value}
             for r in third_results]
         _third_df_full = pd.DataFrame(_third_rows)
@@ -79,7 +108,7 @@ def render_detail_ventes(ctx: TabContext) -> None:
         _third_df_filt = _render_filter_bar(_third_df_full, "third")
         
         _third_df = _third_df_filt.copy()
-        _third_cfg = _smart_money_df(_third_df, money_cols=[_("col_ht_eur")])
+        _third_cfg = _smart_money_df(_third_df, money_cols=[_lbl_ht])
         _gated_preview_table(_third_df, _can_export, column_config=_third_cfg)
 
     with sub_c:
@@ -93,15 +122,17 @@ def render_detail_ventes(ctx: TabContext) -> None:
         sort_all = _sort_all_opts[sort_all_lbl]
         all_sorted = sorted(results,
             key=lambda r: r.vat_country if sort_all=="Pays" else (-r.vat_rate if sort_all=="Taux" else -r.sale.amount_ht))
-        _all_rows = [{
-            "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
-            _("col_ht_eur"):float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
-            _("col_rate_pct"):float(r.vat_rate), _("col_vat_eur"):float(r.vat_amount),
-            _("col_canal"):r.channel.value,
-            _("col_currency"):r.sale.original_currency if r.sale.original_currency != "EUR" else "",
-            _("col_orig_amount"):float(r.sale.original_amount) if r.sale.original_currency != "EUR" else None,
-            _("col_note"):r.note}
-            for r in all_sorted]
+        _all_rows = []
+        for r in all_sorted:
+            _dev, _orig = _orig_currency_cols(r, _target_currency)
+            _all_rows.append({
+                "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
+                _lbl_ht:float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
+                _("col_rate_pct"):float(r.vat_rate), _lbl_vat:float(r.vat_amount),
+                _("col_canal"):r.channel.value,
+                _("col_currency"):_dev,
+                _lbl_orig:_orig,
+                _("col_note"):r.note})
         _all_df_full = pd.DataFrame(_all_rows)
 
         # Filtres
@@ -116,9 +147,10 @@ def render_detail_ventes(ctx: TabContext) -> None:
 
         _all_df_page = _all_df_filt.head(_limit_all).copy()
         _all_cfg = _smart_money_df(_all_df_page,
-            money_cols=[_("col_ht_eur"), _("col_vat_eur"), _("col_orig_amount")],
+            money_cols=[_lbl_ht, _lbl_vat],
             pct_cols=[_("col_rate_pct")],
-            note_cols=[_("col_note")])
+            note_cols=[_("col_note")],
+            existing_config=_orig_cfg)
         _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg)
 
     with sub_d:
@@ -142,8 +174,8 @@ def render_detail_ventes(ctx: TabContext) -> None:
                 key=lambda r: r.vat_country if sort_ref=="Pays" else (-r.vat_rate if sort_ref=="Taux" else r.sale.amount_ht))
             _ref_rows = [{
                 "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
-                _("col_ht_eur"):float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
-                _("col_rate_pct"):float(r.vat_rate), _("col_vat_eur"):float(r.vat_amount),
+                _lbl_ht:float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
+                _("col_rate_pct"):float(r.vat_rate), _lbl_vat:float(r.vat_amount),
                 _("col_canal"):r.channel.value}
                 for r in ref_sorted]
             _ref_df_full = pd.DataFrame(_ref_rows)
@@ -153,6 +185,6 @@ def render_detail_ventes(ctx: TabContext) -> None:
             
             _ref_df = _ref_df_filt.copy()
             _ref_cfg = _smart_money_df(_ref_df,
-                money_cols=[_("col_ht_eur"), _("col_vat_eur")],
+                money_cols=[_lbl_ht, _lbl_vat],
                 pct_cols=[_("col_rate_pct")])
             _gated_preview_table(_ref_df, _can_export, column_config=_ref_cfg)

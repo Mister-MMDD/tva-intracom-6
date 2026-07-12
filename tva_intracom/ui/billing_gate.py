@@ -39,6 +39,7 @@ from tva_intracom.i18n import _
 
 from tva_intracom import billing as tva_billing
 from tva_intracom.models import Channel
+from tva_intracom.rates import is_eu
 from tva_intracom.ui.formatting import _country_label
 from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
 
@@ -195,6 +196,7 @@ def build_billing_gate(
         vies_scope_id: str = "",
         all_account_identifiers=None,
         nom_entreprise: str = "",
+        home_country: str = "FR",
 ) -> BillingGate:
     """Exécute tout le gating (période, crédit/abonnement, quota SIREN,
     conformité TVA/IOSS) et retourne un BillingGate prêt à l'emploi.
@@ -236,13 +238,19 @@ def build_billing_gate(
         )
 
     # ── Gate Conformité (TVA & IOSS) ──────────────────────────────────────
+    # BUGFIX : un stock situé hors UE (pays non listé dans rates.EU_COUNTRIES)
+    # ne crée aucune obligation d'immatriculation TVA intracommunautaire — il
+    # ne doit donc jamais réclamer un numéro de TVA local ni bloquer le
+    # téléchargement. `all_stock_countries` n'était pas filtré à l'UE, et
+    # l'exclusion du pays "domestique" était figée sur "FR" au lieu du pays
+    # d'origine choisi (home_country).
     missing_vats = []
-    required_local_vats = all_stock_countries | pay_eu
+    required_local_vats = {c for c in all_stock_countries if c and is_eu(c)} | pay_eu
     if seller_is_importer:
         required_local_vats |= {r.vat_country for r in results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"}
 
     for _ccode in sorted(required_local_vats):
-        if _ccode and _ccode != "FR" and not local_vat_numbers.get(_ccode):
+        if _ccode and _ccode != home_country and not local_vat_numbers.get(_ccode):
             missing_vats.append(f"{_country_label(_ccode)} ({_ccode})")
 
     _has_ioss_vendeur = any(r.channel == Channel.IOSS for r in results)

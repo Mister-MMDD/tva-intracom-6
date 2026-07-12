@@ -54,7 +54,14 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
     ht  = res.sale.amount_ht
     tva = res.vat_amount
     
-    target_currency = COUNTRY_CURRENCIES.get(res.sale.seller_country, "EUR")
+    # BUGFIX CRITIQUE : la déclaration OSS est légalement due en EUR (Règl. UE
+    # 2020/194, art. 5 bis) — cette fonction alimente aussi bien le XML OSS
+    # officiel (oss_xml.py) que l'export Excel/CSV URSSAF. Utiliser la devise
+    # du pays d'origine (home_country) ici corromprait la déclaration légale
+    # elle-même, pas seulement un rapport d'affichage. La conversion vers une
+    # devise d'affichage locale se fait uniquement en couche présentation
+    # (voir tva_intracom/ui/formatting.py, report.py, excel_report.py).
+    target_currency = "EUR"
 
     if period and res.sale.original_currency and res.sale.original_currency != target_currency:
         try:

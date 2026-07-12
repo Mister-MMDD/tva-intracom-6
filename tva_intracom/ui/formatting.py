@@ -115,11 +115,41 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
     return df_filt
 
 
+def _get_conversion_rate() -> tuple[str, float]:
+    """Devise cible + taux de conversion EUR -> devise cible pour la session en
+    cours (home_country choisi). Mis en cache dans st.session_state pour éviter
+    un appel BCE répété à chaque cellule affichée. Retombe sur (EUR, 1.0) si la
+    devise cible est l'EUR ou si le taux BCE est indisponible (le montant EUR
+    calculé par le moteur reste alors affiché tel quel, plutôt que de planter
+    l'affichage)."""
+    target_currency = st.session_state.get("target_currency", "EUR")
+    if not target_currency or target_currency == "EUR":
+        return "EUR", 1.0
+    cache_key = f"_fx_rate_{target_currency}"
+    if cache_key in st.session_state:
+        return target_currency, st.session_state[cache_key]
+    try:
+        from tva_intracom.ecb_rates import get_rate
+        import datetime
+        rate = get_rate(target_currency, datetime.date.today())
+        rate = float(rate) if rate else 1.0
+    except Exception:
+        rate = 1.0
+    st.session_state[cache_key] = rate
+    return target_currency, rate
+
+
 def _fmt(value, symbol=None) -> str:
-    """Formate un montant : 13 → '13 €', 13.5 → '13.50 €', 13.00 → '13 €'."""
-    if symbol is None:
-        symbol = st.session_state.get("currency_symbol", "€")
-    
+    """Formate un montant : 13 → '13 €', 13.5 → '13.50 €', 13.00 → '13 €'.
+
+    Si `symbol` n'est PAS fourni : le montant est supposé être en EUR (devise
+    de calcul interne du moteur fiscal) et est converti vers la devise cible
+    du pays d'origine (home_country) avant affichage, au taux BCE du jour
+    (voir _get_conversion_rate). C'est le cas d'usage par défaut (KPIs,
+    tableaux de résultats).
+    Si `symbol` EST fourni explicitement : aucune conversion n'est appliquée —
+    utile pour afficher un montant déjà dans sa devise d'origine (ex. montant
+    de transaction non-EUR affiché tel quel dans la colonne "Montant orig.")."""
     if value is None:
         return "—"
     try:
@@ -129,6 +159,12 @@ def _fmt(value, symbol=None) -> str:
 
     if math.isnan(v):
         return "—"
+
+    if symbol is None:
+        _currency, _rate = _get_conversion_rate()
+        v = v * _rate
+        symbol = st.session_state.get("currency_symbol", "€")
+
     if math.isinf(v):
         return f"∞ {symbol}"
 
@@ -280,9 +316,13 @@ def _gated_preview_table(
 
 
 def render_oss_threshold_bar(oss_summary: Any) -> None:
-    """Affiche la barre de progression du seuil OSS 10 000 EUR."""
-    target_currency = st.session_state.get("target_currency", "EUR")
-    symbol = st.session_state.get("currency_symbol", "€")
+    """Affiche la barre de progression du seuil OSS 10 000 EUR (Art. 59 quater
+    Dir. 2006/112/CE). Le seuil légal est fixé en EUR ; il est converti vers la
+    devise cible du pays d'origine pour l'affichage, au même taux que le total
+    OSS comparé — les deux termes de la comparaison doivent être exprimés dans
+    la même devise (sinon un compte en devise forte franchirait le seuil
+    artificiellement plus tôt ou plus tard que la réalité)."""
+    _currency, _rate = _get_conversion_rate()
 
     def _color(pct: float) -> str:
         """Vert -> orange -> rouge selon la proximité du seuil (pct entre 0 et 1)."""
@@ -290,27 +330,12 @@ def render_oss_threshold_bar(oss_summary: Any) -> None:
         if pct < 0.9: return "#d97706"
         return "#d62728"
 
-    total_oss = float(oss_summary.total_oss_ht)
-    
-    # Le seuil est de 10 000 EUR. Si on est dans une autre devise, il faut convertir le seuil
-    # ou utiliser le montant EUR interne si disponible.
-    # Pour l'instant, on suppose que total_oss_ht est déjà dans la devise cible (converti lors de l'import).
-    # On a besoin du taux inverse pour afficher "10 000 €" converti.
     limit_eur = 10000.0
-    if target_currency == "EUR":
-        limit_display = 10000.0
-        limit_text = "10 000 €"
-    else:
-        # On va chercher un taux récent pour l'affichage de la limite
-        from ..ecb_rates import get_rate
-        import datetime
-        rate = get_rate(target_currency, datetime.date.today())
-        if rate:
-            limit_display = 10000.0 * float(rate)
-            limit_text = _fmt(limit_display)
-        else:
-            limit_display = 10000.0 # fallback
-            limit_text = "10 000 EUR eq."
+    # Les deux montants comparés (total OSS et limite) sont convertis au même
+    # taux, pour que la comparaison reste valide quelle que soit la devise cible.
+    total_oss = float(oss_summary.total_oss_ht) * _rate
+    limit_display = limit_eur * _rate
+    limit_text = _fmt(limit_eur)  # _fmt applique la même conversion en interne
 
     pct = min(total_oss / limit_display if limit_display > 0 else 0, 1.0)
     
@@ -323,9 +348,10 @@ def render_oss_threshold_bar(oss_summary: Any) -> None:
         _label = _("oss_threshold_label")
 
     st.write(f"**{_label}**")
-    st.progress(pct, text=f"{_fmt(total_oss)} / {limit_text}")
+    st.progress(pct, text=f"{_fmt(oss_summary.total_oss_ht)} / {limit_text}")
     
     if total_oss < limit_display:
-        st.caption(_("oss_threshold_help", remaining=_fmt(limit_display - total_oss)))
+        remaining_eur = limit_eur - float(oss_summary.total_oss_ht)
+        st.caption(_("oss_threshold_help", remaining=_fmt(remaining_eur)))
     else:
-        st.success(_("oss_threshold_exceeded"))
+        st.success(_("oss_threshold_exceeded", limit=limit_text))

@@ -30,7 +30,7 @@ from tva_intracom.oss_export import (
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
 from tva_intracom.local_vat_report import generate_local_vat_html_report
-from tva_intracom.ui.formatting import _country_label, _fec_period_end_date
+from tva_intracom.ui.formatting import _country_label, _fec_period_end_date, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
 
@@ -255,7 +255,7 @@ def render_telechargements(ctx: TabContext) -> None:
                 country_vat = float(summary.net_local_by_country.get(export_country, 0))
 
             m1, m2, m3 = st.columns(3)
-            m1.metric(_("dl_local_vat_due_metric", country=_country_label(export_country)), f"{country_vat:,.2f} EUR")
+            m1.metric(_("dl_local_vat_due_metric", country=_country_label(export_country)), _fmt(country_vat))
             m2.metric(_("dl_standard_rate_metric"), meta_sel[3])
             m3.metric(_("dl_reduced_rate_metric"), meta_sel[4])
             c1, c2 = st.columns(2)

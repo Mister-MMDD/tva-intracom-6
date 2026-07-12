@@ -525,7 +525,19 @@ def load_amazon_report(
             prefetch_rates(to_prefetch, progress_callback=None)
 
     # Traitement principal (hors contexte fichier : fichier fermé proprement)
-    target_currency = COUNTRY_CURRENCIES.get(seller_country.upper(), "EUR")
+    # BUGFIX CRITIQUE : la devise de calcul interne du moteur fiscal DOIT
+    # toujours rester l'EUR, quel que soit le pays d'origine (home_country)
+    # choisi par l'utilisateur. `seller_country` sert uniquement à classer les
+    # ventes (domestique vs OSS vs immatriculation locale) — ce n'est PAS la
+    # devise de calcul. Le seuil OSS (10 000 EUR), les cases CA3, le calcul du
+    # taux de TVA (ecart Amazon/moteur), etc. supposent tous des montants en
+    # EUR partout ailleurs dans le moteur (voir engine.py, ca3_report.py,
+    # oss_export.py). Convertir ici vers la devise du pays d'origine
+    # contaminerait irrémédiablement tous les calculs fiscaux en aval.
+    # La conversion vers une devise d'affichage locale se fait uniquement en
+    # couche présentation (voir tva_intracom/ui/formatting.py, report.py,
+    # excel_report.py), jamais ici.
+    target_currency = "EUR"
     _process_rows(
         rows_to_process=rows_to_process,
         parser=parser,

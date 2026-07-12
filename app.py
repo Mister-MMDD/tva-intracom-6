@@ -49,6 +49,7 @@ from tva_intracom.rates import (
     COUNTRY_ISO3,
     COUNTRY_FISCAL_META,
     STANDARD_VAT_RATES,
+    is_eu,
 )
 
 from tva_intracom.ui.theme import apply_theme, _PLATFORM_OPTIONS
@@ -404,7 +405,15 @@ if uploaded_files:
         render_oss_threshold_bar(oss_summary)
 
         # Immatriculations requises
-        unregistered = all_stock_countries - set(countries_with_vat)
+        # BUGFIX : un stock situé hors UE (US, GB post-Brexit, CH, CN, un
+        # entrepôt 3PL non-UE...) ne crée aucune obligation d'immatriculation
+        # TVA intracommunautaire — seul un stock dans un AUTRE État membre UE
+        # que le pays d'origine du compte le fait. `all_stock_countries` était
+        # utilisé tel quel, sans filtre UE, ce qui réclamait à tort un numéro
+        # de TVA local (et bloquait le téléchargement) pour du stock hors UE.
+        unregistered = {
+            c for c in all_stock_countries if c and is_eu(c) and c != home_country
+        } - set(countries_with_vat)
         pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
         unregistered_local = pay_eu - set(countries_with_vat)
 
@@ -440,7 +449,7 @@ if uploaded_files:
 
                     st.markdown(f"- **{_country_label(c)} ({c})** : {icons} — *Raison : {' + '.join(reasons)}*")
 
-                critical_blocking = [c for c in registration_needed if c in ["DE", "FR"]]
+                critical_blocking = [c for c in registration_needed if c in ["DE", home_country]]
                 if critical_blocking:
                     _c_list = " et ".join(f"**{_country_label(c)} ({c})**" for c in sorted(critical_blocking))
                     st.warning(_("amazon_blocking_warning", countries=_c_list))
@@ -511,11 +520,12 @@ if uploaded_files:
                                       _("kpi_vat_amazon_help", platform=platform_name)), unsafe_allow_html=True)
             with c4:
                 if abs(total_ecarts_autres) > 0.05:
-                    st.markdown(_kpi_card(_("amazon_config_error"), f"{total_ecarts_autres:+.2f} €", "#d62728"),
+                    _sign = "+" if total_ecarts_autres >= 0 else ""
+                    st.markdown(_kpi_card(_("amazon_config_error"), f"{_sign}{_fmt(total_ecarts_autres)}", "#d62728"),
                                 unsafe_allow_html=True)
                     st.markdown(f'<span class="badge-alert">{_("config_error_badge")}</span>', unsafe_allow_html=True)
                 else:
-                    st.markdown(_kpi_card(_("amazon_config_success"), "0 €", "#2ca02c"), unsafe_allow_html=True)
+                    st.markdown(_kpi_card(_("amazon_config_success"), _fmt(0), "#2ca02c"), unsafe_allow_html=True)
 
         # =====================================================================
         # GATING BILLING
@@ -535,6 +545,7 @@ if uploaded_files:
             vies_scope_id=_vies_scope_id,
             all_account_identifiers=all_account_identifiers,
             nom_entreprise=nom_entreprise,
+            home_country=home_country,
         )
         render_account_link_panel(_gate)
         period_label = _gate.period_label
