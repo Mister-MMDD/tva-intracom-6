@@ -70,18 +70,21 @@ tva-intracom/
 │   │   └── woocommerce.py            Parser WooCommerce
 │   ├── __init__.py
 │   ├── amazon_adapter.py             Passerelle de compatibilité entre les anciens modèles de données et le nouveau package.
+│   ├── amazon_spapi.py             Intégration Amazon Selling Partner API (SP-API) — OAuth 2.0 & Reports.
 │   ├── auth.py                       Authentification magic link + jeton de session
 │   │                                 (Postgres/Supabase), envoi d'e-mail via l'API Resend.
 │   │                                 Gère le chiffrement Fernet des PII (Amazon DPP).
 │   ├── billing.py                    Facturation Stripe (PAYG + Pro + Cabinet, Customer
 │   │                                 Portal, quotas SIREN, grille tarifaire, webhooks,
-│   │                                 quotas d'export en base Postgres/Supabase)
+│   │                                 quotas d'export en base Postgres/Supabase).
+│   │                                 Gère aussi le rattachement anti-abus Compte Amazon <-> SIREN.
 │   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
 │   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
 │   ├── fec_export.py                 Export comptable FEC (art. A47 A-1 LPF) : journal des ventes
 │   │                                 agrégé par période/régime/pays/taux, plan comptable générique
 │   │                                 paramétrable (ACCOUNTS), écritures équilibrées débit/crédit
 │   ├── cli.py
+│   ├── config.py                     Utilitaire de gestion des secrets (variables d'environnement, Streamlit secrets).
 │   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
 │   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
 │   ├── excel_report.py               Export Excel multi-onglets
@@ -142,9 +145,10 @@ tva-intracom/
 | Module | Rôle |
 |---|---|
 | `models.py` | Modèles de données (Pydantic) : Sale, VatResult, Scenario, BuyerType, Channel, Collector |
+| `config.py` | Utilitaire de gestion des secrets (lwa, stripe, resend, postgres) avec fallback local |
 | `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
-| `vies.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
+| `vies_engine.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
 | `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle, convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194), retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires |
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
 | `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965) avec multi-validation XSD (DGFIP/UE) |
@@ -154,7 +158,8 @@ tva-intracom/
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
 | `auth.py` | Authentification par magic link (Postgres/Supabase), envoi d'e-mail via l'API Resend |
-| `billing.py` | Facturation Stripe : Checkout PAYG, Pro et Cabinet (mensuel/annuel, paliers dégressifs), Customer Portal, quotas SIREN par compte, grille tarifaire lue en direct sur Stripe, traitement des webhooks (`checkout.session.completed`, `customer.subscription.*`), quotas stockés en Postgres/Supabase, pool de connexions résilient aux coupures du pooler |
+| `amazon_spapi.py` | Intégration Amazon Selling Partner API (SP-API) : OAuth 2.0, échange de code, rafraîchissement de token et identification du vendeur |
+| `billing.py` | Facturation Stripe : Checkout PAYG, Pro et Cabinet (mensuel/annuel, paliers dégressifs), Customer Portal, quotas SIREN par compte, grille tarifaire lue en direct sur Stripe, traitement des webhooks, quotas stockés en Postgres/Supabase, et **rattachement anti-abus Compte Amazon <-> SIREN** |
 | `app.py` | Orchestrateur Streamlit (racine du dépôt, pas dans `tva_intracom/`) — upload, calcul (avec cache `st.session_state`), construction du contexte, appel des modules `ui/` |
 
 ---
@@ -174,7 +179,7 @@ du script.
 | `ui/formatting.py` | Helpers d'affichage réutilisés par plusieurs onglets : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df`, `_gated_preview_table`, `_fec_period_end_date` |
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
 | `ui/sidebar.py` | `SidebarResult` + `render_sidebar()` — tous les accordéons de la barre latérale (connexion SP-API, Validation & Devises, Cache VIES, Paramètres du fichier, Catalogue Produits, Entreprise & Paramètres avec gestion des SIREN, Abonnements & forfaits Stripe) |
-| `ui/billing_gate.py` | `BillingGate` + `build_billing_gate()` — détection du `period_label`, gating crédit PAYG/abonnement actif, gating quota SIREN, gating conformité (TVA locales/IOSS manquants), méthode `gated_download()` utilisée par tous les exports de tous les onglets |
+| `ui/billing_gate.py` | `BillingGate` + `build_billing_gate()` — détection du `period_label`, gating crédit PAYG/abonnement actif, gating quota SIREN, gating conformité (TVA locales/IOSS manquants), **rattachement anti-abus Compte Amazon <-> SIREN**, méthode `gated_download()` utilisée par tous les exports de tous les onglets |
 | `ui/tabs/context.py` | `TabContext` — dataclass regroupant tout l'état nécessaire aux onglets (résultats moteur, statut billing, paramètres entreprise, données brutes d'import), construite une fois avant l'affichage des onglets |
 | `ui/tabs/declarations.py` | Onglet **💶 Déclarations** — récapitulatif "Ce que vous devez reverser" (CA3, OSS par pays, IOSS, DDP, Fisc local), barre de seuil OSS, Contrôle de Cohérence Comptable |
 | `ui/tabs/detail_ventes.py` | Onglet **📋 Détail ventes** — 4 sous-onglets : Ce que vous devez / Géré par des tiers / Ligne par ligne / Remboursements |
@@ -225,6 +230,11 @@ explicite plutôt que dupliqué, voir la docstring de `context.py`.
   paramètres sont sauvegardés en base de données par SIREN et restaurés
   automatiquement lors de la sélection du client. Le retrait d'un SIREN est
   différé (lazy deletion) à la date anniversaire de l'abonnement.
+- **Rattachement anti-abus (Account Linking)** : pour éviter qu'un même compte
+  SaaS ne serve à générer des rapports pour une infinité d'entreprises distinctes,
+  le moteur détecte les identifiants de compte Amazon présents dans les fichiers.
+  Chaque identifiant doit être lié à un SIREN spécifique. Si un identifiant est
+  déjà rattaché à un autre SIREN (concurrence), le téléchargement est bloqué.
 - **Grille tarifaire** : les montants affichés dans l'app (achat unique, Pro,
   paliers Cabinet) sont récupérés en direct depuis l'API Stripe
   (`billing.get_pricing_grid()`), jamais recopiés en dur, pour ne jamais
@@ -439,8 +449,8 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 | 8 | **Analyse AIC FBA** | AIC estimées par flux (art. 17 Dir. 2006/112/CE), TVA AIC à autodéclarer |
 | 9 | **Transferts FBA Détail** | Liste brute des mouvements de stock FC |
 | 10 | **Intrastat (EMEBI)** | Aide au remplissage : introductions et expéditions par mois/ASIN/flux, seuil annualisé, renvoi vers l'ESL (obligation fiscale distincte, voir onglet Calendrier Fiscal) |
-| 11 | **Calendrier Fiscal** | Prochaines échéances OSS, CA3, Intrastat, ESL avec jours restants |
-| 12 | **Historique VIES** | Piste d'audit VIES (append-only, preuve de bonne foi en contrôle fiscal) |
+| 11 | **INVOICE & CREDIT_NOTE** | Détail des écritures de service Amazon (hors ventes/remboursements clients) |
+| 12 | **Calendrier Fiscal** | Prochaines échéances OSS, CA3, Intrastat, ESL avec jours restants |
 
 ---
 

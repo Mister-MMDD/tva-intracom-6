@@ -94,7 +94,7 @@ PERSONAL_EMAIL_DOMAINS = {
     "qq.com", "163.com", "126.com",
     "naver.com",
     "rediffmail.com",
-    "protonmail.com", "proton.me", "pm.me", "aleeas.com"
+    "protonmail.com", "proton.me", "pm.me", "aleeas.com",
     "startmail.com",
     "mailfence.com",
     "countermail.com",

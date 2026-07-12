@@ -74,14 +74,16 @@ class handler(BaseHTTPRequestHandler):
         try:
             handle_stripe_webhook_event(payload, sig_header)
         except Exception:
-            # DEBUG TEMPORAIRE : traceback complet dans la réponse pour diagnostiquer
-            # l'erreur 400 constatée. À retirer une fois le bug identifié — ne pas
-            # laisser un traceback complet exposé publiquement en production.
-            tb = traceback.format_exc()
+            # Le traceback complet est loggé côté serveur (logs Vercel) pour
+            # diagnostic, mais JAMAIS renvoyé dans la réponse HTTP publique :
+            # un webhook Stripe est un endpoint exposé sans authentification
+            # applicative, un traceback y révélerait des chemins internes et
+            # potentiellement des fragments de payload.
+            print(traceback.format_exc(), file=sys.stderr)
             self.send_response(400)
-            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(tb.encode("utf-8"))
+            self.wfile.write(b'{"error": "webhook processing failed"}')
             return
 
         self.send_response(200)

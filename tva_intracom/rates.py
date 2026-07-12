@@ -85,6 +85,33 @@ COUNTRY_FISCAL_META: Dict[str, Tuple[str, str, str, str, str]] = {
     "XI": ("VAT Return (Northern Ireland)",     "Taxable amount",      "VAT",         "20%",   "5%"),
 }
 
+# ---------------------------------------------------------------------------
+# Codes cases officiels des déclarations TVA locales par pays (hors FR)
+# ---------------------------------------------------------------------------
+# Source unique partagée par l'export CSV pré-formaté (ui/tabs/telechargements.py)
+# et le rapport HTML (local_vat_report.py). Clé = taux de TVA en % (str, sans
+# décimales inutiles, ex "19", "5" ou "5.5") tel qu'il apparaît dans VatResult.vat_rate.
+# Valeur = (code_case, libellé_court) ou libellé_court seul si le pays n'a pas
+# de code de case numéroté (ex. Italie : taux uniquement).
+# ⚠️ Non exhaustif : seuls les pays où un client a eu besoin d'un mapping
+# précis ont été vérifiés. Les autres pays utilisent un rendu générique
+# (taux + libellé neutre, pas de code case) — voir local_vat_report.py.
+LOCAL_VAT_BOX_CODES: Dict[str, Tuple[List[str], Dict]] = {
+    "DE": (["Kennzahl", "Bezeichnung", "Base (EUR)", "TVA (EUR)", "Nb"], {"19": ("81", "19%"), "7": ("86", "7%")}),
+    "ES": (["Casilla", "Concepto", "Base (EUR)", "TVA (EUR)", "Nb"], {"21": ("01", "21%"), "10": ("03", "10%"), "4": ("05", "4%")}),
+    "IT": (["Aliquota", "Descrizione", "Base (EUR)", "TVA (EUR)", "N."], {"22": "22%", "10": "10%", "4": "4%"}),
+    "PL": (["Pole", "Opis", "Base", "TVA", "Liczba"], {"23": ("K_19", "23%"), "8": ("K_17", "8%"), "5": ("K_15", "5%")}),
+    "NL": (["Rubriek", "Omschrijving", "Base (EUR)", "TVA (EUR)", "Antal"], {"21": ("1a", "21%"), "9": ("1b", "9%")}),
+    "BE": (["Grille", "Description", "Base (EUR)", "TVA (EUR)", "Nb"], {"21": ("03", "21%"), "12": ("02", "12%"), "6": ("01", "6%")}),
+    "PT": (["Campo", "Descricao", "Base (EUR)", "TVA (EUR)", "N."], {"23": ("1", "23%"), "13": ("2", "13%"), "6": ("3", "6%")}),
+    "SE": (["Ruta", "Beskrivning", "Base", "TVA", "Antal"], {"25": ("05", "25%"), "12": ("06", "12%"), "6": ("07", "6%")}),
+    "AT": (["Kennzahl", "Bezeichnung", "Base (EUR)", "TVA (EUR)", "Anz."], {"20": ("022", "20%"), "10": ("029", "10%"), "13": ("006", "13%")}),
+    "CZ": (["Radek", "Popis", "Base", "TVA", "Pocet"], {"21": ("1", "21%"), "12": ("2", "12%")}),
+    "RO": (["Rand", "Descriere", "Base", "TVA", "Nr."], {"19": ("9", "19%"), "9": ("10", "9%"), "5": ("11", "5%")}),
+    "HU": (["Sor", "Megnevezes", "Base", "TVA", "Db"], {"27": ("B2", "27%"), "18": ("C2", "18%"), "5": ("D2", "5%")}),
+    "IE": (["Box", "Description", "Base (EUR)", "TVA (EUR)", "Count"], {"23": ("T1", "23%"), "9": ("T1", "9%"), "0": ("E1", "0%")}),
+}
+
 EU_COUNTRIES: Set[str] = set(COUNTRY_NAMES.keys())
 
 # ---------------------------------------------------------------------------

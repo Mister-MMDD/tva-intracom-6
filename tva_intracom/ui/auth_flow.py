@@ -65,6 +65,20 @@ class AuthContext:
         return f"{self.app_base_url}/?session_token={_tok}" if _tok else f"{self.app_base_url}/"
 
 
+def get_or_create_spapi_oauth_state() -> str:
+    """Génère (ou réutilise) le paramètre `state` de la demande d'autorisation
+    Amazon SP-API et le conserve en session pour vérification au retour du
+    callback (protection CSRF standard sur un flux OAuth).
+
+    Un nouveau `state` n'est généré que s'il n'y en a pas déjà un "en attente"
+    en session — évite d'en émettre un nouveau à chaque rerun Streamlit tant
+    que l'utilisateur n'a pas cliqué sur le bouton de connexion Amazon.
+    """
+    if "_spapi_oauth_state" not in st.session_state:
+        st.session_state["_spapi_oauth_state"] = secrets.token_urlsafe(24)
+    return st.session_state["_spapi_oauth_state"]
+
+
 def ensure_cookie_manager() -> "stx.CookieManager":
     """Instancie le gestionnaire de cookies et exécute la maintenance
     ponctuelle (purge du cache VIES mal préfixé) une fois par session."""
@@ -158,6 +172,15 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _spapi_code = st.query_params.get("spapi_oauth_code")
     _spapi_selling_partner_id = st.query_params.get("selling_partner_id")
     if _spapi_code and _spapi_selling_partner_id:
+        _returned_state = st.query_params.get("state")
+        _expected_state = st.session_state.pop("_spapi_oauth_state", None)
+        # Le state est à usage unique : on le retire de la session dès qu'on
+        # le lit, qu'il soit valide ou non, pour empêcher toute réutilisation.
+        if not _expected_state or not _returned_state or _returned_state != _expected_state:
+            st.error(_("amazon_oauth_state_mismatch_error"))
+            st.query_params.clear()
+            st.stop()
+
         from tva_intracom import amazon_spapi
         try:
             _tokens = amazon_spapi.exchange_code_for_token(_spapi_code)
@@ -236,7 +259,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
         with _col_amazon:
             from tva_intracom import amazon_spapi
-            _state = secrets.token_hex(8)
+            _state = get_or_create_spapi_oauth_state()
             try:
                 _auth_url = amazon_spapi.get_authorization_url(state=_state)
                 st.link_button(_("amazon_login_btn"), _auth_url, use_container_width=True, type="primary")

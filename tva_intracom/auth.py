@@ -26,6 +26,7 @@ import psycopg2.pool
 import requests
 import streamlit as st
 from .config import get_secret
+from .security import encrypt_data as _enc, decrypt_data as _dec
 
 MAGIC_LINK_TTL_SECONDS = 15 * 60
 
@@ -327,6 +328,14 @@ def get_user_by_session_token(token: str) -> Optional[User]:
 
 
 def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token: str) -> None:
+    """Enregistre les identifiants SP-API du vendeur.
+
+    Le refresh token est un jeton d'accès de longue durée aux données du
+    vendeur Amazon : il est chiffré (Fernet, `security.encrypt_data`) avant
+    insertion en base, au même titre que les autres PII/secrets applicatifs
+    (voir `billing.py` pour `company_name`). Ne jamais logger sa valeur en
+    clair.
+    """
     def _fn(conn, cur):
         now = time.time()
         cur.execute(
@@ -338,7 +347,7 @@ def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token
                 refresh_token = EXCLUDED.refresh_token,
                 updated_at = EXCLUDED.updated_at
             """,
-            (user_id, selling_partner_id, refresh_token, now, now),
+            (user_id, selling_partner_id, _enc(refresh_token), now, now),
         )
 
     _run(_fn)
@@ -352,7 +361,7 @@ def get_amazon_credentials(user_id: str) -> Optional[dict]:
         )
         row = cur.fetchone()
         if row:
-            return {"selling_partner_id": row[0], "refresh_token": row[1]}
+            return {"selling_partner_id": row[0], "refresh_token": _dec(row[1])}
         return None
 
     return _run(_fn)

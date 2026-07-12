@@ -28,7 +28,8 @@ from tva_intracom.oss_export import (
     find_oss_negative_buckets,
 )
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
-from tva_intracom.rates import COUNTRY_FISCAL_META
+from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
+from tva_intracom.local_vat_report import generate_local_vat_html_report
 from tva_intracom.ui.formatting import _country_label, _fec_period_end_date
 from tva_intracom.ui.tabs.context import TabContext
 
@@ -190,21 +191,7 @@ def render_telechargements(ctx: TabContext) -> None:
                 w.writerow([f"{decl_name} — {period_lbl}"])
                 w.writerow([f"Pays : {_country_label(country)} ({country}) | Standard : {rate_std} | Reduit : {rate_red}"])
                 w.writerow([])
-                fmt_map = {
-                    "DE": (["Kennzahl","Bezeichnung","Base (EUR)","TVA (EUR)","Nb"], {"19":("81","19%"),"7":("86","7%")}),
-                    "ES": (["Casilla","Concepto","Base (EUR)","TVA (EUR)","Nb"], {"21":("01","21%"),"10":("03","10%"),"4":("05","4%")}),
-                    "IT": (["Aliquota","Descrizione","Base (EUR)","TVA (EUR)","N."], {"22":"22%","10":"10%","4":"4%"}),
-                    "PL": (["Pole","Opis","Base","TVA","Liczba"], {"23":("K_19","23%"),"8":("K_17","8%"),"5":("K_15","5%")}),
-                    "NL": (["Rubriek","Omschrijving","Base (EUR)","TVA (EUR)","Antal"], {"21":("1a","21%"),"9":("1b","9%")}),
-                    "BE": (["Grille","Description","Base (EUR)","TVA (EUR)","Nb"], {"21":("03","21%"),"12":("02","12%"),"6":("01","6%")}),
-                    "PT": (["Campo","Descricao","Base (EUR)","TVA (EUR)","N."], {"23":("1","23%"),"13":("2","13%"),"6":("3","6%")}),
-                    "SE": (["Ruta","Beskrivning","Base","TVA","Antal"], {"25":("05","25%"),"12":("06","12%"),"6":("07","6%")}),
-                    "AT": (["Kennzahl","Bezeichnung","Base (EUR)","TVA (EUR)","Anz."], {"20":("022","20%"),"10":("029","10%"),"13":("006","13%")}),
-                    "CZ": (["Radek","Popis","Base","TVA","Pocet"], {"21":("1","21%"),"12":("2","12%")}),
-                    "RO": (["Rand","Descriere","Base","TVA","Nr."], {"19":("9","19%"),"9":("10","9%"),"5":("11","5%")}),
-                    "HU": (["Sor","Megnevezes","Base","TVA","Db"], {"27":("B2","27%"),"18":("C2","18%"),"5":("D2","5%")}),
-                    "IE": (["Box","Description","Base (EUR)","TVA (EUR)","Count"], {"23":("T1","23%"),"9":("T1","9%"),"0":("E1","0%")}),
-                }
+                fmt_map = LOCAL_VAT_BOX_CODES  # source unique — voir tva_intracom/rates.py
                 if country == "FR":
                     w.writerow(["Base HT","Taux (%)","TVA","ID vente","Canal"])
                     for r in country_results:
@@ -243,7 +230,23 @@ def render_telechargements(ctx: TabContext) -> None:
             m1.metric(_("dl_local_vat_due_metric", country=_country_label(export_country)), f"{country_vat:,.2f} EUR")
             m2.metric(_("dl_standard_rate_metric"), meta_sel[3])
             m3.metric(_("dl_reduced_rate_metric"), meta_sel[4])
-            _gated_download(_("dl_local_csv_btn", country=_country_label(export_country)), data=_build_local_csv(export_country), file_name=_("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label), mime="text/csv", use_container_width=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                _gated_download(_("dl_local_csv_btn", country=_country_label(export_country)), data=_build_local_csv(export_country), file_name=_("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label), mime="text/csv", use_container_width=True)
+            with c2:
+                if export_country != "FR":
+                    _local_html = generate_local_vat_html_report(
+                        results=results, refund_results=refund_results, vat_country=export_country,
+                        company_name=nom_entreprise, siren=siren_entreprise,
+                        period_label=period_label, seller_country="FR",
+                    )
+                    _gated_download(
+                        _("dl_local_html_btn", country=_country_label(export_country)),
+                        data=_local_html.encode("utf-8"),
+                        file_name=_("dl_local_html_filename", country=export_country, company=nom_entreprise, period=period_label),
+                        mime="text/html", use_container_width=True,
+                    )
+            st.caption(_("local_vat_html_caption"))
 
         st.divider()
 

@@ -24,7 +24,6 @@ Usage dans app.py :
 from __future__ import annotations
 
 import json
-import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -96,9 +95,12 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     st.rerun()
             else:
                 st.info(_("amazon_info_auth"))
-                # On génère un 'state' pour sécuriser l'OAuth (optionnel mais recommandé)
-                _state = secrets.token_hex(8)
+                # 'state' persisté en session et vérifié au retour du callback
+                # (voir ui/auth_flow.py::get_or_create_spapi_oauth_state /
+                # run_auth_flow) — protection CSRF sur le flux OAuth.
                 from tva_intracom import amazon_spapi
+                from tva_intracom.ui.auth_flow import get_or_create_spapi_oauth_state
+                _state = get_or_create_spapi_oauth_state()
                 try:
                     _auth_url = amazon_spapi.get_authorization_url(state=_state)
                     st.link_button(_("amazon_connect_btn"), _auth_url)

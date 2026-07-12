@@ -9,11 +9,25 @@ description = "Moteur de calcul de la TVA intracommunautaire pour les ventes mar
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Matthieu" }]
-dependencies = ["openpyxl>=3.1", "pydantic>=2.9"]
+dependencies = [
+    "openpyxl>=3.1",
+    "pydantic>=2.9",
+    "psycopg2-binary>=2.9",
+    "stripe>=11.0",
+    "requests>=2.31",
+    "cryptography>=42.0",
+    "polars>=1.0",
+    "pandas>=2.0",
+    "python-dateutil>=2.9",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
-web = ["streamlit>=1.30"]
+web = [
+    "streamlit>=1.30",
+    "extra-streamlit-components>=0.1.60",
+    "plotly>=5.0",
+]
 
 [project.scripts]
 tva-intracom = "tva_intracom.cli:main"
