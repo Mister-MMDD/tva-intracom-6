@@ -34,6 +34,29 @@ from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES
 from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
+
+def _note(fr_text: str, key: str, **kwargs) -> str:
+    """Texte de VatResult.note.
+
+    En français : texte complet avec références légales (Bofip/CGI/directives
+    UE), tel quel — inchangé par rapport au comportement historique.
+    Dans les autres langues : note générique minimale, SANS référence légale
+    propre à un pays (clé i18n `engine_note_*`, voir i18n/*.toml) — les
+    articles de loi cités (CGI, Bofip...) sont spécifiques au droit français
+    et n'ont pas de traduction pertinente dans une autre langue.
+    Fonctionne aussi en usage bibliothèque hors Streamlit (voir README) : si
+    aucune session Streamlit n'est active, on reste en français par défaut
+    (comportement historique, avant l'introduction du multilingue)."""
+    try:
+        import streamlit as _st
+        lang = _st.session_state.get("language", "fr")
+    except Exception:
+        lang = "fr"
+    if lang == "fr":
+        return fr_text
+    from .i18n import _ as _i18n
+    return _i18n(key, **kwargs)
+
 # Seuil de valeur intrinseque d'un envoi pour le regime IOSS (import).
 IOSS_THRESHOLD = Decimal("150")
 _CENT = Decimal("0.01")
@@ -94,11 +117,12 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_amount=mc_amount,
                 collector=Collector.SELLER,
                 channel=channel,
-                note=(
+                note=_note(
                     "Vente vers Monaco depuis un stock français : assimilée à une "
                     "vente domestique française (convention fiscale franco-monégasque "
                     "du 18 mai 1963 — https://bit.ly/Conv-FR-MC) — TVA FR "
-                    f"{mc_rate}% collectée."
+                    f"{mc_rate}% collectée.",
+                    "engine_note_monaco_home", rate=mc_rate,
                 ),
             )
         else:
@@ -112,11 +136,12 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_amount=mc_amount,
                 collector=Collector.SELLER,
                 channel=Channel.OSS,
-                note=(
+                note=_note(
                     f"Vente vers Monaco depuis un stock {sale.stock_country} : "
                     "assimilée à une vente OSS vers la France (Convention fiscale "
                     "franco-monégasque — Monaco est traité comme le territoire "
-                    f"français pour la TVA) — TVA FR {mc_rate}%."
+                    f"français pour la TVA) — TVA FR {mc_rate}%.",
+                    "engine_note_monaco_oss", stock=sale.stock_country, rate=mc_rate,
                 ),
             )
 
@@ -141,10 +166,11 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             vat_amount=Decimal("0.00"),
             collector=Collector.SELLER,
             channel=Channel.EXONERATION,
-            note=(
+            note=_note(
                 f"{prefix_note} : exonérée de TVA (Art. 262 du CGI — "
                 "https://bit.ly/Art262CGI). Justificatif de sortie du "
-                "territoire requis."
+                "territoire requis.",
+                "engine_note_export",
             ),
         )
 
@@ -175,10 +201,11 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             vat_amount=tax_amount,
             collector=Collector.SELLER,
             channel=Channel.IOSS,
-            note=(
+            note=_note(
                 f"Import ≤ {IOSS_THRESHOLD} EUR : TVA {tax_rate}% collectée par le vendeur "
                 f"via son guichet IOSS ({sale.ioss_number}) — déclaration sur portail IOSS "
-                "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-IOSS)."
+                "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-IOSS).",
+                "engine_note_ioss_direct", rate=tax_rate, ioss=sale.ioss_number,
             ),
         )
 
@@ -197,7 +224,10 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_amount=tax_amount,
                 collector=Collector.AMAZON,
                 channel=Channel.EXONERATION,
-                note=f"{marketplace_name} collecte la TVA ({tax_rate}%) sur {sale.buyer_country}."
+                note=_note(
+                    f"{marketplace_name} collecte la TVA ({tax_rate}%) sur {sale.buyer_country}.",
+                    "engine_note_deemed_supplier", platform=marketplace_name, rate=tax_rate, country=sale.buyer_country,
+                )
             )
 
     # ------------------------------------------------------------------
@@ -213,9 +243,10 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_amount=Decimal("0.00"),
                 collector=Collector.BUYER,
                 channel=Channel.EXONERATION,
-                note=(
+                note=_note(
                     "Livraison intracommunautaire B2B exonérée avec autoliquidation "
-                    "par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter)."
+                    "par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+                    "engine_note_b2b_reverse_charge",
                 )
             )
 
@@ -241,11 +272,12 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     vat_amount=Decimal("0.00"),
                     collector=Collector.BUYER,
                     channel=Channel.EXONERATION,
-                    note=(
+                    note=_note(
                         f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
                         f"identifiant fiscal national sans préfixe TVA intracom. "
                         f"Art.194 dir.2006/112/CE adopté en {sale.buyer_country} : "
-                        f"autoliquidation par l'acheteur assujetti (https://bit.ly/Directive-Art194)."
+                        f"autoliquidation par l'acheteur assujetti (https://bit.ly/Directive-Art194).",
+                        "engine_note_b2b_art194", stock=sale.stock_country, buyer=sale.buyer_country,
                     ),
                 )
             else:
@@ -266,7 +298,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     vat_amount=tax_amount,
                     collector=Collector.SELLER,
                     channel=channel,
-                    note=(
+                    note=_note(
                         f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
                         f"numéro TVA acheteur non valide VIES. "
                         f"Art.194 NON adopté en {sale.buyer_country} : "
@@ -275,7 +307,9 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                             f"déclaration domestique ({sale.seller_country})."
                             if is_dest_home
                             else f"immatriculation TVA locale requise en {sale.buyer_country}."
-                        )
+                        ),
+                        "engine_note_b2b_no_art194", stock=sale.stock_country, buyer=sale.buyer_country,
+                        rate=tax_rate, home=sale.seller_country,
                     ),
                 )
 
@@ -291,9 +325,10 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             vat_amount=tax_amount,
             collector=Collector.SELLER,
             channel=Channel.OSS,
-            note=(
+            note=_note(
                 f"Vente OSS vers {sale.buyer_country} au taux de {tax_rate}% "
-                "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS)."
+                "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+                "engine_note_oss_b2c", country=sale.buyer_country, rate=tax_rate,
             )
     )
 
@@ -336,19 +371,26 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_amount=Decimal("0.00"),
                 collector=Collector.BUYER,
                 channel=Channel.EXONERATION,
-                note=(
+                note=_note(
                     f"Vente B2B domestique {sale.stock_country} : autoliquidation nationale. "
                     f"L'acheteur assujetti (n° {'TVA: ' + sale.buyer_vat_number if sale.buyer_vat_number else 'inconnu'}) "
-                    f"déclare et reverse la TVA — le vendeur ne collecte pas."
+                    f"déclare et reverse la TVA — le vendeur ne collecte pas.",
+                    "engine_note_b2b_domestic_rc", country=sale.stock_country,
                 ),
             )
 
         channel = Channel.FR_DOMESTIC if is_fr else Channel.LOCAL_REGISTRATION
         note = (
-            f"Vente domestique {sale.seller_country} : TVA {tax_rate}% à déclarer en local."
+            _note(
+                f"Vente domestique {sale.seller_country} : TVA {tax_rate}% à déclarer en local.",
+                "engine_note_domestic_home", country=sale.seller_country, rate=tax_rate,
+            )
             if is_fr else
-            f"Vente domestique {sale.stock_country} : TVA {tax_rate}%. "
-            f"Immatriculation TVA locale requise en {sale.stock_country}."
+            _note(
+                f"Vente domestique {sale.stock_country} : TVA {tax_rate}%. "
+                f"Immatriculation TVA locale requise en {sale.stock_country}.",
+                "engine_note_domestic_local", country=sale.stock_country, rate=tax_rate,
+            )
         )
         return VatResult(
             sale=sale,
@@ -368,7 +410,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             # Une immatriculation TVA locale dans ce pays est obligatoire.
             is_dest_home = sale.buyer_country == sale.seller_country
             channel = Channel.FR_DOMESTIC if is_dest_home else Channel.LOCAL_REGISTRATION
-            note = (
+            note = _note(
                 f"Import > {IOSS_THRESHOLD} EUR, vendeur importateur officiel (DDP) : "
                 f"vente requalifiée en livraison domestique {sale.buyer_country}. "
                 f"TVA locale {tax_rate}% — "
@@ -376,7 +418,8 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     f"déclaration domestique ({sale.seller_country})."
                     if is_dest_home else
                     f"immatriculation TVA locale requise en {sale.buyer_country}."
-                )
+                ),
+                "engine_note_ddp_import", country=sale.buyer_country, rate=tax_rate, home=sale.seller_country,
             )
             return VatResult(
                 sale=sale,
@@ -398,10 +441,11 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_amount=tax_amount,
                 collector=Collector.BUYER,
                 channel=Channel.EXONERATION,
-                note=(
+                note=_note(
                     f"Import > {IOSS_THRESHOLD} EUR depuis pays tiers : TVA d'importation "
                     f"{sale.buyer_country} ({tax_rate}%) due a la douane par l'importateur "
-                    "(hors guichet IOSS)."
+                    "(hors guichet IOSS).",
+                    "engine_note_import_standard", country=sale.buyer_country, rate=tax_rate,
                 ),
             )
 
@@ -458,9 +502,11 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
             vat_country=origin_country,
             vat_rate=home_rate, vat_amount=home_vat_amount,
             collector=Collector.SELLER, channel=Channel.FR_DOMESTIC,
-            note=(
+            note=_note(
                 f"Sous le seuil OSS ({cumulative:,.2f}/{Decimal('10000.00'):,.2f}€). "
-                f"Option TVA {origin_country} activée."
+                f"Option TVA {origin_country} activée.",
+                "engine_note_oss_under_threshold", country=origin_country,
+                cumulative=f"{cumulative:,.2f}", limit=f"{Decimal('10000.00'):,.2f}",
             ),
         )
     elif prev_cumul <= Decimal("10000.00"):
@@ -469,7 +515,10 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
             sale=res.sale, scenario=res.scenario, vat_country=res.vat_country,
             vat_rate=res.vat_rate, vat_amount=res.vat_amount,
             collector=res.collector, channel=res.channel,
-            note=f"FRANCHISSEMENT DU SEUIL OSS ! Vente vers {res.vat_country}.",
+            note=_note(
+                f"FRANCHISSEMENT DU SEUIL OSS ! Vente vers {res.vat_country}.",
+                "engine_note_oss_threshold_crossed", country=res.vat_country,
+            ),
         )
     return res
 

@@ -233,6 +233,24 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
   détectée, France comprise si elle n'est pas le pays d'origine.
 - **Aucun impact sur l'OSS** : le guichet unique OSS reste toujours déclaré et
   agrégé de la même façon, indépendamment du pays d'origine choisi.
+- **Devise d'affichage locale** : la devise de **calcul interne** du moteur
+  fiscal reste **toujours l'EUR**, quel que soit le pays d'origine choisi —
+  `home_country`/`seller_country` ne sert qu'au classement des ventes
+  (domestique / OSS / immatriculation locale), jamais à la devise de calcul.
+  Pour l'affichage (page de synthèse Excel, KPIs et tableaux Streamlit,
+  graphiques de l'onglet Visualisations), les montants EUR sont convertis à la
+  volée vers la devise locale du pays d'origine (`rates.COUNTRY_CURRENCIES`),
+  au taux BCE du jour de génération (`ecb_rates.convert_to_currency`,
+  `ui/formatting.py::_get_conversion_rate`, mis en cache en session pour éviter
+  un appel BCE par cellule affichée). En cas d'indisponibilité du taux BCE,
+  repli silencieux sur le montant EUR plutôt que de faire échouer l'affichage.
+  Les déclarations légales elles-mêmes (CA3, XML OSS officiel, exports
+  CSV/HTML des immatriculations locales) restent en EUR, comme l'exige la
+  réglementation — seule la couche de présentation convertit.
+  - ⚠️ Historique : cette séparation calcul/affichage n'a pas toujours été
+    respectée — voir Roadmap pour le détail du bug corrigé (le moteur
+    convertissait autrefois les montants dans la devise du pays d'origine
+    dès l'import, contaminant tous les calculs fiscaux en aval).
 
 ---
 
@@ -334,7 +352,7 @@ transaction) avant traitement.
 ### Moteur fiscal
 
 - **Typage Statique & Validation Pydantic** : Utilisation de `pydantic.dataclasses` pour une validation stricte dès l'import (codes pays ISO 2, montants décimaux nettoyés des symboles €/$). Précision absolue via `Decimal`.
-- **Documentation Fiscale Directe** : Chaque note de résultat (`VatResult.note`) intègre désormais des références légales précises et des liens courts vers le **Bofip**, l'**Art. 262 ter du CGI** ou les **Directives Européennes** pour justifier le traitement (ex: Monaco, IOSS, Art. 194).
+- **Documentation Fiscale Directe** : Chaque note de résultat (`VatResult.note`) intègre des références légales précises et des liens courts vers le **Bofip**, l'**Art. 262 ter du CGI** ou les **Directives Européennes** pour justifier le traitement (ex: Monaco, IOSS, Art. 194). Ce texte complet n'est produit que lorsque la langue de l'interface est le français (`engine.py::_note()`) : les articles de loi français n'ayant pas de traduction pertinente dans une autre langue, les 6 autres langues affichent une note générique minimale (scénario, pays, taux — sans référence légale), via des clés i18n dédiées (`engine_note_*` dans `i18n/*.toml`). Le comportement hors Streamlit (usage bibliothèque, voir plus bas) reste inchangé : note française complète par défaut.
 - Taux TVA historisés par pays avec gestion des changements de taux dans le temps
   (`vat_rate_at_date`).
 - Taux réduits par catégorie produit (`product_category` : STANDARD, REDUCED,
@@ -345,9 +363,11 @@ transaction) avant traitement.
   via code postal (`is_non_fiscal_eu`).
 - Seuil OSS 10 000 € opt-in, suivi multi-année avec `oss_ht_by_year`.
 - **Plan d'action Immatriculations** : vue consolidée détectant les besoins de
-  mise en conformité (stock Amazon détecté, ventes locales taxables, import DDP).
-  Alerte critique pour l'Allemagne (DE) et la France (FR) avec rappel des risques
-  de blocage de compte Amazon.
+  mise en conformité (stock Amazon détecté, ventes locales taxables, import DDP),
+  restreinte aux pays **UE** (`rates.is_eu`) — un stock hors UE (Royaume-Uni,
+  États-Unis, Suisse, Chine…) ne crée jamais d'obligation d'immatriculation TVA
+  intracommunautaire. Alerte critique pour l'Allemagne (DE) et le pays d'origine
+  du compte (`home_country`) avec rappel des risques de blocage de compte Amazon.
 - **Gestion fine des périodes** : support complet des mois isolés (`2026-06`)
   pour les achats uniques PAYG, avec conversion automatique au format
   trimestriel pour le XML OSS officiel.
@@ -407,6 +427,14 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
   date d'expédition, art. 65 Dir. 2006/112/CE) — permet de détecter les commandes à
   cheval sur deux périodes de déclaration (`period_mismatches`).
 - Avertissements surfacés dans l'UI Streamlit pour les commandes à cheval.
+- **Cache de l'analyse des fichiers** (`app.py`) : Streamlit ré-exécute tout le
+  script à chaque interaction (rerun), ce qui relançait auparavant toute la
+  boucle de parsing sans le vouloir — invisible sur un petit fichier, mais
+  doublant le temps de chargement sur un gros fichier. L'analyse n'est
+  désormais relancée que si les fichiers ou les options d'import (pays
+  d'origine, encodage, conversion devise, format, catalogue ASIN) ont
+  réellement changé (clé de cache en session, indépendante du cache de calcul
+  TVA `_calc_key`).
 
 ### Export XML OSS officiel
 
@@ -697,7 +725,58 @@ conversion BCE.
   (convention franco-monégasque, spécifique à la France) et le seuil OSS
   sous 10 000 € (`apply_fr_under_threshold`, hors périmètre OSS demandé).
 
-- **Export EDI-TVA (télédéclaration CA3)** : actuellement, `ca3_report.py` ne
+- ~~Devise de calcul contaminée par le pays d'origine~~ **Corrigé (bug
+  critique)** : lors de l'introduction du réglage **Pays d'origine**, la
+  devise de **calcul interne** du moteur avait été confondue avec la devise
+  d'**affichage**. `parsers/amazon/loader.py` (et à l'identique `mirakl.py`,
+  `shopify.py`, `woocommerce.py`, `aliexpress.py`) convertissaient les
+  montants dans la devise du pays d'origine (`COUNTRY_CURRENCIES.get(seller_country)`)
+  dès l'import, au lieu de toujours calculer en EUR — contaminant `amount_ht`/
+  `vat_amount` pour tous les calculs en aval (seuil OSS 10 000 €, cases CA3,
+  écart Amazon/moteur). Plus grave : `oss_export.py::aggregate_oss_results()`
+  (utilisée aussi bien par l'export Excel/CSV que par **le XML OSS officiel**
+  télétransmis à l'administration) reproduisait le même bug, ce qui aurait pu
+  faire télétransmettre une déclaration OSS dans une devise autre que l'EUR
+  (obligatoire, Règl. UE 2020/194). Les 6 fichiers forcent désormais
+  `target_currency = "EUR"` sans exception ; `home_country`/`seller_country`
+  ne sert plus qu'au classement des ventes. La conversion vers une devise
+  d'affichage locale est cantonnée à la couche présentation — voir section
+  « Devise d'affichage locale » ci-dessus.
+
+- ~~Immatriculation locale réclamée pour du stock hors UE~~ **Corrigé** :
+  `app.py` (bandeau « Plan d'action Immatriculations ») et
+  `ui/billing_gate.py` (verrou de téléchargement) utilisaient
+  `all_stock_countries` sans filtre UE, réclamant à tort un numéro de TVA
+  local — et bloquant le téléchargement — pour un stock situé hors UE
+  (Royaume-Uni, États-Unis, Suisse, Chine…). Restreint à `rates.is_eu()`, et
+  l'exclusion du pays « domestique » (auparavant figée sur `"FR"`) généralisée
+  à `home_country`.
+
+- ~~Notes légales du moteur uniquement en français~~ **Corrigé (simplifié)** :
+  `VatResult.note` était toujours produite en français en dur, y compris
+  quand l'interface était affichée dans une autre langue. `engine.py::_note()`
+  bascule désormais sur une note générique minimale (scénario, pays, taux —
+  sans référence légale) dans les 6 langues non-françaises, les articles de
+  loi français (CGI, Bofip…) n'ayant pas d'équivalent pertinent à traduire. Le
+  français conserve le texte complet avec ses références légales, inchangé.
+
+- ~~Affichage non dynamique (devise, libellés, seuils)~~ **Corrigé** : plusieurs
+  endroits affichaient encore des valeurs figées en EUR/français quel que soit
+  le pays d'origine ou la langue choisis — libellés de colonnes `HT (EUR)` /
+  `TVA (EUR)` (`ui/tabs/detail_ventes.py`, `ui/tabs/audit.py`), seuil OSS
+  « 10 000 € » non converti (`ui/formatting.py::render_oss_threshold_bar` —
+  la comparaison elle-même comparait un total non converti à une limite
+  convertie), graphiques de l'onglet Visualisations (montants relabellisés
+  sans être réellement convertis), montant de TVA locale toujours en EUR dans
+  l'onglet Téléchargements, et placeholder `{platform}` jamais substitué dans
+  les KPI « Config {platform} conforme ». Tous corrigés en s'appuyant sur
+  `ui/formatting.py::_fmt()`/`_get_conversion_rate()`, seul point de
+  conversion EUR → devise d'affichage (voir « Devise d'affichage locale »
+  ci-dessus). Au passage, l'onglet Excel Intrastat (EMEBI) contenait un bloc
+  entièrement dupliqué (avec un `for...else` toujours exécuté par erreur,
+  ajoutant une ligne parasite) — supprimé.
+
+
   produit qu'un rapport HTML (`generate_ca3_html_report_v2`) destiné à une
   saisie manuelle sur le portail impots.gouv.fr (mode EFI) ou par un cabinet
   comptable. Un export au format **EDI-TVA** (norme utilisée par les

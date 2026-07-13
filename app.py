@@ -151,79 +151,106 @@ if uploaded_files:
         st.warning(_("duplicate_files_warning", count=len(_dup_names), files=", ".join(f"`{n}`" for n in _dup_names)))
     uploaded_files = _deduped
 
-    all_sales, all_refunds, all_fc_transfers = [], [], []
-    all_invoice_credit_notes = []
-    all_stock_countries, all_warnings, all_platforms = set(), [], []
-    # Identifiants de compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) rencontrés dans
-    # les fichiers importés — utilisés pour le gating anti-abus SIREN
-    # (voir tva_intracom/ui/billing_gate.py). Vide pour les autres plateformes.
-    all_account_identifiers: set = set()
-    total_rows_sum = skipped_rows_sum = 0
-    file_summaries, tmp_paths, _parse_results = [], [], []
+    # Cache de l'analyse des fichiers (indépendant du cache de calcul TVA plus
+    # bas) : Streamlit ré-exécute tout le script à chaque interaction widget
+    # (rerun), ce qui relançait sans le vouloir toute la boucle de parsing —
+    # invisible sur un petit fichier, mais doublant le temps de chargement sur
+    # un gros fichier. On ne ré-analyse que si les fichiers ou les options
+    # d'import (pays d'origine, encodage, conversion devise, format,
+    # catalogue ASIN) ont réellement changé.
+    _parse_cache_key = (
+        tuple(sorted((f.name, f.size) for f in uploaded_files)),
+        home_country, encoding, convert_fx, file_format,
+        tuple(sorted(asin_to_category.items())) if asin_to_category else None,
+    )
 
-    # Placeholder stable pour éviter les sauts d'interface pendant l'analyse des fichiers
-    parse_progress_ph = st.empty()
+    if st.session_state.get("_parse_cache_key") == _parse_cache_key:
+        _cached = st.session_state["_parse_cache_data"]
+        (all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,
+         all_stock_countries, all_account_identifiers, all_warnings, all_platforms,
+         total_rows_sum, skipped_rows_sum, file_summaries, _parse_results) = _cached
+        tmp_paths: list = []
+    else:
+        all_sales, all_refunds, all_fc_transfers = [], [], []
+        all_invoice_credit_notes = []
+        all_stock_countries, all_warnings, all_platforms = set(), [], []
+        # Identifiants de compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) rencontrés dans
+        # les fichiers importés — utilisés pour le gating anti-abus SIREN
+        # (voir tva_intracom/ui/billing_gate.py). Vide pour les autres plateformes.
+        all_account_identifiers: set = set()
+        total_rows_sum = skipped_rows_sum = 0
+        file_summaries, tmp_paths, _parse_results = [], [], []
 
-    for uploaded_file in uploaded_files:
-        _ext = Path(uploaded_file.name).suffix or ".csv"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=_ext, mode="wb") as tmp:
-            tmp.write(uploaded_file.getvalue())
-            tmp_path = Path(tmp.name)
-        tmp_paths.append(tmp_path)
-        try:
-            parse_result = None
-            if "Amazon" in file_format:
-                _progress_label = (
-                    _("analysis_progress", name=uploaded_file.name)
-                    if convert_fx else _("analysis_progress_simple", name=uploaded_file.name)
-                )
-                _progress_bar = parse_progress_ph.progress(0.0, text=_progress_label)
+        # Placeholder stable pour éviter les sauts d'interface pendant l'analyse des fichiers
+        parse_progress_ph = st.empty()
 
-                def _on_parse_progress(processed: int, total: int, _fname=uploaded_file.name) -> None:
-                    pct = processed / total if total else 1.0
-                    _suffix = f" ({_('fx_conv_suffix')})" if convert_fx else ""
-                    _progress_bar.progress(
-                        min(pct, 1.0),
-                        text=_("analysis_progress_count", name=_fname, processed=f"{processed:,}".replace(",", " "), total=f"{total:,}".replace(",", " "), suffix=_suffix),
+        for uploaded_file in uploaded_files:
+            _ext = Path(uploaded_file.name).suffix or ".csv"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=_ext, mode="wb") as tmp:
+                tmp.write(uploaded_file.getvalue())
+                tmp_path = Path(tmp.name)
+            tmp_paths.append(tmp_path)
+            try:
+                parse_result = None
+                if "Amazon" in file_format:
+                    _progress_label = (
+                        _("analysis_progress", name=uploaded_file.name)
+                        if convert_fx else _("analysis_progress_simple", name=uploaded_file.name)
                     )
+                    _progress_bar = parse_progress_ph.progress(0.0, text=_progress_label)
 
-                parse_result = parser_amazon.load_amazon_report(
-                    tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx,
-                    asin_to_category=asin_to_category,
-                    progress_callback=_on_parse_progress,
-                )
-                parse_progress_ph.empty()
-            elif "Mirakl" in file_format:
-                parse_result = parser_mirakl.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
-            elif "Shopify" in file_format:
-                parse_result = parser_shopify.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
-            elif "WooCommerce" in file_format:
-                parse_result = parser_woocommerce.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
-            elif "AliExpress" in file_format:
-                parse_result = parser_aliexpress.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
-            if parse_result is not None:
-                platform = parse_result.platform or file_format.split("(")[0].strip()
-                all_sales.extend(parse_result.sales); all_refunds.extend(parse_result.refunds)
-                all_fc_transfers.extend(parse_result.fc_transfers)
-                all_invoice_credit_notes.extend(getattr(parse_result, "invoice_credit_notes", []))
-                all_stock_countries |= parse_result.stock_countries
-                all_account_identifiers |= getattr(parse_result, "account_identifiers", set())
-                all_warnings.extend(parse_result.warnings); all_platforms.append(platform)
-                total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
-                _parse_results.append(parse_result)
-                file_summaries.append({
-                    _("col_file"): uploaded_file.name, _("col_source"): platform,
-                    _("col_sales"): len(parse_result.sales), _("col_refunds"): len(parse_result.refunds),
-                    _("col_fba_trans"): len(parse_result.fc_transfers),
-                    _("col_phys_returns"): getattr(parse_result, "return_rows", 0),
-                    _("col_invoices"): getattr(parse_result, "invoice_rows", 0),
-                    _("col_credit_notes"): getattr(parse_result, "credit_note_rows", 0),
-                    _("col_rows_read"): parse_result.total_rows, _("col_ignored"): parse_result.skipped_rows
-                })
-        except Exception as e:
-            st.error(f"Erreur sur **{uploaded_file.name}** : {e}")
-            for p in tmp_paths: p.unlink(missing_ok=True)
-            st.stop()
+                    def _on_parse_progress(processed: int, total: int, _fname=uploaded_file.name) -> None:
+                        pct = processed / total if total else 1.0
+                        _suffix = f" ({_('fx_conv_suffix')})" if convert_fx else ""
+                        _progress_bar.progress(
+                            min(pct, 1.0),
+                            text=_("analysis_progress_count", name=_fname, processed=f"{processed:,}".replace(",", " "), total=f"{total:,}".replace(",", " "), suffix=_suffix),
+                        )
+
+                    parse_result = parser_amazon.load_amazon_report(
+                        tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx,
+                        asin_to_category=asin_to_category,
+                        progress_callback=_on_parse_progress,
+                    )
+                    parse_progress_ph.empty()
+                elif "Mirakl" in file_format:
+                    parse_result = parser_mirakl.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
+                elif "Shopify" in file_format:
+                    parse_result = parser_shopify.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
+                elif "WooCommerce" in file_format:
+                    parse_result = parser_woocommerce.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
+                elif "AliExpress" in file_format:
+                    parse_result = parser_aliexpress.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
+                if parse_result is not None:
+                    platform = parse_result.platform or file_format.split("(")[0].strip()
+                    all_sales.extend(parse_result.sales); all_refunds.extend(parse_result.refunds)
+                    all_fc_transfers.extend(parse_result.fc_transfers)
+                    all_invoice_credit_notes.extend(getattr(parse_result, "invoice_credit_notes", []))
+                    all_stock_countries |= parse_result.stock_countries
+                    all_account_identifiers |= getattr(parse_result, "account_identifiers", set())
+                    all_warnings.extend(parse_result.warnings); all_platforms.append(platform)
+                    total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
+                    _parse_results.append(parse_result)
+                    file_summaries.append({
+                        _("col_file"): uploaded_file.name, _("col_source"): platform,
+                        _("col_sales"): len(parse_result.sales), _("col_refunds"): len(parse_result.refunds),
+                        _("col_fba_trans"): len(parse_result.fc_transfers),
+                        _("col_phys_returns"): getattr(parse_result, "return_rows", 0),
+                        _("col_invoices"): getattr(parse_result, "invoice_rows", 0),
+                        _("col_credit_notes"): getattr(parse_result, "credit_note_rows", 0),
+                        _("col_rows_read"): parse_result.total_rows, _("col_ignored"): parse_result.skipped_rows
+                    })
+            except Exception as e:
+                st.error(f"Erreur sur **{uploaded_file.name}** : {e}")
+                for p in tmp_paths: p.unlink(missing_ok=True)
+                st.stop()
+
+        st.session_state["_parse_cache_key"] = _parse_cache_key
+        st.session_state["_parse_cache_data"] = (
+            all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,
+            all_stock_countries, all_account_identifiers, all_warnings, all_platforms,
+            total_rows_sum, skipped_rows_sum, file_summaries, _parse_results,
+        )
 
     platform_name = all_platforms[0] if all_platforms else file_format.split("(")[0].strip()
     unique_platforms = list(dict.fromkeys(all_platforms))
@@ -521,11 +548,11 @@ if uploaded_files:
             with c4:
                 if abs(total_ecarts_autres) > 0.05:
                     _sign = "+" if total_ecarts_autres >= 0 else ""
-                    st.markdown(_kpi_card(_("amazon_config_error"), f"{_sign}{_fmt(total_ecarts_autres)}", "#d62728"),
+                    st.markdown(_kpi_card(_("amazon_config_error", platform=platform_name), f"{_sign}{_fmt(total_ecarts_autres)}", "#d62728"),
                                 unsafe_allow_html=True)
                     st.markdown(f'<span class="badge-alert">{_("config_error_badge")}</span>', unsafe_allow_html=True)
                 else:
-                    st.markdown(_kpi_card(_("amazon_config_success"), _fmt(0), "#2ca02c"), unsafe_allow_html=True)
+                    st.markdown(_kpi_card(_("amazon_config_success", platform=platform_name), _fmt(0), "#2ca02c"), unsafe_allow_html=True)
 
         # =====================================================================
         # GATING BILLING

@@ -114,12 +114,13 @@ def render_visualisations(ctx: TabContext) -> None:
     with ch1:
         st.subheader(_("viz_repartition_you_market_subheader", platform=platform_name))
         pie_l, pie_v, pie_c = [], [], []
-        if float(summary.total_you_owe)>0: pie_l.append(_("viz_you")); pie_v.append(float(summary.total_you_owe)); pie_c.append("#2ca02c")
-        if float(summary.amazon_vat)>0: pie_l.append(platform_name); pie_v.append(float(summary.amazon_vat)); pie_c.append("#ff7f0e")
-        if float(summary.import_vat)>0: pie_l.append(_("viz_customs")); pie_v.append(float(summary.import_vat)); pie_c.append("#9467bd")
+        if float(summary.total_you_owe)>0: pie_l.append(_("viz_you")); pie_v.append(float(summary.total_you_owe) * _rate); pie_c.append("#2ca02c")
+        if float(summary.amazon_vat)>0: pie_l.append(platform_name); pie_v.append(float(summary.amazon_vat) * _rate); pie_c.append("#ff7f0e")
+        if float(summary.import_vat)>0: pie_l.append(_("viz_customs")); pie_v.append(float(summary.import_vat) * _rate); pie_c.append("#9467bd")
         if pie_v:
             fig_pie = go.Figure(go.Pie(labels=pie_l, values=pie_v,
-                marker=dict(colors=pie_c), hole=0.4, textinfo="label+percent"))
+                marker=dict(colors=pie_c), hole=0.4, textinfo="label+percent",
+                hovertemplate=f"%{{label}} : %{{value:,.2f}} {_currency_symbol} (%{{percent}})<extra></extra>"))
             fig_pie.update_layout(height=400, margin=dict(t=20,b=20),
                 legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
             st.plotly_chart(fig_pie, use_container_width=True)
