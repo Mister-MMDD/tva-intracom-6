@@ -30,7 +30,7 @@ from .models import (
     ViesValidationSummary,
 )
 from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate, vat_rate_at_date, has_rate_changed
-from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES
+from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES, oss_threshold_in_currency, OSS_THRESHOLD_FIXED_EQUIVALENTS
 from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
@@ -467,6 +467,47 @@ def _oss_eligible(sale: Sale) -> bool:
     )
 
 
+def _oss_threshold_display(cumulative_eur: Decimal) -> tuple[str, str, str]:
+    """Cumul et seuil OSS à afficher dans la note, dans la devise choisie par
+    l'utilisateur (voir sidebar "Pays d'origine" / sélecteur de devise
+    d'affichage). Renvoie (cumulative_str, limit_str, symbole).
+
+    Le seuil légal de 10 000 EUR (Art. 59 quater Dir. 2006/112/CE) est fixe et
+    ne doit PAS fluctuer au gré du taux BCE du jour : les États membres hors
+    zone euro publient une contre-valeur nationale FIXE pour ce seuil
+    (`rates.OSS_THRESHOLD_FIXED_EQUIVALENTS`). Le cumul affiché est mis à
+    l'échelle du même rapport implicite pour rester visuellement cohérent
+    avec ce seuil fixe (plutôt que de comparer un cumul converti au taux du
+    jour à un seuil qui ne l'est pas). Repli sur l'EUR si aucune session
+    Streamlit n'est active (usage bibliothèque, voir README)."""
+    try:
+        import streamlit as _st
+        currency = _st.session_state.get("target_currency", "EUR")
+        symbol = _st.session_state.get("currency_symbol", "€")
+    except Exception:
+        currency, symbol = "EUR", "€"
+
+    if not currency or currency.upper() == "EUR":
+        return f"{cumulative_eur:,.2f}", f"{Decimal('10000.00'):,.2f}", "€"
+
+    eur_rate = None
+    if currency.upper() not in OSS_THRESHOLD_FIXED_EQUIVALENTS:
+        # Devise sans contre-valeur légale fixe (ex. GBP, hors périmètre OSS) :
+        # repli sur le taux BCE du jour pour rester cohérent avec le reste de
+        # l'affichage (voir ui/formatting.py::_get_conversion_rate).
+        try:
+            from .ecb_rates import get_rate
+            from datetime import date as _d
+            eur_rate = get_rate(currency, _d.today())
+        except Exception:
+            eur_rate = None
+
+    limit_local = oss_threshold_in_currency(currency, eur_rate)
+    _ratio = (limit_local / Decimal("10000.00")) if limit_local else Decimal("1")
+    cumulative_local = cumulative_eur * _ratio
+    return f"{cumulative_local:,.2f}", f"{limit_local:,.2f}", symbol
+
+
 def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                     sale: Sale, product_category: str,
                     apply_fr_under_threshold: bool) -> VatResult:
@@ -497,16 +538,17 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                 pass
         home_rate = vat_rate(origin_country, product_category, tx_date=_oss_tx_date)
         home_vat_amount = _vat_amount(sale.amount_ht, home_rate)
+        _cumul_disp, _limit_disp, _sym_disp = _oss_threshold_display(cumulative)
         return VatResult(
             sale=sale, scenario=Scenario.DOMESTIC,
             vat_country=origin_country,
             vat_rate=home_rate, vat_amount=home_vat_amount,
             collector=Collector.SELLER, channel=Channel.FR_DOMESTIC,
             note=_note(
-                f"Sous le seuil OSS ({cumulative:,.2f}/{Decimal('10000.00'):,.2f}€). "
+                f"Sous le seuil OSS ({_cumul_disp}/{_limit_disp}{_sym_disp}). "
                 f"Option TVA {origin_country} activée.",
                 "engine_note_oss_under_threshold", country=origin_country,
-                cumulative=f"{cumulative:,.2f}", limit=f"{Decimal('10000.00'):,.2f}",
+                cumulative=_cumul_disp, limit=_limit_disp, currency=_sym_disp,
             ),
         )
     elif prev_cumul <= Decimal("10000.00"):

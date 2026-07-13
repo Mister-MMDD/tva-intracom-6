@@ -67,6 +67,42 @@ CURRENCY_SYMBOLS: Dict[str, str] = {
     "BGN": "лв",
 }
 
+# Contre-valeurs nationales FIXES du seuil OSS de 10 000 EUR (Art. 59 quater
+# Dir. 2006/112/CE) publiées par les États membres non-euro pour ce seuil —
+# valeurs légales fixes, PAS une conversion au taux BCE du jour (qui
+# fluctuerait quotidiennement pour un seuil légal censé rester stable).
+# Devises de la zone euro (dont BGN historique, avant l'adoption de l'euro
+# par la Bulgarie) : seuil = 10 000, sans conversion.
+OSS_THRESHOLD_FIXED_EQUIVALENTS: Dict[str, Decimal] = {
+    "BGN": Decimal("19558"),
+    "CZK": Decimal("256530"),
+    "DKK": Decimal("74500"),
+    "HUF": Decimal("3104500"),
+    "PLN": Decimal("42000"),
+    "RON": Decimal("49262"),
+    "SEK": Decimal("99265"),
+}
+
+
+def oss_threshold_in_currency(currency: str, eur_rate: Optional[Decimal] = None) -> Decimal:
+    """Contre-valeur du seuil OSS de 10 000 EUR dans `currency`.
+
+    - EUR : 10 000 (le seuil légal lui-même).
+    - Devise listée dans OSS_THRESHOLD_FIXED_EQUIVALENTS : contre-valeur fixe
+      publiée par l'État membre (ne fluctue PAS avec le taux BCE du jour).
+    - Toute autre devise (ex. GBP, hors zone d'application OSS) : repli sur une
+      conversion au taux BCE du jour fourni par l'appelant (`eur_rate`), ou
+      10 000 tel quel si aucun taux n'est fourni.
+    """
+    if not currency or currency.upper() == "EUR":
+        return Decimal("10000.00")
+    fixed = OSS_THRESHOLD_FIXED_EQUIVALENTS.get(currency.upper())
+    if fixed is not None:
+        return fixed
+    if eur_rate:
+        return Decimal("10000.00") * Decimal(str(eur_rate))
+    return Decimal("10000.00")
+
 COUNTRY_ISO3: Dict[str, str] = {
     "AT": "AUT", "BE": "BEL", "BG": "BGR", "HR": "HRV", "CY": "CYP",
     "CZ": "CZE", "DK": "DNK", "EE": "EST", "FI": "FIN", "FR": "FRA",

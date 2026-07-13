@@ -90,6 +90,28 @@ _vies_scope_id = _auth_ctx.vies_scope_id
 _stripe_success_url = _auth_ctx.stripe_success_url
 _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 
+# --- Synchro langue <-> compte ---
+# `language_selector()` (appelé plus haut, avant l'authentification, pour que
+# l'écran de connexion lui-même soit localisé) ne connaît que la session
+# Streamlit, pas encore le compte. Une fois l'utilisateur identifié :
+# - Première fois que ce compte est vu dans cette session : on applique sa
+#   langue sauvegardée (tva_users.language) si elle diffère de la langue de
+#   session actuelle, puis on ne le refait plus (pour ne pas écraser un
+#   changement manuel ultérieur de l'utilisateur dans la même session).
+# - Sinon, si la langue de session a changé depuis (l'utilisateur vient
+#   d'utiliser le sélecteur) : on persiste ce choix sur le compte.
+from tva_intracom import auth as tva_auth
+_sess_lang = st.session_state.get("language", "fr")
+if st.session_state.get("_prefs_synced_user") != _current_user.id:
+    if _current_user.language and _current_user.language != _sess_lang:
+        st.session_state["language"] = _current_user.language
+        st.session_state["_prefs_synced_user"] = _current_user.id
+        st.rerun()
+    st.session_state["_prefs_synced_user"] = _current_user.id
+elif _current_user.language != _sess_lang:
+    tva_auth.set_language(_current_user.id, _sess_lang)
+    _current_user.language = _sess_lang
+
 from tva_intracom.ui.sidebar import render_sidebar
 
 _sb = render_sidebar(_auth_ctx)
@@ -110,10 +132,20 @@ local_vat_numbers = _sb.local_vat_numbers
 oss_period = _sb.oss_period
 _siren_quota_status = _sb.siren_quota_status
 home_country = _sb.home_country
+display_currency = _sb.display_currency
 
 # --- Configuration de la monnaie de référence ---
+# `display_currency` (sélecteur sous le pays d'origine, voir ui/sidebar.py)
+# permet de choisir une devise d'affichage indépendante du pays d'origine —
+# ex. rester en EUR tout en ayant choisi la Pologne comme pays d'origine pour
+# la classification fiscale. "DEFAULT" retombe sur la devise du pays
+# d'origine choisi (comportement historique). N'affecte jamais la devise de
+# calcul du moteur (toujours EUR) ni les déclarations légales.
 from tva_intracom.rates import COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
-target_currency = COUNTRY_CURRENCIES.get(home_country, "EUR")
+if display_currency and display_currency != "DEFAULT":
+    target_currency = display_currency
+else:
+    target_currency = COUNTRY_CURRENCIES.get(home_country, "EUR")
 currency_symbol = CURRENCY_SYMBOLS.get(target_currency, "€")
 st.session_state["target_currency"] = target_currency
 st.session_state["currency_symbol"] = currency_symbol

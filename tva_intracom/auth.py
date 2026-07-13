@@ -98,7 +98,9 @@ def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
                     created_at DOUBLE PRECISION NOT NULL,
                     is_cabinet BOOLEAN NOT NULL DEFAULT FALSE,
                     cabinet_parent_id TEXT,
-                    home_country TEXT NOT NULL DEFAULT 'FR'
+                    home_country TEXT NOT NULL DEFAULT 'FR',
+                    language TEXT NOT NULL DEFAULT 'fr',
+                    display_currency TEXT NOT NULL DEFAULT 'DEFAULT'
                 )
                 """
             )
@@ -107,6 +109,12 @@ def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
             # par une version antérieure du schéma).
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS home_country TEXT NOT NULL DEFAULT 'FR'"
+            )
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'fr'"
+            )
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS display_currency TEXT NOT NULL DEFAULT 'DEFAULT'"
             )
             cur.execute(
                 """
@@ -159,6 +167,8 @@ class User:
     is_cabinet: bool = False
     cabinet_parent_id: Optional[str] = None
     home_country: str = "FR"
+    language: str = "fr"
+    display_currency: str = "DEFAULT"
 
 
 def get_or_create_user(email: str) -> User:
@@ -166,12 +176,13 @@ def get_or_create_user(email: str) -> User:
 
     def _fn(conn, cur):
         cur.execute(
-            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country FROM tva_users WHERE email=%s",
+            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency FROM tva_users WHERE email=%s",
             (email,),
         )
         row = cur.fetchone()
         if row:
-            return User(id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3], home_country=row[4] or "FR")
+            return User(id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3],
+                        home_country=row[4] or "FR", language=row[5] or "fr", display_currency=row[6] or "DEFAULT")
         user_id = secrets.token_hex(12)
         cur.execute(
             "INSERT INTO tva_users (id, email, created_at) VALUES (%s, %s, %s)",
@@ -192,6 +203,36 @@ def set_home_country(user_id: str, country: str) -> None:
         cur.execute(
             "UPDATE tva_users SET home_country=%s WHERE id=%s",
             (country, user_id),
+        )
+
+    _run(_fn)
+
+
+def set_language(user_id: str, language: str) -> None:
+    """Met à jour la langue préférée du compte — réglage global, persisté
+    pour être restaurée automatiquement à la prochaine connexion (voir
+    i18n.py::language_selector() et app.py, synchro post-authentification)."""
+    language = (language or "fr").strip().lower()
+
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_users SET language=%s WHERE id=%s",
+            (language, user_id),
+        )
+
+    _run(_fn)
+
+
+def set_display_currency(user_id: str, currency: str) -> None:
+    """Met à jour la devise d'affichage préférée du compte (voir
+    sidebar.py, sélecteur sous le pays d'origine). "DEFAULT" signifie :
+    utiliser la devise du pays d'origine choisi (comportement historique)."""
+    currency = (currency or "DEFAULT").strip().upper()
+
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_users SET display_currency=%s WHERE id=%s",
+            (currency, user_id),
         )
 
     _run(_fn)
@@ -338,7 +379,7 @@ def get_user_by_session_token(token: str) -> Optional[User]:
 
     def _fetch_user(conn, cur):
         cur.execute(
-            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country FROM tva_users WHERE id=%s",
+            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency FROM tva_users WHERE id=%s",
             (user_id,),
         )
         return cur.fetchone()
@@ -346,7 +387,8 @@ def get_user_by_session_token(token: str) -> Optional[User]:
     urow = _run(_fetch_user)
     if not urow:
         return None
-    return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3], home_country=urow[4] or "FR")
+    return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3],
+                home_country=urow[4] or "FR", language=urow[5] or "fr", display_currency=urow[6] or "DEFAULT")
 
 
 def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token: str) -> None:

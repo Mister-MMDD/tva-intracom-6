@@ -317,12 +317,22 @@ def _gated_preview_table(
 
 def render_oss_threshold_bar(oss_summary: Any) -> None:
     """Affiche la barre de progression du seuil OSS 10 000 EUR (Art. 59 quater
-    Dir. 2006/112/CE). Le seuil légal est fixé en EUR ; il est converti vers la
-    devise cible du pays d'origine pour l'affichage, au même taux que le total
-    OSS comparé — les deux termes de la comparaison doivent être exprimés dans
-    la même devise (sinon un compte en devise forte franchirait le seuil
-    artificiellement plus tôt ou plus tard que la réalité)."""
+    Dir. 2006/112/CE).
+
+    Le seuil légal est fixe en EUR ; pour les devises hors zone euro qui
+    publient une contre-valeur nationale FIXE de ce seuil
+    (rates.OSS_THRESHOLD_FIXED_EQUIVALENTS — ex. 42 000 PLN, 256 530 CZK...),
+    on affiche cette contre-valeur fixe plutôt qu'une conversion au taux BCE
+    du jour, qui ferait fluctuer quotidiennement un seuil légal censé rester
+    stable. Le cumul de ventes est mis à l'échelle du même rapport implicite
+    (contre-valeur fixe / 10 000) pour rester visuellement cohérent avec ce
+    seuil. Pour une devise sans contre-valeur fixe publiée (ex. GBP, hors
+    périmètre OSS), repli sur le taux BCE du jour pour les deux termes."""
+    from tva_intracom.rates import oss_threshold_in_currency
+    from decimal import Decimal as _Decimal
+
     _currency, _rate = _get_conversion_rate()
+    symbol = st.session_state.get("currency_symbol", "€")
 
     def _color(pct: float) -> str:
         """Vert -> orange -> rouge selon la proximité du seuil (pct entre 0 et 1)."""
@@ -331,11 +341,13 @@ def render_oss_threshold_bar(oss_summary: Any) -> None:
         return "#d62728"
 
     limit_eur = 10000.0
-    # Les deux montants comparés (total OSS et limite) sont convertis au même
-    # taux, pour que la comparaison reste valide quelle que soit la devise cible.
-    total_oss = float(oss_summary.total_oss_ht) * _rate
-    limit_display = limit_eur * _rate
-    limit_text = _fmt(limit_eur)  # _fmt applique la même conversion en interne
+    limit_local = float(oss_threshold_in_currency(_currency, _Decimal(str(_rate)) if _rate else None))
+    # Rapport implicite (contre-valeur fixe / seuil EUR) utilisé pour mettre le
+    # cumul de ventes à l'échelle de façon cohérente avec le seuil affiché.
+    _ratio = (limit_local / limit_eur) if limit_local else _rate
+    total_oss = float(oss_summary.total_oss_ht) * _ratio
+    limit_display = limit_local
+    limit_text = f"{limit_local:,.2f} {symbol}".replace(",", " ")
 
     pct = min(total_oss / limit_display if limit_display > 0 else 0, 1.0)
     
@@ -348,10 +360,11 @@ def render_oss_threshold_bar(oss_summary: Any) -> None:
         _label = _("oss_threshold_label")
 
     st.write(f"**{_label}**")
-    st.progress(pct, text=f"{_fmt(oss_summary.total_oss_ht)} / {limit_text}")
+    st.progress(pct, text=f"{total_oss:,.2f} {symbol} / {limit_text}".replace(",", " "))
     
     if total_oss < limit_display:
-        remaining_eur = limit_eur - float(oss_summary.total_oss_ht)
-        st.caption(_("oss_threshold_help", remaining=_fmt(remaining_eur)))
+        remaining_local = limit_display - total_oss
+        remaining_text = f"{remaining_local:,.2f} {symbol}".replace(",", " ")
+        st.caption(_("oss_threshold_help", remaining=remaining_text, limit=limit_text))
     else:
         st.success(_("oss_threshold_exceeded", limit=limit_text))

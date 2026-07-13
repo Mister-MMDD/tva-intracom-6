@@ -35,7 +35,7 @@ from tva_intracom.i18n import _
 
 from tva_intracom import auth as tva_auth
 from tva_intracom import billing as tva_billing
-from tva_intracom.rates import EU_COUNTRIES, COUNTRY_NAMES
+from tva_intracom.rates import EU_COUNTRIES, COUNTRY_NAMES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, oss_threshold_in_currency
 from tva_intracom.vies_engine import (
     get_cache_stats as vies_cache_stats,
     purge_expired_cache,
@@ -66,6 +66,19 @@ class SidebarResult:
     oss_period: str = "__auto__"
     siren_quota_status: Any = None
     home_country: str = "FR"
+    display_currency: str = "DEFAULT"
+
+
+def _oss_limit_label(home_country: str) -> str:
+    """Libellé du seuil OSS (10 000 EUR) dans la devise du pays d'origine —
+    contre-valeur nationale FIXE si publiée (rates.OSS_THRESHOLD_FIXED_EQUIVALENTS),
+    sinon '10 000 EUR' tel quel (pas de conversion au taux du jour ici : ce
+    libellé sert uniquement d'étiquette d'option, pas d'affichage financier
+    précis)."""
+    _cur = COUNTRY_CURRENCIES.get((home_country or "FR").upper(), "EUR")
+    _sym = CURRENCY_SYMBOLS.get(_cur, "€")
+    _val = oss_threshold_in_currency(_cur)
+    return f"{_val:,.0f} {_sym}".replace(",", " ")
 
 
 def render_sidebar(auth_ctx) -> SidebarResult:
@@ -107,6 +120,40 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             tva_auth.set_home_country(_current_user.id, home_country)
             _current_user.home_country = home_country
             st.rerun()
+
+        # ── Devise d'affichage ──────────────────────────────────────────
+        # Indépendante du pays d'origine : par défaut, l'affichage utilise la
+        # devise du pays d'origine choisi ci-dessus (FR -> EUR, PL -> PLN...),
+        # mais l'utilisateur peut choisir n'importe quelle devise UE (+ GBP)
+        # pour la présentation, sans que cela n'affecte la classification
+        # fiscale ni les déclarations légales (toujours en EUR, voir README
+        # section "Devise d'affichage locale"). Persisté en base
+        # (tva_users.display_currency), comme `home_country`.
+        _currency_options = ["DEFAULT"] + sorted(set(COUNTRY_CURRENCIES.values()))
+        _current_display_choice = getattr(_current_user, "display_currency", "DEFAULT") or "DEFAULT"
+        try:
+            _cur_idx = _currency_options.index(_current_display_choice)
+        except ValueError:
+            _cur_idx = 0
+
+        def _currency_option_label(code: str, _home=home_country) -> str:
+            if code == "DEFAULT":
+                _home_cur = COUNTRY_CURRENCIES.get((_home or "FR").upper(), "EUR")
+                return _("display_currency_default_label", currency=_home_cur)
+            return f"{code} ({CURRENCY_SYMBOLS.get(code, code)})"
+
+        display_currency = st.selectbox(
+            _("display_currency_label"),
+            options=_currency_options,
+            index=_cur_idx,
+            format_func=_currency_option_label,
+            key="display_currency_select",
+            help=_("display_currency_help"),
+        )
+        if display_currency != _current_display_choice:
+            tva_auth.set_display_currency(_current_user.id, display_currency)
+            _current_user.display_currency = display_currency
+        st.session_state["display_currency_choice"] = display_currency
 
         # Rappel pour le thème si l'utilisateur ne le trouve plus
         st.caption(_("theme_caption"))
@@ -315,7 +362,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     ioss_number = st.text_input(_("ioss_number_label"), placeholder="ex: IM1234567890", key="ioss_new",
                         help=_("ioss_help"))
                     seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new")
-                    apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label"), value=False, key="oss_thr_new")
+                    apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", limit=_oss_limit_label(home_country)), value=False, key="oss_thr_new")
                     countries_with_vat = st.multiselect(_("local_vat_countries_label"),
                         options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
 
@@ -389,7 +436,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         placeholder="ex: IM1234567890", key="ioss_edit")
 
                 seller_is_importer = st.toggle(_("ddp_label"), value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
-                apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label"), value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
+                apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", limit=_oss_limit_label(home_country)), value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
 
                 _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
                 _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
@@ -724,4 +771,5 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         oss_period=oss_period,
         siren_quota_status=_siren_quota_status,
         home_country=home_country,
+        display_currency=display_currency,
     )
