@@ -36,6 +36,7 @@ from tva_intracom.i18n import _
 import extra_streamlit_components as stx
 
 from tva_intracom import auth as tva_auth
+from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom.vies_engine import (
     resolve_scope_id as _vies_resolve_scope_id,
     purge_malformed_entries as _vies_purge_malformed_entries,
@@ -77,6 +78,21 @@ def get_or_create_spapi_oauth_state() -> str:
     if "_spapi_oauth_state" not in st.session_state:
         st.session_state["_spapi_oauth_state"] = secrets.token_urlsafe(24)
     return st.session_state["_spapi_oauth_state"]
+
+
+def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
+    """Mappe un e-mail authentifié (mot de passe ou OAuth Supabase) sur un
+    tva_users local, ouvre la session applicative (session_state + cookie
+    30 jours), exactement comme le faisait historiquement le lien magique."""
+    _user = tva_auth.get_or_create_user(email)
+    st.session_state["auth_user"] = _user
+    _token = tva_auth.create_session_token(_user.id)
+    cookie_manager.set(
+        "tva_session_token",
+        _token,
+        expires_at=datetime.now() + timedelta(days=30),
+        key="set_cookie_on_supabase_login",
+    )
 
 
 def ensure_cookie_manager() -> "stx.CookieManager":
@@ -219,6 +235,25 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.query_params.clear()
         st.rerun()
 
+    # ── Consommation du callback OAuth Supabase (Google/Microsoft/GitHub) ──
+    _sb_code = st.query_params.get("code")
+    _sb_provider = st.query_params.get("sb_provider")
+    if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
+        _verifier = st.session_state.pop(f"_sb_verifier_{_sb_provider}", None)
+        if not _verifier:
+            st.error(_("oauth_state_lost_error"))
+            st.query_params.clear()
+            st.stop()
+        try:
+            _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
+            _finalize_login(_sb_result.email, cookie_manager)
+            st.query_params.clear()
+            st.rerun()
+        except Exception as _sb_err:
+            st.error(_("oauth_login_error", error=str(_sb_err)))
+            st.query_params.clear()
+            st.stop()
+
     # ── Interface de connexion non-authentifiée ────────────────────────────
     if st.session_state["auth_user"] is None:
         st.info(_("auth_required_info"))
@@ -241,30 +276,72 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     st.warning(_("invalid_email_warning"))
             st.stop()
 
-        _login_email = st.text_input(_("email_label"), key="login_email_input")
-        _col_magic, _col_amazon = st.columns(2)
+        _app_base_url_login = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
 
-        if _col_magic.button(_("send_magic_link_btn"), key="btn_send_magic_link", use_container_width=True):
-            if _login_email and "@" in _login_email:
-                _token = tva_auth.create_magic_link(_login_email)
-                _base_url = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
-                _login_url = f"{_base_url}/?login_token={_token}"
+        # ── Mot de passe (Supabase Auth) ────────────────────────────────────
+        _login_email = st.text_input(_("email_label"), key="login_email_input")
+        _login_password = st.text_input(_("password_label"), type="password", key="login_password_input")
+        _col_signin, _col_signup = st.columns(2)
+
+        if _col_signin.button(_("password_signin_btn"), key="btn_password_signin", use_container_width=True, type="primary"):
+            if _login_email and "@" in _login_email and _login_password:
                 try:
-                    tva_auth.send_magic_link_email(_login_email, _login_url)
-                    st.success(_("magic_link_sent_success", email=_login_email))
-                except Exception as _mail_err:
-                    st.error(_("magic_link_sent_error", error=str(_mail_err)))
+                    _sb_res = tva_sb_auth.sign_in_with_password(_login_email, _login_password)
+                    _finalize_login(_sb_res.email, cookie_manager)
+                    st.rerun()
+                except Exception as _sb_err:
+                    st.error(_("password_login_error", error=str(_sb_err)))
             else:
                 st.warning(_("invalid_email_warning"))
 
-        with _col_amazon:
-            from tva_intracom import amazon_spapi
-            _state = get_or_create_spapi_oauth_state()
-            try:
-                _auth_url = amazon_spapi.get_authorization_url(state=_state)
-                st.link_button(_("amazon_login_btn"), _auth_url, use_container_width=True, type="primary")
-            except Exception:
-                st.error(_("amazon_not_configured_error"))
+        if _col_signup.button(_("password_signup_btn"), key="btn_password_signup", use_container_width=True):
+            if _login_email and "@" in _login_email and _login_password:
+                try:
+                    _sb_res = tva_sb_auth.sign_up_with_password(_login_email, _login_password)
+                    if _sb_res.access_token:
+                        _finalize_login(_sb_res.email, cookie_manager)
+                        st.rerun()
+                    else:
+                        st.success(_("password_signup_confirm_email_info"))
+                except Exception as _sb_err:
+                    st.error(_("password_login_error", error=str(_sb_err)))
+            else:
+                st.warning(_("invalid_email_warning"))
+
+        # ── OAuth social (Google / Microsoft / GitHub / Amazon) — Supabase Auth ─
+        st.caption(_("oauth_divider_label"))
+        _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
+        for _col, _provider, _label_key in (
+            (_col_google, "google", "oauth_google_btn"),
+            (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
+            (_col_github, "github", "oauth_github_btn"),
+            (_col_amazon, "amazon", "amazon_login_btn"),
+        ):
+            with _col:
+                _verifier = st.session_state.get(f"_sb_verifier_{_provider}")
+                if not _verifier:
+                    _verifier = tva_sb_auth.new_code_verifier()
+                    st.session_state[f"_sb_verifier_{_provider}"] = _verifier
+                try:
+                    _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}"
+                    _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
+                    st.link_button(_(_label_key), _oauth_url, use_container_width=True)
+                except Exception:
+                    st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", use_container_width=True, disabled=True)
+
+        st.divider()
+
+        # ── Lien magique : en préparation ───────────────────────────────────
+        # Reste dans le code (tva_auth.create_magic_link / send_magic_link_email)
+        # mais désactivé côté écran de connexion le temps de finaliser sa
+        # bascule éventuelle vers Supabase Auth (magic link natif Supabase) —
+        # voir README. La connexion Amazon (ci-dessus) est en revanche
+        # pleinement fonctionnelle via le Custom OAuth Provider Supabase.
+        st.caption(_("legacy_login_methods_caption"))
+        st.button(
+            _("send_magic_link_btn"), key="btn_send_magic_link_disabled",
+            use_container_width=True, disabled=True, help=_("coming_soon_help"),
+        )
 
         st.stop()
 

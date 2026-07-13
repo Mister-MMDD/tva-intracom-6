@@ -26,6 +26,7 @@ import psycopg2.pool
 import requests
 import streamlit as st
 from .config import get_secret
+from .security import encrypt_data, decrypt_data
 
 MAGIC_LINK_TTL_SECONDS = 15 * 60
 
@@ -392,6 +393,10 @@ def get_user_by_session_token(token: str) -> Optional[User]:
 
 
 def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token: str) -> None:
+    """Persiste les identifiants Amazon SP-API. Le refresh_token est chiffré
+    (Fernet, security.py) avant écriture — conformité Amazon DPP."""
+    _encrypted_refresh_token = encrypt_data(refresh_token)
+
     def _fn(conn, cur):
         now = time.time()
         cur.execute(
@@ -403,13 +408,17 @@ def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token
                 refresh_token = EXCLUDED.refresh_token,
                 updated_at = EXCLUDED.updated_at
             """,
-            (user_id, selling_partner_id, refresh_token, now, now),
+            (user_id, selling_partner_id, _encrypted_refresh_token, now, now),
         )
 
     _run(_fn)
 
 
 def get_amazon_credentials(user_id: str) -> Optional[dict]:
+    """Retourne les identifiants Amazon SP-API, avec le refresh_token
+    déchiffré. `decrypt_data` retombe silencieusement sur la valeur brute si
+    elle n'était pas chiffrée (transition depuis d'anciennes lignes stockées
+    en clair avant ce correctif)."""
     def _fn(conn, cur):
         cur.execute(
             "SELECT selling_partner_id, refresh_token FROM tva_amazon_credentials WHERE user_id=%s",
@@ -417,7 +426,7 @@ def get_amazon_credentials(user_id: str) -> Optional[dict]:
         )
         row = cur.fetchone()
         if row:
-            return {"selling_partner_id": row[0], "refresh_token": row[1]}
+            return {"selling_partner_id": row[0], "refresh_token": decrypt_data(row[1])}
         return None
 
     return _run(_fn)
