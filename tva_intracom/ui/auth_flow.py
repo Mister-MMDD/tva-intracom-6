@@ -138,7 +138,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     if st.session_state.get("manual_logout"):
         _cookie_token = None
 
-    if _cookie_token and st.session_state.get("auth_user") is None:
+    if _cookie_token and _cookie_token != "LOGGED_OUT" and st.session_state.get("auth_user") is None:
         _restored_user = tva_auth.get_user_by_session_token(_cookie_token)
         if _restored_user is not None:
             st.session_state["auth_user"] = _restored_user
@@ -355,7 +355,10 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.session_state["auth_user"] = None
             st.session_state["manual_logout"] = True
             try:
-                cookie_manager.delete("tva_session_token", key=f"logout_{int(time.time())}")
+                # On écrase le cookie par une valeur invalide pour bloquer la reconnexion auto (F5)
+                cookie_manager.set("tva_session_token", "LOGGED_OUT",
+                                   expires_at=datetime.now() + timedelta(days=30),
+                                   key=f"logout_set_{int(time.time())}")
             except Exception:
                 pass
             st.query_params.clear()
