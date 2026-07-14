@@ -235,17 +235,19 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.query_params.clear()
         st.rerun()
 
-    # ── Consommation du callback OAuth Supabase (Google/Microsoft/GitHub) ──
+    # ── Consommation du callback OAuth Supabase (Google/Microsoft/GitHub/Amazon) ──
     _sb_code = st.query_params.get("code")
     _sb_provider = st.query_params.get("sb_provider")
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
-        _verifier = st.session_state.pop(f"_sb_verifier_{_sb_provider}", None)
+        _cookies = cookie_manager.get_all()
+        _verifier = _cookies.get(f"sb_pkce_verifier_{_sb_provider}")
         if not _verifier:
             st.error(_("oauth_state_lost_error"))
             st.query_params.clear()
             st.stop()
         try:
             _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
+            cookie_manager.delete(f"sb_pkce_verifier_{_sb_provider}", key=f"del_pkce_verifier_{_sb_provider}")
             _finalize_login(_sb_result.email, cookie_manager)
             st.query_params.clear()
             st.rerun()
@@ -311,6 +313,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # ── OAuth social (Google / Microsoft / GitHub / Amazon) — Supabase Auth ─
         st.caption(_("oauth_divider_label"))
         _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
+        _existing_cookies = cookie_manager.get_all()
         for _col, _provider, _label_key in (
             (_col_google, "google", "oauth_google_btn"),
             (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
@@ -318,10 +321,16 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             (_col_amazon, "amazon", "amazon_login_btn"),
         ):
             with _col:
-                _verifier = st.session_state.get(f"_sb_verifier_{_provider}")
+                _cookie_key = f"sb_pkce_verifier_{_provider}"
+                _verifier = _existing_cookies.get(_cookie_key)
                 if not _verifier:
                     _verifier = tva_sb_auth.new_code_verifier()
-                    st.session_state[f"_sb_verifier_{_provider}"] = _verifier
+                    cookie_manager.set(
+                        _cookie_key,
+                        _verifier,
+                        expires_at=datetime.now() + timedelta(minutes=10),
+                        key=f"set_{_cookie_key}",
+                    )
                 try:
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
