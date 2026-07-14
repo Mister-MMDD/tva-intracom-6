@@ -93,67 +93,28 @@ def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                CREATE TABLE IF NOT EXISTS tva_users (
-                    id TEXT PRIMARY KEY,
-                    email TEXT UNIQUE NOT NULL,
-                    created_at DOUBLE PRECISION NOT NULL,
-                    is_cabinet BOOLEAN NOT NULL DEFAULT FALSE,
-                    cabinet_parent_id TEXT,
-                    home_country TEXT NOT NULL DEFAULT 'FR',
-                    language TEXT NOT NULL DEFAULT 'fr',
-                    display_currency TEXT NOT NULL DEFAULT 'DEFAULT'
-                )
-                """
-            )
-            # Ajout rétro-compatible pour les bases déjà existantes (le CREATE
-            # TABLE IF NOT EXISTS ci-dessus ne modifie pas une table déjà créée
-            # par une version antérieure du schéma).
-            cur.execute(
-                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS home_country TEXT NOT NULL DEFAULT 'FR'"
-            )
-            cur.execute(
-                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'fr'"
-            )
-            cur.execute(
-                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS display_currency TEXT NOT NULL DEFAULT 'DEFAULT'"
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_magic_links (
-                    token TEXT PRIMARY KEY,
-                    email TEXT NOT NULL,
-                    created_at DOUBLE PRECISION NOT NULL,
-                    consumed BOOLEAN NOT NULL DEFAULT FALSE
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_session_tokens (
-                    token TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    created_at DOUBLE PRECISION NOT NULL
-                )
-                """
-            )
-            # Table pour la protection brute-force (DPP Amazon)
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_failed_logins (
-                    ip_hash TEXT NOT NULL,
-                    attempt_at DOUBLE PRECISION NOT NULL
-                )
-                """
-            )
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_failed_logins_at ON tva_failed_logins(attempt_at)")
-            cur.execute(
-                """
                 CREATE TABLE IF NOT EXISTS tva_amazon_credentials (
                     user_id TEXT PRIMARY KEY,
                     selling_partner_id TEXT NOT NULL,
                     refresh_token TEXT NOT NULL,
                     created_at DOUBLE PRECISION NOT NULL,
                     updated_at DOUBLE PRECISION NOT NULL
+                )
+                """
+            )
+            # Verifiers PKCE pour l'auth Supabase (Google/Microsoft/GitHub/
+            # Amazon) : stockage serveur plutôt que cookie navigateur — le
+            # cookie posé depuis l'iframe du composant extra_streamlit_components
+            # ne s'est pas montré fiable pour survivre à la redirection OAuth
+            # externe. Le nonce voyage dans l'URL de redirection (`redirect_to`),
+            # pas le verifier lui-même.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tva_oauth_pkce (
+                    nonce TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    verifier TEXT NOT NULL,
+                    created_at DOUBLE PRECISION NOT NULL
                 )
                 """
             )
@@ -436,4 +397,36 @@ def delete_amazon_credentials(user_id: str) -> None:
     def _fn(conn, cur):
         cur.execute("DELETE FROM tva_amazon_credentials WHERE user_id=%s", (user_id,))
 
+def save_pkce_verifier(nonce: str, provider: str, verifier: str) -> None:
+    """Stocke côté serveur le code_verifier PKCE d'une tentative de connexion
+    OAuth Supabase, le temps de l'aller-retour vers le fournisseur. Purge au
+    passage les entrées de plus de 15 minutes."""
+    def _fn(conn, cur):
+        now = time.time()
+        cur.execute("DELETE FROM tva_oauth_pkce WHERE created_at < %s", (now - 15 * 60,))
+        cur.execute(
+            """
+            INSERT INTO tva_oauth_pkce (nonce, provider, verifier, created_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (nonce) DO UPDATE SET
+                provider = EXCLUDED.provider,
+                verifier = EXCLUDED.verifier,
+                created_at = EXCLUDED.created_at
+            """,
+            (nonce, provider, verifier, now),
+        )
     _run(_fn)
+
+
+def consume_pkce_verifier(nonce: str, provider: str) -> Optional[str]:
+    """Récupère puis supprime immédiatement (usage unique) le code_verifier
+    associé à ce nonce/provider. Retourne None si absent ou expiré (>15 min)."""
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT verifier FROM tva_oauth_pkce WHERE nonce=%s AND provider=%s AND created_at >= %s",
+            (nonce, provider, time.time() - 15 * 60),
+        )
+        row = cur.fetchone()
+        cur.execute("DELETE FROM tva_oauth_pkce WHERE nonce=%s", (nonce,))
+        return row[0] if row else None
+    return _run(_fn)

@@ -249,39 +249,22 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     # ── Consommation du callback OAuth Supabase (Google/Microsoft/GitHub/Amazon) ──
     _sb_code = st.query_params.get("code")
     _sb_provider = st.query_params.get("sb_provider")
+    _sb_nonce = st.query_params.get("sb_nonce")
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
-        _verifier = _all_cookies.get(f"sb_pkce_verifier_{_sb_provider}")
-
-        # 🔧 DEBUG TEMPORAIRE — à retirer une fois le bug résolu.
-        with st.expander("🔧 Debug OAuth (temporaire)", expanded=True):
-            st.write("query_params:", dict(st.query_params))
-            st.write("cookies vus par le composant:", list(_all_cookies.keys()))
-            st.write("clé cherchée:", f"sb_pkce_verifier_{_sb_provider}")
-            st.write("verifier trouvé:", bool(_verifier))
-            st.write("retry déjà fait:", st.session_state.get("_sb_cookie_retry_done", False))
-
-        if _verifier is None and not st.session_state.get("_sb_cookie_retry_done"):
-            # Premier rerun juste après la redirection externe : le composant
-            # CookieManager peut ne pas avoir encore fini de se synchroniser
-            # avec le navigateur. On retente une seule fois (garde via
-            # session_state pour éviter toute boucle infinie) avant de
-            # conclure à une vraie perte de session.
-            st.session_state["_sb_cookie_retry_done"] = True
-            time.sleep(0.4)
-            st.rerun()
-        st.session_state.pop("_sb_cookie_retry_done", None)
+        _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider) if _sb_nonce else None
         if not _verifier:
             st.error(_("oauth_state_lost_error"))
-            st.stop()  # 🔧 DEBUG : on NE clear PAS les query_params pour garder le expander visible
+            st.query_params.clear()
+            st.stop()
         try:
             _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
-            cookie_manager.delete(f"sb_pkce_verifier_{_sb_provider}", key=f"del_pkce_verifier_{_sb_provider}")
             _finalize_login(_sb_result.email, cookie_manager)
             st.query_params.clear()
             st.rerun()
         except Exception as _sb_err:
             st.error(_("oauth_login_error", error=str(_sb_err)))
-            st.stop()  # 🔧 DEBUG : idem, on garde les query_params/expander visibles
+            st.query_params.clear()
+            st.stop()
 
     # ── Interface de connexion non-authentifiée ────────────────────────────
     if st.session_state["auth_user"] is None:
@@ -331,52 +314,24 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 st.warning(_("invalid_email_warning"))
 
         # ── OAuth social (Google / Microsoft / GitHub / Amazon) — Supabase Auth ─
+        # Le code_verifier PKCE est stocké côté serveur (Postgres,
+        # tva_oauth_pkce), retrouvé au retour via un nonce transmis dans
+        # `redirect_to` — plus fiable qu'un cookie posé depuis l'iframe du
+        # composant extra_streamlit_components.
         st.caption(_("oauth_divider_label"))
-        _providers_list = (
-            ("google", "oauth_google_btn"),
-            ("microsoft", "oauth_microsoft_btn"),
-            ("github", "oauth_github_btn"),
-            ("amazon", "amazon_login_btn"),
-        )
-
-        # `cookie_manager.set()` demande au composant frontend d'écrire le
-        # cookie via JS — ça ne se termine pas forcément AVANT la fin du
-        # rendu de ce script (surtout au tout premier passage sur l'écran de
-        # connexion, où aucun des 4 cookies n'existe encore). Si on affichait
-        # les liens `st.link_button` dans la foulée, un clic pouvait quitter
-        # la page avant que le cookie soit réellement posé — c'était la cause
-        # du "verifier introuvable" au retour de Google (cookie absent, pas
-        # seulement désynchronisé). On pose donc tous les cookies manquants,
-        # puis on force un `st.rerun()` pour repartir sur un script où
-        # `_all_cookies` les contient déjà confirmés, avant de rendre les
-        # boutons. Protégé par un flag de session pour ne jamais boucler si
-        # le navigateur bloque réellement les cookies.
-        _missing_providers = [p for p, _ in _providers_list if not _all_cookies.get(f"sb_pkce_verifier_{p}")]
-        if _missing_providers and not st.session_state.get("_sb_verifiers_primed"):
-            for _provider in _missing_providers:
-                cookie_manager.set(
-                    f"sb_pkce_verifier_{_provider}",
-                    tva_sb_auth.new_code_verifier(),
-                    expires_at=datetime.now() + timedelta(minutes=10),
-                    key=f"set_sb_pkce_verifier_{_provider}",
-                )
-            st.session_state["_sb_verifiers_primed"] = True
-            st.rerun()
-
         _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
-        for _col, (_provider, _label_key) in zip(
-            (_col_google, _col_microsoft, _col_github, _col_amazon), _providers_list
+        for _col, _provider, _label_key in (
+                (_col_google, "google", "oauth_google_btn"),
+                (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
+                (_col_github, "github", "oauth_github_btn"),
+                (_col_amazon, "amazon", "amazon_login_btn"),
         ):
             with _col:
-                _verifier = _all_cookies.get(f"sb_pkce_verifier_{_provider}")
-                if not _verifier:
-                    # Cookies toujours absents après la primorisation
-                    # (navigateur qui bloque les cookies tiers/tout court) :
-                    # bouton désactivé plutôt qu'un lien cassé.
-                    st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", use_container_width=True, disabled=True, help=_("oauth_cookies_blocked_help"))
-                    continue
                 try:
-                    _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}"
+                    _nonce = secrets.token_urlsafe(24)
+                    _verifier = tva_sb_auth.new_code_verifier()
+                    tva_auth.save_pkce_verifier(_nonce, _provider, _verifier)
+                    _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}&sb_nonce={_nonce}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
                     st.link_button(_(_label_key), _oauth_url, use_container_width=True)
                 except Exception:
