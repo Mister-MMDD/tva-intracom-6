@@ -260,6 +260,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         with st.expander("🔧 Debug OAuth (temporaire)", expanded=True):
             st.write("query_params complets:", dict(st.query_params))
             st.write("sb_nonce reçu:", _sb_nonce)
+            st.write("diag lecture (avant consume):", tva_auth.debug_pkce_diagnostic(_sb_nonce))
 
         _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider) if _sb_nonce else None
 
@@ -363,6 +364,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}&sb_nonce={_nonce}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
                     st.caption(f"🔧 nonce: {_nonce[:12]}… ({'cache' if _cached else 'neuf'})")
+                    if not _cached:
+                        st.caption(f"🔧 diag écriture: {tva_auth.debug_pkce_diagnostic(_nonce)}")
                     st.link_button(_(_label_key), _oauth_url, use_container_width=True)
                 except Exception:
                     st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", use_container_width=True, disabled=True)

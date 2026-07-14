@@ -490,3 +490,30 @@ def consume_pkce_verifier(nonce: str, provider: str) -> Optional[str]:
         return row[0] if row else None
 
     return _run(_fn)
+
+
+def debug_pkce_diagnostic(nonce: str) -> dict:
+    """🔧 DEBUG TEMPORAIRE — à retirer une fois le bug résolu.
+    Inspecte l'état réel de tva_oauth_pkce : nombre total de lignes, la ligne
+    exacte pour ce nonce (si présente, quel que soit son âge), et le DSN
+    (hôte + nom de base uniquement, jamais les identifiants) réellement
+    utilisé par ce process — pour vérifier qu'on lit/écrit bien la même base
+    des deux côtés de la redirection OAuth."""
+    def _fn(conn, cur):
+        cur.execute("SELECT COUNT(*) FROM tva_oauth_pkce")
+        _total = cur.fetchone()[0]
+        cur.execute("SELECT nonce, provider, created_at FROM tva_oauth_pkce WHERE nonce=%s", (nonce,))
+        _row = cur.fetchone()
+        cur.execute("SELECT current_database(), inet_server_addr()")
+        _db_info = cur.fetchone()
+        return {
+            "total_rows_table": _total,
+            "row_for_this_nonce": _row,
+            "database": _db_info[0] if _db_info else None,
+            "server_addr": str(_db_info[1]) if _db_info else None,
+        }
+
+    try:
+        return _run(_fn)
+    except Exception as e:
+        return {"error": str(e)}
