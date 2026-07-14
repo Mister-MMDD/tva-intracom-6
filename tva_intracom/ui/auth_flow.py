@@ -266,6 +266,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.query_params.clear()
             st.stop()
 
+
     # ── Interface de connexion non-authentifiée ────────────────────────────
     if st.session_state["auth_user"] is None:
         st.info(_("auth_required_info"))
@@ -317,14 +318,15 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # Le code_verifier PKCE est stocké côté serveur (Postgres,
         # tva_oauth_pkce), retrouvé au retour via un nonce transmis dans
         # `redirect_to` — plus fiable qu'un cookie posé depuis l'iframe du
-        # composant extra_streamlit_components.
+        # composant extra_streamlit_components, qui ne survivait pas de
+        # façon fiable à la redirection externe.
         st.caption(_("oauth_divider_label"))
         _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
         for _col, _provider, _label_key in (
-                (_col_google, "google", "oauth_google_btn"),
-                (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
-                (_col_github, "github", "oauth_github_btn"),
-                (_col_amazon, "amazon", "amazon_login_btn"),
+            (_col_google, "google", "oauth_google_btn"),
+            (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
+            (_col_github, "github", "oauth_github_btn"),
+            (_col_amazon, "amazon", "amazon_login_btn"),
         ):
             with _col:
                 try:
