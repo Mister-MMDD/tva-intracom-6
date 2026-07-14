@@ -98,9 +98,9 @@ def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
 def ensure_cookie_manager() -> "stx.CookieManager":
     """Instancie le gestionnaire de cookies et exécute la maintenance
     ponctuelle (purge du cache VIES mal préfixé) une fois par session."""
-    cookie_manager = stx.CookieManager()
+    cookie_manager = stx.CookieManager(key="tva_cookie_manager")
 
-    if not cookie_manager.get_all():
+    if not cookie_manager.get_all(key="ensure_cookies"):
         time.sleep(0.1)
 
     if "_malformed_vies_purged" not in st.session_state:
@@ -129,6 +129,12 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
     # ── Restauration de session via Cookie ──────────────────────────────────
     _cookie_token = cookie_manager.get("tva_session_token")
+
+    # Anti-boucle de déconnexion : si on vient de cliquer sur déconnexion,
+    # on ignore le cookie pour ce tour-ci (le temps qu'il disparaisse du navigateur).
+    if st.session_state.get("_logout_in_progress"):
+        st.session_state["_logout_in_progress"] = False
+        _cookie_token = None
 
     if _cookie_token and st.session_state.get("auth_user") is None:
         _restored_user = tva_auth.get_user_by_session_token(_cookie_token)
@@ -239,8 +245,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_code = st.query_params.get("code")
     _sb_provider = st.query_params.get("sb_provider")
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
-        _cookies = cookie_manager.get_all()
-        _verifier = _cookies.get(f"sb_pkce_verifier_{_sb_provider}")
+        _existing_cookies = cookie_manager.get_all(key="sb_oauth_cookies")
+        _verifier = _existing_cookies.get(f"sb_pkce_verifier_{_sb_provider}")
         if not _verifier:
             st.error(_("oauth_state_lost_error"))
             st.query_params.clear()
@@ -362,9 +368,9 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         _col_user.caption(_("logged_in_as", email=_current_user.email))
         if _col_logout.button(_("logout_btn"), key="btn_logout"):
             st.session_state["auth_user"] = None
+            st.session_state["_logout_in_progress"] = True
             try:
-                if "tva_session_token" in cookie_manager.get_all():
-                    cookie_manager.delete("tva_session_token")
+                cookie_manager.delete("tva_session_token", key="logout_cookie_delete")
             except Exception:
                 pass
             st.query_params.clear()
