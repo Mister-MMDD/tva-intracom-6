@@ -251,11 +251,19 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_provider = st.query_params.get("sb_provider")
     _sb_nonce = st.query_params.get("sb_nonce")
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
+        # 🔧 DEBUG TEMPORAIRE
+        with st.expander("🔧 Debug OAuth (temporaire)", expanded=True):
+            st.write("query_params complets:", dict(st.query_params))
+            st.write("sb_nonce reçu:", _sb_nonce)
+
         _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider) if _sb_nonce else None
+
+        with st.expander("🔧 Debug OAuth (suite)", expanded=True):
+            st.write("verifier retrouvé en base:", bool(_verifier))
+
         if not _verifier:
             st.error(_("oauth_state_lost_error"))
-            st.query_params.clear()
-            st.stop()
+            st.stop()  # 🔧 DEBUG: pas de clear() pour garder l'URL/expander visibles
         try:
             _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
             _finalize_login(_sb_result.email, cookie_manager)
@@ -263,8 +271,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.rerun()
         except Exception as _sb_err:
             st.error(_("oauth_login_error", error=str(_sb_err)))
-            st.query_params.clear()
-            st.stop()
+            st.stop()  # 🔧 DEBUG: pas de clear() pour garder l'URL/expander visibles
 
 
     # ── Interface de connexion non-authentifiée ────────────────────────────
