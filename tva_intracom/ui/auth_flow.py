@@ -86,12 +86,13 @@ def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
     30 jours), exactement comme le faisait historiquement le lien magique."""
     _user = tva_auth.get_or_create_user(email)
     st.session_state["auth_user"] = _user
+    st.session_state["manual_logout"] = False
     _token = tva_auth.create_session_token(_user.id)
     cookie_manager.set(
         "tva_session_token",
         _token,
         expires_at=datetime.now() + timedelta(days=30),
-        key="set_cookie_on_supabase_login",
+        key=f"set_cookie_{int(time.time())}", # Clé unique pour forcer l'update
     )
 
 
@@ -121,6 +122,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     """
     if "auth_user" not in st.session_state:
         st.session_state["auth_user"] = None
+    if "manual_logout" not in st.session_state:
+        st.session_state["manual_logout"] = False
 
     try:
         _local_bypass = bool(get_secret("LOCAL_DEV_BYPASS_AUTH", False))
@@ -130,10 +133,9 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     # ── Restauration de session via Cookie ──────────────────────────────────
     _cookie_token = cookie_manager.get("tva_session_token")
 
-    # Anti-boucle de déconnexion : si on vient de cliquer sur déconnexion,
-    # on ignore le cookie pour ce tour-ci (le temps qu'il disparaisse du navigateur).
-    if st.session_state.get("_logout_in_progress"):
-        st.session_state["_logout_in_progress"] = False
+    # Si l'utilisateur a cliqué sur Déconnexion, on ignore le cookie pour cette session
+    # Streamlit, même s'il n'a pas encore été effacé du navigateur.
+    if st.session_state.get("manual_logout"):
         _cookie_token = None
 
     if _cookie_token and st.session_state.get("auth_user") is None:
@@ -166,15 +168,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     _u = None
 
                 if _u is not None:
-                    st.session_state["auth_user"] = _u
-                    _new_session_token = tva_auth.create_session_token(_u.id)
-
-                    cookie_manager.set(
-                        "tva_session_token",
-                        _new_session_token,
-                        expires_at=datetime.now() + timedelta(days=30),
-                        key="set_cookie_on_login"
-                    )
+                    _finalize_login(_u.email, cookie_manager)
                     st.query_params.clear()
                     st.rerun()
                 else:
@@ -220,10 +214,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 _current_u = st.session_state.get("auth_user")
 
                 if _current_u is None and _amz_email:
-                    _current_u = tva_auth.get_or_create_user(_amz_email)
-                    st.session_state["auth_user"] = _current_u
-                    _new_token = tva_auth.create_session_token(_current_u.id)
-                    cookie_manager.set("tva_session_token", _new_token, expires_at=datetime.now() + timedelta(days=30))
+                    _finalize_login(_amz_email, cookie_manager)
+                    _current_u = st.session_state.get("auth_user")
 
                 if _current_u:
                     tva_auth.save_amazon_credentials(
@@ -271,14 +263,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             _dev_email = st.text_input(_("dev_email_label"), key="dev_login_email_input")
             if st.button(_("dev_login_btn"), key="btn_dev_login"):
                 if _dev_email and "@" in _dev_email:
-                    _dev_user = tva_auth.get_or_create_user(_dev_email)
-                    st.session_state["auth_user"] = _dev_user
-                    _dev_token = tva_auth.create_session_token(_dev_user.id)
-                    cookie_manager.set(
-                        "tva_session_token",
-                        _dev_token,
-                        expires_at=datetime.now() + timedelta(days=30)
-                    )
+                    _finalize_login(_dev_email, cookie_manager)
                     st.rerun()
                 else:
                     st.warning(_("invalid_email_warning"))
@@ -368,9 +353,9 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         _col_user.caption(_("logged_in_as", email=_current_user.email))
         if _col_logout.button(_("logout_btn"), key="btn_logout"):
             st.session_state["auth_user"] = None
-            st.session_state["_logout_in_progress"] = True
+            st.session_state["manual_logout"] = True
             try:
-                cookie_manager.delete("tva_session_token", key="logout_cookie_delete")
+                cookie_manager.delete("tva_session_token", key=f"logout_{int(time.time())}")
             except Exception:
                 pass
             st.query_params.clear()
