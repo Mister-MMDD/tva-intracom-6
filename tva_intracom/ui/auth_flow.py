@@ -101,7 +101,7 @@ def ensure_cookie_manager() -> "stx.CookieManager":
     ponctuelle (purge du cache VIES mal préfixé) une fois par session."""
     cookie_manager = stx.CookieManager(key="tva_cookie_manager")
 
-    if not cookie_manager.get_all(key="tva_all_cookies"):
+    if not cookie_manager.get_all(key="ensure_cookies"):
         time.sleep(0.1)
 
     if "_malformed_vies_purged" not in st.session_state:
