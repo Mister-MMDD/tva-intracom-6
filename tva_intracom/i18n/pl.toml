@@ -442,6 +442,7 @@ oauth_state_lost_error = "⛔ Sesja logowania wygasła lub została utracona —
 oauth_login_error = "⛔ Błąd podczas logowania: {error}"
 legacy_login_methods_caption = "Magiczny link e-mail (wkrótce)"
 coming_soon_help = "Wkrótce dostępne."
+oauth_cookies_blocked_help = "Pliki cookie zablokowane przez przeglądarkę — spróbuj ponownie lub zezwól na cookies dla tej strony."
 logged_in_as = "Zalogowany jako: {email}"
 logout_btn = "🚪 Wyloguj się"
 

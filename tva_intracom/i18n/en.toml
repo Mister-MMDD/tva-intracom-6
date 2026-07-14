@@ -442,6 +442,7 @@ oauth_state_lost_error = "⛔ Login session expired or lost — please try again
 oauth_login_error = "⛔ Login error: {error}"
 legacy_login_methods_caption = "Magic link by email (coming soon)"
 coming_soon_help = "Coming soon."
+oauth_cookies_blocked_help = "Cookies blocked by the browser — retry or allow cookies for this site."
 logged_in_as = "Logged in as: {email}"
 logout_btn = "🚪 Log out"
 

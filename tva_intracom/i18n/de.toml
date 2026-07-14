@@ -442,6 +442,7 @@ oauth_state_lost_error = "⛔ Anmeldesitzung abgelaufen oder verloren — bitte 
 oauth_login_error = "⛔ Fehler bei der Anmeldung: {error}"
 legacy_login_methods_caption = "Magic Link per E-Mail (in Vorbereitung)"
 coming_soon_help = "In Vorbereitung — bald verfügbar."
+oauth_cookies_blocked_help = "Cookies vom Browser blockiert — erneut versuchen oder Cookies für diese Seite zulassen."
 logged_in_as = "Eingeloggt als: {email}"
 logout_btn = "🚪 Ausloggen"
 

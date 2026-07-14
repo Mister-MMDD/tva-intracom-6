@@ -332,24 +332,49 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
         # ── OAuth social (Google / Microsoft / GitHub / Amazon) — Supabase Auth ─
         st.caption(_("oauth_divider_label"))
+        _providers_list = (
+            ("google", "oauth_google_btn"),
+            ("microsoft", "oauth_microsoft_btn"),
+            ("github", "oauth_github_btn"),
+            ("amazon", "amazon_login_btn"),
+        )
+
+        # `cookie_manager.set()` demande au composant frontend d'écrire le
+        # cookie via JS — ça ne se termine pas forcément AVANT la fin du
+        # rendu de ce script (surtout au tout premier passage sur l'écran de
+        # connexion, où aucun des 4 cookies n'existe encore). Si on affichait
+        # les liens `st.link_button` dans la foulée, un clic pouvait quitter
+        # la page avant que le cookie soit réellement posé — c'était la cause
+        # du "verifier introuvable" au retour de Google (cookie absent, pas
+        # seulement désynchronisé). On pose donc tous les cookies manquants,
+        # puis on force un `st.rerun()` pour repartir sur un script où
+        # `_all_cookies` les contient déjà confirmés, avant de rendre les
+        # boutons. Protégé par un flag de session pour ne jamais boucler si
+        # le navigateur bloque réellement les cookies.
+        _missing_providers = [p for p, _ in _providers_list if not _all_cookies.get(f"sb_pkce_verifier_{p}")]
+        if _missing_providers and not st.session_state.get("_sb_verifiers_primed"):
+            for _provider in _missing_providers:
+                cookie_manager.set(
+                    f"sb_pkce_verifier_{_provider}",
+                    tva_sb_auth.new_code_verifier(),
+                    expires_at=datetime.now() + timedelta(minutes=10),
+                    key=f"set_sb_pkce_verifier_{_provider}",
+                )
+            st.session_state["_sb_verifiers_primed"] = True
+            st.rerun()
+
         _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
-        for _col, _provider, _label_key in (
-            (_col_google, "google", "oauth_google_btn"),
-            (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
-            (_col_github, "github", "oauth_github_btn"),
-            (_col_amazon, "amazon", "amazon_login_btn"),
+        for _col, (_provider, _label_key) in zip(
+            (_col_google, _col_microsoft, _col_github, _col_amazon), _providers_list
         ):
             with _col:
-                _cookie_key = f"sb_pkce_verifier_{_provider}"
-                _verifier = _all_cookies.get(_cookie_key)
+                _verifier = _all_cookies.get(f"sb_pkce_verifier_{_provider}")
                 if not _verifier:
-                    _verifier = tva_sb_auth.new_code_verifier()
-                    cookie_manager.set(
-                        _cookie_key,
-                        _verifier,
-                        expires_at=datetime.now() + timedelta(minutes=10),
-                        key=f"set_{_cookie_key}",
-                    )
+                    # Cookies toujours absents après la primorisation
+                    # (navigateur qui bloque les cookies tiers/tout court) :
+                    # bouton désactivé plutôt qu'un lien cassé.
+                    st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", use_container_width=True, disabled=True, help=_("oauth_cookies_blocked_help"))
+                    continue
                 try:
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)

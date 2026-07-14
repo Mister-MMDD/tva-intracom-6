@@ -442,6 +442,7 @@ oauth_state_lost_error = "⛔ Sesión de inicio expirada o perdida — inténtel
 oauth_login_error = "⛔ Error al iniciar sesión: {error}"
 legacy_login_methods_caption = "Enlace mágico por correo (próximamente)"
 coming_soon_help = "Próximamente."
+oauth_cookies_blocked_help = "Cookies bloqueadas por el navegador — reinténtelo o permita las cookies para este sitio."
 logged_in_as = "Sesión iniciada como: {email}"
 logout_btn = "🚪 Cerrar sesión"
 
