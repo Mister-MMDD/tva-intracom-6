@@ -101,7 +101,7 @@ def ensure_cookie_manager() -> "stx.CookieManager":
     ponctuelle (purge du cache VIES mal préfixé) une fois par session."""
     cookie_manager = stx.CookieManager(key="tva_cookie_manager")
 
-    if not cookie_manager.get_all(key="ensure_cookies"):
+    if not cookie_manager.get_all(key="tva_all_cookies"):
         time.sleep(0.1)
 
     if "_malformed_vies_purged" not in st.session_state:
@@ -129,6 +129,19 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         _local_bypass = bool(get_secret("LOCAL_DEV_BYPASS_AUTH", False))
     except Exception:
         _local_bypass = False
+
+    # ── Lecture unique des cookies pour tout le reste de la fonction ────────
+    # ⚠️ Avec extra_streamlit_components, chaque `key` distincte passée à
+    # get_all()/get() crée une INSTANCE DE COMPOSANT SÉPARÉE, qui doit se
+    # remonter et se resynchroniser indépendamment avec le navigateur. Utiliser
+    # des clés différentes à plusieurs endroits (ce qui était le cas
+    # auparavant : "ensure_cookies", "sb_oauth_cookies", clé absente...)
+    # provoque des lectures désynchronisées : une instance peut ne pas encore
+    # avoir reçu les cookies du navigateur alors qu'une autre les a déjà.
+    # C'était la cause du "Session de connexion expirée ou perdue" après
+    # retour de Google : le verifier PKCE était bien posé en cookie, mais lu
+    # via une instance de composant qui n'avait pas fini de se synchroniser.
+    _all_cookies = cookie_manager.get_all(key="tva_all_cookies")
 
     # ── Restauration de session via Cookie ──────────────────────────────────
     _cookie_token = cookie_manager.get("tva_session_token")
@@ -237,8 +250,17 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_code = st.query_params.get("code")
     _sb_provider = st.query_params.get("sb_provider")
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
-        _existing_cookies = cookie_manager.get_all(key="sb_oauth_cookies")
-        _verifier = _existing_cookies.get(f"sb_pkce_verifier_{_sb_provider}")
+        _verifier = _all_cookies.get(f"sb_pkce_verifier_{_sb_provider}")
+        if _verifier is None and not st.session_state.get("_sb_cookie_retry_done"):
+            # Premier rerun juste après la redirection externe : le composant
+            # CookieManager peut ne pas avoir encore fini de se synchroniser
+            # avec le navigateur. On retente une seule fois (garde via
+            # session_state pour éviter toute boucle infinie) avant de
+            # conclure à une vraie perte de session.
+            st.session_state["_sb_cookie_retry_done"] = True
+            time.sleep(0.4)
+            st.rerun()
+        st.session_state.pop("_sb_cookie_retry_done", None)
         if not _verifier:
             st.error(_("oauth_state_lost_error"))
             st.query_params.clear()
@@ -304,7 +326,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # ── OAuth social (Google / Microsoft / GitHub / Amazon) — Supabase Auth ─
         st.caption(_("oauth_divider_label"))
         _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
-        _existing_cookies = cookie_manager.get_all()
         for _col, _provider, _label_key in (
             (_col_google, "google", "oauth_google_btn"),
             (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
@@ -313,7 +334,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         ):
             with _col:
                 _cookie_key = f"sb_pkce_verifier_{_provider}"
-                _verifier = _existing_cookies.get(_cookie_key)
+                _verifier = _all_cookies.get(_cookie_key)
                 if not _verifier:
                     _verifier = tva_sb_auth.new_code_verifier()
                     cookie_manager.set(

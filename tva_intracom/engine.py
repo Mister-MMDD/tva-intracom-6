@@ -251,67 +251,36 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             )
 
         # B2B cross-border sans TVA intracom valide (buyer_vat_valid=False) :
-        # NIF national ES/IT détecté dans l'adaptateur (buyer_vat vidé pour éviter VIES),
-        # ou numéro B2B sans validation VIES possible.
+        # La livraison ne peut pas être exonérée (Art. 138 Directive 2006/112/CE).
+        # Elle est taxable dans l'État membre de départ (Lieu de livraison, Art. 31).
+        # Le vendeur doit collecter la TVA du pays de départ (TTC).
         #
-        # Le régime OSS NE s'applique PAS aux ventes B2B — il est réservé au B2C.
-        # Deux sous-cas selon le pays de destination :
-        #
-        #   a) Pays ayant adopté art.194 dir.2006/112/CE (ES, IT, PL, CZ, SK, HU, RO…) :
-        #      L'acheteur assujetti autoliquide la TVA dans son pays → TVA=0.
-        #
-        #   b) Pays n'ayant PAS adopté art.194 (DE, FR, AT, BE, NL, DK…) :
-        #      Vendeur collecte TVA locale → LOCAL_REGISTRATION ou FR_DOMESTIC.
+        # Note : Si la vente est reclassifiée en B2C par le moteur VIES, elle basculera
+        # alors dans le régime OSS (TVA destination) — voir bloc Cas 1 plus bas.
         if stock_eu and buyer_eu and cross_border:
-            if sale.buyer_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
-                return VatResult(
-                    sale=sale,
-                    scenario=Scenario.B2B_REVERSE_CHARGE,
-                    vat_country=sale.buyer_country,
-                    vat_rate=Decimal("0"),
-                    vat_amount=Decimal("0.00"),
-                    collector=Collector.BUYER,
-                    channel=Channel.EXONERATION,
-                    note=_note(
-                        f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
-                        f"identifiant fiscal national sans préfixe TVA intracom. "
-                        f"Art.194 dir.2006/112/CE adopté en {sale.buyer_country} : "
-                        f"autoliquidation par l'acheteur assujetti (https://bit.ly/Directive-Art194).",
-                        "engine_note_b2b_art194", stock=sale.stock_country, buyer=sale.buyer_country,
-                    ),
-                )
-            else:
-                # Le pays d'origine (établissement) du vendeur n'est plus
-                # supposé être la France : c'est sale.seller_country (réglage
-                # de compte, voir auth.py/sidebar.py — défaut "FR"). Une vente
-                # dont le pays de destination EST ce pays d'origine reste
-                # taxée comme domestique "chez soi" (Channel.FR_DOMESTIC —
-                # nom conservé pour compatibilité, ne signifie plus
-                # littéralement "France" mais "pays d'origine du vendeur").
-                is_dest_home = sale.buyer_country == sale.seller_country
-                channel = Channel.FR_DOMESTIC if is_dest_home else Channel.LOCAL_REGISTRATION
-                return VatResult(
-                    sale=sale,
-                    scenario=Scenario.DOMESTIC,
-                    vat_country=sale.buyer_country,
-                    vat_rate=tax_rate,
-                    vat_amount=tax_amount,
-                    collector=Collector.SELLER,
-                    channel=channel,
-                    note=_note(
-                        f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
-                        f"numéro TVA acheteur non valide VIES. "
-                        f"Art.194 NON adopté en {sale.buyer_country} : "
-                        f"vendeur collecte TVA {tax_rate}% — "
-                        + (
-                            f"déclaration domestique ({sale.seller_country})."
-                            if is_dest_home
-                            else f"immatriculation TVA locale requise en {sale.buyer_country}."
-                        ),
-                        "engine_note_b2b_no_art194", stock=sale.stock_country, buyer=sale.buyer_country,
-                        rate=tax_rate, home=sale.seller_country,
-                    ),
-                )
+            departure_rate = vat_rate(sale.stock_country, effective_category, tx_date=_tx_date)
+            departure_amount = _vat_amount(sale.amount_ht, departure_rate)
+
+            is_stock_home = sale.stock_country == sale.seller_country
+            channel = Channel.FR_DOMESTIC if is_stock_home else Channel.LOCAL_REGISTRATION
+
+            return VatResult(
+                sale=sale,
+                scenario=Scenario.DOMESTIC,
+                vat_country=sale.stock_country,
+                vat_rate=departure_rate,
+                vat_amount=departure_amount,
+                collector=Collector.SELLER,
+                channel=channel,
+                note=_note(
+                    f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
+                    f"numéro TVA acheteur non valide VIES. L'exonération est refusée "
+                    f"(Art. 138 Directive 2006/112/CE) — taxation au pays de départ "
+                    f"({sale.stock_country}) au taux de {departure_rate}% collecté par le vendeur.",
+                    "engine_note_b2b_no_vies_departure", stock=sale.stock_country,
+                    buyer=sale.buyer_country, rate=departure_rate,
+                ),
+            )
 
     # ------------------------------------------------------------------
     # Cas 1 : vente B2C intra-UE transfrontaliere (OSS par défaut)
@@ -874,22 +843,29 @@ def compute_all_with_vies(
         if is_valid:
             effective = _dc_replace(sale, buyer_vat_valid=True,
                                     product_category=product_category, asin=product_asin)
-        elif is_inconclusive:
+        else:
+            # Numéro invalide ou inconclusive (service VIES indisponible).
+            # On l'ajoute à la liste des anomalies VIES pour affichage dans l'onglet VIES,
+            # même si on ne change pas forcément le type en B2C.
+            reason = "Numéro invalide ou introuvable"
+            if is_inconclusive:
+                reason = "Service VIES indisponible (incertain)"
+            
+            vies_summary.reclassifications.append(ViesReclassification(
+                sale_id=sale.sale_id, buyer_vat_number=sale.buyer_vat_number,
+                buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
+                vat_avoided=Decimal("0.00"), reason=reason,
+                display_id=getattr(sale, "display_id", ""),
+            ))
+
+            # IMPORTANT : Pour les ventes B2B cross-border dont le n° TVA est invalide,
+            # on ne reclassifie PLUS en B2C. On garde BuyerType.B2B mais avec
+            # buyer_vat_valid=False. Cela permet à compute_vat d'appliquer la TVA
+            # au départ (Origin VAT) plutôt que l'OSS (Destination VAT).
+            # Pour les ventes domestiques, le comportement reste identique.
             effective = _dc_replace(sale, buyer_vat_valid=False,
                                     product_category=product_category, asin=product_asin)
-            if sale.stock_country != sale.buyer_country:
-                vies_summary.vies_affected_sale_ids.add(id(effective))
-        else:
-            chosen_type = BuyerType.B2C if on_invalid == "reclassify" else BuyerType.B2B
-            if on_invalid == "reclassify":
-                vies_summary.reclassifications.append(ViesReclassification(
-                    sale_id=sale.sale_id, buyer_vat_number=sale.buyer_vat_number,
-                    buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
-                    vat_avoided=Decimal("0.00"), reason="Numéro invalide ou introuvable",
-                    display_id=getattr(sale, "display_id", ""),
-                ))
-            effective = _dc_replace(sale, buyer_type=chosen_type, buyer_vat_valid=False,
-                                    product_category=product_category, asin=product_asin)
+
             if sale.stock_country != sale.buyer_country:
                 vies_summary.vies_affected_sale_ids.add(id(effective))
 
