@@ -251,6 +251,11 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_provider = st.query_params.get("sb_provider")
     _sb_nonce = st.query_params.get("sb_nonce")
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
+        # Le nonce a été consommé (ou va l'être) : on retire le cache session
+        # pour ce provider, qu'on ait réussi ou non — un nouvel essai devra
+        # repartir sur un nonce/verifier neuf.
+        st.session_state.pop(f"_sb_pkce_{_sb_provider}", None)
+
         # 🔧 DEBUG TEMPORAIRE
         with st.expander("🔧 Debug OAuth (temporaire)", expanded=True):
             st.write("query_params complets:", dict(st.query_params))
@@ -327,6 +332,15 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # `redirect_to` — plus fiable qu'un cookie posé depuis l'iframe du
         # composant extra_streamlit_components, qui ne survivait pas de
         # façon fiable à la redirection externe.
+        #
+        # ⚠️ Streamlit ré-exécute tout le script à chaque interaction (frappe
+        # dans les champs mot de passe ci-dessus, etc.). Générer un nonce/
+        # verifier NEUF à chaque rerun (comme avant) créait une ligne DB à
+        # chaque fois et pouvait laisser le lien affiché dans le navigateur
+        # pointer vers un nonce déjà remplacé par un plus récent au moment du
+        # clic. On met donc en cache le couple (nonce, verifier) en
+        # session_state — une seule écriture DB par provider tant que le
+        # login n'a pas abouti.
         st.caption(_("oauth_divider_label"))
         _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
         for _col, _provider, _label_key in (
@@ -337,11 +351,18 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         ):
             with _col:
                 try:
-                    _nonce = secrets.token_urlsafe(24)
-                    _verifier = tva_sb_auth.new_code_verifier()
-                    tva_auth.save_pkce_verifier(_nonce, _provider, _verifier)
+                    _cache_key = f"_sb_pkce_{_provider}"
+                    _cached = st.session_state.get(_cache_key)
+                    if _cached:
+                        _nonce, _verifier = _cached
+                    else:
+                        _nonce = secrets.token_urlsafe(24)
+                        _verifier = tva_sb_auth.new_code_verifier()
+                        tva_auth.save_pkce_verifier(_nonce, _provider, _verifier)
+                        st.session_state[_cache_key] = (_nonce, _verifier)
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}&sb_nonce={_nonce}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
+                    st.caption(f"🔧 nonce: {_nonce[:12]}… ({'cache' if _cached else 'neuf'})")
                     st.link_button(_(_label_key), _oauth_url, use_container_width=True)
                 except Exception:
                     st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", use_container_width=True, disabled=True)
