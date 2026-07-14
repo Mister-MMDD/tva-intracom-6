@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cas pratiques TVA – Amazon & Marketplaces</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<nav class="menu">
+    <a href="index.html">Accueil</a>
+    <a href="documentation.html">Documentation</a>
+    <a href="cas-pratiques.html">Cas pratiques</a>
+    <a href="tarifs.html">Tarifs</a>
+    <a href="securite.html">Sécurité</a>
+    <a href="glossaire.html">Glossaire</a>
+    <a href="faq.html">FAQ</a>
+    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="interface.html">Interface moteur</a>
+    <a href="tutoriels.html">Simulateur & Tutoriels</a>
+    <div class="search-container">
+        <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+    </div>
+</nav>
+
+<header>
+    <h1>Cas pratiques TVA intracommunautaire</h1>
+    <p>Exemples concrets basés sur les scénarios modélisés par le moteur.</p>
+</header>
+
+<div class="card">
+    <h2>DOMESTIC – Vente locale</h2>
+    <p><strong>Situation :</strong> stock et acheteur dans le même pays UE.</p>
+    <p><strong>Règle :</strong> TVA locale, canal CA3 ou immatriculation locale.</p>
+    <p><strong>Traitement moteur :</strong> classification DOMESTIC, ventilation par taux, intégration dans CA3 ou rapport local.</p>
+</div>
+
+<div class="card">
+    <h2>OSS_B2C – Vente B2C transfrontalière</h2>
+    <p><strong>Situation :</strong> stock UE, acheteur dans un autre pays UE, B2C.</p>
+    <p><strong>Règle :</strong> TVA du pays de destination, déclaration via OSS.</p>
+    <p><strong>Traitement moteur :</strong> agrégation OSS par pays, génération XML OSS officiel + Excel/CSV URSSAF.</p>
+</div>
+
+<div class="card">
+    <h2>B2B_REVERSE_CHARGE – Autoliquidation</h2>
+    <p><strong>Situation :</strong> B2B intra-UE avec numéro TVA VIES valide.</p>
+    <p><strong>Règle :</strong> exonération côté vendeur, autoliquidation chez l’acheteur.</p>
+    <p><strong>Traitement moteur :</strong> classification B2B_REVERSE_CHARGE, note fiscale avec références légales, contrôle VIES.</p>
+</div>
+
+<div class="card">
+    <h2>DEEMED_SUPPLIER – TVA collectée par Amazon</h2>
+    <p><strong>Situation :</strong> vendeur hors UE ou import ≤ 150 € B2C.</p>
+    <p><strong>Règle :</strong> Amazon est réputé collecteur, vente exonérée pour le vendeur.</p>
+    <p><strong>Traitement moteur :</strong> séparation “Vous / Amazon / Douane” dans les visualisations, exclusion des montants collectés par Amazon des déclarations du vendeur.</p>
+</div>
+
+<div class="card">
+    <h2>IMPORT_STANDARD & IOSS_DIRECT</h2>
+    <p><strong>Situation :</strong> import > 150 € (douane) ou ≤ 150 € avec IOSS.</p>
+    <p><strong>Règle :</strong> TVA d’importation (douane) ou TVA collectée via IOSS.</p>
+    <p><strong>Traitement moteur :</strong> classification IMPORT_STANDARD ou IOSS_DIRECT, ventilation par canal (douane, IOSS), intégration dans les rapports.</p>
+</div>
+
+<footer>
+    <p>© 2026 – Moteur TVA Intracommunautaire — Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+</footer>
+
+</body>
+</html>

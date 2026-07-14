@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation technique – Moteur TVA Intracommunautaire</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+</head>
+
+<body>
+
+<nav class="menu">
+    <a href="index.html">Accueil</a>
+    <a href="documentation.html">Documentation</a>
+    <a href="cas-pratiques.html">Cas pratiques</a>
+    <a href="tarifs.html">Tarifs</a>
+    <a href="securite.html">Sécurité</a>
+    <a href="glossaire.html">Glossaire</a>
+    <a href="faq.html">FAQ</a>
+    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="interface.html">Interface moteur</a>
+    <a href="tutoriels.html">Simulateur & Tutoriels</a>
+    <div class="search-container">
+        <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+    </div>
+</nav>
+
+<header>
+    <h1>Documentation technique</h1>
+    <p>Architecture du moteur fiscal, des parsers Amazon et de l’interface Streamlit.</p>
+</header>
+
+<div class="container">
+
+    <div class="card" style="background: #fdf2f2; border: 1px solid #fecaca; margin-bottom: 30px;">
+        <h2 style="color: #991b1b;">Checklist de Conformité</h2>
+        <ul style="list-style-type: '✅ ';">
+            <li>Vérifier la validité des numéros TVA B2B via l'onglet <strong>VIES</strong>.</li>
+            <li>S'assurer que le <strong>Pays de Siège</strong> est correctement configuré.</li>
+            <li>Vérifier les alertes de <strong>Stock FBA</strong> pour les immatriculations locales.</li>
+            <li>Réconcilier le <strong>CA HT Net</strong> avec votre comptabilité via l'export FEC.</li>
+            <li>Télécharger et conserver le <strong>Rapport Principal Excel</strong> pour chaque période.</li>
+        </ul>
+    </div>
+
+    <section class="overview">
+        <div class="grid-cards">
+            <div class="card">
+                <h2>Sources de données & API</h2>
+                <ul>
+                    <li><strong>VIES (EU)</strong> : Validation des numéros de TVA en temps réel.</li>
+                    <li><strong>BCE (SDW)</strong> : Récupération quotidienne des taux de change officiels.</li>
+                    <li><strong>DGFIP / Schémas XSD</strong> : Validation des fichiers XML OSS.</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h2>Cœur du Moteur (`tva_intracom/`)</h2>
+                <ul style="font-size: 0.9rem;">
+                    <li><strong>engine.py</strong> : Moteur de classification fiscale.</li>
+                    <li><strong>vies_engine.py</strong> : Validation VIES avec cache PostgreSQL.</li>
+                    <li><strong>ecb_rates.py</strong> : Gestionnaire de devises BCE.</li>
+                    <li><strong>oss_xml.py</strong> : Générateur XML OSS conforme 2021/965.</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION README INTÉGRÉE -->
+    <section class="readme-integration" style="margin-top: 40px;">
+        <div class="card interactive" data-open="false">
+            <h2>📄 Spécifications Techniques Complètes (README)</h2>
+            <p>Accédez à la documentation brute du projet, incluant la structure des fichiers et les scénarios détaillés.</p>
+
+            <div class="details" style="background: white; border: 1px solid var(--border-color);">
+
+                <h3>Arborescence du dépôt</h3>
+                <pre style="background: #f1f5f9; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; line-height: 1.2;">
+tva-intracom/
+├── .devcontainer/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                    Pipeline CI (pytest sur push/PR)
+├── tests/
+├── tva_intracom/
+│   │
+│   ├── i18n/
+│   │   ├── __init__.py
+│   │   ├── de.toml                   texte pour l'allemand
+│   │   ├── en.toml                   texte pour l'anglais
+│   │   ├── es.toml                   texte pour l'espagnol
+│   │   ├── fr.toml                   texte pour le français
+│   │   ├── i18n.py                   choix de la langue
+│   │   ├── it.toml                   texte pour l'italien
+│   │   ├── pl.toml                   texte pour le polonais
+│   │   ├── pt.toml                   texte pour le portugais
+│   ├── parsers/
+│   │   ├── amazon/                   Sous-package d'import Amazon (formats 1-5)
+│   │   │   ├── __init__.py
+│   │   │   ├── aggregate.py          Pré-agrégation multi-juridictions format V5
+│   │   │   ├── classify.py           Classification acheteur (B2B/B2C), conversion devise
+│   │   │   ├── constants.py          Constantes, SALE_TYPES, REFUND_TYPES, EU_VAT_PREFIXES
+│   │   │   ├── detect.py             Détection format (1–5) et séparateur CSV
+│   │   │   ├── loader.py             Point d'entrée : load_amazon_report()
+│   │   │   └── parsers.py            Parsers par format (Format1–5Parser)
+│   │   ├── __init__.py
+│   ├── __init__.py
+│   ├── amazon_adapter.py             Passerelle de compatibilité entre les anciens modèles de données et le nouveau package.
+│   ├── amazon_spapi.py               Intégration Amazon Selling Partner API (SP-API) — OAuth 2.0 & Reports.
+│   ├── auth.py                       Authentification magic link + jeton de session
+│   │                                 (Postgres/Supabase), envoi d'e-mail via l'API Resend.
+│   │                                 Gère le chiffrement Fernet des PII (Amazon DPP).
+│   ├── billing.py                    Facturation Stripe (PAYG + Pro + Cabinet, Customer
+│   │                                 Portal, quotas SIREN, grille tarifaire, webhooks,
+│   │                                 quotas d'export en base Postgres/Supabase).
+│   │                                 Gère aussi le rattachement anti-abus Compte Amazon <-> SIREN.
+│   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
+│   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
+│   ├── local_vat_report.py           Équivalent générique du CA3 pour tout pays UE hors France
+│   │                                 (canal LOCAL_REGISTRATION/FR_DOMESTIC) : rapport HTML harmonisé
+│   │                                 visuellement au CA3 mais PAS un fac-similé du formulaire officiel
+│   ├── fec_export.py                 Export comptable FEC (art. A47 A-1 LPF) : journal des ventes
+│   │                                 agrégé par période/régime/pays/taux, plan comptable générique
+│   │                                 paramétrable (ACCOUNTS), écritures équilibrées débit/crédit
+│   ├── cli.py
+│   ├── config.py                     Utilitaire de gestion des secrets (variables d'environnement, Streamlit secrets).
+│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
+│   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
+│   ├── excel_report.py               Export Excel multi-onglets
+│   ├── historical_rates_widget.py    Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués
+│   ├── models.py                     Dataclasses : Sale, VatResult, Scenario, BuyerType…
+│   ├── oss_export.py                 Agrégation OSS partagée, exports Excel + CSV URSSAF
+│   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
+│   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
+│   ├── report.py                     ReportSummary, build_report, render_report
+│   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
+│   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
+│   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
+│   │   ├── __init__.py
+│   │   ├── theme.py                  Configuration de page + CSS de marque (apply_theme())
+│   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
+│   │   │                             _gated_preview_table, _fec_period_end_date…)
+│   │   ├── auth_flow.py              Authentification complète : magic link, cookie de session,
+│   │   │                             callback OAuth Amazon SP-API, écran de connexion/déconnexion
+│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, catalogue produits,
+│   │   │                             abonnements & forfaits Stripe)
+│   │   ├── billing_gate.py           Détection de période, gating crédit PAYG/abonnement/quota
+│   │   │                             SIREN/conformité TVA-IOSS, téléchargements gatés
+│   │   └── tabs/                     Un module par onglet de l'app, tous consommant un TabContext
+│   │       ├── __init__.py
+│   │       ├── context.py            TabContext — état partagé construit une fois avant les onglets
+│   │       ├── declarations.py       Onglet "💶 Déclarations"
+│   │       ├── detail_ventes.py      Onglet "📋 Détail ventes"
+│   │       ├── vies_ui.py            Onglet "🛡️ VIES"
+│   │       ├── audit.py              Onglet "🔬 Audit Amazon"
+│   │       ├── telechargements.py    Onglet "📥 Téléchargements"
+│   │       └── visualisations.py     Onglet "📊 Visualisations"
+│
+├── vercel_webhook/
+│   └── api/
+│       ├── requirements.txt          Dépendances de la fonction serverless (stripe, psycopg2-binary)
+│       └── stripe_webhook.py         Endpoint webhook Stripe, déployé sur Vercel — charge
+│                                     tva_intracom/billing.py par chemin de fichier (monorepo)
+├── .gitignore
+├── app.py                            Interface Streamlit — orchestrateur (auth, upload, calcul,
+│                                     construction du contexte, appel des modules tva_intracom/ui/)
+├── conftest.py
+├── pyproject.toml
+├── README.md
+├── requirements.txt
+└── vercel.json                       Config Vercel (includeFiles vers tva_intracom/billing.py)
+                </pre>
+
+                <h3>Scénarios modélisés</h3>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 15px;">
+                        <tr style="background: #f8fafc;">
+                            <th style="padding: 8px; border: 1px solid #ddd;">Scénario</th>
+                            <th style="padding: 8px; border: 1px solid #ddd;">Règle appliquée</th>
+                            <th style="padding: 8px; border: 1px solid #ddd;">Canal</th>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">DOMESTIC</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">TVA locale pays</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">CA3 / Local</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">OSS_B2C</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">TVA pays destination</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Guichet OSS</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">B2B_REVERSE</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Autoliquidation</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Exonéré</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">DEEMED_SUPPLIER</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Collecté par Amazon</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Exonéré (Tiers)</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 20px;">Formats Amazon supportés</h3>
+                <ul style="font-size: 0.9rem;">
+                    <li><strong>Format 1-2</strong> : Anciens formats TSV/Activity Period.</li>
+                    <li><strong>Format 3-4</strong> : Formats 2024-2025 (Tax Collection Responsibility).</li>
+                    <li><strong>Format 5</strong> : Rapport fiscal détaillé V5 (Multi-juridictions).</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">Roadmap & Évolutions</h3>
+                <ul style="font-size: 0.9rem;">
+                    <li>✅ Gestion multi-pays d'origine (Home Country).</li>
+                    <li>✅ Correction automatique des soldes OSS négatifs.</li>
+                    <li>✅ Export comptable FEC.</li>
+                    <li>⏳ Intégration directe EDI-TVA (Dépôt automatique).</li>
+                    <li>⏳ Support des régimes spécifiques hors UE (UK/Suisse).</li>
+                </ul>
+            </div>
+            <button class="toggle-button">Afficher les spécifications complètes</button>
+        </div>
+    </section>
+
+</div>
+
+<footer>
+    <p>© 2026 – Moteur TVA Intracommunautaire — Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+</footer>
+
+</body>
+</html>

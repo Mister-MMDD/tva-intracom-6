@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FAQ – Moteur TVA Intracommunautaire</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<nav class="menu">
+    <a href="index.html">Accueil</a>
+    <a href="documentation.html">Documentation</a>
+    <a href="cas-pratiques.html">Cas pratiques</a>
+    <a href="tarifs.html">Tarifs</a>
+    <a href="securite.html">Sécurité</a>
+    <a href="glossaire.html">Glossaire</a>
+    <a href="faq.html">FAQ</a>
+    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="interface.html">Interface moteur</a>
+    <a href="tutoriels.html">Simulateur & Tutoriels</a>
+    <div class="search-container">
+        <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+    </div>
+</nav>
+
+<header>
+    <h1>FAQ – TVA & moteur intracommunautaire</h1>
+    <p>Questions fréquentes sur l’usage du moteur avec Amazon et les marketplaces.</p>
+</header>
+
+<div class="card">
+    <h2>Quels formats Amazon sont supportés ?</h2>
+    <p>Les formats 1 à 5, détectés automatiquement à partir du header, avec pré‑agrégation pour le format V5.</p>
+</div>
+
+<div class="card">
+    <h2>Le moteur gère‑t‑il les ventes où Amazon collecte la TVA ?</h2>
+    <p>Oui, les scénarios “deemed supplier” sont identifiés et exclus des déclarations du vendeur.</p>
+</div>
+
+<div class="card">
+    <h2>Comment sont gérés les numéros de TVA acheteurs ?</h2>
+    <p>Via l'API <strong>VIES</strong> officielle, avec cache PostgreSQL, historique d’audit (piste d'audit horodatée) et reclassification B2B/B2C si nécessaire.</p>
+</div>
+
+<div class="card">
+    <h2>Pourquoi la piste d'audit est-elle cruciale ?</h2>
+    <p>En cas de contrôle fiscal sur une vente B2B exonérée, vous devez prouver que le numéro de TVA du client était valide <strong>au moment de la vente</strong>. Notre moteur archive systématiquement cette preuve pour vous.</p>
+</div>
+
+<div class="card">
+    <h2>Le moteur gère-t-il les changements de taux de TVA ?</h2>
+    <p>Oui, le système intègre l'historique des taux (ex: passage de l'Estonie à 24% ou de la Slovaquie à 23%) et applique le bon taux selon la date de la transaction.</p>
+</div>
+
+<div class="card">
+    <h2>Le moteur produit‑il des fichiers prêts pour la déclaration ?</h2>
+    <p>Oui : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi‑onglets, FEC comptable.</p>
+</div>
+
+<div class="card">
+    <h2>Comment fonctionne la facturation ?</h2>
+    <p>Stripe Checkout (PAYG, Pro, Cabinet), avec quotas par période et par SIREN, gérés dans Supabase.</p>
+</div>
+
+<footer>
+    <p>© 2026 – Moteur TVA Intracommunautaire — Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+</footer>
+
+</body>
+</html>

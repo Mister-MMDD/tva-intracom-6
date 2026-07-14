@@ -51,9 +51,14 @@ tva-intracom/
 │   ├── data/
 │   ├── i18n/
 │   │   ├── __init__.py
+│   │   ├── de.toml                   texte pour l'allemand                    
 │   │   ├── en.toml                   texte pour l'anglais
+│   │   ├── es.toml                   texte pour l'espagnol                    
 │   │   ├── fr.toml                   texte pour le français
 │   │   ├── i18n.py                   choix de la langue
+│   │   ├── it.toml                   texte pour l'italien
+│   │   ├── pl.toml                   texte pour le polonais
+│   │   ├── pt.toml                   texte pour le portugais                    
 │   ├── parsers/
 │   │   ├── amazon/                   Sous-package d'import Amazon (formats 1-5)
 │   │   │   ├── __init__.py

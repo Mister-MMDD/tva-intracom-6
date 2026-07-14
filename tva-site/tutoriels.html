@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tutoriels & Simulateur – Moteur TVA Intracommunautaire</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+</head>
+
+<body>
+
+<nav class="menu">
+    <a href="index.html">Accueil</a>
+    <a href="documentation.html">Documentation</a>
+    <a href="cas-pratiques.html">Cas pratiques</a>
+    <a href="tarifs.html">Tarifs</a>
+    <a href="securite.html">Sécurité</a>
+    <a href="glossaire.html">Glossaire</a>
+    <a href="faq.html">FAQ</a>
+    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="interface.html">Interface moteur</a>
+    <a href="tutoriels.html" class="active">Simulateur & Tutoriels</a>
+    <div class="search-container">
+        <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+    </div>
+</nav>
+
+<header>
+    <h1>Tutoriels & Simulateur Fiscal</h1>
+    <p>Validation réglementaire temps réel basée rigoureusement sur le moteur fiscal (engine.py).</p>
+</header>
+
+<div class="container">
+    <section class="simulator-section card">
+        <h2>Simulateur Dynamique de Flux</h2>
+        <p class="section-subtitle">Testez vos scénarios de vente pour déterminer le traitement TVA applicable.</p>
+
+        <div class="grid-cards" style="grid-template-columns: 1fr 1fr;">
+            <div class="sim-form">
+                <div class="form-group">
+                    <label for="seller_country">Pays d'origine (Établissement du Vendeur)</label>
+                    <select id="seller_country" onchange="runSimulation()">
+                        <option value="DE">Allemagne (DE)</option>
+                        <option value="AT">Autriche (AT)</option>
+                        <option value="BE">Belgique (BE)</option>
+                        <option value="BG">Bulgarie (BG)</option>
+                        <option value="CY">Chypre (CY)</option>
+                        <option value="HR">Croatie (HR)</option>
+                        <option value="DK">Danemark (DK)</option>
+                        <option value="EE">Estonie (EE)</option>
+                        <option value="ES">Espagne (ES)</option>
+                        <option value="FI">Finlande (FI)</option>
+                        <option value="FR" selected>France (Hors DOM-TOM) (FR)</option>
+                        <option value="GR">Grèce (GR)</option>
+                        <option value="HU">Hongrie (HU)</option>
+                        <option value="IE">Irlande (IE)</option>
+                        <option value="XI">Irlande du Nord (XI)</option>
+                        <option value="IT">Italie (IT)</option>
+                        <option value="LV">Lettonie (LV)</option>
+                        <option value="LT">Lituannie (LT)</option>
+                        <option value="LU">Luxembourg (LU)</option>
+                        <option value="MT">Malte (MT)</option>
+                        <option value="MC">Monaco (MC)</option>
+                        <option value="NL">Pays-Bas (NL)</option>
+                        <option value="PL">Pologne (PL)</option>
+                        <option value="PT">Portugal (PT)</option>
+                        <option value="RO">Roumanie (RO)</option>
+                        <option value="SK">Slovaquie (SK)</option>
+                        <option value="SI">Slovénie (SI)</option>
+                        <option value="SE">Suède (SE)</option>
+                        <option value="CZ">Tchéquie (CZ)</option>
+                    </select>
+                    <div id="hint_seller_country" class="selection-hint"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="stock_country">Provenance physique (Lieu de stockage)</label>
+                    <select id="stock_country" onchange="runSimulation()">
+                        <option value="HORS_UE">Autre pays tiers (Chine, USA...)</option>
+                        <option value="DE">Allemagne (DE)</option>
+                        <option value="AT">Autriche (AT)</option>
+                        <option value="BE">Belgique (BE)</option>
+                        <option value="BG">Bulgarie (BG)</option>
+                        <option value="CY">Chypre (CY)</option>
+                        <option value="HR">Croatie (HR)</option>
+                        <option value="DK">Danemark (DK)</option>
+                        <option value="EE">Estonie (EE)</option>
+                        <option value="ES">Espagne (ES)</option>
+                        <option value="FI">Finlande (FI)</option>
+                        <option value="FR" selected>France (Hors DOM-TOM) (FR)</option>
+                        <option value="GR">Grèce (GR)</option>
+                        <option value="HU">Hongrie (HU)</option>
+                        <option value="IE">Irlande (IE)</option>
+                        <option value="XI">Irlande du Nord (XI)</option>
+                        <option value="IT">Italie (IT)</option>
+                        <option value="LV">Lettonie (LV)</option>
+                        <option value="LT">Lituannie (LT)</option>
+                        <option value="LU">Luxembourg (LU)</option>
+                        <option value="MT">Malte (MT)</option>
+                        <option value="MC">Monaco (MC)</option>
+                        <option value="NL">Pays-Bas (NL)</option>
+                        <option value="PL">Pologne (PL)</option>
+                        <option value="PT">Portugal (PT)</option>
+                        <option value="RO">Roumanie (RO)</option>
+                        <option value="GB">Royaume-Uni (Hors UE) (GB)</option>
+                        <option value="SK">Slovaquie (SK)</option>
+                        <option value="SI">Slovénie (SI)</option>
+                        <option value="SE">Suède (SE)</option>
+                        <option value="CZ">Tchéquie (CZ)</option>
+                    </select>
+                    <div id="hint_stock_country" class="selection-hint"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>Type d'acheteur</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="buyer_type" value="B2C" checked onchange="toggleB2BFields(); runSimulation();"> Particulier (B2C)</label>
+                        <label><input type="radio" name="buyer_type" value="B2B" onchange="toggleB2BFields(); runSimulation();"> Professionnel (B2B)</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="buyer_country">Destination (Acheteur)</label>
+                    <select id="buyer_country" onchange="runSimulation()">
+                        <option value="HORS_UE">Autre pays tiers (Chine, USA...)</option>
+                        <option value="DE">Allemagne (DE)</option>
+                        <option value="AT">Autriche (AT)</option>
+                        <option value="BE">Belgique (BE)</option>
+                        <option value="BG">Bulgarie (BG)</option>
+                        <option value="CY">Chypre (CY)</option>
+                        <option value="HR">Croatie (HR)</option>
+                        <option value="DK">Danemark (DK)</option>
+                        <option value="EE">Estonie (EE)</option>
+                        <option value="ES">Espagne (ES)</option>
+                        <option value="FI">Finlande (FI)</option>
+                        <option value="FR" selected>France (Hors DOM-TOM) (FR)</option>
+                        <option value="GR">Grèce (GR)</option>
+                        <option value="HU">Hongrie (HU)</option>
+                        <option value="IE">Irlande (IE)</option>
+                        <option value="XI">Irlande du Nord (XI)</option>
+                        <option value="IT">Italie (IT)</option>
+                        <option value="LV">Lettonie (LV)</option>
+                        <option value="LT">Lituannie (LT)</option>
+                        <option value="LU">Luxembourg (LU)</option>
+                        <option value="MT">Malte (MT)</option>
+                        <option value="MC">Monaco (MC)</option>
+                        <option value="NL">Pays-Bas (NL)</option>
+                        <option value="PL">Pologne (PL)</option>
+                        <option value="PT">Portugal (PT)</option>
+                        <option value="RO">Roumanie (RO)</option>
+                        <option value="GB">Royaume-Uni (Hors UE) (GB)</option>
+                        <option value="SK">Slovaquie (SK)</option>
+                        <option value="SI">Slovénie (SI)</option>
+                        <option value="SE">Suède (SE)</option>
+                        <option value="CZ">Tchéquie (CZ)</option>
+                    </select>
+                    <div id="hint_buyer_country" class="selection-hint"></div>
+                </div>
+
+                <div class="form-group" id="exclusion_zone_group">
+                    <label><input type="checkbox" id="is_exclusion_zone" onchange="runSimulation()"> L'adresse se situe dans un territoire exclu (ex: Canaries, DOM-TOM, Åland)</label>
+                </div>
+
+                <div id="b2b_fields" style="display: none; border-left: 3px solid var(--primary); padding-left: 15px; margin-bottom: 15px;">
+                    <div class="form-group">
+                        <label>Le numéro de TVA du client est-il valide sur VIES ?</label>
+                        <div class="radio-group">
+                            <label><input type="radio" name="buyer_vat_valid" value="true" checked onchange="runSimulation()"> Oui (VIES OK)</label>
+                            <label><input type="radio" name="buyer_vat_valid" value="false" onchange="runSimulation()"> Non (Invalide)</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="amount_ht">Montant de la transaction HT (€)</label>
+                    <input type="number" id="amount_ht" value="45.00" step="0.01" oninput="runSimulation()">
+                </div>
+
+                <div class="form-group" id="ioss_group" style="display: none;">
+                    <label><input type="checkbox" id="has_ioss" onchange="runSimulation()"> Le vendeur possède son propre n° IOSS</label>
+                </div>
+
+                <div class="form-group" id="ddp_group" style="display: none;">
+                    <label>Incoterm (Ventes Import > 150€)</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="ddp_incoterm" value="DDU" checked onchange="runSimulation()"> DDU (Client paye la douane)</label>
+                        <label><input type="radio" name="ddp_incoterm" value="DDP" onchange="runSimulation()"> DDP (Vendeur est importateur)</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sim-result" style="background: var(--bg-primary); padding: 20px; border-radius: 12px; border: 1px solid var(--border-color);">
+                <div id="badge_container"></div>
+                <p><strong>Scénario Fiscal :</strong> <span id="res_scenario" class="badge-code">-</span></p>
+                <p><strong>Reporting Canal :</strong> <span id="res_channel" style="color: var(--primary); font-weight: 600;">-</span></p>
+                <p><strong>Entité Collectrice :</strong> <span id="res_collector" style="color: var(--primary); font-weight: 600;">-</span></p>
+                <p><strong>Taux de TVA :</strong> <span id="res_rate">-</span>%</p>
+                <p><strong>Montant TVA :</strong> <span id="res_vat_amount">-</span> €</p>
+
+                <div class="note-juridique" style="background: white; border: 1px dashed var(--primary); padding: 12px; margin-top: 15px; font-size: 0.85rem; border-radius: 8px;">
+                    <strong>Justification & Base Légale :</strong>
+                    <div id="res_note" style="margin-top: 5px; color: var(--text-muted);">-</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="tutoriels">
+        <h2>Guides Thématiques</h2>
+        <div class="grid-cards">
+            <div class="card interactive" data-open="false">
+                <h3>Tutoriel 1 – Livraison B2B</h3>
+                <p>Comprendre quand une livraison est exonérée de TVA.</p>
+                <div class="details">
+                    <ol>
+                        <li>Identifier fournisseur et client (États membres différents).</li>
+                        <li>Vérifier le numéro de TVA du client (VIES).</li>
+                        <li>Confirmer le transport vers l’autre État membre.</li>
+                        <li>Conserver les preuves de sortie.</li>
+                    </ol>
+                </div>
+                <button class="toggle-button">Afficher le tutoriel</button>
+            </div>
+
+            <div class="card interactive" data-open="false">
+                <h3>Tutoriel 2 – Acquisition B2B</h3>
+                <p>Appliquer l’autoliquidation correctement.</p>
+                <div class="details">
+                    <ol>
+                        <li>Identifier une acquisition de biens entre deux États membres.</li>
+                        <li>Déterminer le pays du client (lieu d’imposition).</li>
+                        <li>Calculer la TVA due et déductible.</li>
+                        <li>Reporter les montants dans la déclaration.</li>
+                    </ol>
+                </div>
+                <button class="toggle-button">Afficher le tutoriel</button>
+            </div>
+
+            <div class="card interactive" data-open="false">
+                <h3>Tutoriel 3 – Ventes B2C et OSS</h3>
+                <p>Gérer les ventes à des consommateurs dans plusieurs pays.</p>
+                <div class="details">
+                    <ol>
+                        <li>Suivre le chiffre d’affaires B2C par pays.</li>
+                        <li>Vérifier le seuil de 10 000 €.</li>
+                        <li>Identifier le pays du consommateur.</li>
+                        <li>Déclarer via OSS si applicable.</li>
+                    </ol>
+                </div>
+                <button class="toggle-button">Afficher le tutoriel</button>
+            </div>
+        </div>
+    </section>
+</div>
+
+<footer>
+    <p>© 2026 – Moteur TVA Intracommunautaire — Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+</footer>
+
+<script>
+    // Configuration Pays UE (fiscale)
+    const EU_COUNTRIES = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "MC", "XI"];
+    const DOMESTIC_REVERSE_CHARGE_COUNTRIES = ["ES", "IT", "PL", "CZ", "SK", "HU", "RO", "BG", "HR", "LT", "LV"];
+
+    const COUNTRY_HINTS = {
+        "ES": "Attention: Les îles Canaries, Ceuta et Melilla sont exclus du territoire fiscal UE.",
+        "FR": "Attention: Les DOM-TOM et collectivités d'outre-mer sont exclus du territoire fiscal UE.",
+        "FI": "Attention: Les îles Åland sont exclues du territoire fiscal UE.",
+        "DE": "Attention: Heligoland et Büsingen sont exclus du territoire fiscal UE.",
+        "IT": "Attention: Livigno, Campione d’Italia et le lac de Lugano sont exclus du territoire fiscal UE.",
+        "GR": "Attention: Le Mont Athos est exclu du territoire fiscal UE.",
+        "DK": "Attention: Le Groenland et les îles Féroé sont exclus du territoire fiscal UE.",
+        "NL": "Attention: Les territoires d'outre-mer (Aruba, Curaçao...) sont exclus du territoire fiscal UE."
+    };
+
+    function toggleB2BFields() {
+        const buyerTypeElement = document.querySelector('input[name="buyer_type"]:checked');
+        if (!buyerTypeElement) return;
+        const buyerType = buyerTypeElement.value;
+        document.getElementById('b2b_fields').style.display = (buyerType === 'B2B') ? 'block' : 'none';
+    }
+
+    function updateHints() {
+        ["seller_country", "stock_country", "buyer_country"].forEach(id => {
+            const val = document.getElementById(id).value;
+            const hintDiv = document.getElementById("hint_" + id);
+            hintDiv.innerText = COUNTRY_HINTS[val] || "";
+        });
+    }
+
+    function runSimulation() {
+        updateHints();
+
+        // Récupération des données du formulaire
+        const seller_country = document.getElementById('seller_country').value;
+        const stock_country = document.getElementById('stock_country').value;
+        const buyer_country = document.getElementById('buyer_country').value;
+        const buyerTypeElement = document.querySelector('input[name="buyer_type"]:checked');
+        if (!buyerTypeElement) return;
+        const buyer_type = buyerTypeElement.value;
+        const amount_ht = parseFloat(document.getElementById('amount_ht').value) || 0;
+        const is_exclusion_zone = document.getElementById('is_exclusion_zone').checked;
+        const has_ioss = document.getElementById('has_ioss').checked;
+
+        const buyerVatValidElement = document.querySelector('input[name="buyer_vat_valid"]:checked');
+        const buyer_vat_valid = buyerVatValidElement ? buyerVatValidElement.value === 'true' : false;
+
+        const ddpIncotermElement = document.querySelector('input[name="ddp_incoterm"]:checked');
+        const is_ddp = ddpIncotermElement ? ddpIncotermElement.value === 'DDP' : false;
+
+        // Détermination des variables booléennes du moteur fiscal
+        const seller_eu = EU_COUNTRIES.includes(seller_country);
+        const stock_eu = EU_COUNTRIES.includes(stock_country);
+        const buyer_eu = EU_COUNTRIES.includes(buyer_country) && !is_exclusion_zone;
+        const cross_border = stock_country !== buyer_country;
+
+        // Affichage conditionnel des champs annexes
+        document.getElementById('ioss_group').style.display = (buyer_eu && !stock_eu && amount_ht <= 150 && buyer_type === 'B2C') ? 'block' : 'none';
+        document.getElementById('ddp_group').style.display = (!stock_eu && amount_ht > 150) ? 'block' : 'none';
+        document.getElementById('exclusion_zone_group').style.display = (EU_COUNTRIES.includes(buyer_country)) ? 'block' : 'none';
+
+        let default_rates = {
+            "AT": 20, "BE": 21, "BG": 20, "HR": 25, "CY": 19, "CZ": 21, "DK": 25, "EE": 24, "FI": 25.5,
+            "FR": 20, "DE": 19, "GR": 24, "HU": 27, "IE": 23, "IT": 22, "LV": 21, "LT": 21, "LU": 17,
+            "MT": 18, "NL": 21, "PL": 23, "PT": 23, "RO": 21, "SK": 23, "SI": 22, "ES": 21, "SE": 25, "MC": 20, "XI": 20
+        };
+        let tax_rate = default_rates[buyer_country] || 20;
+
+        let result = {
+            scenario: "", channel: "", collector: "", rate: 0, amount: "0.00", note: "", badgeClass: ""
+        };
+
+        // RÈGLES MOTEUR FISCAL
+        if (buyer_country === "MC") {
+            result.rate = 20;
+            result.amount = (amount_ht * (result.rate / 100)).toFixed(2);
+            result.collector = "SELLER";
+            if (stock_country === "FR") {
+                result.scenario = "DOMESTIC";
+                result.channel = (seller_country === "FR") ? "FR_DOMESTIC" : "LOCAL_REGISTRATION";
+                result.note = "Vente vers Monaco depuis un stock français : assimilée à une vente domestique française (Convention 1963).";
+                result.badgeClass = "exoneration";
+            } else {
+                result.scenario = "OSS_B2C";
+                result.channel = "OSS";
+                result.note = "Vente vers Monaco depuis un stock européen transfrontalier : assimilée à une vente OSS vers la France.";
+                result.badgeClass = "oss";
+            }
+        } else if (!buyer_eu) {
+            result.scenario = "EXPORT";
+            result.channel = "EXONERATION";
+            result.collector = "SELLER";
+            result.rate = 0;
+            result.amount = "0.00";
+            result.note = "Exportation hors UE : exonération de TVA (Art. 262 CGI). Justificatif de sortie requis.";
+            result.badgeClass = "export";
+        } else if (buyer_type === "B2C" && buyer_eu && !stock_eu && amount_ht <= 150 && has_ioss) {
+            result.scenario = "IOSS_DIRECT";
+            result.channel = "IOSS";
+            result.collector = "SELLER";
+            result.rate = tax_rate;
+            result.amount = (amount_ht * (tax_rate / 100)).toFixed(2);
+            result.note = `Importation ≤ 150€ : TVA de ${tax_rate}% collectée via votre guichet IOSS.`;
+            result.badgeClass = "ioss";
+        } else if (buyer_type === "B2C" && buyer_eu && (!seller_eu || (!stock_eu && amount_ht <= 150))) {
+            result.scenario = "DEEMED_SUPPLIER";
+            result.channel = "EXONERATION";
+            result.collector = "MARKETPLACE";
+            result.rate = tax_rate;
+            result.amount = (amount_ht * (tax_rate / 100)).toFixed(2);
+            result.note = "La Marketplace collecte et reverse directement la TVA. Vente exonérée pour le vendeur tiers.";
+            result.badgeClass = "exoneration";
+        } else if (buyer_type === "B2B" && stock_eu && buyer_eu && cross_border) {
+            if (buyer_vat_valid) {
+                result.scenario = "B2B_REVERSE_CHARGE";
+                result.channel = "EXONERATION";
+                result.collector = "BUYER";
+                result.rate = 0;
+                result.amount = "0.00";
+                result.note = "Livraison intracommunautaire B2B exonérée (Art. 138 Directive TVA). Autoliquidation par l'acheteur.";
+                result.badgeClass = "exoneration";
+            } else {
+                if (DOMESTIC_REVERSE_CHARGE_COUNTRIES.includes(buyer_country)) {
+                    result.scenario = "B2B_REVERSE_CHARGE";
+                    result.channel = "EXONERATION";
+                    result.collector = "BUYER";
+                    result.rate = 0;
+                    result.amount = "0.00";
+                    result.note = `Article 194 adopté en ${buyer_country} : l'acheteur professionnel local prend en charge l'autoliquidation nationale.`;
+                    result.badgeClass = "exoneration";
+                } else {
+                    result.scenario = "DOMESTIC";
+                    result.channel = (buyer_country === seller_country) ? "FR_DOMESTIC" : "LOCAL_REGISTRATION";
+                    result.collector = "SELLER";
+                    result.rate = tax_rate;
+                    result.amount = (amount_ht * (tax_rate / 100)).toFixed(2);
+                    result.note = `Numéro VIES invalide et Art. 194 non adopté : vous devez collecter la TVA locale de ${tax_rate}%.`;
+                    result.badgeClass = "oss";
+                }
+            }
+        } else if (buyer_type === "B2C" && stock_eu && buyer_eu && cross_border) {
+            result.scenario = "OSS_B2C";
+            result.channel = "OSS";
+            result.collector = "SELLER";
+            result.rate = tax_rate;
+            result.amount = (amount_ht * (tax_rate / 100)).toFixed(2);
+            result.note = `Vente B2C transfrontalière : TVA de destination ${tax_rate}% via le guichet unique OSS.`;
+            result.badgeClass = "oss";
+        } else if (stock_country === buyer_country) {
+            const is_home = stock_country === seller_country;
+            if (buyer_type === "B2B" && !is_home && DOMESTIC_REVERSE_CHARGE_COUNTRIES.includes(stock_country)) {
+                result.scenario = "DOMESTIC";
+                result.channel = "EXONERATION";
+                result.collector = "BUYER";
+                result.rate = 0;
+                result.amount = "0.00";
+                result.note = `Vente B2B domestique en ${stock_country} : autoliquidation nationale (Art. 194). Facturation HT.`;
+                result.badgeClass = "exoneration";
+            } else {
+                result.scenario = "DOMESTIC";
+                result.channel = is_home ? "FR_DOMESTIC" : "LOCAL_REGISTRATION";
+                result.collector = "SELLER";
+                result.rate = default_rates[stock_country] || 20;
+                result.amount = (amount_ht * (result.rate / 100)).toFixed(2);
+                result.note = is_home ? "Vente domestique standard dans votre pays d'établissement." : `Vente domestique en ${stock_country} (Immatriculation locale requise).`;
+                result.badgeClass = "exoneration";
+            }
+        } else if (!stock_eu && buyer_eu && amount_ht > 150) {
+            if (is_ddp) {
+                result.scenario = "IMPORT_SELLER_AS_IMPORTER";
+                result.channel = (buyer_country === seller_country) ? "FR_DOMESTIC" : "LOCAL_REGISTRATION";
+                result.collector = "SELLER";
+                result.rate = tax_rate;
+                result.amount = (amount_ht * (tax_rate / 100)).toFixed(2);
+                result.note = "Importation DDP : vous êtes l'importateur et collectez la TVA de destination.";
+                result.badgeClass = "oss";
+            } else {
+                result.scenario = "IMPORT_STANDARD";
+                result.channel = "EXONERATION";
+                result.collector = "BUYER (Douane)";
+                result.rate = tax_rate;
+                result.amount = (amount_ht * (tax_rate / 100)).toFixed(2);
+                result.note = "Importation standard : la TVA est payée en douane par le client final.";
+                result.badgeClass = "exoneration";
+            }
+        }
+
+        document.getElementById('res_scenario').innerText = result.scenario || "INCONNU";
+        document.getElementById('res_channel').innerText = result.channel || "-";
+        document.getElementById('res_collector').innerText = result.collector || "-";
+        document.getElementById('res_rate').innerText = result.rate;
+        document.getElementById('res_vat_amount').innerText = result.amount;
+        document.getElementById('res_note').innerText = result.note;
+
+        const badgeContainer = document.getElementById('badge_container');
+        badgeContainer.innerHTML = '';
+        if (result.scenario) {
+            const b = document.createElement('span');
+            b.className = `badge ${result.badgeClass}`;
+            b.innerText = result.scenario;
+            b.style.marginBottom = "10px";
+            b.style.display = "inline-block";
+            badgeContainer.appendChild(b);
+        }
+    }
+
+    window.onload = function() {
+        runSimulation();
+    };
+</script>
+</body>
+</html>

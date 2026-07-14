@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tarifs – Moteur TVA Intracommunautaire</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+    <script async src="https://js.stripe.com/v3/pricing-table.js"></script>
+</head>
+
+<body>
+
+<nav class="menu">
+    <a href="index.html">Accueil</a>
+    <a href="documentation.html">Documentation</a>
+    <a href="cas-pratiques.html">Cas pratiques</a>
+    <a href="tarifs.html" class="active">Tarifs</a>
+    <a href="securite.html">Sécurité</a>
+    <a href="glossaire.html">Glossaire</a>
+    <a href="faq.html">FAQ</a>
+    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="interface.html">Interface moteur</a>
+    <a href="tutoriels.html">Simulateur & Tutoriels</a>
+    <div class="search-container">
+        <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+    </div>
+</nav>
+
+<header>
+    <h1>Tarifs & Abonnements</h1>
+    <p>Des solutions flexibles pour les vendeurs solos comme pour les cabinets d'expertise comptable.</p>
+</header>
+
+<div class="container">
+    <div class="card" style="text-align: center; margin-bottom: 40px; border: 2px solid #10b981; background: #f0fdf4;">
+        <h2 style="color: #166534; margin-bottom: 10px;">🎁 Testez gratuitement !</h2>
+        <p style="color: #166534; font-weight: 500;">L'importation, l'analyse fiscale, la validation VIES et la prévisualisation des résultats sont <strong>entièrement gratuites</strong>. Vous ne payez que lorsque vous souhaitez débloquer l'export des rapports officiels.</p>
+    </div>
+
+    <section class="pricing-table">
+        <!-- Table de prix Stripe -->
+        <stripe-pricing-table
+            pricing-table-id="prctbl_1Tt1scEfXLqmVoxPdzcx0BwL"
+            publishable-key="pk_test_51TpQglEfXLqmVoxPwEGDYrRzBLcWaDumrzfnrF6s5L3MtWm9Hx2bnuETV5mNJxjzQVWSVG2BWZgNM9ucQpu94POu00Ajc3AMvi">
+        </stripe-pricing-table>
+    </section>
+
+    <section class="faq-pricing">
+        <div class="grid-cards">
+            <div class="card">
+                <h3>Achat à l'unité (PAYG)</h3>
+                <p>Idéal pour un besoin ponctuel. Vous débloquez une période fiscale spécifique pour un SIREN donné. Accès illimité aux téléchargements pour cette période.</p>
+            </div>
+            <div class="card">
+                <h3>Plan Pro & Cabinet</h3>
+                <p>Pour un volume récurrent. Accès illimité à toutes les périodes. Le plan Cabinet permet de gérer plusieurs SIREN avec un tarif dégressif.</p>
+            </div>
+        </div>
+    </section>
+</div>
+
+<footer>
+    <p>© 2026 – Moteur TVA Intracommunautaire — Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+</footer>
+
+</body>
+</html>

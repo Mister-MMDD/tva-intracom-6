@@ -16,6 +16,7 @@ n'intervient pas côté code, seul le price_id compte pour le Checkout).
 from __future__ import annotations
 
 import os
+import secrets
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -1039,12 +1040,70 @@ def _upsert_subscription(
     _run(_fn)
 
 
+def _get_or_create_user_id_by_email(email: str) -> str:
+    """Retrouve l'ID utilisateur pour un email donné, ou en crée un nouveau.
+    Utilisé par le webhook pour les paiements venant du site externe (Pricing Table)."""
+    email = email.strip().lower()
+
+    def _select(conn, cur):
+        cur.execute("SELECT id FROM tva_users WHERE email=%s", (email,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    existing_id = _run(_select)
+    if existing_id:
+        return existing_id
+
+    user_id = secrets.token_hex(12)
+
+    def _insert(conn, cur):
+        cur.execute(
+            "INSERT INTO tva_users (id, email, created_at) VALUES (%s, %s, %s) ON CONFLICT (email) DO NOTHING",
+            (user_id, email, time.time()),
+        )
+        conn.commit()
+        # Relit l'ID réellement en base (en cas de création concurrente)
+        cur.execute("SELECT id FROM tva_users WHERE email=%s", (email,))
+        return cur.fetchone()[0]
+
+    return _run(_insert)
+
+
+def _link_stripe_customer(user_id: str, stripe_customer_id: str) -> None:
+    """Lie un ID utilisateur à un ID client Stripe en base."""
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            INSERT INTO tva_customers (user_id, stripe_customer_id)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id
+            """,
+            (user_id, stripe_customer_id),
+        )
+        conn.commit()
+
+    _run(_fn)
+
+
 def _fulfill_checkout_session(data: dict) -> None:
     """Débloque l'accès (crédit PAYG ou abonnement) pour une session Checkout
     dont le paiement est confirmé — appelée uniquement quand payment_status
     vaut "paid" (carte, ou virement/prélèvement une fois les fonds arrivés)."""
     metadata = _safe_get(data, "metadata", {}) or {}
     user_id = _safe_get(metadata, "user_id")
+
+    # FALLBACK : si user_id absent (paiement via Pricing Table sur le site externe),
+    # on identifie l'utilisateur par son email Stripe.
+    if not user_id:
+        customer_details = _safe_get(data, "customer_details", {}) or {}
+        email = _safe_get(customer_details, "email")
+        if email:
+            user_id = _get_or_create_user_id_by_email(email)
+            # On lie le customer_id pour les futurs webhooks subscription.*
+            customer_id = _safe_get(data, "customer")
+            if customer_id:
+                _link_stripe_customer(user_id, customer_id)
+
     if not user_id:
         return
 
@@ -1060,12 +1119,21 @@ def _fulfill_checkout_session(data: dict) -> None:
         plan = _safe_get(metadata, "plan", "unknown")
         if not subscription_id:
             return
-        # On récupère l'abonnement complet plutôt que de dépendre des
-        # événements customer.subscription.created/updated séparés
-        # (qui peuvent ne pas être cochés sur l'endpoint Stripe) : la
-        # session de Checkout contient déjà l'ID, il suffit d'aller
-        # chercher quantité/intervalle/statut/période directement.
         subscription = stripe.Subscription.retrieve(subscription_id)
+
+        # INFER PLAN : si le plan est inconnu (Pricing Table), on le devine via le price_id
+        if plan == "unknown":
+            items = _safe_get(subscription, "items", {}) or {}
+            items_data = _safe_get(items, "data", []) or []
+            if items_data:
+                price_id = _safe_get(_safe_get(items_data[0], "price", {}), "id")
+                if price_id:
+                    # Comparaison avec les prix configurés en variables d'env
+                    if price_id in (_env("STRIPE_PRICE_SUB_BUSINESS_MONTHLY"), _env("STRIPE_PRICE_SUB_BUSINESS_YEARLY")):
+                        plan = "business"
+                    elif price_id in (_env("STRIPE_PRICE_SUB_CABINET_MONTHLY"), _env("STRIPE_PRICE_SUB_CABINET_YEARLY")):
+                        plan = "cabinet"
+
         quantity, interval, period_end = _extract_subscription_item_details(subscription)
         if period_end is None:
             raise RuntimeError(
@@ -1128,6 +1196,20 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
     elif etype in ("customer.subscription.created", "customer.subscription.updated"):
         customer_id = _safe_get(data, "customer")
         user_id = _user_id_for_stripe_customer(customer_id)
+
+        # FALLBACK : si l'id client Stripe n'est pas encore lié (ex: abonnement direct),
+        # on récupère l'email du client pour trouver l'utilisateur.
+        if not user_id:
+            try:
+                # On évite de bloquer tout le traitement si un retrieve échoue (réseau)
+                customer = stripe.Customer.retrieve(customer_id)
+                email = _safe_get(customer, "email")
+                if email:
+                    user_id = _get_or_create_user_id_by_email(email)
+                    _link_stripe_customer(user_id, customer_id)
+            except Exception:
+                pass
+
         if not user_id:
             return
         plan = _safe_get(_safe_get(data, "metadata") or {}, "plan", "unknown")

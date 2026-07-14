@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Régimes spéciaux – TVA Intracommunautaire</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<nav class="menu">
+    <a href="index.html">Accueil</a>
+    <a href="documentation.html">Documentation</a>
+    <a href="cas-pratiques.html">Cas pratiques</a>
+    <a href="tarifs.html">Tarifs</a>
+    <a href="securite.html">Sécurité</a>
+    <a href="glossaire.html">Glossaire</a>
+    <a href="faq.html">FAQ</a>
+    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="interface.html">Interface moteur</a>
+    <a href="tutoriels.html">Simulateur & Tutoriels</a>
+    <div class="search-container">
+        <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+    </div>
+</nav>
+
+<header>
+    <h1>Régimes spéciaux TVA</h1>
+    <p>Régimes particuliers gérés automatiquement par le moteur.</p>
+</header>
+
+<div class="card">
+    <h2>Tableau Comparatif des Régimes</h2>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+            <thead>
+                <tr style="background: var(--nav-bg); color: white;">
+                    <th style="padding: 12px; text-align: left; border: 1px solid #334155;">Régime</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #334155;">Application</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #334155;">Seuil</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #334155;">TVA</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong>OSS</strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">B2C Intra-UE</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">10 000 € / an</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Pays de destination</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong>IOSS</strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">B2C Import (Vente à distance)</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">≤ 150 € par envoi</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Pays de destination</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong>Local (FBA)</strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Stockage local hors pays siège</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Dès le 1er €</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Locale</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong>B2B</strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Professionnels Assujettis</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">N/A</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Autoliquidation (0%)</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h2>OSS & IOSS</h2>
+    <p>Suivi du seuil OSS 10 000 €, agrégation multi‑année, génération XML OSS, gestion IOSS pour les importations ≤ 150 €.</p>
+</div>
+
+<div class="card">
+    <h2>Reverse charge art. 194</h2>
+    <p>Gestion des reverse charges domestiques dans les pays concernés (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV).</p>
+</div>
+
+<div class="card">
+    <h2>Immatriculations locales FBA</h2>
+    <p>Détection des stocks Amazon dans des pays UE autres que le pays d’origine du compte, plan d’action immatriculations.</p>
+</div>
+
+<div class="card">
+    <h2>Territoires hors UE fiscale</h2>
+    <p>Détection des territoires comme Canaries, DOM‑TOM, Åland, etc., exclus des régimes intracommunautaires.</p>
+</div>
+
+<footer>
+    <p>© 2026 – Moteur TVA Intracommunautaire — Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+</footer>
+
+</body>
+</html>

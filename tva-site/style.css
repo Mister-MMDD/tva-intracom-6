@@ -1,0 +1,446 @@
+/* Variables de design - Palette FinTech Pro */
+:root {
+    --bg-primary: #f8fafc;
+    --bg-card: #ffffff;
+    --text-main: #334155;
+    --text-dark: #0f172a;
+    --text-muted: #64748b;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --nav-bg: #0f172a;
+    --accent: #38bdf8;
+    --border-color: #e2e8f0;
+    --radius: 16px;
+    --transition: all 0.25s ease-in-out;
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-primary);
+    color: var(--text-main);
+    line-height: 1.6;
+}
+
+/* Menu de Navigation Épuré */
+.menu {
+    background: var(--nav-bg);
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(8px);
+}
+
+.menu a {
+    color: #94a3b8;
+    padding: 18px 16px;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.95rem;
+    transition: var(--transition);
+}
+
+.menu a.active {
+    color: #ffffff;
+    background: var(--primary);
+}
+
+.search-container {
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    margin-left: auto;
+}
+
+#site-search {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 6px 15px;
+    color: white;
+    font-size: 0.85rem;
+    outline: none;
+    transition: var(--transition);
+}
+
+#site-search:focus {
+    background: rgba(255, 255, 255, 0.2);
+    width: 180px;
+}
+
+#site-search::placeholder {
+    color: #94a3b8;
+}
+
+.menu a:hover, .menu a:focus {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Grand Header Asymétrique */
+header {
+    background: radial-gradient(circle at top left, #1e3a8a, #0f172a);
+    color: white;
+    padding: 80px 24px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+header h1 {
+    font-size: 2.8rem;
+    font-weight: 800;
+    margin: 0 0 16px 0;
+    letter-spacing: -0.025em;
+    background: linear-gradient(to right, #ffffff, #93c5fd);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+header p {
+    font-size: 1.2rem;
+    color: #93c5fd;
+    max-width: 600px;
+    margin: 0 auto;
+    font-weight: 400;
+}
+
+/* Conteneurs et Grilles de Contenu */
+.container {
+    max-width: 1100px;
+    margin: 40px auto;
+    padding: 0 24px;
+}
+
+section {
+    margin-bottom: 50px;
+}
+
+section h2 {
+    font-size: 1.75rem;
+    color: var(--text-dark);
+    margin-bottom: 24px;
+    font-weight: 700;
+    border-left: 4px solid var(--primary);
+    padding-left: 12px;
+}
+
+/* Grille de Cartes Réutilisable */
+.grid-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px;
+    margin-top: 20px;
+}
+
+/* Cartes (Cards) Style Dashboard */
+.card {
+    background: var(--bg-card);
+    padding: 30px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    transition: var(--transition);
+    position: relative;
+}
+
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    border-color: #cbd5e1;
+}
+
+.card h2, .card h3 {
+    color: var(--text-dark);
+    margin-top: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+/* Badges Spécifiques pour les Cas Pratiques et Régimes */
+.card strong {
+    color: var(--primary);
+    background: #eff6ff;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: inline-block;
+    margin-bottom: 10px;
+}
+
+/* Listes Stylisées */
+ul, ol {
+    padding-left: 20px;
+}
+
+li {
+    margin-bottom: 10px;
+    color: var(--text-main);
+}
+
+li strong {
+    background: transparent !important;
+    padding: 0 !important;
+    color: var(--text-dark) !important;
+}
+
+/* Boutons d'Action */
+.button {
+    display: inline-block;
+    padding: 14px 28px;
+    background: var(--primary);
+    color: white !important;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 1rem;
+    border: none;
+    cursor: pointer;
+    transition: var(--transition);
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+}
+
+.button:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+}
+
+.toggle-button {
+    background: #f1f5f9;
+    color: var(--text-dark);
+    border: 1px solid var(--border-color);
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: var(--transition);
+    width: 100%;
+    margin-top: 15px;
+}
+
+.toggle-button:hover {
+    background: #e2e8f0;
+}
+
+/* Détails masqués des tutoriels */
+.details {
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 15px;
+    border-left: 3px solid var(--primary);
+}
+
+/* Call To Action Section */
+.cta {
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
+    padding: 40px;
+    border-radius: var(--radius);
+    text-align: center;
+    border: 1px solid #bfdbfe;
+}
+
+/* Footer Épuré */
+footer {
+    background: var(--nav-bg);
+    color: #64748b;
+    padding: 40px 24px;
+    text-align: center;
+    font-size: 0.9rem;
+    margin-top: 80px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+/* Styles Spécifiques pour le Simulateur */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-dark);
+    font-size: 0.9rem;
+}
+
+.form-group select, .form-group input[type="number"] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: white;
+    font-size: 0.95rem;
+    color: var(--text-main);
+}
+
+.radio-group {
+    display: flex;
+    gap: 16px;
+    background: #f1f5f9;
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+.radio-group label {
+    margin-bottom: 0;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.badge {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: white;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge.exoneration { background-color: #10b981; }
+.badge.oss { background-color: #f59e0b; }
+.badge.ioss { background-color: #8b5cf6; }
+.badge.export { background-color: #ef4444; }
+
+.security-shoutout {
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: white;
+    padding: 30px;
+    border-radius: var(--radius);
+    margin-bottom: 30px;
+    border-left: 6px solid #10b981;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.security-shoutout h2 {
+    color: #10b981 !important;
+    border: none !important;
+    padding: 0 !important;
+    margin-bottom: 15px !important;
+}
+
+.security-shoutout p {
+    color: #cbd5e1;
+    font-size: 1.1rem;
+    margin: 0;
+}
+
+.selection-hint {
+    font-size: 0.75rem;
+    color: #d97706; /* Orange/Warning color */
+    margin-top: 4px;
+    font-weight: 500;
+    min-height: 1rem;
+}
+
+.sim-result p {
+    margin: 12px 0;
+    font-size: 0.95rem;
+}
+
+.platform-item {
+    padding: 15px;
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    header h1 { font-size: 2rem; }
+    .menu { flex-direction: column; }
+    .menu a { text-align: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .grid-cards { grid-template-columns: 1fr; }
+}
+
+/* Styles Spécifiques pour le Simulateur Arborescent */
+.simulator-section {
+    background: #ffffff;
+    padding: 40px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    margin-top: 40px;
+}
+.section-subtitle {
+    color: var(--text-muted);
+    margin-bottom: 30px;
+}
+.sim-step {
+    animation: fadeIn 0.4s ease-in-out;
+    margin-bottom: 35px;
+}
+.sim-step h3 {
+    font-size: 1.15rem;
+    color: var(--text-dark);
+    margin-bottom: 20px;
+}
+.sim-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+}
+.sim-card {
+    background: #f8fafc;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 24px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.sim-card:hover {
+    border-color: var(--primary);
+    background: #f1f5f9;
+    transform: translateY(-2px);
+}
+.sim-card.active {
+    border-color: var(--primary);
+    background: #eff6ff;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+}
+.sim-card.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.sim-icon {
+    font-size: 2rem;
+    display: block;
+    margin-bottom: 12px;
+}
+.sim-card h4 {
+    margin: 0 0 8px 0;
+    color: var(--text-dark);
+    font-size: 1.05rem;
+}
+.sim-card p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+.badge-code {
+    background: #10b981;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 1.1rem;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}

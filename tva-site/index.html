@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moteur TVA Intracommunautaire</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<nav class="menu">
+    <a href="index.html">Accueil</a>
+    <a href="documentation.html">Documentation</a>
+    <a href="cas-pratiques.html">Cas pratiques</a>
+    <a href="tarifs.html">Tarifs</a>
+    <a href="securite.html">Sécurité</a>
+    <a href="glossaire.html">Glossaire</a>
+    <a href="faq.html">FAQ</a>
+    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="interface.html">Interface moteur</a>
+    <a href="tutoriels.html">Simulateur & Tutoriels</a>
+    <div class="search-container">
+        <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+    </div>
+</nav>
+
+<header>
+    <h1>Moteur TVA Intracommunautaire</h1>
+    <p>L'intelligence fiscale automatisée pour sécuriser et déclarer vos flux B2B et B2C en Europe.</p>
+</header>
+
+<div class="container">
+
+    <section class="intro">
+        <h2>Ce que fait le moteur</h2>
+        <div class="card">
+            <p>Notre moteur analyse et audite en temps réel l'ensemble de vos transactions intracommunautaires pour y appliquer sans erreur les directives européennes :</p>
+            <div class="grid-cards">
+                <div>
+                    <ul>
+                        <li><strong>Classification automatisée :</strong> Détection instantanée du type de flux (livraisons, acquisitions, prestations).</li>
+                        <li><strong>Territorialité fine :</strong> Isolation des zones d'exclusions fiscales (Canaries, DOM-TOM, Åland).</li>
+                        <li><strong>Autoliquidation sécurisée :</strong> Application stricte des mécanismes de reverse charge.</li>
+                    </ul>
+                </div>
+                <div>
+                    <ul>
+                        <li><strong>Guichets Uniques :</strong> Suivi dynamique des seuils OSS (10 000 €) et déclarations IOSS.</li>
+                        <li><strong>Conformité VIES :</strong> Validation temps réel via les API officielles de la Commission Européenne.</li>
+                        <li><strong>Génération de Livrables :</strong> Fichiers XML OSS officiels, rapports CA3 et exports FEC.</li>
+                    </ul>
+                </div>
+            </div>
+            <p style="margin-top: 20px; font-size: 0.9rem; color: var(--text-muted);">
+                Le moteur intègre nativement la directive européenne 2006/112/CE, le CGI et le BOFiP.
+                Données de change synchronisées quotidiennement avec la <strong>Banque Centrale Européenne (BCE)</strong>.
+            </p>
+        </div>
+    </section>
+
+    <section class="benefits">
+        <h2>Pourquoi choisir notre moteur ?</h2>
+        <div class="grid-cards">
+            <div class="card" style="border-top: 4px solid #10b981;">
+                <h3>🛡️ Sécurité Fiscale</h3>
+                <p>Réduisez le risque de redressement en appliquant les règles exactes du CGI et des directives européennes.</p>
+            </div>
+            <div class="card" style="border-top: 4px solid #3b82f6;">
+                <h3>⚡ Gain de Temps</h3>
+                <p>Automatisez des heures de calcul manuel. Importez vos fichiers Amazon et obtenez vos rapports en 3 secondes.</p>
+            </div>
+            <div class="card" style="border-top: 4px solid #8b5cf6;">
+                <h3>📈 Pilotage Précis</h3>
+                <p>Visualisez votre exposition fiscale par pays et anticipez vos obligations d'immatriculation.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="rules">
+        <h2>Les piliers de la TVA Intracommunautaire</h2>
+        <div class="grid-cards">
+            <div class="card">
+                <h3>1. Livraisons B2B (Exonération)</h3>
+                <p>Exonération de TVA applicable si et seulement si : le client dispose d'un numéro VIES valide dans un autre État membre, les biens quittent physiquement le pays d'origine, et les preuves de transport sont conservées.</p>
+            </div>
+
+            <div class="card">
+                <h3>2. Acquisitions B2B (Autoliquidation)</h3>
+                <p>Le preneur de la marchandise ou du service est redevable de la taxe. Il collecte et déduit simultanément la TVA sur sa propre déclaration nationale.</p>
+            </div>
+
+            <div class="card">
+                <h3>3. Ventes B2C à distance (OSS)</h3>
+                <p>Dès que le chiffre d'affaires cumulé des ventes transfrontalières en Europe dépasse le seuil unique de 10 000 €, la TVA du pays de destination du consommateur doit s'appliquer.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="deliverables">
+        <h2>Livrables de conformité</h2>
+        <div class="grid-cards">
+            <div class="card">
+                <h3>📥 Déclarations Fiscales</h3>
+                <p>Génération du XML OSS officiel (DGFiP), rapports CA3 pré-remplis, rapports locaux UE harmonisés et CSV pour l'URSSAF.</p>
+            </div>
+            <div class="card">
+                <h3>📊 Audit & Pilotage</h3>
+                <p>Export Excel multi-onglets (12 rapports), analyse des écarts Amazon, suivi des seuils EMEBI/Intrastat et calendrier fiscal dynamique.</p>
+            </div>
+            <div class="card">
+                <h3>📒 Comptabilité</h3>
+                <p>Export FEC (Fichier des Écritures Comptables) agrégé par régime et pays, prêt pour l'importation dans votre logiciel comptable.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="cta">
+        <h2>Prêt à auditer vos fichiers transactionnels ?</h2>
+        <p>Connectez vos exports Amazon (V1 à V5), Shopify ou vos appels d'API à notre outil de calcul.</p>
+        <a class="button" href="interface.html">Accéder à l'interface de calcul</a>
+    </section>
+
+</div>
+
+<footer>
+    <p>© 2026 – Moteur TVA Intracommunautaire — Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
