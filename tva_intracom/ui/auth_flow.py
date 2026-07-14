@@ -251,6 +251,15 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_provider = st.query_params.get("sb_provider")
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
         _verifier = _all_cookies.get(f"sb_pkce_verifier_{_sb_provider}")
+
+        # 🔧 DEBUG TEMPORAIRE — à retirer une fois le bug résolu.
+        with st.expander("🔧 Debug OAuth (temporaire)", expanded=True):
+            st.write("query_params:", dict(st.query_params))
+            st.write("cookies vus par le composant:", list(_all_cookies.keys()))
+            st.write("clé cherchée:", f"sb_pkce_verifier_{_sb_provider}")
+            st.write("verifier trouvé:", bool(_verifier))
+            st.write("retry déjà fait:", st.session_state.get("_sb_cookie_retry_done", False))
+
         if _verifier is None and not st.session_state.get("_sb_cookie_retry_done"):
             # Premier rerun juste après la redirection externe : le composant
             # CookieManager peut ne pas avoir encore fini de se synchroniser
@@ -263,8 +272,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.session_state.pop("_sb_cookie_retry_done", None)
         if not _verifier:
             st.error(_("oauth_state_lost_error"))
-            st.query_params.clear()
-            st.stop()
+            st.stop()  # 🔧 DEBUG : on NE clear PAS les query_params pour garder le expander visible
         try:
             _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
             cookie_manager.delete(f"sb_pkce_verifier_{_sb_provider}", key=f"del_pkce_verifier_{_sb_provider}")
@@ -273,8 +281,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.rerun()
         except Exception as _sb_err:
             st.error(_("oauth_login_error", error=str(_sb_err)))
-            st.query_params.clear()
-            st.stop()
+            st.stop()  # 🔧 DEBUG : idem, on garde les query_params/expander visibles
 
     # ── Interface de connexion non-authentifiée ────────────────────────────
     if st.session_state["auth_user"] is None:
