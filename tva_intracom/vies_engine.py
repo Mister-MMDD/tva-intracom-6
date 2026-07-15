@@ -619,6 +619,65 @@ def _db_delete_expired_scope(scope_id: str) -> int:
     return deleted
 
 
+def delete_all_scope_data(scope_id: str) -> None:
+    """Supprime toutes les données liées à un scope (cache privé, historique, overrides).
+    Utilisé lors de la suppression d'un compte utilisateur (si scope individuel)."""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM vies_scope_cache WHERE scope_id=%s", (scope_id,))
+        cur.execute("DELETE FROM vies_check_history WHERE scope_id=%s", (scope_id,))
+        cur.execute("DELETE FROM vies_manual_overrides WHERE scope_id=%s", (scope_id,))
+        conn.commit()
+    logger.info("Données VIES supprimées pour le scope [%s].", scope_id)
+
+
+def export_scope_data(scope_id: str) -> dict:
+    """Exporte toutes les données d'un scope pour la portabilité des données (RGPD)."""
+    with _conn() as conn, conn.cursor() as cur:
+        # Cache
+        cur.execute(
+            "SELECT vat_id, valid, country_code, vat_number, name, address, error, checked_at "
+            "FROM vies_scope_cache WHERE scope_id=%s", (scope_id,)
+        )
+        cache = [
+            {
+                "vat_id": r[0], "valid": r[1], "country_code": r[2], "vat_number": r[3],
+                "name": _dec(r[4]), "address": _dec(r[5]), "error": r[6],
+                "checked_at": r[7].isoformat() if r[7] else None
+            }
+            for r in cur.fetchall()
+        ]
+
+        # Historique
+        cur.execute(
+            "SELECT vat_id, valid, country_code, vat_number, name, address, error, checked_at "
+            "FROM vies_check_history WHERE scope_id=%s", (scope_id,)
+        )
+        history = [
+            {
+                "vat_id": r[0], "valid": r[1], "country_code": r[2], "vat_number": r[3],
+                "name": _dec(r[4]), "address": _dec(r[5]), "error": r[6],
+                "checked_at": r[7].isoformat() if r[7] else None
+            }
+            for r in cur.fetchall()
+        ]
+
+        # Overrides
+        cur.execute(
+            "SELECT full_vat, is_valid, set_at FROM vies_manual_overrides WHERE scope_id=%s", (scope_id,)
+        )
+        overrides = [
+            {"full_vat": r[0], "is_valid": r[1], "set_at": r[2].isoformat() if r[2] else None}
+            for r in cur.fetchall()
+        ]
+
+    return {
+        "scope_id": scope_id,
+        "vies_cache": cache,
+        "vies_history": history,
+        "vies_manual_overrides": overrides
+    }
+
+
 def purge_malformed_entries() -> int:
     """Purge administrative, une fois par session (appelée depuis app.py) :
     supprime les entrées vat_id mal préfixées par un bug historique (double

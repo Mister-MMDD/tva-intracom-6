@@ -15,6 +15,7 @@ Dépendance ajoutée à requirements.txt : psycopg2-binary
 from __future__ import annotations
 
 import os
+import json
 import secrets
 import threading
 import time
@@ -357,6 +358,95 @@ def consume_magic_link(token: str, ip_address: str = "unknown") -> Optional[User
     if not res:
         return None
     return get_or_create_user(res)
+
+
+def get_user_by_id(user_id: str) -> Optional[User]:
+    """Retourne l'utilisateur associé à un ID, sans passer par un jeton."""
+    def _fetch_user(conn, cur):
+        cur.execute(
+            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency FROM tva_users WHERE id=%s",
+            (user_id,),
+        )
+        return cur.fetchone()
+
+    urow = _run(_fetch_user)
+    if not urow:
+        return None
+    return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3],
+                home_country=urow[4] or "FR", language=urow[5] or "fr", display_currency=urow[6] or "DEFAULT")
+
+
+def delete_account(user_id: str) -> None:
+    """Supprime définitivement un compte utilisateur et toutes les données associées
+    (RGPD). Supprime les abonnements Stripe, les identifiants Amazon chiffrés, 
+    les SIREN et l'historique VIES (si scope privé)."""
+    from .billing import delete_user_billing_data
+    from .vies_engine import delete_all_scope_data, resolve_scope_id
+
+    user = get_user_by_id(user_id)
+    if not user:
+        return
+
+    # 1. Facturation & Stripe
+    delete_user_billing_data(user_id)
+
+    # 2. VIES (seulement si scope privé user:email)
+    scope_id = resolve_scope_id(user.email)
+    if scope_id.startswith("user:"):
+        delete_all_scope_data(scope_id)
+
+    # 3. Authentification & Credentials
+    def _fn(conn, cur):
+        cur.execute("DELETE FROM tva_amazon_credentials WHERE user_id=%s", (user_id,))
+        cur.execute("DELETE FROM tva_session_tokens WHERE user_id=%s", (user_id,))
+        cur.execute("DELETE FROM tva_magic_links WHERE email=%s", (user.email,))
+        cur.execute("DELETE FROM tva_oauth_pkce WHERE created_at < %s", (time.time(),)) # Nettoyage générique
+        cur.execute("DELETE FROM tva_users WHERE id=%s", (user_id,))
+        conn.commit()
+
+    _run(_fn)
+
+
+def export_all_user_data(user_id: str) -> dict:
+    """Récupère l'intégralité des données d'un utilisateur pour export (RGPD)."""
+    from .billing import export_user_billing_data
+    from .vies_engine import export_scope_data, resolve_scope_id
+
+    user = get_user_by_id(user_id)
+    if not user:
+        return {}
+
+    billing_data = export_user_billing_data(user_id)
+    
+    scope_id = resolve_scope_id(user.email)
+    vies_data = export_scope_data(scope_id)
+
+    def _fetch_auth_data(conn, cur):
+        cur.execute("SELECT selling_partner_id, created_at, updated_at FROM tva_amazon_credentials WHERE user_id=%s", (user_id,))
+        amz = cur.fetchone()
+        return {
+            "amazon_credentials": {
+                "selling_partner_id": amz[0],
+                "created_at": amz[1],
+                "updated_at": amz[2]
+            } if amz else None
+        }
+
+    auth_data = _run(_fetch_auth_data)
+
+    return {
+        "user_profile": {
+            "id": user.id,
+            "email": user.email,
+            "home_country": user.home_country,
+            "language": user.language,
+            "display_currency": user.display_currency,
+        },
+        "billing": billing_data,
+        "vies": vies_data,
+        "auth": auth_data,
+        "exported_at": time.time()
+    }
 
 
 def create_session_token(user_id: str) -> str:

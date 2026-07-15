@@ -753,6 +753,53 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         except Exception as _cab_err:
                             st.error(f"Erreur : {_cab_err}")
 
+        # ── Compte & Confidentialité ──────────────────────────────────────────────
+        with st.expander(_("account_privacy_header"), expanded=False):
+            st.markdown(f"**{_('data_portability_title')}**")
+            st.caption(_("data_portability_help"))
+            
+            if st.button(_("export_data_btn"), key="btn_export_user_data"):
+                try:
+                    data = tva_auth.export_all_user_data(_current_user.id)
+                    json_str = json.dumps(data, indent=2, ensure_ascii=False)
+                    st.download_button(
+                        label=_("download_export_btn"),
+                        data=json_str,
+                        file_name=f"export_donnees_tva_{_current_user.id}.json",
+                        mime="application/json",
+                    )
+                except Exception as _exp_err:
+                    st.error(f"Erreur lors de l'export : {_exp_err}")
+            
+            st.divider()
+            st.markdown(f"**{_('delete_account_title')}**")
+            st.warning(_("delete_account_warning"))
+            
+            # Double confirmation pour la suppression
+            if "confirm_delete_account" not in st.session_state:
+                st.session_state["confirm_delete_account"] = False
+            
+            if not st.session_state["confirm_delete_account"]:
+                if st.button(_("delete_account_btn"), key="btn_pre_delete_account"):
+                    st.session_state["confirm_delete_account"] = True
+                    st.rerun()
+            else:
+                st.error(_("delete_account_final_confirmation"))
+                _col1, _col2 = st.columns(2)
+                if _col1.button(_("cancel_btn"), key="btn_cancel_delete"):
+                    st.session_state["confirm_delete_account"] = False
+                    st.rerun()
+                if _col2.button(_("confirm_delete_btn"), key="btn_confirm_delete", type="primary"):
+                    try:
+                        tva_auth.delete_account(_current_user.id)
+                        st.session_state["auth_user"] = None
+                        st.session_state["manual_logout"] = True
+                        st.success(_("account_deleted_success"))
+                        time.sleep(2)
+                        st.rerun()
+                    except Exception as _del_err:
+                        st.error(f"Erreur lors de la suppression : {_del_err}")
+
     return SidebarResult(
         file_format=file_format,
         enable_vies=enable_vies,

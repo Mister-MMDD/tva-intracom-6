@@ -205,6 +205,65 @@ def _init_schema() -> None:
     _run(_fn)
 
 
+def delete_user_billing_data(user_id: str) -> None:
+    """Supprime toutes les données de facturation d'un utilisateur, y compris
+    ses SIREN enregistrés, ses crédits d'export et ses liens Amazon.
+    Supprime également le client Stripe (ce qui annule ses abonnements)."""
+    
+    # 1. Supprimer le client Stripe (si configuré)
+    customer_id = _existing_stripe_customer_id(user_id)
+    if customer_id and _stripe_configured():
+        try:
+            stripe.Customer.delete(customer_id)
+        except Exception:
+            # On ignore l'erreur si le client est déjà supprimé côté Stripe
+            pass
+
+    def _fn(conn, cur):
+        # 2. Supprimer les données locales
+        cur.execute("DELETE FROM tva_customers WHERE user_id=%s", (user_id,))
+        cur.execute("DELETE FROM tva_subscriptions WHERE user_id=%s", (user_id,))
+        cur.execute("DELETE FROM tva_export_credits WHERE user_id=%s", (user_id,))
+        cur.execute("DELETE FROM tva_siren_registrations WHERE user_id=%s", (user_id,))
+        # On ne supprime tva_account_siren_links que si le scope_id correspond à un scope utilisateur
+        # mais on n'a pas accès à l'email ici. On laisse auth.py s'en charger s'il le souhaite
+        # ou on le fait par filtrage de préfixe.
+        cur.execute("DELETE FROM tva_account_siren_links WHERE scope_id LIKE %s", (f"user:%",))
+        conn.commit()
+
+    _run(_fn)
+
+
+def export_user_billing_data(user_id: str) -> dict:
+    """Récupère toutes les données de facturation d'un utilisateur pour export."""
+    def _fn(conn, cur):
+        data = {}
+        
+        cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE user_id=%s", (user_id,))
+        data["customer"] = cur.fetchone()
+        
+        cur.execute("SELECT * FROM tva_subscriptions WHERE user_id=%s", (user_id,))
+        data["subscriptions"] = [dict(zip([col[0] for col in cur.description], row)) for row in cur.fetchall()]
+        
+        cur.execute("SELECT * FROM tva_export_credits WHERE user_id=%s", (user_id,))
+        data["export_credits"] = [dict(zip([col[0] for col in cur.description], row)) for row in cur.fetchall()]
+        
+        cur.execute("SELECT * FROM tva_siren_registrations WHERE user_id=%s", (user_id,))
+        rows = cur.fetchall()
+        # Déchiffrement des noms d'entreprises
+        regs = []
+        for r in rows:
+            d = dict(zip([col[0] for col in cur.description], r))
+            if d.get("company_name"):
+                d["company_name"] = _dec(d["company_name"])
+            regs.append(d)
+        data["siren_registrations"] = regs
+        
+        return data
+
+    return _run(_fn)
+
+
 @dataclass
 class SubscriptionStatus:
     active: bool

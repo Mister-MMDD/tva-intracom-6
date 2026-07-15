@@ -575,7 +575,21 @@ billing_yearly_choice = "Annuel"
 subscribe_pro_btn = "S'abonner — Pro"
 subscribe_cabinet_btn = "S'abonner — Cabinet"
 managed_sirens_qty_label = "Nombre de SIREN gérés"
-managed_sirens_qty_help = "Minimum 3 SIREN for the forfait Cabinet. Doit couvrir au moins le nombre de SIREN déjà enregistrés sur ce compte."
+managed_sirens_qty_help = "Minimum 3 SIREN pour le forfait Cabinet. Doit couvrir au moins le nombre de SIREN déjà enregistrés sur ce compte."
+
+# Sidebar - Compte & Confidentialité
+account_privacy_header = "👤 Compte & Confidentialité"
+data_portability_title = "Portabilité des données (RGPD)"
+data_portability_help = "Téléchargez l'intégralité des données vous concernant stockées par le service (profil, factures, SIREN, historique VIES)."
+export_data_btn = "📂 Préparer mes données pour l'export"
+download_export_btn = "📥 Télécharger mes données (.json)"
+delete_account_title = "Suppression du compte"
+delete_account_warning = "⚠️ **Action irréversible.** La suppression de votre compte entraînera la résiliation immédiate de vos abonnements et la suppression de toutes vos données (identifiants Amazon, SIREN, historiques)."
+delete_account_btn = "🗑️ Supprimer mon compte"
+delete_account_final_confirmation = "❗ Êtes-vous certain de vouloir supprimer définitivement votre compte et toutes vos données ?"
+cancel_btn = "Annuler"
+confirm_delete_btn = "Supprimer définitivement"
+account_deleted_success = "✅ Votre compte a été supprimé. Vous allez être déconnecté."
 
 # Excel Report
 xl_tab_recap = "Recapitulatif"

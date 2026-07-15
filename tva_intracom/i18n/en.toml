@@ -577,6 +577,20 @@ subscribe_cabinet_btn = "Subscribe — Cabinet"
 managed_sirens_qty_label = "Number of managed SIRENs"
 managed_sirens_qty_help = "Minimum 3 SIRENs for the Cabinet plan. Must cover at least the number of SIRENs already registered on this account."
 
+# Sidebar - Account & Privacy
+account_privacy_header = "👤 Account & Privacy"
+data_portability_title = "Data Portability (GDPR)"
+data_portability_help = "Download all your personal data stored by the service (profile, invoices, SIRENs, VIES history)."
+export_data_btn = "📂 Prepare my data for export"
+download_export_btn = "📥 Download my data (.json)"
+delete_account_title = "Account Deletion"
+delete_account_warning = "⚠️ **Irreversible action.** Deleting your account will immediately cancel your subscriptions and delete all your data (Amazon credentials, SIRENs, history)."
+delete_account_btn = "🗑️ Delete my account"
+delete_account_final_confirmation = "❗ Are you sure you want to permanently delete your account and all your data?"
+cancel_btn = "Cancel"
+confirm_delete_btn = "Permanently delete"
+account_deleted_success = "✅ Your account has been deleted. You will be logged out."
+
 # Excel Report
 xl_tab_recap = "Summary"
 xl_tab_sales = "Sales Detail"
