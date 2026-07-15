@@ -93,6 +93,11 @@ class Sale:
     ioss_number: str = ""
     arrival_post_code: str = ""
     display_id: str = ""
+    # Conserve le NIF national brut (codice fiscale IT, NIF ES…) meme quand
+    # buyer_vat_number est vide (cas B2B cross-border sans prefixe EU, voir
+    # classify.py Cas 2). Permet a l'onglet VIES d'afficher/tracer ces ventes
+    # qui ne passent jamais par une verification VIES en ligne.
+    national_tax_id: str = ""
 
     def __post_init__(self) -> None:
         # Nettoyage et normalisation
@@ -160,6 +165,12 @@ class ViesReclassification:
     is_domestic_reverse_charge: bool = False
     display_id: str = ""
     stock_country: str = ""
+    # True  : TVA due au pays de depart (Art.31 — n° TVA acheteur invalide,
+    #         y compris quand l'art.194 etait a tort applique en cross-border).
+    # False : TVA due au pays d'arrivee (destination) — pays n'ayant pas
+    #         adopte l'art.194, vendeur immatricule/declare localement a
+    #         destination (ou domestique FR).
+    taxed_at_departure: bool = False
 
 
 @dataclass

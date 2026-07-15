@@ -195,7 +195,9 @@ def render_vies(ctx: TabContext) -> None:
                 if getattr(r, "is_domestic_reverse_charge", False):
                     return _("vies_expl_reverse_charge", country=r.buyer_country)
                 elif r.vat_delta <= 0: return _("vies_expl_already_taxed")
-                return _("vies_expl_cross_border")
+                elif getattr(r, "taxed_at_departure", False):
+                    return _("vies_expl_cross_border_departure", country=getattr(r, "stock_country", ""))
+                return _("vies_expl_cross_border_destination", country=r.buyer_country)
 
             fraud_data = [{_("vies_col_id"): (getattr(r, "display_id", "") or r.sale_id), _("vies_col_rejected_vat"): r.buyer_vat_number,
                 _("vies_col_origin"): _country_label(getattr(r, "stock_country", "")),
@@ -236,8 +238,12 @@ def render_vies(ctx: TabContext) -> None:
                     statut_csv = _("vies_status_reverse_charge"); expl_csv = _("vies_expl_reverse_charge", country=r.buyer_country)
                 elif r.vat_delta <= 0:
                     statut_csv = _("vies_status_already_taxed"); expl_csv = _("vies_expl_already_taxed")
+                elif getattr(r, "taxed_at_departure", False):
+                    statut_csv = _("vies_status_recovered")
+                    expl_csv = _("vies_expl_cross_border_departure", country=getattr(r, "stock_country", ""))
                 else:
-                    statut_csv = _("vies_status_recovered"); expl_csv = _("vies_expl_cross_border")
+                    statut_csv = _("vies_status_recovered")
+                    expl_csv = _("vies_expl_cross_border_destination", country=r.buyer_country)
                 w.writerow([(getattr(r, "display_id", "") or r.sale_id), r.buyer_vat_number, _country_label(getattr(r, "stock_country", "")), _country_label(r.buyer_country),
                     str(r.amount_ht).replace(".",","), str(r.vat_avoided).replace(".",","),
                     statut_csv, expl_csv])

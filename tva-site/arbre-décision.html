@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbre de Décision Décisionnel — TVA</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #111827;
+            --card-border: #1f2937;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --line-color: #374151;
+            
+            --primary: #38bdf8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            color: #ffffff;
+            margin-bottom: 10px;
+            font-weight: 800;
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            margin: 0;
+        }
+
+        /* --- CLASSIFICATION DES CARTES --- */
+        .node {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            width: 300px;
+            text-align: center;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+            position: relative;
+            z-index: 10;
+            box-sizing: border-box;
+        }
+
+        .node h3 {
+            margin: 0;
+            font-size: 0.95rem;
+            color: #ffffff;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        /* --- FEUILLES DE RÉSULTAT STANDARDISÉES --- */
+        .leaf {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 6px;
+            padding: 16px;
+            width: 260px;
+            text-align: left;
+            position: relative;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            border-left: 4px solid var(--card-border);
+            box-sizing: border-box;
+        }
+
+        .leaf.exonere { border-left-color: var(--success); }
+        .leaf.tax-dest { border-left-color: var(--primary); }
+        .leaf.tax-depart { border-left-color: var(--danger); }
+        .leaf.domestic { border-left-color: var(--warning); }
+        .leaf.import { border-left-color: var(--purple); }
+
+        .leaf h4 {
+            margin: 0 0 6px 0;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #ffffff;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .leaf p {
+            margin: 0 0 10px 0;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .code-box {
+            background: #030712;
+            border: 1px solid #1f2937;
+            padding: 4px 8px;
+            font-family: monospace;
+            font-size: 0.7rem;
+            border-radius: 4px;
+            color: #cbd5e1;
+            word-break: break-all;
+        }
+
+        /* --- SYSTÈME DE LIGNES VERTICALES --- */
+        .tree-branch {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            width: 100%;
+        }
+
+        .line-vertical {
+            width: 2px;
+            height: 40px;
+            background-color: var(--line-color);
+            position: relative;
+        }
+
+        /* --- EMBRANCHEMENTS --- */
+        .split-container {
+            display: flex;
+            justify-content: center;
+            position: relative;
+            width: 100%;
+        }
+
+        /* Ligne horizontale d'embranchement */
+        .split-line {
+            position: absolute;
+            top: 0;
+            left: 25%;
+            width: 50%;
+            height: 2px;
+            background-color: var(--line-color);
+        }
+
+        .split-columns {
+            display: flex;
+            justify-content: space-between;
+            gap: 40px;
+            width: 100%;
+            padding-top: 40px; /* Espace sous la ligne horizontale */
+            position: relative;
+        }
+
+        /* Éléments de chaque colonne d'embranchement */
+        .column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            position: relative;
+        }
+
+        /* Lignes de raccordement des colonnes */
+        .column::before {
+            content: '';
+            position: absolute;
+            top: -40px;
+            left: 50%;
+            width: 2px;
+            height: 40px;
+            background-color: var(--line-color);
+        }
+
+        /* --- ÉTIQUETTES SUR LES LIGNES --- */
+        .branch-label {
+            position: absolute;
+            top: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: var(--bg-color);
+            padding: 3px 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            border-radius: 4px;
+            border: 1px solid var(--line-color);
+            color: #9ca3af;
+            white-space: nowrap;
+            z-index: 15;
+        }
+
+        /* --- SECTION LÉGENDES / ASTÉRISQUES --- */
+        .footnotes {
+            margin-top: 60px;
+            max-width: 900px;
+            width: 100%;
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+
+        .footnotes h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+            color: #ffffff;
+            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 8px;
+        }
+
+        .footnote-section {
+            margin-bottom: 15px;
+        }
+
+        .footnote-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .footnote-section h4 {
+            margin: 0 0 6px 0;
+            font-size: 0.85rem;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .footnote-section p {
+            margin: 0;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        /* Ajustement responsive */
+        @media (max-width: 1024px) {
+            .split-columns {
+                gap: 15px;
+            }
+            .node {
+                width: 230px;
+                padding: 12px;
+            }
+            .leaf {
+                width: 210px;
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Arbre de Décision — Moteur Fiscal TVA</h1>
+    <p class="subtitle">Flux d'aiguillage réglementaire pour la taxation et les ventes</p>
+</header>
+
+<div class="tree-branch">
+    <div class="node">
+        <h3>Où se situe physiquement le stock au départ ?</h3>
+    </div>
+    
+    <div class="line-vertical"></div>
+
+    <div class="split-container">
+        <div class="split-line"></div>
+        <div class="split-columns">
+            
+            <div class="column">
+                <span class="branch-label">Stock HORS de l'Union Européenne</span>
+                <div class="node">
+                    <h3>La valeur intrinsèque de l'envoi importé est-elle inférieure ou égale à 150 € ?</h3>
+                </div>
+                <div class="line-vertical"></div>
+                <div class="split-container">
+                    <div class="split-line"></div>
+                    <div class="split-columns">
+                        
+                        <div class="column">
+                            <span class="branch-label">Moins ou égal à 150 €</span>
+                            <div class="leaf import">
+                                <h4>IOSS / DEEMED SUPPLIER</h4>
+                                <p>Pour les ventes B2C : La taxe est collectée par le vendeur via son propre numéro IOSS, ou directement prélevée et déclarée par la Marketplace (ex: Amazon).</p>
+                                <div class="code-box">Scenario.IOSS_DIRECT / DEEMED_SUPPLIER</div>
+                            </div>
+                        </div>
+                        
+                        <div class="column">
+                            <span class="branch-label">Plus de 150 €</span>
+                            <div class="leaf import">
+                                <h4>IMPORTATION STANDARD</h4>
+                                <p>La TVA douanière d'importation est due à l'arrivée par l'acheteur final, sauf si le vendeur choisit de dédouaner lui-même en mode DDP (Vendeur Importateur).</p>
+                                <div class="code-box">Scenario.IMPORT_STANDARD / SELLER_IMPORTER</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="column">
+                <span class="branch-label">Stock SITUÉ dans l'Union Européenne</span>
+                <div class="node">
+                    <h3>L'acheteur est-il situé fiscalement dans l'Union Européenne ? *</h3>
+                </div>
+                <div class="line-vertical"></div>
+                <div class="split-container">
+                    <div class="split-line"></div>
+                    <div class="split-columns">
+                        
+                        <div class="column">
+                            <span class="branch-label">NON (Hors UE)</span>
+                            <div class="leaf exonere">
+                                <h4>EXONÉRATION EXPORTATION</h4>
+                                <p>Vente exonérée de TVA (0%) sous réserve d'obtention et de conservation du justificatif douanier de sortie physique du territoire européen.</p>
+                                <div class="code-box">Scenario.EXPORT | TVA: 0%</div>
+                            </div>
+                        </div>
+
+                        <div class="column">
+                            <span class="branch-label">OUI (Dans l'UE)</span>
+                            <div class="node">
+                                <h3>La marchandise traverse-t-elle une frontière pour être livrée ?</h3>
+                            </div>
+                            <div class="line-vertical"></div>
+                            <div class="split-container">
+                                <div class="split-line"></div>
+                                <div class="split-columns">
+                                    
+                                    <div class="column">
+                                        <span class="branch-label">NON (Vente Locale)</span>
+                                        <div class="node">
+                                            <h3>S'agit-il d'une transaction B2B professionnelle dans un pays appliquant l'Article 194 ? **</h3>
+                                        </div>
+                                        <div class="line-vertical"></div>
+                                        <div class="split-container">
+                                            <div class="split-line"></div>
+                                            <div class="split-columns">
+                                                
+                                                <div class="column">
+                                                    <span class="branch-label">OUI (Pays éligible)</span>
+                                                    <div class="leaf exonere">
+                                                        <h4>AUTOLIQUIDATION LOCALE</h4>
+                                                        <p>Le vendeur n'est pas établi localement. L'acheteur professionnel enregistré déclare et autoliquide la TVA dans son propre pays.</p>
+                                                        <div class="code-box">TVA: 0% | Art. 194</div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="column">
+                                                    <span class="branch-label">NON (Pas d'autoliquidation)</span>
+                                                    <div class="leaf domestic">
+                                                        <h4>TVA DOMESTIQUE LOCALE</h4>
+                                                        <p>La TVA locale du pays de stockage est facturée et déclarée au taux standard national par le vendeur via son immatriculation.</p>
+                                                        <div class="code-box">Scenario.DOMESTIC | TVA Locale</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="column">
+                                        <span class="branch-label">OUI (Vente Transfrontalière)</span>
+                                        <div class="node">
+                                            <h3>Quel est le type d'acheteur déclaré ?</h3>
+                                        </div>
+                                        <div class="line-vertical"></div>
+                                        <div class="split-container">
+                                            <div class="split-line"></div>
+                                            <div class="split-columns">
+                                                
+                                                <div class="column">
+                                                    <span class="branch-label">Acheteur Particulier (B2C)</span>
+                                                    <div class="leaf tax-dest">
+                                                        <h4>RÉGIME DE GUICHET OSS</h4>
+                                                        <p>Vente à distance intracommunautaire. Taxation obligatoire dans le pays de destination de l'acheteur au taux de ce dernier.</p>
+                                                        <div class="code-box">Scenario.OSS_B2C | TVA Pays Arrivée</div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="column">
+                                                    <span class="branch-label">Acheteur Professionnel (B2B)</span>
+                                                    <div class="node">
+                                                        <h3>Le numéro de TVA intracommunautaire est-il valide sur le système VIES ?</h3>
+                                                    </div>
+                                                    <div class="line-vertical"></div>
+                                                    <div class="split-container">
+                                                        <div class="split-line"></div>
+                                                        <div class="split-columns">
+                                                            
+                                                            <div class="column">
+                                                                <span class="branch-label">OUI (Valide)</span>
+                                                                <div class="leaf exonere">
+                                                                    <h4>LIVRAISON INTRA EXONÉRÉE</h4>
+                                                                    <p>Livraison intracommunautaire B2B exonérée de TVA. L'acheteur professionnel déclare l'autoliquidation.</p>
+                                                                    <div class="code-box">Scenario.B2B_REVERSE_CHARGE | 0%</div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="column">
+                                                                <span class="branch-label">NON (Invalide / Introuvable)</span>
+                                                                <div class="node">
+                                                                    <h3>Quel est le canal de vente utilisé ?</h3>
+                                                                </div>
+                                                                <div class="line-vertical"></div>
+                                                                <div class="split-container">
+                                                                    <div class="split-line"></div>
+                                                                    <div class="split-columns">
+                                                                        
+                                                                        <div class="column">
+                                                                            <span class="branch-label">Canal de Vente OSS</span>
+                                                                            <div class="leaf tax-dest">
+                                                                                <h4>RECLASSÉ EN B2C</h4>
+                                                                                <p>Reclassification automatique en vente à distance. Taxation au taux du pays d'arrivée de l'acheteur.</p>
+                                                                                <div class="code-box">Scenario.OSS_B2C | TVA Pays Arrivée</div>
+                                                                            </div>
+                                                                        </div>
+                                                                        
+                                                                        <div class="column">
+                                                                            <span class="branch-label">Hors Canal OSS</span>
+                                                                            <div class="leaf tax-depart">
+                                                                                <h4>B2B NON EXONÉRÉ</h4>
+                                                                                <p>L'exonération intra est refusée. Facturation et collecte de la TVA locale du pays de départ (expédition) de la marchandise.</p>
+                                                                                <div class="code-box">Scenario.DOMESTIC | TVA Pays Départ</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<div class="footnotes">
+    <h3>Notes et Informations Fiscales Complémentaires</h3>
+    
+    <div class="footnote-section">
+        <h4>* Territoires Exclus de la Zone de TVA Européenne (Exclusions Art. 6 Directive 2006/112/CE)</h4>
+        <p>Certains territoires, bien que politiquement rattachés à des États membres de l'UE, sont exclus du territoire fiscal et douanier commun. Toute livraison vers ces régions est traitée comme une <strong>exportation exonérée</strong> (0%) : Îles Canaries, Ceuta et Melilla (Espagne)[cite: 1, 9, 25], Heligoland et Büsingen (Allemagne), Åland (Finlande), Mont Athos (Grèce), et la Martinique, la Guadeloupe, Mayotte ou la Guyane (France, soumises à régimes spécifiques d'octroi de mer ou hors champ).</p>
+    </div>
+
+    <div class="footnote-section">
+        <h4>** Application de l'Article 194 de la Directive TVA (Autoliquidation B2B Interne)</h4>
+        <p>Lorsqu'une vente B2B domestique (sans franchissement de frontière) [cite: 8, 25, 48] est réalisée par un vendeur non établi dans le pays du stock, la législation de certains pays permet à l'acheteur d'autoliquider lui-même la TVA :
+        <br>• <strong>Pays l'appliquant :</strong> Espagne (ES), Italie (IT)[cite: 10, 24], Pologne (PL), République Tchèque (CZ), Slovaquie (SK), Hongrie (HU), Roumanie (RO).
+        <br>• <strong>Pays ne l'appliquant pas :</strong> France (FR), Allemagne (DE) [cite: 26], Autriche (AT), Belgique (BE), Pays-Bas (NL), Danemark (DK) — dans ces pays, le vendeur doit impérativement facturer la TVA locale et la déclarer lui-même[cite: 27].</p>
+    </div>
+</div>
+
+</body>
+</html>

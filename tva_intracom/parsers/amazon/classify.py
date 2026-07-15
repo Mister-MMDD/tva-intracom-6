@@ -35,6 +35,9 @@ class BuyerClassification:
     buyer_vat: str         # numéro normalisé (vide si B2C)
     buyer_type: object     # BuyerType.B2C ou BuyerType.B2B
     buyer_vat_valid: bool  # présence d'un numéro (pas validation VIES)
+    national_tax_id: str = ""  # NIF national brut conservé même si buyer_vat est vidé
+                                 # (cross-border sans préfixe EU, cf. Cas 2) — pour
+                                 # traçabilité dans le rapport VIES (jamais envoyé à VIES).
 
 
 def classify_buyer(
@@ -73,6 +76,7 @@ def classify_buyer(
             buyer_vat=vat_out,
             buyer_type=BuyerType.B2B,
             buyer_vat_valid=False,
+            national_tax_id=buyer_vat if departure != arrival else "",
         )
 
     # Cas 3 : vrai numéro TVA intracommunautaire (ou vide → B2C)

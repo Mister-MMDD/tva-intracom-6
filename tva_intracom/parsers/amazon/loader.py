@@ -345,6 +345,7 @@ def _process_rows(
             seller_country=seller_country.upper(),
             buyer_vat_valid=classification.buyer_vat_valid,
             buyer_vat_number=classification.buyer_vat,
+            national_tax_id=classification.national_tax_id,
             quantity=qty,
             original_currency=fx.original_currency,
             original_amount=fx.original_amount,
