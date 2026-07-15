@@ -256,20 +256,11 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # repartir sur un nonce/verifier neuf.
         st.session_state.pop(f"_sb_pkce_{_sb_provider}", None)
 
-        # 🔧 DEBUG TEMPORAIRE
-        with st.expander("🔧 Debug OAuth (temporaire)", expanded=True):
-            st.write("query_params complets:", dict(st.query_params))
-            st.write("sb_nonce reçu:", _sb_nonce)
-            st.write("diag lecture (avant consume):", tva_auth.debug_pkce_diagnostic(_sb_nonce))
-
         _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider) if _sb_nonce else None
-
-        with st.expander("🔧 Debug OAuth (suite)", expanded=True):
-            st.write("verifier retrouvé en base:", bool(_verifier))
-
         if not _verifier:
             st.error(_("oauth_state_lost_error"))
-            st.stop()  # 🔧 DEBUG: pas de clear() pour garder l'URL/expander visibles
+            st.query_params.clear()
+            st.stop()
         try:
             _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
             _finalize_login(_sb_result.email, cookie_manager)
@@ -277,7 +268,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.rerun()
         except Exception as _sb_err:
             st.error(_("oauth_login_error", error=str(_sb_err)))
-            st.stop()  # 🔧 DEBUG: pas de clear() pour garder l'URL/expander visibles
+            st.query_params.clear()
+            st.stop()
 
 
     # ── Interface de connexion non-authentifiée ────────────────────────────
@@ -363,9 +355,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                         st.session_state[_cache_key] = (_nonce, _verifier)
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}&sb_nonce={_nonce}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
-                    st.caption(f"🔧 nonce: {_nonce[:12]}… ({'cache' if _cached else 'neuf'})")
-                    if not _cached:
-                        st.caption(f"🔧 diag écriture: {tva_auth.debug_pkce_diagnostic(_nonce)}")
                     st.link_button(_(_label_key), _oauth_url, use_container_width=True)
                 except Exception:
                     st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", use_container_width=True, disabled=True)

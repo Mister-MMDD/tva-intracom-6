@@ -76,9 +76,17 @@ tva-intracom/
 │   ├── __init__.py
 │   ├── amazon_adapter.py             Passerelle de compatibilité entre les anciens modèles de données et le nouveau package.
 │   ├── amazon_spapi.py             Intégration Amazon Selling Partner API (SP-API) — OAuth 2.0 & Reports.
-│   ├── auth.py                       Authentification magic link + jeton de session
-│   │                                 (Postgres/Supabase), envoi d'e-mail via l'API Resend.
-│   │                                 Gère le chiffrement Fernet des PII (Amazon DPP).
+│   ├── auth.py                       Authentification historique par magic link + jeton de
+│   │                                 session (Postgres/Supabase), envoi d'e-mail via l'API
+│   │                                 Resend. Gère le chiffrement Fernet des PII (Amazon DPP,
+│   │                                 y compris le refresh_token Amazon SP-API). Héberge aussi
+│   │                                 le stockage serveur des verifiers PKCE OAuth (voir
+│   │                                 auth_supabase.py) dans la table tva_oauth_pkce.
+│   ├── auth_supabase.py              Authentification par mot de passe et OAuth (Google,
+│   │                                 Microsoft, GitHub, Amazon via Custom OAuth Provider)
+│   │                                 déléguée à Supabase Auth (API GoTrue REST). Flux PKCE
+│   │                                 uniquement (redirection avec ?code= en query param,
+│   │                                 pas de fragment d'URL illisible côté serveur).
 │   ├── billing.py                    Facturation Stripe (PAYG + Pro + Cabinet, Customer
 │   │                                 Portal, quotas SIREN, grille tarifaire, webhooks,
 │   │                                 quotas d'export en base Postgres/Supabase).
@@ -109,8 +117,12 @@ tva-intracom/
 │   │   ├── theme.py                  Configuration de page + CSS de marque (apply_theme())
 │   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
 │   │   │                             _gated_preview_table, _fec_period_end_date…)
-│   │   ├── auth_flow.py              Authentification complète : magic link, cookie de session,
-│   │   │                             callback OAuth Amazon SP-API, écran de connexion/déconnexion
+│   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth
+│   │   │                             (Google/Microsoft/GitHub/Amazon) via Supabase Auth,
+│   │   │                             cookie de session, callback OAuth Amazon SP-API
+│   │   │                             (liaison de compte, distincte du login Amazon), écran
+│   │   │                             de connexion/déconnexion. Lien magique conservé dans le
+│   │   │                             code mais désactivé côté UI ("en préparation").
 │   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, catalogue produits,
 │   │   │                             abonnements & forfaits Stripe)
 │   │   ├── billing_gate.py           Détection de période, gating crédit PAYG/abonnement/quota
@@ -166,8 +178,9 @@ tva-intracom/
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
-| `auth.py` | Authentification par magic link (Postgres/Supabase), envoi d'e-mail via l'API Resend |
-| `amazon_spapi.py` | Intégration Amazon Selling Partner API (SP-API) : OAuth 2.0, échange de code, rafraîchissement de token et identification du vendeur |
+| `auth.py` | Authentification historique par magic link (Postgres/Supabase, désactivée côté UI, voir plus bas), envoi d'e-mail via l'API Resend, chiffrement Fernet du refresh_token Amazon SP-API, stockage serveur des verifiers PKCE OAuth (`tva_oauth_pkce`) |
+| `auth_supabase.py` | Authentification par mot de passe et OAuth social (Google, Microsoft, GitHub, Amazon) via l'API Supabase Auth (GoTrue REST), flux PKCE |
+| `amazon_spapi.py` | Intégration Amazon Selling Partner API (SP-API) : OAuth 2.0, échange de code, rafraîchissement de token et identification du vendeur — sert à la **liaison de compte** pour la récupération des rapports de vente, distincte de la connexion Amazon de l'écran de login (voir section Authentification) |
 | `billing.py` | Facturation Stripe : Checkout PAYG, Pro et Cabinet (mensuel/annuel, paliers dégressifs), Customer Portal, quotas SIREN par compte, grille tarifaire lue en direct sur Stripe, traitement des webhooks, quotas stockés en Postgres/Supabase, et **rattachement anti-abus Compte Amazon <-> SIREN** |
 | `app.py` | Orchestrateur Streamlit (racine du dépôt, pas dans `tva_intracom/`) — upload, calcul (avec cache `st.session_state`), construction du contexte, appel des modules `ui/` |
 
@@ -213,8 +226,8 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
 (`tva_users.home_country`, défaut `"FR"`).
 
 - **Sélecteur de langue avant connexion** : `language_selector()` est
-  désormais appelé avant l'écran de connexion (magic link), pour que
-  l'interface entière — y compris l'écran de connexion lui-même — s'affiche
+  désormais appelé avant l'écran de connexion, pour que l'interface entière
+  — y compris l'écran de connexion lui-même (mot de passe, OAuth) — s'affiche
   dans la langue choisie, sans attendre l'authentification.
 - **Impact sur le moteur fiscal** : `sale.seller_country` (déjà présent sur
   chaque `Sale`, transmis via le paramètre `seller_country` de
@@ -261,15 +274,50 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
 
 
 
-- **Auth** : connexion par lien magique envoyé par e-mail (API Resend), jeton à usage
-  unique valable 15 minutes, comptes stockés dans Supabase (table `tva_users`).
-  Un jeton de session distinct (30 jours, réutilisable, porté dans l'URL
-  `?session_token=`) permet de rester connecté après une redirection externe
-  (paiement Stripe) ou un rafraîchissement de page, sans consommer un nouveau
-  lien magique à usage unique. En développement local uniquement, le secret
-  `LOCAL_DEV_BYPASS_AUTH` (jamais défini en production, à réserver au
-  `.streamlit/secrets.toml` local non commité) permet de se connecter avec
-  n'importe quelle adresse e-mail sans passer par Resend.
+- **Auth** : depuis juillet 2026, authentification déléguée à **Supabase Auth**
+  (API GoTrue REST, module `auth_supabase.py`) :
+  - **Mot de passe** : signup/signin classiques (`/auth/v1/signup`,
+    `/auth/v1/token?grant_type=password`).
+  - **OAuth social** : **Google**, **Microsoft** (provider Supabase `azure`),
+    **GitHub**, et **Amazon** (Login with Amazon, configuré comme *Custom OAuth
+    Provider* Supabase — endpoints manuels ou auto-discovery via
+    `https://www.amazon.com`, distinct de la connexion SP-API de la barre
+    latérale qui sert à la récupération des rapports de vente). Flux **PKCE**
+    exclusivement (Supabase renvoie un `?code=` en paramètre de requête classique,
+    lisible côté serveur — le mode implicite renverrait les jetons dans un
+    fragment d'URL `#access_token=...`, invisible pour Streamlit).
+  - **Stockage du verifier PKCE** : table Postgres dédiée `tva_oauth_pkce`
+    (nonce → verifier, purge automatique après 15 min), et **non** un cookie
+    navigateur — un cookie posé depuis l'iframe du composant
+    `extra_streamlit_components` ne s'est pas montré fiable pour survivre à la
+    redirection externe vers le fournisseur OAuth. Le nonce transite dans le
+    paramètre `redirect_to` et revient dans l'URL de callback
+    (`?sb_provider=...&sb_nonce=...&code=...`). Un cache `session_state` évite
+    de regénérer un nonce à chaque rerun Streamlit tant que le login n'a pas
+    abouti.
+  - Un utilisateur authentifié par Supabase Auth (mot de passe ou OAuth) est
+    mappé sur un `tva_users` local par e-mail (`tva_auth.get_or_create_user()`)
+    — `tva_users` reste la source de vérité pour `home_country`, langue,
+    devise d'affichage, SIREN, etc. ; Supabase Auth ne sert qu'à vérifier
+    l'identité.
+  - **Lien magique** : le code historique (`tva_auth.create_magic_link` /
+    `send_magic_link_email`, API Resend) reste dans le dépôt mais son bouton
+    est **désactivé côté écran de connexion** ("en préparation") le temps
+    d'une éventuelle bascule vers le magic link natif de Supabase Auth.
+  - Jeton de session applicatif distinct (30 jours, réutilisable, porté par
+    cookie `tva_session_token`) permettant de rester connecté après une
+    redirection externe (OAuth, paiement Stripe) ou un rafraîchissement de
+    page, quelle que soit la méthode de connexion utilisée. En développement
+    local uniquement, le secret `LOCAL_DEV_BYPASS_AUTH` (jamais défini en
+    production, à réserver au `.streamlit/secrets.toml` local non commité)
+    permet de se connecter avec n'importe quelle adresse e-mail.
+  - **Secrets requis** : `SUPABASE_URL`, `SUPABASE_ANON_KEY` (clé **anon**,
+    jamais `service_role`) en plus de `SUPABASE_DB_URL` (connexion Postgres
+    directe, utilisée par `auth.py`/`billing.py`/`vies_engine.py`, à ne pas
+    confondre avec l'API Auth). Configuration côté tableau de bord Supabase :
+    Authentication > Providers (activer Email, Google, Azure, GitHub, et le
+    Custom Provider Amazon), Authentication > URL Configuration (ajouter
+    `APP_BASE_URL` aux Redirect URLs).
 - **Facturation** : Stripe Checkout, 3 forfaits —
   - **Pay-as-you-go** : un crédit d'export correspond à une période fiscale
     (`period_label`, ex. `2026-Q2`) débloquée pour un utilisateur donné. Le
@@ -386,21 +434,21 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 
 *   **Backend Postgres (Supabase)** : Remplace définitivement l'ancien cache SQLite local (qui n'était pas persistant entre deux redéploiements sur Streamlit Cloud). Il utilise le pool de connexions `psycopg2-binary` et partage la variable d'environnement `SUPABASE_DB_URL` avec les modules d'authentification et de facturation.
 *   **Architecture à trois niveaux (Cascade de cache)** :
-    1.  **vies_scope_cache** : Cache PRIVÉ par "scope" (compte isolé ou domaine d'entreprise). Consulté en premier pour garantir une isolation stricte des données de tes clients ou cabinets.
-    2.  **vies_global_cache** : Cache PARTAGÉ entre tous les comptes du SaaS, alimenté uniquement par les vérifications automatiques réussies auprès de l'UE. Sert de filet de sécurité mutualisé ultra-rapide.
-    3.  **API VIES (ec.europa.eu)** : Interrogée en dernier recours si le numéro est inconnu ou expiré dans les deux caches précédents.
+  1.  **vies_scope_cache** : Cache PRIVÉ par "scope" (compte isolé ou domaine d'entreprise). Consulté en premier pour garantir une isolation stricte des données de tes clients ou cabinets.
+  2.  **vies_global_cache** : Cache PARTAGÉ entre tous les comptes du SaaS, alimenté uniquement par les vérifications automatiques réussies auprès de l'UE. Sert de filet de sécurité mutualisé ultra-rapide.
+  3.  **API VIES (ec.europa.eu)** : Interrogée en dernier recours si le numéro est inconnu ou expiré dans les deux caches précédents.
 *   **Résolution intelligente de la portée (Scope ID)** :
-    *   *Messageries grand public* (`@gmail.com`, `@outlook.fr`, etc.) : Le cache est strictement isolé par utilisateur (`user:<email>`).
-    *   *Domaines professionnels* (`@cabinet-comptable.fr`) : Le cache est partagé entre tous les collaborateurs d'une même structure (`domain:<domaine>`).
+  *   *Messageries grand public* (`@gmail.com`, `@outlook.fr`, etc.) : Le cache est strictement isolé par utilisateur (`user:<email>`).
+  *   *Domaines professionnels* (`@cabinet-comptable.fr`) : Le cache est partagé entre tous les collaborateurs d'une même structure (`domain:<domaine>`).
 *   **Piste d'audit (vies_check_history)** : Table au format *append-only* (jamais écrasée). Chaque scope conserve sa propre preuve horodatée de la date à laquelle il a validé un statut VIES (y compris s'il l'a récupéré via le cache global), indispensable pour justifier une exonération B2B lors d'un contrôle fiscal.
 *   **Classifications manuelles (vies_manual_overrides)** : Permet à l'utilisateur de forcer le statut d'un numéro indisponible ou inconclusif. Ces overrides sont strictement privés, ont une durée de vie indexée sur le TTL global, et **ne remontent jamais** dans le cache global.
 *   **Blocage de conformité** : Téléchargements bloqués si des numéros TVA B2B
     demeurent non classifiés (erreur serveur UE) pour garantir l'exactitude
     fiscale des rapports.
-*   **Performances et résilience** : 
-    *   Validation en lot via 25 workers `ThreadPoolExecutor` en parallèle avec barre de progression.
-    *   Système de retry avec *backoff exponentiel* (1s ➔ 2s ➔ 4s) sur erreurs transitoires.
-    *   *Batch degradation detection* : Si le serveur de l'UE renvoie trop de réponses vides sous forte charge, le moteur bascule sur le dernier état valide en cache (mode dégradé) au lieu d'invalider à tort les clients B2B.
+*   **Performances et résilience** :
+  *   Validation en lot via 25 workers `ThreadPoolExecutor` en parallèle avec barre de progression.
+  *   Système de retry avec *backoff exponentiel* (1s ➔ 2s ➔ 4s) sur erreurs transitoires.
+  *   *Batch degradation detection* : Si le serveur de l'UE renvoie trop de réponses vides sous forte charge, le moteur bascule sur le dernier état valide en cache (mode dégradé) au lieu d'invalider à tort les clients B2B.
 *   **Normalisation native** : La fonction `normalize_full_vat()` évite les faux rejets et gère les structures complexes (ex: Espagne NIF/CIF, alias EL/GR, ou ventes transfrontalières avec numéro d'un tiers pays).
 
 ### Conversion devises
@@ -719,6 +767,19 @@ conversion BCE.
 
 ## Roadmap
 
+- ~~Authentification mono-canal (lien magique uniquement)~~ **Migré** :
+  authentification déléguée à Supabase Auth — mot de passe, et OAuth Google/
+  Microsoft/GitHub/Amazon (Custom Provider). Voir section « Auth » ci-dessus
+  pour le détail (flux PKCE, stockage serveur du verifier dans
+  `tva_oauth_pkce`). Lien magique conservé dans le code mais désactivé côté
+  écran de connexion. Au passage, le refresh_token Amazon SP-API — stocké en
+  clair jusque-là malgré le chiffrement Fernet déjà en place pour d'autres PII
+  — est désormais chiffré au repos comme le reste (`auth.py`).
+  ⚠️ Le Custom OAuth Provider Amazon suppose une app **Login with Amazon**
+  (LWA) distincte de l'app SP-API utilisée par ailleurs pour la récupération
+  des rapports de vente (barre latérale) — deux usages différents, deux
+  enregistrements différents côté Amazon.
+
 - ~~Vendeur toujours supposé établi en France~~ **Corrigé** : `engine.py`
   comparait plusieurs classifications (domestique vs immatriculation locale)
   à un littéral `"FR"` figé au lieu de `sale.seller_country`. Un nouveau
@@ -782,20 +843,20 @@ conversion BCE.
   ajoutant une ligne parasite) — supprimé.
 
 
-  produit qu'un rapport HTML (`generate_ca3_html_report_v2`) destiné à une
-  saisie manuelle sur le portail impots.gouv.fr (mode EFI) ou par un cabinet
-  comptable. Un export au format **EDI-TVA** (norme utilisée par les
-  partenaires EDI homologués DGFIP pour la télétransmission directe des CA3)
-  permettrait une automatisation complète pour les cabinets comptables gérant
-  de multiples dossiers. Cela suppose : l'obtention du cahier des charges
-  EDI-TVA auprès de la DGFIP ou d'un partenaire EDI, un partenariat ou une
-  homologation (la télétransmission directe n'est pas ouverte à un éditeur
-  non homologué), et la gestion de la signature/authentification du canal
-  EDI. **Alternative plus légère déjà implémentée** : `fec_export.py` génère
-  un journal des ventes au format FEC consommable par les logiciels
-  comptables existants (voir section « Export comptable (FEC) » ci-dessus) —
-  sans viser la télétransmission directe. L'EDI-TVA proprement dit (dépôt
-  automatique sur le portail DGFIP) reste non implémenté à ce jour.
+produit qu'un rapport HTML (`generate_ca3_html_report_v2`) destiné à une
+saisie manuelle sur le portail impots.gouv.fr (mode EFI) ou par un cabinet
+comptable. Un export au format **EDI-TVA** (norme utilisée par les
+partenaires EDI homologués DGFIP pour la télétransmission directe des CA3)
+permettrait une automatisation complète pour les cabinets comptables gérant
+de multiples dossiers. Cela suppose : l'obtention du cahier des charges
+EDI-TVA auprès de la DGFIP ou d'un partenaire EDI, un partenariat ou une
+homologation (la télétransmission directe n'est pas ouverte à un éditeur
+non homologué), et la gestion de la signature/authentification du canal
+EDI. **Alternative plus légère déjà implémentée** : `fec_export.py` génère
+un journal des ventes au format FEC consommable par les logiciels
+comptables existants (voir section « Export comptable (FEC) » ci-dessus) —
+sans viser la télétransmission directe. L'EDI-TVA proprement dit (dépôt
+automatique sur le portail DGFIP) reste non implémenté à ce jour.
 
 - ~~Territoire Monaco (MC) non géré~~ **Corrigé** : une vente expédiée depuis
   un stock français vers Monaco tombait à tort en `EXPORT` (exonérée) faute
@@ -828,8 +889,8 @@ conversion BCE.
   - Crédit période précédente : **Ligne 22** (8001), pas "Ligne 27" (qui est
     en réalité la sortie "crédit à reporter" vers la période suivante, pas
     l'entrée du crédit précédent)
-  ⚠️ Le module suppose un vendeur établi en France MÉTROPOLITAINE — le cas
-  DOM (taux 8,5 %/2,1 %, lignes 10/11) n'est pas géré.
+    ⚠️ Le module suppose un vendeur établi en France MÉTROPOLITAINE — le cas
+    DOM (taux 8,5 %/2,1 %, lignes 10/11) n'est pas géré.
 
 - ~~Robustesse pool de connexions VIES (`vies.py`)~~ **Corrigé** : le pool
   Postgres utilisé pour les vérifications VIES parallèles (jusqu'à 25
