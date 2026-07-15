@@ -232,15 +232,20 @@ def _smart_money_df(
             continue
 
         col_lower = col.lower()
+        # Les colonnes explicitement classées (note_cols) priment toujours sur
+        # l'heuristique par mot-clé : une colonne comme "N° TVA rejeté" contient
+        # "tva" mais n'est pas un montant — sans cette priorité, elle serait
+        # convertie en float par _fmt (ex. un n° de TVA italien purement
+        # numérique s'affiche alors comme un montant en euros).
+        if col in n_cols:
+            column_config[col] = st.column_config.TextColumn(col)
         # Pré-formatage dans le df : on remplace les floats par des strings formatées
-        if col in m_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total", "remboursé"]):
+        elif col in m_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total", "remboursé"]):
             column_config[col] = st.column_config.TextColumn(col)
             # On applique le formatage smart sur la colonne
             df[col] = df[col].apply(_fmt)
         elif col in p_cols or any(k in col_lower for k in ["taux", "pct", "rate"]):
             column_config[col] = _pct_col(col)
-        elif col in n_cols:
-            column_config[col] = st.column_config.TextColumn(col)
             
     return column_config
 

@@ -382,15 +382,24 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         _col_user, _col_logout = st.columns([5, 1])
         _col_user.caption(_("logged_in_as", email=_current_user.email))
         if _col_logout.button(_("logout_btn"), key="btn_logout"):
+            # 1. Invalidation côté serveur
+            _current_token = cookie_manager.get("tva_session_token")
+            if _current_token:
+                try:
+                    tva_auth.delete_session_token(_current_token)
+                except Exception:
+                    pass
+            
+            # 2. Nettoyage session locale
             st.session_state["auth_user"] = None
             st.session_state["manual_logout"] = True
+            
+            # 3. Suppression du cookie (asynchrone côté client)
             try:
-                # On écrase le cookie par une valeur invalide pour bloquer la reconnexion auto (F5)
-                cookie_manager.set("tva_session_token", "LOGGED_OUT",
-                                   expires_at=datetime.now() + timedelta(days=30),
-                                   key=f"logout_set_{int(time.time())}")
+                cookie_manager.delete("tva_session_token", key=f"logout_del_{int(time.time())}")
             except Exception:
                 pass
+
             st.query_params.clear()
             st.rerun()
 

@@ -484,18 +484,16 @@ def get_user_by_session_token(token: str) -> Optional[User]:
     if (time.time() - created_at) > SESSION_TOKEN_TTL_SECONDS:
         return None
 
-    def _fetch_user(conn, cur):
-        cur.execute(
-            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency FROM tva_users WHERE id=%s",
-            (user_id,),
-        )
-        return cur.fetchone()
+    return get_user_by_id(user_id)
 
-    urow = _run(_fetch_user)
-    if not urow:
-        return None
-    return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3],
-                home_country=urow[4] or "FR", language=urow[5] or "fr", display_currency=urow[6] or "DEFAULT")
+
+def delete_session_token(token: str) -> None:
+    """Supprime un jeton de session (déconnexion)."""
+    def _fn(conn, cur):
+        cur.execute("DELETE FROM tva_session_tokens WHERE token=%s", (token,))
+        conn.commit()
+
+    _run(_fn)
 
 
 def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token: str) -> None:

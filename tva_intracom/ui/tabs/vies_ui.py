@@ -198,6 +198,7 @@ def render_vies(ctx: TabContext) -> None:
                 return _("vies_expl_cross_border")
 
             fraud_data = [{_("vies_col_id"): (getattr(r, "display_id", "") or r.sale_id), _("vies_col_rejected_vat"): r.buyer_vat_number,
+                _("vies_col_origin"): _country_label(getattr(r, "stock_country", "")),
                 _("vies_col_dest"): _country_label(r.buyer_country), _("vies_col_ht"): float(r.amount_ht),
                 _("vies_col_recovered_vat"): float(r.vat_avoided),
                 _("vies_col_status"): _vies_statut(r), _("vies_col_expl"): _vies_explication(r)}
@@ -213,7 +214,8 @@ def render_vies(ctx: TabContext) -> None:
             _fraud_df_filt = _render_filter_bar(_fraud_df_full, "vies_reclass")
             
             _fraud_cfg = _smart_money_df(_fraud_df_filt,
-                money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")])
+                money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
+                note_cols=[_("vies_col_rejected_vat"), _("vies_col_id")])
             _gated_preview_table(_fraud_df_filt, _can_export, column_config=_fraud_cfg)
 
             if avec_delta:
@@ -228,7 +230,7 @@ def render_vies(ctx: TabContext) -> None:
 
             import io as _io, csv as _csv
             buf = _io.StringIO(); w = _csv.writer(buf, delimiter=";")
-            w.writerow([_("vies_col_id"), _("vies_col_rejected_vat"), _("vies_col_dest"), _("vies_col_ht"), _("vies_col_recovered_vat"), _("vies_col_status"), _("vies_col_expl")])
+            w.writerow([_("vies_col_id"), _("vies_col_rejected_vat"), _("vies_col_origin"), _("vies_col_dest"), _("vies_col_ht"), _("vies_col_recovered_vat"), _("vies_col_status"), _("vies_col_expl")])
             for r in vies_summary.reclassifications:
                 if getattr(r, "is_domestic_reverse_charge", False):
                     statut_csv = _("vies_status_reverse_charge"); expl_csv = _("vies_expl_reverse_charge", country=r.buyer_country)
@@ -236,7 +238,7 @@ def render_vies(ctx: TabContext) -> None:
                     statut_csv = _("vies_status_already_taxed"); expl_csv = _("vies_expl_already_taxed")
                 else:
                     statut_csv = _("vies_status_recovered"); expl_csv = _("vies_expl_cross_border")
-                w.writerow([(getattr(r, "display_id", "") or r.sale_id), r.buyer_vat_number, _country_label(r.buyer_country),
+                w.writerow([(getattr(r, "display_id", "") or r.sale_id), r.buyer_vat_number, _country_label(getattr(r, "stock_country", "")), _country_label(r.buyer_country),
                     str(r.amount_ht).replace(".",","), str(r.vat_avoided).replace(".",","),
                     statut_csv, expl_csv])
             _gated_download(_("vies_dl_btn"),

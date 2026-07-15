@@ -163,6 +163,24 @@ section h2 {
     font-weight: 600;
 }
 
+/* Lien croisé Glossaire -> Cas pratiques */
+.cross-link {
+    margin-top: -8px;
+    margin-bottom: 12px;
+}
+
+.cross-link a {
+    color: var(--primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.cross-link a:hover {
+    text-decoration: underline;
+    color: var(--primary-hover);
+}
+
 /* Badges Spécifiques pour les Cas Pratiques et Régimes */
 .card strong {
     color: var(--primary);

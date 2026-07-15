@@ -4,7 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FAQ – Moteur TVA Intracommunautaire</title>
+    <meta name="description" content="Questions fréquentes sur le moteur TVA Intracommunautaire : formats Amazon, VIES, taux de TVA, facturation, exports de déclaration.">
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": "Quels formats Amazon sont supportés ?", "acceptedAnswer": {"@type": "Answer", "text": "Les formats 1 à 5, détectés automatiquement à partir du header, avec pré-agrégation pour le format V5."}},
+            {"@type": "Question", "name": "Le moteur gère-t-il les ventes où Amazon collecte la TVA ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui, les scénarios deemed supplier sont identifiés et exclus des déclarations du vendeur."}},
+            {"@type": "Question", "name": "Comment sont gérés les numéros de TVA acheteurs ?", "acceptedAnswer": {"@type": "Answer", "text": "Via l'API VIES officielle, avec cache PostgreSQL, historique d'audit horodaté et reclassification B2B/B2C si nécessaire."}},
+            {"@type": "Question", "name": "Pourquoi la piste d'audit est-elle cruciale ?", "acceptedAnswer": {"@type": "Answer", "text": "En cas de contrôle fiscal sur une vente B2B exonérée, vous devez prouver que le numéro de TVA du client était valide au moment de la vente. Le moteur archive systématiquement cette preuve."}},
+            {"@type": "Question", "name": "Le moteur gère-t-il les changements de taux de TVA ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui, le système intègre l'historique des taux et applique le bon taux selon la date de la transaction."}},
+            {"@type": "Question", "name": "Le moteur produit-il des fichiers prêts pour la déclaration ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi-onglets, FEC comptable."}},
+            {"@type": "Question", "name": "Comment fonctionne la facturation ?", "acceptedAnswer": {"@type": "Answer", "text": "Stripe Checkout (PAYG, Pro, Cabinet), avec quotas par période et par SIREN, gérés dans Supabase."}}
+        ]
+    }
+    </script>
 </head>
 
 <body>
@@ -30,39 +48,60 @@
     <p>Questions fréquentes sur l’usage du moteur avec Amazon et les marketplaces.</p>
 </header>
 
-<div class="card">
+<div class="card interactive" data-open="false">
     <h2>Quels formats Amazon sont supportés ?</h2>
-    <p>Les formats 1 à 5, détectés automatiquement à partir du header, avec pré‑agrégation pour le format V5.</p>
+    <div class="details">
+        <p>Les formats 1 à 5, détectés automatiquement à partir du header, avec pré‑agrégation pour le format V5.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
 </div>
 
-<div class="card">
+<div class="card interactive" data-open="false">
     <h2>Le moteur gère‑t‑il les ventes où Amazon collecte la TVA ?</h2>
-    <p>Oui, les scénarios “deemed supplier” sont identifiés et exclus des déclarations du vendeur.</p>
+    <div class="details">
+        <p>Oui, les scénarios “deemed supplier” sont identifiés et exclus des déclarations du vendeur.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
 </div>
 
-<div class="card">
+<div class="card interactive" data-open="false">
     <h2>Comment sont gérés les numéros de TVA acheteurs ?</h2>
-    <p>Via l'API <strong>VIES</strong> officielle, avec cache PostgreSQL, historique d’audit (piste d'audit horodatée) et reclassification B2B/B2C si nécessaire.</p>
+    <div class="details">
+        <p>Via l'API <strong>VIES</strong> officielle, avec cache PostgreSQL, historique d’audit (piste d'audit horodatée) et reclassification B2B/B2C si nécessaire.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
 </div>
 
-<div class="card">
+<div class="card interactive" data-open="false">
     <h2>Pourquoi la piste d'audit est-elle cruciale ?</h2>
-    <p>En cas de contrôle fiscal sur une vente B2B exonérée, vous devez prouver que le numéro de TVA du client était valide <strong>au moment de la vente</strong>. Notre moteur archive systématiquement cette preuve pour vous.</p>
+    <div class="details">
+        <p>En cas de contrôle fiscal sur une vente B2B exonérée, vous devez prouver que le numéro de TVA du client était valide <strong>au moment de la vente</strong>. Notre moteur archive systématiquement cette preuve pour vous.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
 </div>
 
-<div class="card">
+<div class="card interactive" data-open="false">
     <h2>Le moteur gère-t-il les changements de taux de TVA ?</h2>
-    <p>Oui, le système intègre l'historique des taux (ex: passage de l'Estonie à 24% ou de la Slovaquie à 23%) et applique le bon taux selon la date de la transaction.</p>
+    <div class="details">
+        <p>Oui, le système intègre l'historique des taux (ex: passage de l'Estonie à 24% ou de la Slovaquie à 23%) et applique le bon taux selon la date de la transaction.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
 </div>
 
-<div class="card">
+<div class="card interactive" data-open="false">
     <h2>Le moteur produit‑il des fichiers prêts pour la déclaration ?</h2>
-    <p>Oui : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi‑onglets, FEC comptable.</p>
+    <div class="details">
+        <p>Oui : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi‑onglets, FEC comptable.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
 </div>
 
-<div class="card">
+<div class="card interactive" data-open="false">
     <h2>Comment fonctionne la facturation ?</h2>
-    <p>Stripe Checkout (PAYG, Pro, Cabinet), avec quotas par période et par SIREN, gérés dans Supabase.</p>
+    <div class="details">
+        <p>Stripe Checkout (PAYG, Pro, Cabinet), avec quotas par période et par SIREN, gérés dans Supabase.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
 </div>
 
 <footer>

@@ -856,6 +856,7 @@ def compute_all_with_vies(
                 buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
                 vat_avoided=Decimal("0.00"), reason=reason,
                 display_id=getattr(sale, "display_id", ""),
+                stock_country=sale.stock_country,
             ))
 
             # IMPORTANT : Pour les ventes B2B cross-border dont le n° TVA est invalide,
@@ -905,6 +906,7 @@ def compute_all_with_vies(
             vat_delta=real_vat_avoided,
             is_domestic_reverse_charge=is_dom_rc,
             display_id=reclass.display_id,
+            stock_country=reclass.stock_country,
         )
 
     return results, vies_summary, oss_summary

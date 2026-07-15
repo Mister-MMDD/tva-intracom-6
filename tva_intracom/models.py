@@ -159,6 +159,7 @@ class ViesReclassification:
     vat_delta: Decimal = Decimal("0.00")
     is_domestic_reverse_charge: bool = False
     display_id: str = ""
+    stock_country: str = ""
 
 
 @dataclass
