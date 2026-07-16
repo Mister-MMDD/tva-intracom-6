@@ -39,6 +39,18 @@
 </header>
 
 <div class="container" style="max-width: 100%; padding: 0 24px;">
+    <div class="footnote-section" style="max-width: 700px; margin: 0 auto 20px;">
+        <h4>⚠️ Cas particulier non représenté dans l'arbre ci-dessous : vendeur établi hors UE</h4>
+        <p>
+            L'arbre part de la localisation du <strong>stock</strong>. Mais si le <strong>vendeur</strong>
+            lui-même n'est pas établi dans l'UE (indépendamment d'où se trouve son stock), et que la vente
+            est B2C vers un acheteur UE, le régime <span class="code-box">Scenario.DEEMED_SUPPLIER</span>
+            s'applique : c'est la marketplace (ex. Amazon) qui collecte et reverse la TVA — le vendeur
+            tiers est exonéré de collecte. Ce cas prévaut sur toutes les branches ci-dessous.
+        </p>
+    </div>
+</div>
+<div class="container" style="max-width: 100%; padding: 0 24px;">
     <p style="text-align:center; color: var(--text-muted); font-size: 0.85rem; max-width: 700px; margin: 0 auto 10px;">
         Ce schéma est un diagramme visuel complexe. Pour une alternative textuelle détaillée
         des mêmes règles, consultez le <a href="regimes.html">comparatif des régimes de TVA</a>
@@ -191,7 +203,7 @@
                                                             <div class="column">
                                                                 <span class="branch-label">NON (Invalide / Introuvable)</span>
                                                                 <div class="node">
-                                                                    <h3>Quel est le canal de vente utilisé ?</h3>
+                                                                    <h3>Le pays de l'acheteur figure-t-il dans la liste des pays à autoliquidation domestique (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV) ? ***</h3>
                                                                 </div>
                                                                 <div class="line-vertical"></div>
                                                                 <div class="split-container">
@@ -199,19 +211,19 @@
                                                                     <div class="split-columns">
                                                                         
                                                                         <div class="column">
-                                                                            <span class="branch-label">Canal de Vente OSS</span>
+                                                                            <span class="branch-label">NON (Hors liste)</span>
                                                                             <div class="leaf tax-dest">
-                                                                                <h4>RECLASSÉ EN B2C</h4>
-                                                                                <p>Reclassification automatique en vente à distance. Taxation au taux du pays d'arrivée de l'acheteur.</p>
+                                                                                <h4>RECLASSÉ EN B2C (OSS)</h4>
+                                                                                <p>Aucun régime domestique concurrent : la vente est reclassifiée en vente à distance et suit le régime OSS normal. Taxation au taux du pays d'arrivée de l'acheteur.</p>
                                                                                 <div class="code-box">Scenario.OSS_B2C | TVA Pays Arrivée</div>
                                                                             </div>
                                                                         </div>
                                                                         
                                                                         <div class="column">
-                                                                            <span class="branch-label">Hors Canal OSS</span>
+                                                                            <span class="branch-label">OUI (Pays de la liste)</span>
                                                                             <div class="leaf tax-depart">
                                                                                 <h4>B2B NON EXONÉRÉ</h4>
-                                                                                <p>L'exonération intra est refusée. Facturation et collecte de la TVA locale du pays de départ (expédition) de la marchandise.</p>
+                                                                                <p>L'art.194 du pays de l'acheteur ne s'applique qu'au national, pas en cross-border : l'exonération intra (Art. 138) est refusée. Facturation et collecte de la TVA locale du pays de départ (expédition) de la marchandise, par le vendeur.</p>
                                                                                 <div class="code-box">Scenario.DOMESTIC | TVA Pays Départ</div>
                                                                             </div>
                                                                         </div>
@@ -250,8 +262,13 @@
     <div class="footnote-section">
         <h4>** Application de l'Article 194 de la Directive TVA (Autoliquidation B2B Interne)</h4>
         <p>Lorsqu'une vente B2B domestique (sans franchissement de frontière) [cite: 8, 25, 48] est réalisée par un vendeur non établi dans le pays du stock, la législation de certains pays permet à l'acheteur d'autoliquider lui-même la TVA :
-        <br>• <strong>Pays l'appliquant :</strong> Espagne (ES), Italie (IT)[cite: 10, 24], Pologne (PL), République Tchèque (CZ), Slovaquie (SK), Hongrie (HU), Roumanie (RO).
+        <br>• <strong>Pays l'appliquant :</strong> Espagne (ES), Italie (IT)[cite: 10, 24], Pologne (PL), République Tchèque (CZ), Slovaquie (SK), Hongrie (HU), Roumanie (RO), Bulgarie (BG), Croatie (HR), Lituanie (LT), Lettonie (LV).
         <br>• <strong>Pays ne l'appliquant pas :</strong> France (FR), Allemagne (DE) [cite: 26], Autriche (AT), Belgique (BE), Pays-Bas (NL), Danemark (DK) — dans ces pays, le vendeur doit impérativement facturer la TVA locale et la déclarer lui-même[cite: 27].</p>
+    </div>
+
+    <div class="footnote-section">
+        <h4>*** Numéro TVA invalide en B2B cross-border : l'Article 194 ne s'applique jamais</h4>
+        <p>Contrairement à une idée reçue, l'Article 194 (autoliquidation domestique) ne concerne que les ventes <strong>sans</strong> franchissement de frontière (voir note ** ci-dessus). En cross-border, un numéro de TVA acheteur invalide ou introuvable sur VIES fait toujours perdre l'exonération intracommunautaire (Art. 138), quel que soit le pays de l'acheteur — la vente reste bien une expédition transfrontalière. Seul le lieu de taxation qui en résulte diffère : pays de départ (Art. 31) si l'acheteur est dans un pays de la liste ci-dessus, ou reclassification OSS au pays de destination (Art. 33) sinon.</p>
     </div>
 </div>
         </div>

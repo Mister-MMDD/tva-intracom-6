@@ -7,7 +7,7 @@
     <section class="simulator-section card">
         <h2>Simulateur Dynamique de Flux</h2>
         <p class="section-subtitle">Testez vos scénarios de vente pour déterminer le traitement TVA applicable.</p>
-        <p style="font-size: 0.85rem; color: var(--text-muted, #64748b); background: #f1f5f9; border-left: 3px solid #94a3b8; padding: 10px 14px; border-radius: 4px; margin-bottom: 20px;">
+        <p class="sim-warning">
             ⚠️ Ce simulateur est un outil d'aide à la décision fourni à titre informatif. Il ne remplace pas l'avis d'un expert-comptable ou d'un conseiller fiscal, et n'engage pas la responsabilité de l'éditeur en cas de contrôle fiscal.
         </p>
 
@@ -71,7 +71,7 @@
                 </div>
             </div>
 
-            <div class="sim-result" style="background: var(--bg-primary); padding: 20px; border-radius: 12px; border: 1px solid var(--border-color);">
+            <div class="sim-result">
                 <div id="badge_container"></div>
                 <p><strong>Scénario Fiscal :</strong> <span id="res_scenario" class="badge-code">-</span></p>
                 <p><strong>Reporting Canal :</strong> <span id="res_channel" style="color: var(--primary); font-weight: 600;">-</span></p>
@@ -79,7 +79,7 @@
                 <p><strong>Taux de TVA :</strong> <span id="res_rate">-</span>%</p>
                 <p><strong>Montant TVA :</strong> <span id="res_vat_amount">-</span> €</p>
 
-                <div class="note-juridique" style="background: white; border: 1px dashed var(--primary); padding: 12px; margin-top: 15px; font-size: 0.85rem; border-radius: 8px;">
+                <div class="note-juridique">
                     <strong>Justification & Base Légale :</strong>
                     <div id="res_note" style="margin-top: 5px; color: var(--text-muted);">-</div>
                 </div>

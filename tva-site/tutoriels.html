@@ -338,20 +338,32 @@
                 result.badgeClass = "exoneration";
             } else {
                 if (DOMESTIC_REVERSE_CHARGE_COUNTRIES.includes(buyer_country)) {
-                    result.scenario = "B2B_REVERSE_CHARGE";
-                    result.channel = "EXONERATION";
-                    result.collector = "BUYER";
-                    result.rate = 0;
-                    result.amount = "0.00";
-                    result.note = `Article 194 adopté en ${buyer_country} : l'acheteur professionnel local prend en charge l'autoliquidation nationale.`;
-                    result.badgeClass = "exoneration";
-                } else {
+                    // Aligné sur engine.py (Cas 3, ~L.253-300) : l'art.194 (autoliquidation
+                    // domestique) n'a AUCUN effet en cross-border — c'était l'erreur
+                    // historique de l'ancien moteur (exonération à tort). L'exonération
+                    // B2B (Art. 138 Directive 2006/112/CE) est refusée : le lieu de
+                    // livraison reste le pays de DÉPART (Art. 31), la TVA de départ
+                    // est collectée par le VENDEUR — ce n'est PAS une autoliquidation.
+                    const departure_rate = default_rates[stock_country] || 20;
                     result.scenario = "DOMESTIC";
-                    result.channel = (buyer_country === seller_country) ? "FR_DOMESTIC" : "LOCAL_REGISTRATION";
+                    result.channel = (stock_country === seller_country) ? "FR_DOMESTIC" : "LOCAL_REGISTRATION";
+                    result.collector = "SELLER";
+                    result.rate = departure_rate;
+                    result.amount = (amount_ht * (departure_rate / 100)).toFixed(2);
+                    result.note = `Vente B2B cross-border ${stock_country}→${buyer_country} : numéro TVA acheteur non valide VIES. L'art.194 (adopté en ${buyer_country}) ne s'applique qu'au national, pas en cross-border — l'exonération est refusée (Art. 138 Directive 2006/112/CE) — taxation au pays de départ (${stock_country}) au taux de ${departure_rate}% collecté par le vendeur.`;
+                    result.badgeClass = "oss";
+                } else {
+                    // Aligné sur engine.py (Cas 3, ~L.301-327) : pas de régime
+                    // d'autoliquidation domestique concurrent à écarter dans le pays
+                    // de destination -> la vente est reclassifiée B2C et suit le
+                    // régime normal des ventes à distance (Art. 33) : OSS, taxation
+                    // à destination.
+                    result.scenario = "OSS_B2C";
+                    result.channel = "OSS";
                     result.collector = "SELLER";
                     result.rate = tax_rate;
                     result.amount = (amount_ht * (tax_rate / 100)).toFixed(2);
-                    result.note = `Numéro VIES invalide et Art. 194 non adopté : vous devez collecter la TVA locale de ${tax_rate}%.`;
+                    result.note = `Vente B2B cross-border ${stock_country}→${buyer_country} : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (${buyer_country}) au taux de ${tax_rate}% via le régime OSS.`;
                     result.badgeClass = "oss";
                 }
             }

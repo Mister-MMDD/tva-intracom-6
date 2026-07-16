@@ -400,7 +400,12 @@ def delete_account(user_id: str) -> None:
         cur.execute("DELETE FROM tva_amazon_credentials WHERE user_id=%s", (user_id,))
         cur.execute("DELETE FROM tva_session_tokens WHERE user_id=%s", (user_id,))
         cur.execute("DELETE FROM tva_magic_links WHERE email=%s", (user.email,))
-        cur.execute("DELETE FROM tva_oauth_pkce WHERE created_at < %s", (time.time(),)) # Nettoyage générique
+        cur.execute("DELETE FROM tva_oauth_pkce WHERE created_at < %s", (time.time(),))  # Nettoyage générique
+
+        # Appel de la fonction SQL SECURITY DEFINER pour supprimer de auth.users
+        # car le SDK client ne peut pas le faire lui-même.
+        cur.execute("SELECT delete_user_auth_by_email(%s)", (user.email,))
+
         cur.execute("DELETE FROM tva_users WHERE id=%s", (user_id,))
         conn.commit()
 
