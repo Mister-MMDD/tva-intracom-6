@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FAQ – Moteur TVA Intracommunautaire</title>
     <meta name="description" content="Questions fréquentes sur le moteur TVA Intracommunautaire : formats Amazon, VIES, taux de TVA, facturation, exports de déclaration.">
-    <link rel="icon" href="data:,">
+    <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
     <link rel="stylesheet" href="style.css">
     <script src="script.js" defer></script>
-    <script type="application/ld+json">
+<script type="application/ld+json">
     {
         "@context": "https://schema.org",
         "@type": "FAQPage",
@@ -27,22 +27,27 @@
 
 <body>
 
-<nav class="menu">
+<a href="#main-content" class="skip-link">Aller au contenu principal</a>
+
+<nav class="menu" aria-label="Navigation principale">
     <a href="index.html">Accueil</a>
     <a href="documentation.html">Documentation</a>
     <a href="cas-pratiques.html">Cas pratiques</a>
     <a href="tarifs.html">Tarifs</a>
     <a href="securite.html">Sécurité</a>
     <a href="glossaire.html">Glossaire</a>
-    <a href="faq.html">FAQ</a>
+    <a href="faq.html" class="active" aria-current="page">FAQ</a>
     <a href="regimes.html">Régimes spéciaux</a>
+    <a href="arbre-decision.html">Arbre de décision</a>
     <a href="interface.html">Interface moteur</a>
     <a href="tutoriels.html">Simulateur & Tutoriels</a>
     <div class="search-container">
         <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+        <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Passer en mode sombre">🌙</button>
     </div>
 </nav>
 
+<main id="main-content">
 <header>
     <h1>FAQ – TVA & moteur intracommunautaire</h1>
     <p>Questions fréquentes sur l’usage du moteur avec Amazon et les marketplaces.</p>
@@ -103,9 +108,10 @@
     </div>
     <button class="toggle-button">Afficher la réponse</button>
 </div>
+</main>
 
 <footer>
-    <p>© 2026 – Moteur TVA Intracommunautaire — Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
 </footer>
 
 </body>

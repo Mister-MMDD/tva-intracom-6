@@ -1,6 +1,32 @@
 console.log("Moteur TVA Intracommunautaire — Design System Activé.");
 
 document.addEventListener("DOMContentLoaded", () => {
+    // Bascule de thème clair / sombre
+    const themeToggle = document.getElementById("theme-toggle");
+    const root = document.documentElement;
+
+    const applyThemeIcon = () => {
+        if (!themeToggle) return;
+        const isDark = root.getAttribute("data-theme") === "dark";
+        themeToggle.textContent = isDark ? "☀️" : "🌙";
+        themeToggle.setAttribute("aria-label", isDark ? "Passer en mode clair" : "Passer en mode sombre");
+    };
+    applyThemeIcon();
+
+    if (themeToggle) {
+        themeToggle.addEventListener("click", () => {
+            const isDark = root.getAttribute("data-theme") === "dark";
+            if (isDark) {
+                root.removeAttribute("data-theme");
+                localStorage.setItem("theme", "light");
+            } else {
+                root.setAttribute("data-theme", "dark");
+                localStorage.setItem("theme", "dark");
+            }
+            applyThemeIcon();
+        });
+    }
+
     // Highlighting active menu link
     const currentPath = window.location.pathname.split("/").pop() || "index.html";
     const menuLinks = document.querySelectorAll(".menu a");

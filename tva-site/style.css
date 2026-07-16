@@ -278,6 +278,32 @@ footer {
 }
 
 /* Styles Spécifiques pour le Simulateur */
+.sim-result {
+    background: var(--bg-primary);
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.note-juridique {
+    background: white;
+    border: 1px dashed var(--primary);
+    padding: 12px;
+    margin-top: 15px;
+    font-size: 0.85rem;
+    border-radius: 8px;
+}
+
+.sim-warning {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    background: #f1f5f9;
+    border-left: 3px solid #94a3b8;
+    padding: 10px 14px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
 .form-group {
     margin-bottom: 20px;
 }
@@ -387,11 +413,15 @@ footer {
 
 /* Styles Spécifiques pour le Simulateur Arborescent */
 .simulator-section {
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 40px;
     border-radius: var(--radius);
     border: 1px solid var(--border-color);
     margin-top: 40px;
+}
+
+[data-theme="dark"] .simulator-section {
+    background: var(--bg-card);
 }
 .section-subtitle {
     color: var(--text-muted);
@@ -461,4 +491,374 @@ footer {
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
+}
+/* ==========================================================================
+   MODE SOMBRE — bascule via [data-theme="dark"] sur <html>
+   Les deux thèmes (clair = palette FinTech Pro d'origine, sombre = palette
+   de l'arbre de décision d'origine) sont conservés tels quels comme base.
+   ========================================================================== */
+[data-theme="dark"] {
+    --bg-primary: #0b0f19;
+    --bg-card: #111827;
+    --text-main: #cbd5e1;
+    --text-dark: #f8fafc;
+    --text-muted: #94a3b8;
+    --primary: #38bdf8;
+    --primary-hover: #0ea5e9;
+    --nav-bg: #05070d;
+    --accent: #38bdf8;
+    --border-color: #1f2937;
+    --line-color: #374151;
+}
+
+:root {
+    --line-color: #cbd5e1;
+}
+
+[data-theme="dark"] body {
+    background-color: var(--bg-primary);
+}
+
+[data-theme="dark"] .card {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] .card:hover {
+    border-color: #334155;
+}
+
+[data-theme="dark"] .card strong {
+    background: rgba(56, 189, 248, 0.12);
+    color: var(--accent);
+}
+
+[data-theme="dark"] .details {
+    background: #0d1420;
+}
+
+[data-theme="dark"] .toggle-button {
+    background: #1e293b;
+    color: var(--text-dark);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .toggle-button:hover {
+    background: #273549;
+}
+
+[data-theme="dark"] .radio-group {
+    background: #1e293b;
+}
+
+[data-theme="dark"] .form-group select,
+[data-theme="dark"] .form-group input[type="number"] {
+    background: #0d1420;
+    border-color: var(--border-color);
+    color: var(--text-main);
+}
+
+[data-theme="dark"] .cta {
+    background: linear-gradient(135deg, #0c1a2e, #0f2740);
+    border-color: #1e3a5f;
+}
+
+[data-theme="dark"] .sim-card {
+    background: #0d1420;
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .sim-card:hover {
+    background: #16202f;
+    border-color: var(--primary);
+}
+
+[data-theme="dark"] .sim-card.active {
+    background: rgba(56, 189, 248, 0.1);
+    box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
+}
+
+[data-theme="dark"] .note-juridique {
+    background: #1e293b !important;
+    border-color: var(--primary) !important;
+}
+
+[data-theme="dark"] .sim-warning {
+    background: #1e293b !important;
+    border-left-color: #475569 !important;
+}
+
+[data-theme="dark"] .sim-result {
+    background: #111827 !important;
+    border-color: var(--border-color) !important;
+}
+
+[data-theme="dark"] .sim-result p strong {
+    color: var(--text-dark);
+}
+
+[data-theme="dark"] .platform-item {
+    background: #0d1420;
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] #search-empty-state {
+    color: var(--text-muted);
+}
+
+/* Bouton de bascule de thème, dans la nav à côté de la recherche */
+.theme-toggle-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #e2e8f0;
+    border-radius: 20px;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: var(--transition);
+    margin-left: 10px;
+    flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+/* Lien d'évitement (accessibilité clavier / lecteurs d'écran) */
+.skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    background: var(--primary);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 0 0 8px 0;
+    font-weight: 600;
+    z-index: 1000;
+    text-decoration: none;
+}
+
+.skip-link:focus {
+    left: 0;
+}
+
+/* ==========================================================================
+   ARBRE DE DÉCISION — intégré au design system commun (clair/sombre)
+   ========================================================================== */
+.tree-page-header {
+    text-align: center;
+    padding: 50px 24px 10px;
+}
+
+.tree-page-header h1 {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: var(--text-dark);
+    margin-bottom: 8px;
+}
+
+.tree-page-header p {
+    color: var(--text-muted);
+    max-width: 620px;
+    margin: 0 auto;
+}
+
+.tree-diagram-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    padding: 40px 24px 80px;
+}
+
+.tree-diagram {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: max-content;
+    min-width: 100%;
+    margin: 0 auto;
+    font-size: 0.85rem;
+}
+
+.tree-diagram .node,
+.tree-diagram .leaf {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
+    position: relative;
+    z-index: 2;
+}
+
+.tree-diagram .node {
+    width: 260px;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text-dark);
+    border-left: 4px solid var(--primary);
+}
+
+.tree-diagram .leaf {
+    width: 280px;
+    border-left-width: 4px;
+    border-left-style: solid;
+}
+
+.tree-diagram .leaf.leaf-success { border-left-color: #10b981; }
+.tree-diagram .leaf.leaf-warning { border-left-color: #f59e0b; }
+.tree-diagram .leaf.leaf-purple  { border-left-color: #8b5cf6; }
+.tree-diagram .leaf.leaf-danger  { border-left-color: #ef4444; }
+.tree-diagram .leaf.leaf-info    { border-left-color: var(--primary); }
+
+.tree-diagram .leaf h4 {
+    margin: 0 0 8px 0;
+    font-size: 0.95rem;
+    color: var(--text-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.tree-diagram .leaf p {
+    margin: 0 0 10px 0;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.tree-diagram .code-box {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--accent);
+}
+
+.tree-diagram .branch-label {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    z-index: 3;
+}
+
+.tree-diagram .tree-branch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.tree-diagram .line-vertical {
+    width: 2px;
+    height: 40px;
+    background-color: var(--line-color);
+}
+
+.tree-diagram .split-container {
+    display: flex;
+    justify-content: center;
+    position: relative;
+    width: 100%;
+}
+
+.tree-diagram .split-line {
+    display: none;
+}
+
+.tree-diagram .split-columns {
+    display: flex;
+    justify-content: center;
+    gap: var(--branch-gap, 100px);
+    width: max-content;
+    min-width: 100%;
+    padding-top: 40px;
+    position: relative;
+}
+
+.tree-diagram .column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+    position: relative;
+}
+
+.tree-diagram .column::before {
+    content: '';
+    position: absolute;
+    top: -40px;
+    left: 50%;
+    width: 2px;
+    height: 40px;
+    background-color: var(--line-color);
+    z-index: 1;
+}
+
+.tree-diagram .column::after {
+    content: '';
+    position: absolute;
+    top: -40px;
+    height: 2px;
+    background-color: var(--line-color);
+    z-index: 1;
+}
+
+.tree-diagram .column:first-child::after {
+    left: 50%;
+    width: calc(50% + (var(--branch-gap, 100px) / 2));
+}
+
+.tree-diagram .column:last-child::after {
+    left: calc(-1 * (var(--branch-gap, 100px) / 2));
+    width: calc(50% + (var(--branch-gap, 100px) / 2));
+}
+
+.tree-diagram .column:first-child:last-child::after {
+    display: none;
+}
+
+@media (max-width: 1024px) {
+    .tree-diagram { --branch-gap: 15px; }
+    .tree-diagram .node { width: 220px; padding: 12px; }
+    .tree-diagram .leaf { width: 220px; padding: 12px; }
+}
+
+.footnote-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid #f59e0b;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    max-width: 1000px;
+}
+
+.footnote-section:last-child {
+    margin-bottom: 0;
+}
+
+.footnote-section h4 {
+    margin: 0 0 8px 0;
+    color: var(--text-dark);
+    font-size: 0.95rem;
+}
+
+.footnote-section p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1.6;
 }

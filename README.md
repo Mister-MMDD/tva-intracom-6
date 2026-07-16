@@ -19,8 +19,8 @@ en France opérant sur des places de marché (Amazon FBA, formats 1 à 5).
 
 | Scénario | Situation | Règle appliquée | Qui collecte | Canal |
 |---|---|---|---|---|
-| **DOMESTIC** | Stock et acheteur dans le même pays UE | TVA locale du pays | Vendeur | CA3 (FR) ou immatriculation locale |
-| **OSS_B2C** | B2C intra-UE transfrontalier, stock EU, acheteur EU différent | TVA du pays de **destination** | Vendeur | Guichet **OSS** (déclaré en France) |
+| **DOMESTIC** | Stock et acheteur dans le même pays UE **ou** B2B cross-border avec n° TVA acheteur invalide vers un pays couvert par l'art. 194 (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV) | TVA locale du pays (départ si cross-border) | Vendeur | CA3 (FR) ou immatriculation locale |
+| **OSS_B2C** | B2C intra-UE transfrontalier, stock EU, acheteur EU différent **ou** B2B cross-border avec n° TVA acheteur invalide vers un pays non couvert par l'art. 194 (reclassifiée B2C) | TVA du pays de **destination** | Vendeur | Guichet **OSS** (déclaré en France) |
 | **DEEMED_SUPPLIER** | Vendeur hors UE, ou import ≤ 150 € marketplace B2C | Amazon collecte et reverse | **Amazon** | EXONERATION (collecté par tiers) |
 | **B2B_REVERSE_CHARGE** | B2B intra-UE avec n° TVA VIES valide | Exonération, autoliquidation acheteur | Acheteur | EXONERATION (autoliquidation) |
 | **EXPORT** | Acheteur hors UE | Exonéré | — | EXONERATION (export) |
@@ -410,8 +410,11 @@ transaction) avant traitement.
   (`vat_rate_at_date`).
 - Taux réduits par catégorie produit (`product_category` : STANDARD, REDUCED,
   SUPER_REDUCED, ZERO, EXEMPT).
-- Reverse charge domestique art. 194 pour ES, IT, PL, CZ, SK, HU, RO, BG, HR,
-  LT, LV.
+- Reverse charge domestique art. 194 (national uniquement, jamais en
+  cross-border) pour ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV. Pour une
+  vente B2B **cross-border** dont le n° TVA acheteur est invalide vers l'un
+  de ces pays, voir la section « Roadmap » : la TVA reste due au pays de
+  départ, pas d'exonération.
 - Détection des territoires hors UE fiscale (Canaries, DOM-TOM, Åland, Helgoland…)
   via code postal (`is_non_fiscal_eu`).
 - Seuil OSS 10 000 € opt-in, suivi multi-année avec `oss_ht_by_year`.
@@ -434,21 +437,21 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 
 *   **Backend Postgres (Supabase)** : Remplace définitivement l'ancien cache SQLite local (qui n'était pas persistant entre deux redéploiements sur Streamlit Cloud). Il utilise le pool de connexions `psycopg2-binary` et partage la variable d'environnement `SUPABASE_DB_URL` avec les modules d'authentification et de facturation.
 *   **Architecture à trois niveaux (Cascade de cache)** :
-  1.  **vies_scope_cache** : Cache PRIVÉ par "scope" (compte isolé ou domaine d'entreprise). Consulté en premier pour garantir une isolation stricte des données de tes clients ou cabinets.
-  2.  **vies_global_cache** : Cache PARTAGÉ entre tous les comptes du SaaS, alimenté uniquement par les vérifications automatiques réussies auprès de l'UE. Sert de filet de sécurité mutualisé ultra-rapide.
-  3.  **API VIES (ec.europa.eu)** : Interrogée en dernier recours si le numéro est inconnu ou expiré dans les deux caches précédents.
+1.  **vies_scope_cache** : Cache PRIVÉ par "scope" (compte isolé ou domaine d'entreprise). Consulté en premier pour garantir une isolation stricte des données de tes clients ou cabinets.
+2.  **vies_global_cache** : Cache PARTAGÉ entre tous les comptes du SaaS, alimenté uniquement par les vérifications automatiques réussies auprès de l'UE. Sert de filet de sécurité mutualisé ultra-rapide.
+3.  **API VIES (ec.europa.eu)** : Interrogée en dernier recours si le numéro est inconnu ou expiré dans les deux caches précédents.
 *   **Résolution intelligente de la portée (Scope ID)** :
-  *   *Messageries grand public* (`@gmail.com`, `@outlook.fr`, etc.) : Le cache est strictement isolé par utilisateur (`user:<email>`).
-  *   *Domaines professionnels* (`@cabinet-comptable.fr`) : Le cache est partagé entre tous les collaborateurs d'une même structure (`domain:<domaine>`).
+*   *Messageries grand public* (`@gmail.com`, `@outlook.fr`, etc.) : Le cache est strictement isolé par utilisateur (`user:<email>`).
+*   *Domaines professionnels* (`@cabinet-comptable.fr`) : Le cache est partagé entre tous les collaborateurs d'une même structure (`domain:<domaine>`).
 *   **Piste d'audit (vies_check_history)** : Table au format *append-only* (jamais écrasée). Chaque scope conserve sa propre preuve horodatée de la date à laquelle il a validé un statut VIES (y compris s'il l'a récupéré via le cache global), indispensable pour justifier une exonération B2B lors d'un contrôle fiscal.
 *   **Classifications manuelles (vies_manual_overrides)** : Permet à l'utilisateur de forcer le statut d'un numéro indisponible ou inconclusif. Ces overrides sont strictement privés, ont une durée de vie indexée sur le TTL global, et **ne remontent jamais** dans le cache global.
 *   **Blocage de conformité** : Téléchargements bloqués si des numéros TVA B2B
     demeurent non classifiés (erreur serveur UE) pour garantir l'exactitude
     fiscale des rapports.
 *   **Performances et résilience** :
-  *   Validation en lot via 25 workers `ThreadPoolExecutor` en parallèle avec barre de progression.
-  *   Système de retry avec *backoff exponentiel* (1s ➔ 2s ➔ 4s) sur erreurs transitoires.
-  *   *Batch degradation detection* : Si le serveur de l'UE renvoie trop de réponses vides sous forte charge, le moteur bascule sur le dernier état valide en cache (mode dégradé) au lieu d'invalider à tort les clients B2B.
+*   Validation en lot via 25 workers `ThreadPoolExecutor` en parallèle avec barre de progression.
+*   Système de retry avec *backoff exponentiel* (1s ➔ 2s ➔ 4s) sur erreurs transitoires.
+*   *Batch degradation detection* : Si le serveur de l'UE renvoie trop de réponses vides sous forte charge, le moteur bascule sur le dernier état valide en cache (mode dégradé) au lieu d'invalider à tort les clients B2B.
 *   **Normalisation native** : La fonction `normalize_full_vat()` évite les faux rejets et gère les structures complexes (ex: Espagne NIF/CIF, alias EL/GR, ou ventes transfrontalières avec numéro d'un tiers pays).
 
 ### Conversion devises
@@ -766,6 +769,44 @@ conversion BCE.
 ---
 
 ## Roadmap
+
+- ~~Vente B2B cross-border avec n° TVA invalide mal orientée~~ **Corrigé (bug
+  critique)** : pour une vente B2B intra-UE dont le n° de TVA acheteur
+  s'avère invalide/introuvable sur VIES (exonération Art. 138 refusée),
+  `engine.py::compute_vat()` distingue désormais deux traitements — l'ancien
+  moteur les confondait dans les deux sens, à deux reprises :
+  1. **D'abord** un exemple corrigé (`correction_engine.xlsx`) : une vente
+     B2B expédiée vers un pays ayant adopté l'art. 194 dir. 2006/112/CE
+     (autoliquidation domestique — ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT,
+     LV) était exonérée à 0 % à tort, l'ancien code appliquant l'art. 194
+     au transfrontalier alors qu'il ne s'applique **qu'au national**.
+  2. **Ensuite**, le correctif du point 1 a été généralisé par erreur à
+     *toutes* les ventes B2B à n° TVA invalide, y compris celles à
+     destination d'un pays **non** couvert par l'art. 194 (DE, FR, AT, BE,
+     NL, DK…) — qui basculaient alors, elles aussi, en taxation au pays de
+     **départ**, cassant des ventes déjà correctement taxées à la
+     destination via OSS.
+
+  Le comportement final retenu :
+  - Pays de destination **couvert par l'art. 194** : l'exonération à tort
+    est corrigée → TVA due au pays de **départ** (Art. 31 Directive
+    2006/112/CE), collectée par le vendeur (`Scenario.DOMESTIC`).
+  - Pays de destination **non couvert** : aucune exonération à corriger ici
+    — la vente est simplement reclassifiée B2C (n° TVA invalide = pas de
+    preuve de statut assujetti) et suit le régime normal des ventes à
+    distance (Art. 33), taxée au pays de **destination** via **OSS**
+    (`Scenario.OSS_B2C`) — l'art. 194 n'a plus sa place dans ce second cas,
+    qui ne l'a jamais concerné.
+
+  Par ailleurs, les ventes dont le n° fourni est un identifiant fiscal
+  national sans préfixe pays (codice fiscale IT, NIF ES, NIP PL…) —
+  jamais interrogées sur VIES car rejetées au format dès le parsing
+  (`parsers/amazon/classify.py`) — étaient invisibles dans l'onglet
+  **🛡️ VIES** et son export : elles apparaissent désormais dans les
+  reclassifications (`Sale.national_tax_id` conserve l'identifiant brut à
+  des fins de traçabilité, sans jamais être transmis à VIES). La colonne
+  « Explication » de l'onglet VIES distingue maintenant explicitement
+  taxation au départ vs à destination (`ViesReclassification.taxed_at_departure`).
 
 - ~~Authentification mono-canal (lien magique uniquement)~~ **Migré** :
   authentification déléguée à Supabase Auth — mot de passe, et OAuth Google/
