@@ -56,18 +56,14 @@ from .config import get_secret
 
 # "azure" est l'identifiant de provider utilisé par Supabase pour Microsoft
 # (Azure AD / Entra ID). "custom:amazon" correspond au Custom OAuth Provider
-# "amazon" configuré manuellement côté tableau de bord Supabase (Login with
-# Amazon / LWA — Authorization URL https://www.amazon.com/ap/oa, Token URL
-# https://api.amazon.com/auth/o2/token, Userinfo https://api.amazon.com/user/profile,
-# scope "profile"). Ce n'est PAS le même flux que la connexion SP-API de la
-# barre latérale (sidebar.py, amazon_spapi.py) qui sert à autoriser la
-# récupération des rapports de vente — ici il ne s'agit que de
-# l'authentification (identité de l'utilisateur via son e-mail Amazon).
+# "amazon" configuré manuellement côté tableau de bord Supabase.
+# "custom:cognito" est utilisé pour Amazon Cognito via un Custom OAuth Provider.
 OAUTH_PROVIDERS = {
     "google": "google",
     "microsoft": "azure",
     "github": "github",
     "amazon": "custom:amazon",
+    "cognito": "custom:cognito",
 }
 
 

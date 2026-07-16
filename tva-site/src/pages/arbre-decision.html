@@ -99,28 +99,72 @@
                                     <div class="column">
                                         <span class="branch-label">NON (Vente Locale)</span>
                                         <div class="node">
-                                            <h3>S'agit-il d'une transaction B2B professionnelle dans un pays appliquant l'Article 194 ? **</h3>
+                                            <h3>L'acheteur est-il professionnel (B2B), ou particulier avec un n° fiscal local (NIF) ? **</h3>
                                         </div>
                                         <div class="line-vertical"></div>
                                         <div class="split-container">
                                             <div class="split-line"></div>
                                             <div class="split-columns">
-                                                
+
                                                 <div class="column">
-                                                    <span class="branch-label">OUI (Pays éligible)</span>
-                                                    <div class="leaf exonere">
-                                                        <h4>AUTOLIQUIDATION LOCALE</h4>
-                                                        <p>Le vendeur n'est pas établi localement. L'acheteur professionnel enregistré déclare et autoliquide la TVA dans son propre pays.</p>
-                                                        <div class="code-box">TVA: 0% | Art. 194</div>
+                                                    <span class="branch-label">NON (B2C sans n° fiscal)</span>
+                                                    <div class="leaf domestic">
+                                                        <h4>TVA LOCALE (B2C)</h4>
+                                                        <p>Vente à un particulier dans le pays du stock. Le vendeur facture et collecte la TVA locale au taux standard, sans considération d'établissement.</p>
+                                                        <div class="code-box">Scenario.DOMESTIC | TVA Locale</div>
                                                     </div>
                                                 </div>
-                                                
+
                                                 <div class="column">
-                                                    <span class="branch-label">NON (Pas d'autoliquidation)</span>
-                                                    <div class="leaf domestic">
-                                                        <h4>TVA DOMESTIQUE LOCALE</h4>
-                                                        <p>La TVA locale du pays de stockage est facturée et déclarée au taux standard national par le vendeur via son immatriculation.</p>
-                                                        <div class="code-box">Scenario.DOMESTIC | TVA Locale</div>
+                                                    <span class="branch-label">OUI (B2B ou B2C+NIF)</span>
+                                                    <div class="node">
+                                                        <h3>Le vendeur est-il déjà établi dans ce pays (pays de stock = pays d'origine du vendeur) ?</h3>
+                                                    </div>
+                                                    <div class="line-vertical"></div>
+                                                    <div class="split-container">
+                                                        <div class="split-line"></div>
+                                                        <div class="split-columns">
+
+                                                            <div class="column">
+                                                                <span class="branch-label">OUI (Vendeur établi ici)</span>
+                                                                <div class="leaf domestic">
+                                                                    <h4>TVA LOCALE (déclaration domestique)</h4>
+                                                                    <p>Le vendeur est déjà établi dans ce pays : l'autoliquidation Art. 194 (réservée aux vendeurs non établis) ne s'applique pas. TVA facturée et déclarée normalement via l'immatriculation d'origine du vendeur.</p>
+                                                                    <div class="code-box">Scenario.DOMESTIC | TVA Locale (Home)</div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="column">
+                                                                <span class="branch-label">NON (Vendeur non établi)</span>
+                                                                <div class="node">
+                                                                    <h3>Ce pays applique-t-il l'autoliquidation domestique (Art. 194 : ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV) ? **</h3>
+                                                                </div>
+                                                                <div class="line-vertical"></div>
+                                                                <div class="split-container">
+                                                                    <div class="split-line"></div>
+                                                                    <div class="split-columns">
+
+                                                                        <div class="column">
+                                                                            <span class="branch-label">OUI (Pays éligible)</span>
+                                                                            <div class="leaf exonere">
+                                                                                <h4>AUTOLIQUIDATION LOCALE</h4>
+                                                                                <p>Le vendeur n'est pas établi localement et ce pays applique l'Art. 194. L'acheteur professionnel enregistré déclare et autoliquide la TVA — que son n° TVA soit validé par VIES ou non (VIES ne couvre que l'intracommunautaire).</p>
+                                                                                <div class="code-box">TVA: 0% | Art. 194</div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div class="column">
+                                                                            <span class="branch-label">NON (Pas d'autoliquidation)</span>
+                                                                            <div class="leaf domestic">
+                                                                                <h4>TVA DOMESTIQUE LOCALE</h4>
+                                                                                <p>Ce pays n'applique pas l'Art. 194 pour un vendeur non établi : la TVA locale du pays de stockage est facturée et déclarée au taux standard national par le vendeur, via immatriculation locale requise.</p>
+                                                                                <div class="code-box">Scenario.DOMESTIC | TVA Locale</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -225,10 +269,11 @@
     </div>
 
     <div class="footnote-section">
-        <h4>** Application de l'Article 194 de la Directive TVA (Autoliquidation B2B Interne)</h4>
-        <p>Lorsqu'une vente B2B domestique (sans franchissement de frontière) [cite: 8, 25, 48] est réalisée par un vendeur non établi dans le pays du stock, la législation de certains pays permet à l'acheteur d'autoliquider lui-même la TVA :
-        <br>• <strong>Pays l'appliquant :</strong> Espagne (ES), Italie (IT)[cite: 10, 24], Pologne (PL), République Tchèque (CZ), Slovaquie (SK), Hongrie (HU), Roumanie (RO), Bulgarie (BG), Croatie (HR), Lituanie (LT), Lettonie (LV).
-        <br>• <strong>Pays ne l'appliquant pas :</strong> France (FR), Allemagne (DE) [cite: 26], Autriche (AT), Belgique (BE), Pays-Bas (NL), Danemark (DK) — dans ces pays, le vendeur doit impérativement facturer la TVA locale et la déclarer lui-même[cite: 27].</p>
+        <h4>** Vente locale B2B / Article 194 (Autoliquidation Domestique Interne)</h4>
+        <p>Un acheteur B2C ayant transmis un numéro fiscal national (NIF, sans préfixe pays — donc non validable sur VIES qui ne couvre que l'intracommunautaire) est traité comme un professionnel assujetti pour cette branche : le cabinet comptable ne taxe pas ces ventes de la même façon qu'un B2C classique.
+        <br>Pour un vendeur non établi localement, certains pays permettent à l'acheteur professionnel d'autoliquider lui-même la TVA — <strong>indépendamment de la validité VIES du numéro</strong> (VIES ne s'applique qu'aux livraisons intracommunautaires, pas aux ventes domestiques) :
+        <br>• <strong>Pays l'appliquant :</strong> Espagne (ES), Italie (IT), Pologne (PL), République Tchèque (CZ), Slovaquie (SK), Hongrie (HU), Roumanie (RO), Bulgarie (BG), Croatie (HR), Lituanie (LT), Lettonie (LV).
+        <br>• <strong>Pays ne l'appliquant pas :</strong> France (FR), Allemagne (DE), Autriche (AT), Belgique (BE), Pays-Bas (NL), Danemark (DK) — dans ces pays, le vendeur doit impérativement facturer la TVA locale et la déclarer lui-même.</p>
     </div>
 
     <div class="footnote-section">

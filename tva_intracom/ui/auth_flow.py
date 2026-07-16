@@ -340,7 +340,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             (_col_google, "google", "oauth_google_btn"),
             (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
             (_col_github, "github", "oauth_github_btn"),
-            (_col_amazon, "amazon", "amazon_login_btn"),
+            (_col_amazon, "cognito", "cognito_login_btn"),
         ):
             with _col:
                 try:

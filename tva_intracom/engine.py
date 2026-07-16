@@ -931,7 +931,7 @@ def compute_all_with_vies(
             ))
 
             # IMPORTANT : Pour les ventes B2B cross-border dont le n° TVA est invalide,
-            # on ne reclassifie PLUS en B2C. On garde BuyerType.B2B mais avec
+            # on ne reclassifie PLUS en B2C. On garde BuyerType. B2B mais avec
             # buyer_vat_valid=False. Cela permet à compute_vat d'appliquer la TVA
             # au départ (Origin VAT) plutôt que l'OSS (Destination VAT).
             # Pour les ventes domestiques, le comportement reste identique.
