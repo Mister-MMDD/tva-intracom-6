@@ -148,20 +148,24 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             _cache_key = f"_sb_pkce_{_sb_provider}"
             _cached = st.session_state.get(_cache_key)
             _verifier = None
-            
+
             # 1. On cherche d'abord en session (très robuste aux reruns)
             if _cached and _cached[0] == _sb_nonce:
                 _verifier = _cached[1]
-            
+
             # 2. Sinon on cherche en DB (cas d'une nouvelle session)
+            _pkce_diag = None
             if not _verifier and _sb_nonce:
-                _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider)
+                try:
+                    _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider)
+                except LookupError as _diag_err:
+                    _pkce_diag = str(_diag_err)
                 if _verifier:
                     # On le met IMMÉDIATEMENT en session pour que les reruns
                     # suivants (déclenchés par st.query_params ou cookies)
-                    # le trouvent sans retourner en DB (où il est supprimé).
+                    # le trouvent sans retourner en DB.
                     st.session_state[_cache_key] = (_sb_nonce, _verifier)
-            
+
             if _verifier:
                 try:
                     _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
@@ -176,13 +180,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             else:
                 # Si on n'a plus de verifier du tout (déjà consommé ou perdu)
                 if _sb_nonce:
-                    # Avant d'afficher l'erreur, on vérifie si on n'est pas déjà 
-                    # en train de finaliser la connexion (auth_user qui arrive)
-                    time.sleep(0.5) # Petit sursis pour laisser Run 1 finir
-                    if st.session_state.get("auth_user"):
-                        st.rerun()
-
-                    st.error(f"{_('oauth_state_lost_error')} (prov={_sb_provider}, nonce={_sb_nonce[:8]}...)")
+                    _diag_suffix = f" — diagnostic: {_pkce_diag}" if _pkce_diag else ""
+                    st.error(f"{_('oauth_state_lost_error')} (prov={_sb_provider}, nonce={_sb_nonce[:8]}...){_diag_suffix}")
                     if st.button("Réessayer"):
                         st.query_params.clear()
                         st.rerun()
@@ -194,7 +193,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.warning(_("oauth_email_verification_required"))
         else:
             st.error(f"Erreur OAuth ({_sb_error_code}): {_sb_error_desc or 'inconnue'}")
-        
+
         if st.button(_("cancel_btn"), key="clear_oauth_error"):
             st.query_params.clear()
             st.rerun()
@@ -404,10 +403,10 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.caption(_("oauth_divider_label"))
         _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
         for _col, _provider, _label_key in (
-            (_col_google, "google", "oauth_google_btn"),
-            (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
-            (_col_github, "github", "oauth_github_btn"),
-            (_col_amazon, "cognito", "cognito_login_btn"),
+                (_col_google, "google", "oauth_google_btn"),
+                (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
+                (_col_github, "github", "oauth_github_btn"),
+                (_col_amazon, "cognito", "cognito_login_btn"),
         ):
             with _col:
                 try:
@@ -456,11 +455,11 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     tva_auth.delete_session_token(_current_token)
                 except Exception:
                     pass
-            
+
             # 2. Nettoyage session locale
             st.session_state["auth_user"] = None
             st.session_state["manual_logout"] = True
-            
+
             # 3. Suppression du cookie (asynchrone côté client)
             try:
                 cookie_manager.delete("tva_session_token", key=f"logout_del_{int(time.time())}")

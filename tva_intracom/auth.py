@@ -50,7 +50,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
         with _pool_lock:
             if _pool is None:
                 dsn = get_secret("SUPABASE_DB_URL")
-                
+
                 if not dsn:
                     raise RuntimeError(
                         "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
@@ -173,6 +173,16 @@ def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
                     created_at DOUBLE PRECISION NOT NULL
                 )
                 """
+            )
+            # consumed_at : permet une consommation idempotente. Un premier
+            # SELECT+DELETE immédiat cassait toute requête en double (rerun
+            # Streamlit, requête réseau dupliquée) car la 2e requête ne
+            # retrouvait plus rien et affichait "session perdue" même quand
+            # la 1re avait réussi. On marque désormais la ligne comme
+            # consommée au lieu de la supprimer, et on retolère un nouveau
+            # passage sur le même nonce dans une courte fenêtre de grâce.
+            cur.execute(
+                "ALTER TABLE tva_oauth_pkce ADD COLUMN IF NOT EXISTS consumed_at DOUBLE PRECISION"
             )
     finally:
         pool.putconn(conn)
@@ -334,19 +344,19 @@ def consume_magic_link(token: str, ip_address: str = "unknown") -> Optional[User
             (token,),
         )
         row = cur.fetchone()
-        
+
         if not row:
             # Enregistrer l'échec
             cur.execute("INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)", (ip_hash, time.time()))
             conn.commit()
             return None
-            
+
         email, created_at, consumed = row
         if consumed or (time.time() - created_at) > MAGIC_LINK_TTL_SECONDS:
             cur.execute("INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)", (ip_hash, time.time()))
             conn.commit()
             return None
-            
+
         # Succès : on nettoie les anciens échecs pour cet IP et on marque consommé
         cur.execute("DELETE FROM tva_failed_logins WHERE ip_hash=%s", (ip_hash,))
         cur.execute("UPDATE tva_magic_links SET consumed=TRUE WHERE token=%s", (token,))
@@ -378,7 +388,7 @@ def get_user_by_id(user_id: str) -> Optional[User]:
 
 def delete_account(user_id: str) -> None:
     """Supprime définitivement un compte utilisateur et toutes les données associées
-    (RGPD). Supprime les abonnements Stripe, les identifiants Amazon chiffrés, 
+    (RGPD). Supprime les abonnements Stripe, les identifiants Amazon chiffrés,
     les SIREN et l'historique VIES (si scope privé)."""
     from .billing import delete_user_billing_data
     from .vies_engine import delete_all_scope_data, resolve_scope_id
@@ -422,7 +432,7 @@ def export_all_user_data(user_id: str) -> dict:
         return {}
 
     billing_data = export_user_billing_data(user_id)
-    
+
     scope_id = resolve_scope_id(user.email)
     vies_data = export_scope_data(scope_id)
 
@@ -572,18 +582,65 @@ def save_pkce_verifier(nonce: str, provider: str, verifier: str) -> None:
 
 
 def consume_pkce_verifier(nonce: str, provider: str) -> Optional[str]:
-    """Récupère puis supprime immédiatement (usage unique) le code_verifier
-    associé à ce nonce/provider. Retourne None si absent ou expiré (>15 min)."""
+    """Récupère le code_verifier associé à ce nonce/provider. Idempotent :
+    au lieu de supprimer la ligne immédiatement, on la marque `consumed_at`
+    et on continue de renvoyer le même verifier pendant une courte fenêtre
+    de grâce (30s) — tolère une requête dupliquée (rerun Streamlit, retry
+    réseau) qui arriverait juste après une consommation réussie.
+
+    Si le lookup strict (nonce+provider+fraîcheur) échoue, un second lookup
+    diagnostique (nonce seul, sans filtre) permet de savoir *pourquoi* :
+    absent, provider différent, ou expiré — l'info est incluse dans
+    l'exception pour affichage dans le message d'erreur."""
+    GRACE_SECONDS = 30
+
     def _fn(conn, cur):
+        now = time.time()
         cur.execute(
-            "SELECT verifier FROM tva_oauth_pkce WHERE nonce=%s AND provider=%s AND created_at >= %s",
-            (nonce, provider, time.time() - 15 * 60),
+            "SELECT verifier, consumed_at FROM tva_oauth_pkce WHERE nonce=%s AND provider=%s AND created_at >= %s",
+            (nonce, provider, now - 15 * 60),
         )
         row = cur.fetchone()
         if row:
-            cur.execute("DELETE FROM tva_oauth_pkce WHERE nonce=%s", (nonce,))
-            conn.commit()
-            return row[0]
+            verifier, consumed_at = row
+            if consumed_at is None or (now - consumed_at) <= GRACE_SECONDS:
+                cur.execute(
+                    "UPDATE tva_oauth_pkce SET consumed_at=%s WHERE nonce=%s",
+                    (now, nonce),
+                )
+                conn.commit()
+                return verifier
+            return None  # consommé depuis trop longtemps : vraiment expiré
+
+        # Rien trouvé avec le filtre strict : diagnostic pour comprendre pourquoi.
+        cur.execute(
+            "SELECT provider, created_at, consumed_at FROM tva_oauth_pkce WHERE nonce=%s",
+            (nonce,),
+        )
+        diag_row = cur.fetchone()
+        if diag_row is None:
+            raise LookupError(f"nonce introuvable en base (provider attendu={provider})")
+        diag_provider, diag_created_at, diag_consumed_at = diag_row
+        if diag_provider != provider:
+            raise LookupError(f"nonce trouvé mais provider différent en base ({diag_provider!r} != {provider!r})")
+        age = now - diag_created_at
+        raise LookupError(f"nonce trouvé mais expiré (créé il y a {age:.0f}s, consumed_at={diag_consumed_at})")
+
+    try:
+        return _run(_fn)
+    except LookupError:
+        raise
+    except Exception:
         return None
 
-    return _run(_fn)
+
+def purge_old_pkce_entries(older_than_seconds: int = 15 * 60) -> None:
+    """Nettoyage périodique des vieilles entrées PKCE (consommées ou non)."""
+    def _fn(conn, cur):
+        cur.execute(
+            "DELETE FROM tva_oauth_pkce WHERE created_at < %s",
+            (time.time() - older_than_seconds,),
+        )
+        conn.commit()
+
+    _run(_fn)
