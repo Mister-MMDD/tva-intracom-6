@@ -697,9 +697,9 @@ from tva_intracom.engine import compute_all
 from tva_intracom.report import build_report, render_report
 
 ventes = [
-    Sale("V1", Decimal("100"), BuyerType.B2C, stock_country="FR", buyer_country="DE"),
-    Sale("V2", Decimal("200"), BuyerType.B2B, stock_country="FR",
-         buyer_country="DE", buyer_vat_valid=True),
+  Sale("V1", Decimal("100"), BuyerType.B2C, stock_country="FR", buyer_country="DE"),
+  Sale("V2", Decimal("200"), BuyerType.B2B, stock_country="FR",
+       buyer_country="DE", buyer_vat_valid=True),
 ]
 resultats = compute_all(ventes)
 print(render_report(build_report(resultats)))
@@ -711,10 +711,10 @@ print(render_report(build_report(resultats)))
 from tva_intracom.parsers.amazon import load_amazon_report
 
 result = load_amazon_report(
-    "rapport_amazon.csv",
-    seller_country="FR",
-    convert_currencies=True,   # conversion BCE automatique
-    # progress_callback=lambda done, total: print(f"{done}/{total}"),  # optionnel
+  "rapport_amazon.csv",
+  seller_country="FR",
+  convert_currencies=True,   # conversion BCE automatique
+  # progress_callback=lambda done, total: print(f"{done}/{total}"),  # optionnel
 )
 print(f"Format détecté : {result.detected_format}")
 print(f"Ventes : {len(result.sales)}, Remboursements : {len(result.refunds)}")
@@ -727,12 +727,12 @@ print(f"Écarts de période : {len(result.period_mismatches)}")
 from tva_intracom.oss_xml import generate_oss_xml
 
 xml_bytes = generate_oss_xml(
-    results=resultats_oss,
-    seller_vat="FR12345678901",
-    period="2026-Q1",
+  results=resultats_oss,
+  seller_vat="FR12345678901",
+  period="2026-Q1",
 )
 with open("oss_declaration_2026-Q1.xml", "wb") as f:
-    f.write(xml_bytes)
+  f.write(xml_bytes)
 ```
 
 ---
@@ -773,9 +773,9 @@ conversion BCE.
 ### Performance & Réactivité
 - **Optimisation Streamlit (`@st.fragment`)** : Utilisation intensive de fragments dans les onglets "Détail ventes" et "Téléchargements" pour isoler le rendu et éviter les reruns complets du script lors d'interactions locales (pagination, filtres de vue).
 - **Mise en cache intelligente (TTL & Keys)** :
-    - **Sidebar** : Cache TTL (20s) sur les appels coûteux (Amazon credentials, listes SIREN, quotas, abonnements Stripe, grille tarifaire) avec invalidation explicite immédiate après chaque mutation (ajout/suppression SIREN).
-    - **Billing** : Réutilisation du cache SIREN/Abonnement déjà peuplé par la sidebar, éliminant les requêtes SQL dupliquées lors de la construction du tunnel de paiement.
-    - **Téléchargements** : Mise en cache des 5 exports indépendants (Excel principal, OSS Excel, CA3/HTML local, B2B Excel, FEC) via une clé de téléchargement dédiée (`_dl_cache_key`).
+  - **Sidebar** : Cache TTL (20s) sur les appels coûteux (Amazon credentials, listes SIREN, quotas, abonnements Stripe, grille tarifaire) avec invalidation explicite immédiate après chaque mutation (ajout/suppression SIREN).
+  - **Billing** : Réutilisation du cache SIREN/Abonnement déjà peuplé par la sidebar, éliminant les requêtes SQL dupliquées lors de la construction du tunnel de paiement.
+  - **Téléchargements** : Mise en cache des 5 exports indépendants (Excel principal, OSS Excel, CA3/HTML local, B2B Excel, FEC) via une clé de téléchargement dédiée (`_dl_cache_key`).
 - **Stabilisation du calcul** : Introduction de `calc_key` dans le `TabContext` (transmis depuis `app.py`) pour garantir la cohérence des résultats entre onglets et éviter les recalculs intempestifs.
 - **Efficacité du moteur fiscal** : Optimisation de `engine.py` (résolution de la langue une seule fois par lot dans `_run_oss_loop` au lieu d'une résolution par vente dans `_note()`).
 - **Stripe** : La session du portail de facturation (Billing Portal) est désormais créée uniquement au clic, au lieu d'être pré-générée à chaque rerun Streamlit.
@@ -784,8 +784,8 @@ conversion BCE.
 - **Persistance de l'upload** : Correction d'un bug où le changement de langue supprimait les fichiers chargés (stabilisation de l'identité du widget `st.file_uploader` via une clé explicite `main_file_uploader` indépendante du label traduit).
 - **Rendu des onglets** : Correction d'un blocage d'affichage lors du changement de pays d'origine (suppression d'un `st.rerun()` forcé qui interrompait le script avant le rendu).
 - **Lisibilité des données** :
-    - Colonnes "Note" et "Référence légale" élargies par défaut (`width="large"`) pour éviter la troncature des explications fiscales.
-    - **Visualisations** : Amélioration de la légende des cartes (marge droite `r=90`, fond semi-opaque et bordure fixe) pour garantir la lisibilité sur petits écrans et en mode sombre.
+  - Colonnes "Note" et "Référence légale" élargies par défaut (`width="large"`) pour éviter la troncature des explications fiscales.
+  - **Visualisations** : Amélioration de la légende des cartes (marge droite `r=90`, fond semi-opaque et bordure fixe) pour garantir la lisibilité sur petits écrans et en mode sombre.
 
 ---
 
@@ -927,10 +927,22 @@ automatique sur le portail DGFIP) reste non implémenté à ce jour.
   des ventes domestiques françaises (convention fiscale franco-monégasque du
   18 mai 1963), avec TVA FR collectée et déclarée en CA3. `ca3_report.py` a
   été mis à jour en conséquence pour inclure ces ventes dans l'agrégation
-  (leur `buyer_country` reste "MC", pas "FR"). Limité au cas non ambigu
-  stock français → Monaco ; un stock dans un autre État membre expédié vers
-  Monaco reste classé `EXPORT` par défaut (convention non applicable,
-  comportement conservateur).
+  (leur `buyer_country` reste "MC", pas "FR").
+  - **Stock français → Monaco** : vente domestique française (`Scenario.DOMESTIC`,
+    `Channel.FR_DOMESTIC` si le pays d'origine du compte est la France, sinon
+    `Channel.LOCAL_REGISTRATION`).
+  - **Stock dans un autre État membre → Monaco** (ex. ES → MC) : traitée comme
+    une vente **OSS vers la France** (`Scenario.OSS_B2C`, `Channel.OSS`, TVA FR),
+    Monaco étant assimilée au territoire français pour la TVA.
+  - ⚠️ **Point à trancher avec un fiscaliste** : la convention franco-monégasque
+    du 18 mai 1963 est bilatérale (France ↔ Monaco). Son application à une
+    vente expédiée depuis un stock situé dans un *autre* État membre (ni la
+    France, ni Monaco) n'a pas de fondement juridique établi dans ce document
+    — le comportement actuel du moteur est volontairement large (toute vente
+    vers MC, quel que soit le pays de stock, est traitée en France) mais n'a
+    pas été validé contre un texte ou une doctrine fiscale couvrant ce cas de
+    figure précis. À confirmer/ajuster avant de s'appuyer dessus pour une
+    déclaration réelle sur ce cas particulier.
 
 - ~~Références de lignes Cerfa CA3 incorrectes~~ **Corrigé** : les libellés de
   ligne utilisés dans `ca3_report.py` (`compute_ca3_lines_v2`,
