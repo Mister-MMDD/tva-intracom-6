@@ -403,9 +403,9 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.caption(_("oauth_divider_label"))
         _col_google, _col_github, _col_amazon = st.columns(3)
         for _col, _provider, _label_key, _icon_url, _bg, _text in (
-                (_col_google, "google", "oauth_google_btn", "https://www.gstatic.com/images/branding/product/1x/g_logo_500px.png", "#FFFFFF", "#000000"),
-                (_col_github, "github", "oauth_github_btn", "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark-120.png", "#24292e", "#FFFFFF"),
-                (_col_amazon, "cognito", "amazon_login_btn", "https://upload.wikimedia.org/wikipedia/commons/d/de/Amazon_icon.svg", "#FF9900", "#000000"),
+                (_col_google, "google", "oauth_google_btn", "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/google/google-original.svg", "#FFFFFF", "#000000"),
+                (_col_github, "github", "oauth_github_btn", "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/github/github-original.svg", "#24292E", "#FFFFFF"),
+                (_col_amazon, "cognito", "amazon_login_btn", "https://upload.wikimedia.org/wikipedia/commons/4/4a/Amazon_icon.svg", "#FF9900", "#000000"),
         ):
             with _col:
                 try:
