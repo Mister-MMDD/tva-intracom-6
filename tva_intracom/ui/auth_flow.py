@@ -129,19 +129,20 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     # ── Conversion du fragment URL (#) en paramètres de requête (?) ────────
     # Supabase renvoie parfois les jetons ou erreurs dans le fragment (ex: après
     # email confirmation ou si email non vérifié), invisible côté serveur.
-    # On injecte un JS qui redirige vers la même URL en remplaçant le # par un ?.
     if st.session_state.get("auth_user") is None:
         components.html(
             """
             <script>
-            var hash = window.parent.location.hash;
+            var hash = window.parent.location.hash || window.location.hash;
             if (hash && (hash.includes('access_token=') || hash.includes('error='))) {
                 var params = new URLSearchParams(hash.substring(1));
                 var currUrl = new URL(window.parent.location.href);
+                // On fusionne les paramètres du fragment dans la query string
                 params.forEach((value, key) => {
                     currUrl.searchParams.set(key, value);
                 });
                 currUrl.hash = "";
+                // Redirection vers la nouvelle URL propre
                 window.parent.location.href = currUrl.toString();
             }
             </script>
@@ -294,21 +295,28 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.query_params.clear()
             st.rerun()
         except Exception as _sb_err:
-            st.error(_("oauth_login_error", error=str(_sb_err)))
+            # Si le jeton est invalide ou expiré, on nettoie pour éviter les boucles
             st.query_params.clear()
+            st.rerun()
 
     # Succès : Flux PKCE (code échangeable)
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
+        # Si on a un access_token, on a déjà traité la session au-dessus
+        if _sb_access_token:
+            st.query_params.clear()
+            st.rerun()
+
         # Le nonce a été consommé (ou va l'être) : on retire le cache session
-        # pour ce provider, qu'on ait réussi ou non — un nouvel essai devra
-        # repartir sur un nonce/verifier neuf.
         st.session_state.pop(f"_sb_pkce_{_sb_provider}", None)
 
         _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider) if _sb_nonce else None
+        
         if not _verifier:
-            st.error(_("oauth_state_lost_error"))
+            # Au lieu de bloquer avec une erreur "Session expirée", on nettoie
+            # et on laisse l'utilisateur retenter s'il est arrivé ici sans nonce.
             st.query_params.clear()
-            st.stop()
+            st.rerun()
+
         try:
             _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
             _finalize_login(_sb_result.email, cookie_manager)
