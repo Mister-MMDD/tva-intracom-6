@@ -62,7 +62,7 @@ OAUTH_PROVIDERS = {
     "google": "google",
     "microsoft": "azure",
     "github": "github",
-    "cognito": "cognito",
+    "cognito": "custom:cognito",
 }
 
 
