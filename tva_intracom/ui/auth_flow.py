@@ -401,12 +401,11 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # session_state — une seule écriture DB par provider tant que le
         # login n'a pas abouti.
         st.caption(_("oauth_divider_label"))
-        _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
-        for _col, _provider, _label_key in (
-                (_col_google, "google", "oauth_google_btn"),
-                (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
-                (_col_github, "github", "oauth_github_btn"),
-                (_col_amazon, "cognito", "cognito_login_btn"),
+        _col_google, _col_github, _col_amazon = st.columns(3)
+        for _col, _provider, _label_key, _icon_url, _bg, _text in (
+                (_col_google, "google", "oauth_google_btn", "https://www.gstatic.com/images/branding/product/1x/g_logo_500px.png", "#FFFFFF", "#000000"),
+                (_col_github, "github", "oauth_github_btn", "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark-120.png", "#24292e", "#FFFFFF"),
+                (_col_amazon, "cognito", "amazon_login_btn", "https://upload.wikimedia.org/wikipedia/commons/d/de/Amazon_icon.svg", "#FF9900", "#000000"),
         ):
             with _col:
                 try:
@@ -421,7 +420,25 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                         st.session_state[_cache_key] = (_nonce, _verifier)
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}&sb_nonce={_nonce}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
-                    st.link_button(_(_label_key), _oauth_url, use_container_width=True)
+
+                    # Apparence officielle via HTML
+                    st.markdown(
+                        f"""
+                        <a href="{_oauth_url}" target="_self" style="text-decoration: none;">
+                            <div style="
+                                display: flex; align-items: center; justify-content: center;
+                                background-color: {_bg}; color: {_text};
+                                padding: 8px 12px; border-radius: 4px; border: 1px solid #ddd;
+                                font-weight: 500; height: 38px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+                                transition: background-color 0.2s;
+                            " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                                <img src="{_icon_url}" width="18" height="18" style="margin-right: 10px;">
+                                {(_(_label_key))}
+                            </div>
+                        </a>
+                        """,
+                        unsafe_allow_html=True
+                    )
                 except Exception:
                     st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", use_container_width=True, disabled=True)
 
