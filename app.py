@@ -166,28 +166,33 @@ uploaded_files = st.file_uploader(
     key="main_file_uploader",
 )
 
-# ── Filet de sécurité : widget vide mais analyse déjà en cache ──────────────
-# Si `uploaded_files` ressort vide alors qu'une analyse précédente existe déjà
-# en session (ex: après un changement de langue ou de pays d'origine qui
-# aurait fait perdre l'état du widget côté navigateur pour une raison qui nous
-# échappe encore), on continue d'afficher les derniers résultats connus au
-# lieu de faire disparaître tout le contenu. On reconstruit une liste
-# d'objets minimalistes (nom + taille) à partir des métadonnées persistées,
-# suffisante pour reconstruire une `_parse_cache_key` IDENTIQUE à celle du
-# dernier calcul réussi — le bloc de ré-analyse plus bas n'est alors jamais
-# déclenché (cache hit), aucune lecture de fichier n'est nécessaire.
-class _CachedFileMeta:
-    __slots__ = ("name", "size")
-    def __init__(self, name: str, size: int) -> None:
+# ── Filet de sécurité : widget vide mais fichiers déjà chargés en session ───
+# On a constaté empiriquement qu'un changement de pays d'origine (qui
+# déclenche un `st.rerun()` explicite au milieu du rendu de la sidebar, voir
+# sidebar.py) peut faire ressortir `uploaded_files` vide, alors même que rien
+# n'a été retiré côté utilisateur. Plutôt que de dépendre du widget pour
+# obtenir à nouveau les octets du fichier (ce qui échouait quand une vraie
+# ré-analyse était nécessaire, ex: le pays d'origine a changé), on met en
+# cache les octets bruts de chaque fichier dès qu'on les a, et on reconstruit
+# des objets de substitution portant ces MÊMES octets si le widget ressort
+# vide. Un vrai reparse reste alors possible, quelle que soit la cause exacte
+# de la disparition côté widget.
+class _CachedUploadedFile:
+    __slots__ = ("name", "size", "_data")
+    def __init__(self, name: str, data: bytes) -> None:
         self.name = name
-        self.size = size
+        self.size = len(data)
+        self._data = data
+    def getvalue(self) -> bytes:
+        return self._data
 
-_using_fallback_meta = False
 if uploaded_files:
-    st.session_state["_last_uploaded_files_meta"] = [(f.name, f.size) for f in uploaded_files]
-elif st.session_state.get("_parse_cache_data") and st.session_state.get("_last_uploaded_files_meta"):
-    uploaded_files = [_CachedFileMeta(n, s) for n, s in st.session_state["_last_uploaded_files_meta"]]
-    _using_fallback_meta = True
+    st.session_state["_last_uploaded_files_bytes"] = {f.name: f.getvalue() for f in uploaded_files}
+elif st.session_state.get("_last_uploaded_files_bytes"):
+    uploaded_files = [
+        _CachedUploadedFile(_name, _data)
+        for _name, _data in st.session_state["_last_uploaded_files_bytes"].items()
+    ]
 
 if uploaded_files:
     from tva_intracom.parsers import ParseResult
@@ -224,16 +229,6 @@ if uploaded_files:
         home_country, encoding, convert_fx, file_format,
         tuple(sorted(asin_to_category.items())) if asin_to_category else None,
     )
-
-    if st.session_state.get("_parse_cache_key") != _parse_cache_key and _using_fallback_meta:
-        # Le fallback ci-dessus ne couvre que le cas où rien n'a réellement
-        # changé (cache hit) — ici les options d'import ont changé depuis le
-        # dernier upload réel (ex: pays d'origine) alors qu'on n'a plus que
-        # les métadonnées (nom/taille) des fichiers, pas leur contenu. Impossible
-        # de relancer une analyse sans les octets réels : on prévient plutôt
-        # que de planter sur un `.getvalue()` manquant.
-        st.warning(_("reupload_required_warning"))
-        st.stop()
 
     if st.session_state.get("_parse_cache_key") == _parse_cache_key:
         _cached = st.session_state["_parse_cache_data"]
