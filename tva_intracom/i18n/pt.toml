@@ -2,6 +2,7 @@ title = "Motor de IVA Intracomunitário"
 upload_label = "Arraste os seus ficheiros aqui (um ou vários meses)"
 upload_help = "CSV, TSV ou Excel. Múltiplos ficheiros para agregar vários meses."
 duplicate_files_warning = "⚠️ **{count} ficheiro(s) duplicado(s) ignorado(s)** : {files}"
+reupload_required_warning = "⚠️ Os seus ficheiros foram perdidos (mudança de idioma ou opção de importação). Por favor, carregue-os novamente."
 language = "Idioma"
 
 # Countries

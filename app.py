@@ -158,7 +158,36 @@ uploaded_files = st.file_uploader(
     type=["csv","tsv","txt","xlsx","xls"],
     accept_multiple_files=True,
     help=_("upload_help"),
+    # Clé stable et indépendante de la langue : sans elle, l'identité du
+    # widget est dérivée de son label — qui change de texte selon la langue
+    # (i18n). Streamlit traitait alors un changement de langue comme un
+    # NOUVEAU widget et vidait les fichiers déjà chargés. Avec une clé fixe,
+    # les fichiers restent chargés quelle que soit la langue affichée.
+    key="main_file_uploader",
 )
+
+# ── Filet de sécurité : widget vide mais analyse déjà en cache ──────────────
+# Si `uploaded_files` ressort vide alors qu'une analyse précédente existe déjà
+# en session (ex: après un changement de langue ou de pays d'origine qui
+# aurait fait perdre l'état du widget côté navigateur pour une raison qui nous
+# échappe encore), on continue d'afficher les derniers résultats connus au
+# lieu de faire disparaître tout le contenu. On reconstruit une liste
+# d'objets minimalistes (nom + taille) à partir des métadonnées persistées,
+# suffisante pour reconstruire une `_parse_cache_key` IDENTIQUE à celle du
+# dernier calcul réussi — le bloc de ré-analyse plus bas n'est alors jamais
+# déclenché (cache hit), aucune lecture de fichier n'est nécessaire.
+class _CachedFileMeta:
+    __slots__ = ("name", "size")
+    def __init__(self, name: str, size: int) -> None:
+        self.name = name
+        self.size = size
+
+_using_fallback_meta = False
+if uploaded_files:
+    st.session_state["_last_uploaded_files_meta"] = [(f.name, f.size) for f in uploaded_files]
+elif st.session_state.get("_parse_cache_data") and st.session_state.get("_last_uploaded_files_meta"):
+    uploaded_files = [_CachedFileMeta(n, s) for n, s in st.session_state["_last_uploaded_files_meta"]]
+    _using_fallback_meta = True
 
 if uploaded_files:
     from tva_intracom.parsers import ParseResult
@@ -195,6 +224,16 @@ if uploaded_files:
         home_country, encoding, convert_fx, file_format,
         tuple(sorted(asin_to_category.items())) if asin_to_category else None,
     )
+
+    if st.session_state.get("_parse_cache_key") != _parse_cache_key and _using_fallback_meta:
+        # Le fallback ci-dessus ne couvre que le cas où rien n'a réellement
+        # changé (cache hit) — ici les options d'import ont changé depuis le
+        # dernier upload réel (ex: pays d'origine) alors qu'on n'a plus que
+        # les métadonnées (nom/taille) des fichiers, pas leur contenu. Impossible
+        # de relancer une analyse sans les octets réels : on prévient plutôt
+        # que de planter sur un `.getvalue()` manquant.
+        st.warning(_("reupload_required_warning"))
+        st.stop()
 
     if st.session_state.get("_parse_cache_key") == _parse_cache_key:
         _cached = st.session_state["_parse_cache_data"]

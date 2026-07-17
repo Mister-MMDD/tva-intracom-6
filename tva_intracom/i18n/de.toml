@@ -2,6 +2,7 @@ title = "Intra-community VAT Engine"
 upload_label = "Dateien hier ablegen (ein oder mehrere Monate)"
 upload_help = "CSV, TSV oder Excel. Mehrere Dateien, um mehrere Monate zu aggregieren."
 duplicate_files_warning = "⚠️ **{count} duplizierte Datei(en) ignoriert** : {files}"
+reupload_required_warning = "⚠️ Ihre Dateien sind verloren gegangen (Sprach- oder Importoptionsänderung). Bitte laden Sie sie erneut hoch."
 language = "Sprache"
 
 # Countries

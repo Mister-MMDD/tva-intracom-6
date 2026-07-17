@@ -2,6 +2,7 @@ title = "Moteur de TVA Intracommunautaire"
 upload_label = "Déposez vos fichiers ici (un ou plusieurs mois)"
 upload_help = "CSV, TSV, ou Excel. Plusieurs fichiers pour agréger plusieurs mois."
 duplicate_files_warning = "⚠️ **{count} fichier(s) en double ignoré(s)** : {files}"
+reupload_required_warning = "⚠️ Vos fichiers ont été perdus (changement de langue ou d'option d'import). Merci de les recharger."
 language = "Langue"
 
 # Pays

@@ -238,7 +238,18 @@ def _smart_money_df(
         # convertie en float par _fmt (ex. un n° de TVA italien purement
         # numérique s'affiche alors comme un montant en euros).
         if col in n_cols:
-            column_config[col] = st.column_config.TextColumn(col)
+            # 500px en dur plutôt que le préréglage "large" (~200px, toujours
+            # insuffisant pour un texte de plusieurs phrases avec référence
+            # légale) — les autres note_cols (n° de TVA, identifiant
+            # technique passés par vies_ui.py) restent à la largeur par
+            # défaut, plus adaptée.
+            _width = 500 if ("note" in col_lower or "commentaire" in col_lower) else None
+            column_config[col] = st.column_config.TextColumn(col, width=_width) if _width else st.column_config.TextColumn(col)
+        # Colonnes de commentaire/justification détectées par heuristique
+        # (au cas où elles ne seraient pas listées explicitement en note_cols
+        # par l'appelant) : même traitement.
+        elif "note" in col_lower or "commentaire" in col_lower:
+            column_config[col] = st.column_config.TextColumn(col, width=500)
         # Pré-formatage dans le df : on remplace les floats par des strings formatées
         elif col in m_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total", "remboursé"]):
             column_config[col] = st.column_config.TextColumn(col)

@@ -137,13 +137,27 @@ def render_visualisations(ctx: TabContext) -> None:
                     hover_name="pays", color_continuous_scale="YlOrRd", scope="europe",
                     labels={"tva": _("viz_map_label_vat")})
                 fig_map.update_layout(
-                    height=400, 
-                    margin=dict(t=10,b=10,l=0,r=0),
+                    height=400,
+                    # Marge droite réservée explicitement à la légende (au lieu
+                    # de compter sur x=1.05 seul) : sur un écran/conteneur
+                    # étroit, use_container_width redimensionne toute la
+                    # figure et la légende finissait par chevaucher la carte
+                    # au lieu de rester à droite.
+                    margin=dict(t=10, b=10, l=0, r=90),
                     coloraxis_colorbar=dict(
                         thicknessmode="pixels", thickness=15,
                         lenmode="pixels", len=200,
                         yanchor="middle", y=0.5,
-                        xanchor="right", x=1.05 # On rapproche la barre de la carte
+                        xanchor="left", x=1.02,
+                        # Fond + bordure + couleur de texte fixes (indépendants
+                        # du thème sombre de l'app) : le fond de la carte
+                        # (scope="europe") reste blanc, et le texte de la
+                        # légende héritait sinon d'une couleur claire adaptée
+                        # au thème sombre — illisible en blanc sur blanc.
+                        bgcolor="rgba(255,255,255,0.9)",
+                        bordercolor="#cccccc", borderwidth=1,
+                        tickfont=dict(color="#1f1f1f"),
+                        title=dict(font=dict(color="#1f1f1f")),
                     )
                 )
                 st.plotly_chart(fig_map, use_container_width=True)

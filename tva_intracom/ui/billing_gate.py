@@ -205,9 +205,21 @@ def build_billing_gate(
     period_label, period_detected_range = detect_period_label(results, oss_period)
     st.session_state["_period_label"] = period_label
 
-    if st.session_state.get("_period_sidebar_synced_key") != cache_key:
-        st.session_state["_period_sidebar_synced_key"] = cache_key
-        st.rerun()
+    # NOTE (correctif) : ce bloc forçait auparavant un st.rerun() complet dès
+    # que `cache_key` changeait (donc à CHAQUE changement de pays d'origine,
+    # chaque nouvel import de fichier, chaque retry VIES...), uniquement pour
+    # que le bloc PAYG de la sidebar (rendu PLUS TÔT dans le script, donc
+    # avant que period_label ne soit calculé ici) affiche un libellé de
+    # période à jour dès le tout premier rendu. Le rerun forcé interrompait
+    # le script à cet endroit précis, empêchant les onglets (Détail ventes,
+    # Visualisations, etc.) de se rendre du tout dans cette passe — d'où
+    # l'écran qui semblait vide après un changement de pays d'origine, jusqu'à
+    # ce qu'une interaction ultérieure (ex: changer la devise) redéclenche un
+    # passage complet qui, lui, aboutissait. Le compromis retenu : la légende
+    # PAYG peut afficher la période de la dernière analyse pendant UN seul
+    # rendu dans de rares cas (purement cosmétique, sans impact sur le calcul
+    # ni l'export), en échange d'un affichage systématique et immédiat du
+    # contenu principal.
 
     # `has_export_credit()` réinterroge en interne l'abonnement via
     # `has_active_subscription_direct()` → `get_subscription_status()` — la

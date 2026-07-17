@@ -2,6 +2,7 @@ title = "Silnik VAT wewnątrz wspólnoty"
 upload_label = "Upuść swoje pliki tutaj (jeden lub kilka miesięcy)"
 upload_help = "CSV, TSV lub Excel. Wiele plików w celu agregacji kilku miesięcy."
 duplicate_files_warning = "⚠️ **Zignorowano {count} zduplikowany(ch) plik(ów)** : {files}"
+reupload_required_warning = "⚠️ Twoje pliki zostały utracone (zmiana języka lub opcji importu). Prosimy je wgrać ponownie."
 language = "Język"
 
 # Countries

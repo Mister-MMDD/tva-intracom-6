@@ -187,7 +187,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
         # Rappel pour le thème si l'utilisateur ne le trouve plus
         st.caption(_("theme_caption"))
-        file_format = st.radio(_("platform_source"), _PLATFORM_OPTIONS, index=0)
+        file_format = st.radio(_("platform_source"), _PLATFORM_OPTIONS, index=0, key="platform_source_select")
 
         # ── Connexion Amazon SP-API ───────────────────────────────────────────────
         with st.expander(_("amazon_conn_header"), expanded=False):
@@ -258,7 +258,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
         # ── Paramètres du fichier ─────────────────────────────────────────────────
         with st.expander(_("file_params_header"), expanded=False):
-            encoding = st.selectbox(_("file_encoding"), ["utf-8","latin-1","cp1252"], index=0)
+            encoding = st.selectbox(_("file_encoding"), ["utf-8","latin-1","cp1252"], index=0, key="file_encoding_select")
 
         # ── Catalogue Produits ────────────────────────────────────────────────────
         with st.expander(_("catalog_header"), expanded=False):

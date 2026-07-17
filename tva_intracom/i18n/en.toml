@@ -2,6 +2,7 @@ title = "Intra-community VAT Engine"
 upload_label = "Drop your files here (one or several months)"
 upload_help = "CSV, TSV, or Excel. Multiple files to aggregate several months."
 duplicate_files_warning = "⚠️ **{count} duplicate file(s) ignored** : {files}"
+reupload_required_warning = "⚠️ Your files were lost (language or import option change). Please re-upload them."
 language = "Language"
 
 # Countries
