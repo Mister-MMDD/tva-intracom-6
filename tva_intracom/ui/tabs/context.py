@@ -56,3 +56,10 @@ class TabContext:
     # Cross-onglet : rempli par render_declarations(), lu par
     # render_telechargements() — voir docstring du module.
     oss_tva_net_total: Any = None
+
+    # Clé de cache du calcul TVA (voir app.py `_cache_key`) — utilisée par
+    # render_telechargements() pour ne régénérer les exports (Excel, CA3,
+    # FEC...) que si les résultats sous-jacents ont réellement changé, plutôt
+    # qu'à chaque interaction avec un widget local à l'onglet (checkbox de
+    # confirmation OSS, sélecteur de pays local...).
+    calc_key: Any = None

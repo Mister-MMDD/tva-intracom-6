@@ -42,6 +42,7 @@ from tva_intracom.models import Channel
 from tva_intracom.rates import is_eu
 from tva_intracom.ui.formatting import _country_label
 from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
+from tva_intracom.ui.sidebar import _cached_db_read
 
 
 def detect_period_label(results, oss_period: str) -> tuple[str, Optional[tuple[str, str]]]:
@@ -208,18 +209,35 @@ def build_billing_gate(
         st.session_state["_period_sidebar_synced_key"] = cache_key
         st.rerun()
 
-    can_export = bool(period_label) and tva_billing.has_export_credit(
-        current_user.id, period_label
+    # `has_export_credit()` réinterroge en interne l'abonnement via
+    # `has_active_subscription_direct()` → `get_subscription_status()` — la
+    # même requête que la sidebar vient déjà de faire et de mettre en cache
+    # plus tôt dans ce même rerun. On réutilise ce cache pour éviter le
+    # doublon ; seule la table `tva_export_credits` (crédit ponctuel à la
+    # période) nécessite une lecture propre à ce gate.
+    _cached_sub_status = _cached_db_read(
+        f"sub_status_{current_user.id}",
+        lambda: tva_billing.get_subscription_status(current_user.id),
+    )
+    can_export = bool(period_label) and (
+        (_cached_sub_status and _cached_sub_status.active)
+        or tva_billing.has_export_credit(current_user.id, period_label)
     )
 
     quota_status = siren_quota_status
 
     # ── Gate SIREN
+    # Réutilise le même cache (clé identique) que render_sidebar() : la
+    # sidebar a déjà lu/mis en cache cette liste plus tôt dans le même
+    # rerun, donc pas de second aller-retour Postgres ici.
     if can_export and siren_entreprise:
         try:
             _siren_ok = any(
                 r["siren"] == siren_entreprise
-                for r in tva_billing.list_registered_sirens(current_user.id)
+                for r in _cached_db_read(
+                    f"sirens_{current_user.id}",
+                    lambda: tva_billing.list_registered_sirens(current_user.id),
+                )
             )
         except Exception:
             _siren_ok = True

@@ -81,6 +81,36 @@ def _oss_limit_label(home_country: str) -> str:
     return f"{_val:,.0f} {_sym}".replace(",", " ")
 
 
+# ── Cache TTL des lectures Postgres répétées à chaque rerun ─────────────────
+# `render_sidebar()` s'exécute intégralement à CHAQUE rerun Streamlit (tout
+# widget cliqué n'importe où dans l'app), ce qui déclenchait sans cache un
+# aller-retour Postgres (parfois une écriture, voir list_registered_sirens qui
+# purge les retraits SIREN expirés) à chaque interaction, même quand rien
+# n'a changé côté abonnement/SIREN/identifiants Amazon depuis la dernière
+# lecture. `_cached_db_read` mémoïse ces lectures en session_state avec un
+# TTL court (quelques secondes) — assez pour absorber une rafale
+# d'interactions UI, assez court pour rester à jour après une action Stripe
+# externe (paiement, changement de forfait). Invalidée immédiatement
+# (force=True) après toute action de mutation locale (ajout/retrait SIREN,
+# déconnexion Amazon...) pour refléter le changement sans attendre le TTL.
+_DB_CACHE_TTL_SECONDS = 20
+
+
+def _cached_db_read(cache_key: str, fetch_fn, force: bool = False):
+    _skey = f"_sb_dbcache_{cache_key}"
+    _cached = st.session_state.get(_skey)
+    _now = time.time()
+    if (not force) and _cached is not None and (_now - _cached[0]) < _DB_CACHE_TTL_SECONDS:
+        return _cached[1]
+    _value = fetch_fn()
+    st.session_state[_skey] = (_now, _value)
+    return _value
+
+
+def _invalidate_db_cache(cache_key: str) -> None:
+    st.session_state.pop(f"_sb_dbcache_{cache_key}", None)
+
+
 def render_sidebar(auth_ctx) -> SidebarResult:
     """Affiche la sidebar complète et retourne les paramètres résolus.
 
@@ -161,11 +191,15 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
         # ── Connexion Amazon SP-API ───────────────────────────────────────────────
         with st.expander(_("amazon_conn_header"), expanded=False):
-            _amz_creds = tva_auth.get_amazon_credentials(_current_user.id)
+            _amz_creds = _cached_db_read(
+                f"amz_creds_{_current_user.id}",
+                lambda: tva_auth.get_amazon_credentials(_current_user.id),
+            )
             if _amz_creds:
                 st.success(_("amazon_connected", id=_amz_creds['selling_partner_id']))
                 if st.button(_("amazon_disconnect_btn"), key="btn_disconnect_amazon"):
                     tva_auth.delete_amazon_credentials(_current_user.id)
+                    _invalidate_db_cache(f"amz_creds_{_current_user.id}")
                     st.rerun()
             else:
                 st.info(_("amazon_info_auth"))
@@ -306,8 +340,14 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             st.divider()
             st.markdown(f"**{_('identity_vat_params_title')}**")
             try:
-                _registered_sirens = tva_billing.list_registered_sirens(_current_user.id)
-                _siren_quota_status = tva_billing.get_siren_quota_status(_current_user.id)
+                _registered_sirens = _cached_db_read(
+                    f"sirens_{_current_user.id}",
+                    lambda: tva_billing.list_registered_sirens(_current_user.id),
+                )
+                _siren_quota_status = _cached_db_read(
+                    f"siren_quota_{_current_user.id}",
+                    lambda: tva_billing.get_siren_quota_status(_current_user.id),
+                )
             except Exception as _siren_list_err:
                 _registered_sirens = []
                 _siren_quota_status = None
@@ -398,6 +438,8 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                     vat_numbers_json=json.dumps(local_vat_numbers)
                                 )
                                 st.success(_("siren_save_success"))
+                                _invalidate_db_cache(f"sirens_{_current_user.id}")
+                                _invalidate_db_cache(f"siren_quota_{_current_user.id}")
                                 st.rerun()
                             except Exception as _reg_err:
                                 st.error(_("siren_save_error", error=_reg_err))
@@ -480,6 +522,8 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                 vat_numbers_json=json.dumps(local_vat_numbers)
                             )
                             st.success(_("update_success"))
+                            _invalidate_db_cache(f"sirens_{_current_user.id}")
+                            _invalidate_db_cache(f"siren_quota_{_current_user.id}")
                             st.rerun()
                         except Exception as _reg_err:
                             st.error(_("update_error", error=_reg_err))
@@ -493,6 +537,8 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         st.warning(_("removal_pending", date=_eff_date))
                         if st.button(_("cancel_removal_btn"), key=f"btn_cancel_removal_{siren_entreprise}", use_container_width=True):
                             tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
+                            _invalidate_db_cache(f"sirens_{_current_user.id}")
+                            _invalidate_db_cache(f"siren_quota_{_current_user.id}")
                             st.rerun()
                     else:
                         if st.button(_("remove_siren_btn"), key=f"btn_remove_entreprise_{siren_entreprise}",
@@ -500,6 +546,8 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                     use_container_width=True):
                             # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
                             _eff = tva_billing.request_siren_removal(_current_user.id, siren_entreprise)
+                            _invalidate_db_cache(f"sirens_{_current_user.id}")
+                            _invalidate_db_cache(f"siren_quota_{_current_user.id}")
                             import datetime as _dt
                             if _eff <= time.time() + 5:
                                 st.success(_("remove_success"))
@@ -511,7 +559,10 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         with st.expander(_("billing_header"), expanded=True):
             _sub_status = None
             try:
-                _sub_status = tva_billing.get_subscription_status(_current_user.id)
+                _sub_status = _cached_db_read(
+                    f"sub_status_{_current_user.id}",
+                    lambda: tva_billing.get_subscription_status(_current_user.id),
+                )
             except Exception as _sub_err:
                 st.caption(_("sub_status_unavailable", error=_sub_err))
 
@@ -537,22 +588,38 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             _c1.caption(_label)
                             if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", use_container_width=True):
                                 _eff = tva_billing.request_siren_removal(_current_user.id, _r["siren"])
+                                _invalidate_db_cache(f"sirens_{_current_user.id}")
+                                _invalidate_db_cache(f"siren_quota_{_current_user.id}")
                                 import datetime as _dt
                                 st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
                                 st.rerun()
 
-                try:
-                    _portal_url = tva_billing.create_billing_portal_session(
-                        _current_user.id,
-                        return_url=_stripe_cancel_url(),
-                    )
-                    st.link_button(_("manage_sub_stripe_btn"), _portal_url)
-                except Exception:
-                    pass
+                # Session de portail Stripe générée UNIQUEMENT au clic — avant
+                # ce correctif, `create_billing_portal_session()` (un appel
+                # réseau à l'API Stripe, pas juste une lecture DB) était
+                # exécuté à chaque rerun de toute l'app, que l'utilisateur
+                # ait ou non l'intention de gérer son abonnement. Même
+                # pattern que le bouton PAYG ci-dessous (cache de l'URL en
+                # session_state entre le 1er clic qui la génère et le 2e qui
+                # y navigue réellement).
+                if st.button(_("manage_sub_stripe_btn"), key="btn_open_billing_portal"):
+                    try:
+                        st.session_state["_billing_portal_url"] = tva_billing.create_billing_portal_session(
+                            _current_user.id,
+                            return_url=_stripe_cancel_url(),
+                        )
+                    except Exception as _portal_err:
+                        st.session_state.pop("_billing_portal_url", None)
+                        st.error(_("sub_status_unavailable", error=_portal_err))
+                if st.session_state.get("_billing_portal_url"):
+                    st.link_button(_("continue_to_payment_btn"), st.session_state["_billing_portal_url"])
 
             # ── Crédits PAYG (Achats uniques) ─────────────────────────────────────
             try:
-                _credits = tva_billing.list_purchased_credits(_current_user.id)
+                _credits = _cached_db_read(
+                    f"purchased_credits_{_current_user.id}",
+                    lambda: tva_billing.list_purchased_credits(_current_user.id),
+                )
                 if _credits:
                     st.markdown("---")
                     st.markdown(f"**{_('unlocked_periods_title')}**")
@@ -574,14 +641,20 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
                 with st.expander(_("pricing_grid_expander"), expanded=False):
                     try:
-                        _grid = tva_billing.get_pricing_grid(_current_user.id)
+                        _grid = _cached_db_read(
+                            f"pricing_grid_{_current_user.id}",
+                            lambda: tva_billing.get_pricing_grid(_current_user.id),
+                        )
                     except Exception as _grid_err:
                         _grid = None
                         st.caption(_("pricing_grid_unavailable", error=_grid_err))
 
                     if _grid:
                         try:
-                            _promotions = tva_billing.list_available_promotions(_current_user.id)
+                            _promotions = _cached_db_read(
+                                f"promotions_{_current_user.id}",
+                                lambda: tva_billing.list_available_promotions(_current_user.id),
+                            )
                         except Exception as _promo_list_err:
                             _promotions = []
                             st.error(_("promo_codes_unavailable", error=_promo_list_err))

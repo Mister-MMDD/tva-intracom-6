@@ -35,7 +35,7 @@ from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
 
-def _note(fr_text: str, key: str, **kwargs) -> str:
+def _note(fr_text: str, key: str, lang: str | None = None, **kwargs) -> str:
     """Texte de VatResult.note.
 
     En français : texte complet avec références légales (Bofip/CGI/directives
@@ -46,16 +46,33 @@ def _note(fr_text: str, key: str, **kwargs) -> str:
     et n'ont pas de traduction pertinente dans une autre langue.
     Fonctionne aussi en usage bibliothèque hors Streamlit (voir README) : si
     aucune session Streamlit n'est active, on reste en français par défaut
-    (comportement historique, avant l'introduction du multilingue)."""
-    try:
-        import streamlit as _st
-        lang = _st.session_state.get("language", "fr")
-    except Exception:
-        lang = "fr"
+    (comportement historique, avant l'introduction du multilingue).
+
+    Args:
+        lang: langue déjà résolue par l'appelant (voir `_resolve_lang()`),
+              pour éviter de relire `st.session_state` à chaque vente lors
+              d'un traitement en lot (jusqu'à 20k ventes) — un seul lookup
+              Streamlit par lot au lieu d'un par vente. Si None (usage
+              historique / bibliothèque hors boucle), on retombe sur la
+              résolution à la volée comme avant.
+    """
+    if lang is None:
+        lang = _resolve_lang()
     if lang == "fr":
         return fr_text
     from .i18n import _ as _i18n
     return _i18n(key, **kwargs)
+
+
+def _resolve_lang() -> str:
+    """Résout la langue de session courante (voir `_note`). Isolée dans sa
+    propre fonction pour être appelée une seule fois par lot (_run_oss_loop)
+    plutôt qu'une fois par vente."""
+    try:
+        import streamlit as _st
+        return _st.session_state.get("language", "fr")
+    except Exception:
+        return "fr"
 
 # Seuil de valeur intrinseque d'un envoi pour le regime IOSS (import).
 IOSS_THRESHOLD = Decimal("150")
@@ -67,9 +84,14 @@ def _round(amount: Decimal) -> Decimal:
 def _vat_amount(base: Decimal, rate: Decimal) -> Decimal:
     return _round(base * (rate / Decimal("100")))
 
-def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: str = "") -> VatResult:
+def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: str = "", lang: str | None = None) -> VatResult:
     """Calcule le regime et le montant de TVA d'une vente en prenant en compte la catégorie produit."""
-    
+    # Résolu une seule fois par appel si l'appelant (ex: _run_oss_loop) ne l'a
+    # pas déjà résolu pour tout le lot — évite un lookup Streamlit par vente
+    # en usage isolé/bibliothèque, tout en restant rétro-compatible.
+    if lang is None:
+        lang = _resolve_lang()
+
     # La catégorie produit effective : le paramètre explicite prime sur le champ Sale,
     # et le champ Sale prime sur le fallback STANDARD.
     effective_category = (product_category or sale.product_category or "STANDARD").strip().upper()
@@ -122,7 +144,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     "vente domestique française (convention fiscale franco-monégasque "
                     "du 18 mai 1963 — https://bit.ly/Conv-FR-MC) — TVA FR "
                     f"{mc_rate}% collectée.",
-                    "engine_note_monaco_home", rate=mc_rate,
+                    "engine_note_monaco_home", lang=lang, rate=mc_rate,
                 ),
             )
         else:
@@ -141,7 +163,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     "assimilée à une vente OSS vers la France (Convention fiscale "
                     "franco-monégasque — Monaco est traité comme le territoire "
                     f"français pour la TVA) — TVA FR {mc_rate}%.",
-                    "engine_note_monaco_oss", stock=sale.stock_country, rate=mc_rate,
+                    "engine_note_monaco_oss", lang=lang, stock=sale.stock_country, rate=mc_rate,
                 ),
             )
 
@@ -170,7 +192,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 f"{prefix_note} : exonérée de TVA (Art. 262 du CGI — "
                 "https://bit.ly/Art262CGI). Justificatif de sortie du "
                 "territoire requis.",
-                "engine_note_export",
+                "engine_note_export", lang=lang,
             ),
         )
 
@@ -205,7 +227,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 f"Import ≤ {IOSS_THRESHOLD} EUR : TVA {tax_rate}% collectée par le vendeur "
                 f"via son guichet IOSS ({sale.ioss_number}) — déclaration sur portail IOSS "
                 "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-IOSS).",
-                "engine_note_ioss_direct", rate=tax_rate, ioss=sale.ioss_number,
+                "engine_note_ioss_direct", lang=lang, rate=tax_rate, ioss=sale.ioss_number,
             ),
         )
 
@@ -226,7 +248,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 channel=Channel.EXONERATION,
                 note=_note(
                     f"{marketplace_name} collecte la TVA ({tax_rate}%) sur {sale.buyer_country}.",
-                    "engine_note_deemed_supplier", platform=marketplace_name, rate=tax_rate, country=sale.buyer_country,
+                    "engine_note_deemed_supplier", lang=lang, platform=marketplace_name, rate=tax_rate, country=sale.buyer_country,
                 )
             )
 
@@ -246,7 +268,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 note=_note(
                     "Livraison intracommunautaire B2B exonérée avec autoliquidation "
                     "par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
-                    "engine_note_b2b_reverse_charge",
+                    "engine_note_b2b_reverse_charge", lang=lang,
                 )
             )
 
@@ -294,7 +316,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                         f"cross-border — l'exonération est refusée (Art. 138 Directive "
                         f"2006/112/CE) — taxation au pays de départ ({sale.stock_country}) "
                         f"au taux de {departure_rate}% collecté par le vendeur.",
-                        "engine_note_b2b_no_vies_departure", stock=sale.stock_country,
+                        "engine_note_b2b_no_vies_departure", lang=lang, stock=sale.stock_country,
                         buyer=sale.buyer_country, rate=departure_rate,
                     ),
                 )
@@ -321,7 +343,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                         f"et taxée au pays de destination ({sale.buyer_country}) au taux de "
                         f"{tax_rate}% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — "
                         f"https://bit.ly/Bofip-OSS).",
-                        "engine_note_b2b_no_vies_destination_oss", stock=sale.stock_country,
+                        "engine_note_b2b_no_vies_destination_oss", lang=lang, stock=sale.stock_country,
                         buyer=sale.buyer_country, rate=tax_rate,
                     ),
                 )
@@ -341,7 +363,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             note=_note(
                 f"Vente OSS vers {sale.buyer_country} au taux de {tax_rate}% "
                 "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
-                "engine_note_oss_b2c", country=sale.buyer_country, rate=tax_rate,
+                "engine_note_oss_b2c", lang=lang, country=sale.buyer_country, rate=tax_rate,
             )
     )
 
@@ -388,7 +410,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     f"Vente B2B domestique {sale.stock_country} : autoliquidation nationale. "
                     f"L'acheteur assujetti (n° {'TVA: ' + sale.buyer_vat_number if sale.buyer_vat_number else 'inconnu'}) "
                     f"déclare et reverse la TVA — le vendeur ne collecte pas.",
-                    "engine_note_b2b_domestic_rc", country=sale.stock_country,
+                    "engine_note_b2b_domestic_rc", lang=lang, country=sale.stock_country,
                 ),
             )
 
@@ -396,13 +418,13 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
         note = (
             _note(
                 f"Vente domestique {sale.seller_country} : TVA {tax_rate}% à déclarer en local.",
-                "engine_note_domestic_home", country=sale.seller_country, rate=tax_rate,
+                "engine_note_domestic_home", lang=lang, country=sale.seller_country, rate=tax_rate,
             )
             if is_fr else
             _note(
                 f"Vente domestique {sale.stock_country} : TVA {tax_rate}%. "
                 f"Immatriculation TVA locale requise en {sale.stock_country}.",
-                "engine_note_domestic_local", country=sale.stock_country, rate=tax_rate,
+                "engine_note_domestic_local", lang=lang, country=sale.stock_country, rate=tax_rate,
             )
         )
         return VatResult(
@@ -432,7 +454,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     if is_dest_home else
                     f"immatriculation TVA locale requise en {sale.buyer_country}."
                 ),
-                "engine_note_ddp_import", country=sale.buyer_country, rate=tax_rate, home=sale.seller_country,
+                "engine_note_ddp_import", lang=lang, country=sale.buyer_country, rate=tax_rate, home=sale.seller_country,
             )
             return VatResult(
                 sale=sale,
@@ -458,7 +480,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     f"Import > {IOSS_THRESHOLD} EUR depuis pays tiers : TVA d'importation "
                     f"{sale.buyer_country} ({tax_rate}%) due a la douane par l'importateur "
                     "(hors guichet IOSS).",
-                    "engine_note_import_standard", country=sale.buyer_country, rate=tax_rate,
+                    "engine_note_import_standard", lang=lang, country=sale.buyer_country, rate=tax_rate,
                 ),
             )
 
@@ -523,7 +545,7 @@ def _oss_threshold_display(cumulative_eur: Decimal) -> tuple[str, str, str]:
 
 def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                     sale: Sale, product_category: str,
-                    apply_fr_under_threshold: bool) -> VatResult:
+                    apply_fr_under_threshold: bool, lang: str | None = None) -> VatResult:
     """Applique la logique du seuil OSS à un VatResult déjà calculé.
 
     - Sous le seuil et option FR activée → reclassifie en DOMESTIC FR.
@@ -533,6 +555,8 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     Cette fonction est la source unique de la logique OSS partagée entre
     compute_all() et compute_all_with_vies() — corriger ici corrige les deux.
     """
+    if lang is None:
+        lang = _resolve_lang()
     if not apply_fr_under_threshold:
         return res
 
@@ -560,7 +584,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
             note=_note(
                 f"Sous le seuil OSS ({_cumul_disp}/{_limit_disp}{_sym_disp}). "
                 f"Option TVA {origin_country} activée.",
-                "engine_note_oss_under_threshold", country=origin_country,
+                "engine_note_oss_under_threshold", lang=lang, country=origin_country,
                 cumulative=_cumul_disp, limit=_limit_disp, currency=_sym_disp,
             ),
         )
@@ -572,7 +596,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
             collector=res.collector, channel=res.channel,
             note=_note(
                 f"FRANCHISSEMENT DU SEUIL OSS ! Vente vers {res.vat_country}.",
-                "engine_note_oss_threshold_crossed", country=res.vat_country,
+                "engine_note_oss_threshold_crossed", lang=lang, country=res.vat_country,
             ),
         )
     return res
@@ -637,6 +661,10 @@ def _run_oss_loop(
     cumulative_oss_ht = Decimal("0.00")
     current_year = ""
     oss_ht_by_year: dict[str, Decimal] = {}
+    # Résolu UNE SEULE FOIS pour tout le lot (jusqu'à 20k ventes) plutôt que
+    # relu depuis st.session_state à chaque vente dans compute_vat/_note —
+    # voir _resolve_lang().
+    _lang = _resolve_lang()
 
     for sale in sorted_items:
         is_from_refunds = id(sale) in refund_ids
@@ -665,14 +693,14 @@ def _run_oss_loop(
             else sale
         )
 
-        res = compute_vat(effective_sale, marketplace_name, product_category=product_category)
+        res = compute_vat(effective_sale, marketplace_name, product_category=product_category, lang=_lang)
 
         if _oss_eligible(effective_sale):
             cumulative_oss_ht += effective_sale.amount_ht
             if not is_from_refunds:
                 res = _build_oss_note(
                     res, cumulative_oss_ht, Decimal("10000.00"),
-                    effective_sale, product_category, apply_fr_under_threshold,
+                    effective_sale, product_category, apply_fr_under_threshold, lang=_lang,
                 )
 
         if not is_from_refunds:

@@ -31,8 +31,18 @@ def _orig_currency_cols(r, target_currency: str) -> tuple[str, object]:
     return "", ""
 
 
+@st.fragment
 def render_detail_ventes(ctx: TabContext) -> None:
-    """Rendu complet de l'onglet Détail ventes."""
+    """Rendu complet de l'onglet Détail ventes.
+
+    Décoré en `@st.fragment` : un changement de widget à l'intérieur de cet
+    onglet (curseur "lignes par page", filtres, tri...) ne redéclenche plus
+    le rerun de TOUTE l'application (KPIs, gating billing, onglets VIES /
+    Audit / Visualisations...) — seul ce fragment se rejoue. Gain net sur
+    gros volumes (5-20k lignes) où le reste de l'app (5 graphiques Plotly,
+    appels VIES, etc.) n'a aucune raison de se recalculer juste parce qu'on
+    veut voir 500 lignes au lieu de 250.
+    """
     results = ctx.results
     refund_results = ctx.refund_results
     _can_export = ctx.can_export
@@ -45,6 +55,20 @@ def render_detail_ventes(ctx: TabContext) -> None:
     _lbl_vat = _("col_vat_eur", currency=_target_currency)
     _lbl_orig = _("col_orig_amount")
     _orig_cfg = {_lbl_orig: st.column_config.TextColumn(_lbl_orig)}
+
+    # Traductions des en-têtes de colonnes hoistées HORS des boucles
+    # ligne-par-ligne ci-dessous : elles sont identiques pour toutes les
+    # lignes, donc les calculer une fois ici plutôt qu'à chaque itération
+    # évite ~8 lookups i18n x nombre de lignes x 4 sous-onglets (jusqu'à
+    # ~640 000 appels superflus par rerun sur un fichier de 20k lignes).
+    _c_stock = _("col_stock")
+    _c_dest = _("col_dest")
+    _c_rate_pct = _("col_rate_pct")
+    _c_canal = _("col_canal")
+    _c_scenario = _("col_scenario")
+    _c_currency = _("col_currency")
+    _c_note = _("col_note")
+    _c_collector = _("col_collector")
 
     sub_a, sub_b, sub_c, sub_d = st.tabs([
         _("subtab_what_you_owe"), _("subtab_managed_by_tiers"), _("subtab_row_by_row"),
@@ -68,12 +92,12 @@ def render_detail_ventes(ctx: TabContext) -> None:
         for r in your_results:
             _dev, _orig = _orig_currency_cols(r, _target_currency)
             _your_rows.append({
-                "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
-                _lbl_ht:float(r.sale.amount_ht), _("col_rate_pct"):float(r.vat_rate),
-                _lbl_vat:float(r.vat_amount), _("col_canal"):r.channel.value, _("col_scenario"):r.scenario.value,
-                _("col_currency"):_dev,
+                "ID":(r.sale.display_id or r.sale.sale_id), _c_stock:r.sale.stock_country, _c_dest:r.sale.buyer_country,
+                _lbl_ht:float(r.sale.amount_ht), _c_rate_pct:float(r.vat_rate),
+                _lbl_vat:float(r.vat_amount), _c_canal:r.channel.value, _c_scenario:r.scenario.value,
+                _c_currency:_dev,
                 _lbl_orig:_orig,
-                _("col_note"):r.note})
+                _c_note:r.note})
         _your_df_full = pd.DataFrame(_your_rows)
         
         # Filtres
@@ -98,9 +122,9 @@ def render_detail_ventes(ctx: TabContext) -> None:
         st.caption(_("subtab_managed_by_tiers_caption"))
         third_results = [r for r in results if r.collector.value != "SELLER"]
         _third_rows = [{
-            "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
-            _lbl_ht:float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
-            _("col_collector"):r.collector.value, _("col_canal"):r.channel.value}
+            "ID":(r.sale.display_id or r.sale.sale_id), _c_stock:r.sale.stock_country, _c_dest:r.sale.buyer_country,
+            _lbl_ht:float(r.sale.amount_ht), _c_scenario:r.scenario.value,
+            _c_collector:r.collector.value, _c_canal:r.channel.value}
             for r in third_results]
         _third_df_full = pd.DataFrame(_third_rows)
         
@@ -126,13 +150,13 @@ def render_detail_ventes(ctx: TabContext) -> None:
         for r in all_sorted:
             _dev, _orig = _orig_currency_cols(r, _target_currency)
             _all_rows.append({
-                "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
-                _lbl_ht:float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
-                _("col_rate_pct"):float(r.vat_rate), _lbl_vat:float(r.vat_amount),
-                _("col_canal"):r.channel.value,
-                _("col_currency"):_dev,
+                "ID":(r.sale.display_id or r.sale.sale_id), _c_stock:r.sale.stock_country, _c_dest:r.sale.buyer_country,
+                _lbl_ht:float(r.sale.amount_ht), _c_scenario:r.scenario.value,
+                _c_rate_pct:float(r.vat_rate), _lbl_vat:float(r.vat_amount),
+                _c_canal:r.channel.value,
+                _c_currency:_dev,
                 _lbl_orig:_orig,
-                _("col_note"):r.note})
+                _c_note:r.note})
         _all_df_full = pd.DataFrame(_all_rows)
 
         # Filtres
@@ -173,10 +197,10 @@ def render_detail_ventes(ctx: TabContext) -> None:
             ref_sorted = sorted(refund_results,
                 key=lambda r: r.vat_country if sort_ref=="Pays" else (-r.vat_rate if sort_ref=="Taux" else r.sale.amount_ht))
             _ref_rows = [{
-                "ID":(r.sale.display_id or r.sale.sale_id), _("col_stock"):r.sale.stock_country, _("col_dest"):r.sale.buyer_country,
-                _lbl_ht:float(r.sale.amount_ht), _("col_scenario"):r.scenario.value,
-                _("col_rate_pct"):float(r.vat_rate), _lbl_vat:float(r.vat_amount),
-                _("col_canal"):r.channel.value}
+                "ID":(r.sale.display_id or r.sale.sale_id), _c_stock:r.sale.stock_country, _c_dest:r.sale.buyer_country,
+                _lbl_ht:float(r.sale.amount_ht), _c_scenario:r.scenario.value,
+                _c_rate_pct:float(r.vat_rate), _lbl_vat:float(r.vat_amount),
+                _c_canal:r.channel.value}
                 for r in ref_sorted]
             _ref_df_full = pd.DataFrame(_ref_rows)
             

@@ -665,6 +665,7 @@ if uploaded_files:
             all_sales=all_sales,
             platform_name=platform_name,
             home_country=home_country,
+            calc_key=_cache_key,
         )
 
         with tab_decl: render_declarations(_tab_ctx)
