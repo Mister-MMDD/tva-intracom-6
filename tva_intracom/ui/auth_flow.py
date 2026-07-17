@@ -123,13 +123,13 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.session_state["manual_logout"] = False
 
     # ── 1. Interception PRIORITAIRE du code OAuth (PKCE ou Implicit) ────────
-    # On le fait avant tout le reste pour éviter que d'autres composants ne
-    # déclenchent un rerun qui nous ferait perdre le jeton.
-    _sb_code = st.query_params.get("code")
-    _sb_provider = st.query_params.get("sb_provider")
-    _sb_nonce = st.query_params.get("sb_nonce")
-    _sb_access_token = st.query_params.get("access_token")
-    _sb_error_code = st.query_params.get("error_code")
+    _qp = st.query_params
+    _sb_code = _qp.get("code")
+    _sb_provider = _qp.get("sb_provider")
+    _sb_nonce = _qp.get("sb_nonce")
+    _sb_access_token = _qp.get("access_token")
+    _sb_error_code = _qp.get("error_code")
+    _sb_error_desc = _qp.get("error_description")
 
     if st.session_state.get("auth_user") is None:
         # Cas A : Jeton direct (Implicit flow / retour mail)
@@ -139,20 +139,18 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 _finalize_login(_sb_result.email, cookie_manager)
                 st.query_params.clear()
                 st.rerun()
-            except Exception:
+            except Exception as _e:
+                st.error(f"Erreur access_token: {str(_e)}")
                 st.query_params.clear()
-                st.rerun()
 
         # Cas B : Code à échanger (PKCE flow / bouton login)
         elif _sb_code and _sb_provider:
-            # On cherche le verifier d'abord en session (très robuste aux reruns Streamlit)
             _cache_key = f"_sb_pkce_{_sb_provider}"
             _cached = st.session_state.get(_cache_key)
             _verifier = None
             if _cached and _cached[0] == _sb_nonce:
                 _verifier = _cached[1]
             
-            # Fallback sur la DB si absent de la session
             if not _verifier and _sb_nonce:
                 _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider)
             
@@ -160,26 +158,32 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 try:
                     _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
                     _finalize_login(_sb_result.email, cookie_manager)
-                    st.session_state.pop(_cache_key, None) # Nettoyage session
+                    st.session_state.pop(_cache_key, None)
                     st.query_params.clear()
                     st.rerun()
                 except Exception as _sb_err:
                     st.error(_("oauth_login_error", error=str(_sb_err)))
                     st.query_params.clear()
-                    # On ne fait pas de rerun ici pour laisser l'erreur visible
             else:
-                # Si on n'a plus de verifier, c'est probablement un vieux lien
-                # On nettoie silencieusement pour revenir au login propre
+                # Si on a un code mais pas de verifier, c'est l'erreur "Session expirée"
                 if _sb_nonce:
-                    st.query_params.clear()
-                    st.rerun()
+                    st.error(f"{_('oauth_state_lost_error')} (prov={_sb_provider}, nonce={_sb_nonce[:8]}...)")
+                    if st.button("Réessayer"):
+                        st.query_params.clear()
+                        st.rerun()
+                    st.stop()
 
     # Cas C : Erreur spécifique (ex: email non vérifié)
-    if _sb_error_code == "provider_email_needs_verification" and st.session_state.get("auth_user") is None:
-        st.warning(_("oauth_email_verification_required"))
+    if _sb_error_code and st.session_state.get("auth_user") is None:
+        if _sb_error_code == "provider_email_needs_verification":
+            st.warning(_("oauth_email_verification_required"))
+        else:
+            st.error(f"Erreur OAuth ({_sb_error_code}): {_sb_error_desc or 'inconnue'}")
+        
         if st.button(_("cancel_btn"), key="clear_oauth_error"):
             st.query_params.clear()
             st.rerun()
+        st.stop()
 
     # ── 2. Conversion du fragment URL (#) en paramètres (?) ─────────────────
     if st.session_state.get("auth_user") is None:
