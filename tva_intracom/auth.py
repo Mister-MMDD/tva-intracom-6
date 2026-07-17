@@ -566,6 +566,7 @@ def save_pkce_verifier(nonce: str, provider: str, verifier: str) -> None:
             """,
             (nonce, provider, verifier, now),
         )
+        conn.commit()
 
     _run(_fn)
 
@@ -579,7 +580,10 @@ def consume_pkce_verifier(nonce: str, provider: str) -> Optional[str]:
             (nonce, provider, time.time() - 15 * 60),
         )
         row = cur.fetchone()
-        cur.execute("DELETE FROM tva_oauth_pkce WHERE nonce=%s", (nonce,))
-        return row[0] if row else None
+        if row:
+            cur.execute("DELETE FROM tva_oauth_pkce WHERE nonce=%s", (nonce,))
+            conn.commit()
+            return row[0]
+        return None
 
     return _run(_fn)

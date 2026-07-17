@@ -148,16 +148,25 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             _cache_key = f"_sb_pkce_{_sb_provider}"
             _cached = st.session_state.get(_cache_key)
             _verifier = None
+            
+            # 1. On cherche d'abord en session (très robuste aux reruns)
             if _cached and _cached[0] == _sb_nonce:
                 _verifier = _cached[1]
             
+            # 2. Sinon on cherche en DB (cas d'une nouvelle session)
             if not _verifier and _sb_nonce:
                 _verifier = tva_auth.consume_pkce_verifier(_sb_nonce, _sb_provider)
+                if _verifier:
+                    # On le met IMMÉDIATEMENT en session pour que les reruns
+                    # suivants (déclenchés par st.query_params ou cookies)
+                    # le trouvent sans retourner en DB (où il est supprimé).
+                    st.session_state[_cache_key] = (_sb_nonce, _verifier)
             
             if _verifier:
                 try:
                     _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
                     _finalize_login(_sb_result.email, cookie_manager)
+                    # Nettoyage complet
                     st.session_state.pop(_cache_key, None)
                     st.query_params.clear()
                     st.rerun()
@@ -165,8 +174,14 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     st.error(_("oauth_login_error", error=str(_sb_err)))
                     st.query_params.clear()
             else:
-                # Si on a un code mais pas de verifier, c'est l'erreur "Session expirée"
+                # Si on n'a plus de verifier du tout (déjà consommé ou perdu)
                 if _sb_nonce:
+                    # Avant d'afficher l'erreur, on vérifie si on n'est pas déjà 
+                    # en train de finaliser la connexion (auth_user qui arrive)
+                    time.sleep(0.5) # Petit sursis pour laisser Run 1 finir
+                    if st.session_state.get("auth_user"):
+                        st.rerun()
+
                     st.error(f"{_('oauth_state_lost_error')} (prov={_sb_provider}, nonce={_sb_nonce[:8]}...)")
                     if st.button("Réessayer"):
                         st.query_params.clear()
