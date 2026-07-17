@@ -31,6 +31,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import streamlit as st
+import streamlit.components.v1 as components
 from ..config import get_secret
 from tva_intracom.i18n import _
 import extra_streamlit_components as stx
@@ -124,6 +125,29 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.session_state["auth_user"] = None
     if "manual_logout" not in st.session_state:
         st.session_state["manual_logout"] = False
+
+    # ── Conversion du fragment URL (#) en paramètres de requête (?) ────────
+    # Supabase renvoie parfois les jetons ou erreurs dans le fragment (ex: après
+    # email confirmation ou si email non vérifié), invisible côté serveur.
+    # On injecte un JS qui redirige vers la même URL en remplaçant le # par un ?.
+    if st.session_state.get("auth_user") is None:
+        components.html(
+            """
+            <script>
+            var hash = window.parent.location.hash;
+            if (hash && (hash.includes('access_token=') || hash.includes('error='))) {
+                var params = new URLSearchParams(hash.substring(1));
+                var currUrl = new URL(window.parent.location.href);
+                params.forEach((value, key) => {
+                    currUrl.searchParams.set(key, value);
+                });
+                currUrl.hash = "";
+                window.parent.location.href = currUrl.toString();
+            }
+            </script>
+            """,
+            height=0,
+        )
 
     try:
         _local_bypass = bool(get_secret("LOCAL_DEV_BYPASS_AUTH", False))
@@ -250,6 +274,30 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_code = st.query_params.get("code")
     _sb_provider = st.query_params.get("sb_provider")
     _sb_nonce = st.query_params.get("sb_nonce")
+    _sb_access_token = st.query_params.get("access_token")
+    _sb_error_code = st.query_params.get("error_code")
+
+    # Erreur : email non vérifié (Cognito)
+    if _sb_error_code == "provider_email_needs_verification" and st.session_state.get("auth_user") is None:
+        st.warning(_("oauth_email_verification_required"))
+        # On ne clear pas forcément tout de suite pour laisser le warning visible,
+        # mais on peut au moins nettoyer l'URL pour éviter les boucles.
+        if st.button(_("cancel_btn"), key="clear_oauth_error"):
+            st.query_params.clear()
+            st.rerun()
+
+    # Succès : Flux Implicit (access_token direct dans l'URL, suite à redirection # -> ?)
+    if _sb_access_token and st.session_state.get("auth_user") is None:
+        try:
+            _sb_result = tva_sb_auth.get_user_from_access_token(_sb_access_token)
+            _finalize_login(_sb_result.email, cookie_manager)
+            st.query_params.clear()
+            st.rerun()
+        except Exception as _sb_err:
+            st.error(_("oauth_login_error", error=str(_sb_err)))
+            st.query_params.clear()
+
+    # Succès : Flux PKCE (code échangeable)
     if _sb_code and _sb_provider and st.session_state.get("auth_user") is None:
         # Le nonce a été consommé (ou va l'être) : on retire le cache session
         # pour ce provider, qu'on ait réussi ou non — un nouvel essai devra

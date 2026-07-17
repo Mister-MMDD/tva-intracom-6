@@ -195,3 +195,20 @@ def exchange_pkce_code(code: str, code_verifier: str) -> SupabaseAuthResult:
             "que le scope 'email' est bien demandé côté configuration du provider."
         )
     return SupabaseAuthResult(email=email, access_token=access_token, refresh_token=data.get("refresh_token"))
+
+
+def get_user_from_access_token(access_token: str) -> SupabaseAuthResult:
+    """Récupère les infos utilisateur à partir d'un access_token déjà obtenu
+    (ex: via redirection implicit flow #access_token=...)."""
+    user_resp = requests.get(
+        f"{_base_url()}/auth/v1/user",
+        headers={"apikey": _anon_key(), "Authorization": f"Bearer {access_token}"},
+        timeout=10,
+    )
+    _raise_for_supabase_error(user_resp)
+    email = (user_resp.json().get("email") or "").strip().lower()
+    if not email:
+        raise RuntimeError(
+            "Impossible de récupérer l'e-mail de l'utilisateur à partir du jeton fourni."
+        )
+    return SupabaseAuthResult(email=email, access_token=access_token)
