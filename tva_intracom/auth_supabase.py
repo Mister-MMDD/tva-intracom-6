@@ -146,6 +146,33 @@ def sign_in_with_password(email: str, password: str) -> SupabaseAuthResult:
     )
 
 
+def reset_password_for_email(email: str, redirect_to: Optional[str] = None) -> None:
+    """Envoie un e-mail de réinitialisation de mot de passe à l'utilisateur."""
+    body = {"email": email.strip().lower()}
+    if redirect_to:
+        body["redirectTo"] = redirect_to
+    resp = requests.post(
+        f"{_base_url()}/auth/v1/recover",
+        headers=_headers(),
+        json=body,
+        timeout=10,
+    )
+    _raise_for_supabase_error(resp)
+
+
+def update_user_password(access_token: str, new_password: str) -> dict:
+    """Met à jour le mot de passe de l'utilisateur courant (via son access_token).
+    Retourne les infos utilisateur mises à jour."""
+    resp = requests.put(
+        f"{_base_url()}/auth/v1/user",
+        headers={"apikey": _anon_key(), "Authorization": f"Bearer {access_token}"},
+        json={"password": new_password},
+        timeout=10,
+    )
+    _raise_for_supabase_error(resp)
+    return resp.json()
+
+
 # ── OAuth (Google / Microsoft / GitHub) — flux PKCE ─────────────────────────
 #
 # Le mode "implicit" de Supabase Auth renvoie les jetons dans le fragment
