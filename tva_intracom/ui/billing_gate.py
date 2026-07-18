@@ -152,8 +152,30 @@ class BillingGate:
 
             _url = self.get_payg_checkout_url()
             if _url:
-                st.link_button(f"🔒 {label} — {self.unlock_label_suffix}", _url,
-                               use_container_width=kwargs.get("use_container_width", False))
+                st.markdown(
+                    f"""
+                    <a href="{_url}" target="_top" style="text-decoration: none;">
+                        <div style="
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            gap: 8px;
+                            background-color: #7F77DD;
+                            color: #FFFFFF;
+                            border-radius: 8px;
+                            padding: 10px 16px;
+                            font-size: 14px;
+                            font-weight: 500;
+                            cursor: pointer;
+                            width: 100%;
+                        ">
+                            🔓 {label} — {self.unlock_label_suffix}
+                        </div>
+                    </a>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.caption(_("unlock_export_footer"))
             else:
                 _err = st.session_state.get(f"_stripe_checkout_error::{self.period_label}", _("unknown_error"))
                 st.error(_("gate_payment_unavailable_err", label=label, error=_err))
