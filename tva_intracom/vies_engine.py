@@ -39,6 +39,7 @@ Dépendance : psycopg2-binary (déjà présente dans requirements.txt pour auth.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -581,10 +582,10 @@ def _db_delete_expired_scope(scope_id: str) -> int:
     courant. N'affecte jamais le cache global (mutualisé, purgé
     indépendamment par purge_expired_global_cache())."""
     cutoff = _now_utc() - timedelta(days=CACHE_TTL_DAYS)
-    # Rétention historique : Amazon DPP exige la suppression des PII. 
+    # Rétention historique : Amazon DPP exige la suppression des PII.
     # On garde 365 jours pour raisons fiscales, mais on purge le reste.
     history_cutoff = _now_utc() - timedelta(days=365)
-    
+
     transient_patterns = [
         "%ms_unavailable%", "%service_unavailable%",
         "%ms_max_concurrent_req%", "%global_max_concurrent_req%",
@@ -600,13 +601,13 @@ def _db_delete_expired_scope(scope_id: str) -> int:
             (scope_id, cutoff),
         )
         deleted = cur.rowcount
-        
+
         # Historique (Data Retention)
         cur.execute(
             "DELETE FROM vies_check_history WHERE scope_id=%s AND checked_at < %s",
             (scope_id, history_cutoff),
         )
-        
+
         for pat in transient_patterns:
             cur.execute(
                 "DELETE FROM vies_scope_cache WHERE scope_id=%s AND LOWER(error) LIKE %s",
@@ -619,15 +620,64 @@ def _db_delete_expired_scope(scope_id: str) -> int:
     return deleted
 
 
+def anonymize_and_retain_scope_history(scope_id: str) -> None:
+    """Pseudonymise la piste d'audit VIES d'un scope au lieu de la supprimer.
+
+    RGPD art. 17.3.b : le droit à l'effacement ne s'applique pas quand la
+    conservation est nécessaire au respect d'une obligation légale — ici,
+    la justification d'exonérations B2B lors d'un contrôle fiscal
+    (`vies_check_history`, déjà retenue 365 jours par `_db_delete_expired_scope`
+    en fonctionnement normal, voir plus bas). Supprimer purement et
+    simplement cet historique à la suppression d'un compte contredirait
+    cette politique de rétention déjà en place.
+
+    Pour un scope privé (``"user:<email>"``), la colonne `scope_id` contient
+    l'e-mail en clair — il ne suffit donc pas de garder les lignes, il faut
+    couper le lien direct avec la personne : on renomme le scope en un
+    identifiant pseudonyme dérivé (haché, non réversible), qui reste
+    purgeable par la purge périodique normale une fois les 365 jours
+    écoulés, exactement comme n'importe quel autre scope.
+
+    Un scope partagé (``"domain:<domaine>"``, cabinet) ne contient aucune
+    PII directe dans son identifiant — rien à pseudonymiser, et de toute
+    façon `auth.delete_account()` n'appelle jamais cette fonction pour ce
+    type de scope (les données restent utiles aux autres membres du cabinet).
+    """
+    if not scope_id.startswith("user:"):
+        return
+    pseudo_scope = "deleted:" + hashlib.sha256(scope_id.encode()).hexdigest()[:32]
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE vies_check_history SET scope_id=%s WHERE scope_id=%s",
+            (pseudo_scope, scope_id),
+        )
+        conn.commit()
+    logger.info(
+        "Piste d'audit VIES pseudonymisée pour suppression de compte (scope privé -> %s).",
+        pseudo_scope,
+    )
+
+
 def delete_all_scope_data(scope_id: str) -> None:
-    """Supprime toutes les données liées à un scope (cache privé, historique, overrides).
-    Utilisé lors de la suppression d'un compte utilisateur (si scope individuel)."""
+    """Supprime les données non soumises à rétention légale d'un scope
+    (cache privé, overrides manuels), et pseudonymise — au lieu de
+    supprimer — la piste d'audit VIES (`vies_check_history`), conservée
+    365 jours pour justifier d'éventuelles exonérations B2B lors d'un
+    contrôle fiscal (voir `anonymize_and_retain_scope_history`).
+
+    Utilisé lors de la suppression d'un compte utilisateur (si scope
+    individuel) — voir `tva_intracom/auth.py::delete_account()`.
+    """
+    anonymize_and_retain_scope_history(scope_id)
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM vies_scope_cache WHERE scope_id=%s", (scope_id,))
-        cur.execute("DELETE FROM vies_check_history WHERE scope_id=%s", (scope_id,))
         cur.execute("DELETE FROM vies_manual_overrides WHERE scope_id=%s", (scope_id,))
         conn.commit()
-    logger.info("Données VIES supprimées pour le scope [%s].", scope_id)
+    logger.info(
+        "Données VIES supprimées pour le scope [%s] (cache + overrides ; "
+        "historique conservé sous forme pseudonymisée, voir rétention légale).",
+        scope_id,
+    )
 
 
 def export_scope_data(scope_id: str) -> dict:
@@ -692,7 +742,7 @@ def purge_malformed_entries() -> int:
             to_delete = [
                 r[0] for r in cur.fetchall()
                 if len(r[0]) >= 4 and r[0][:2].upper() in _EU_CC
-                and r[0][2:4].upper() in _EU_CC and r[0][:2].upper() != r[0][2:4].upper()
+                   and r[0][2:4].upper() in _EU_CC and r[0][:2].upper() != r[0][2:4].upper()
             ]
             for vat_id in to_delete:
                 cur.execute(f"DELETE FROM {table} WHERE vat_id=%s", (vat_id,))
@@ -776,10 +826,10 @@ def _is_transient(error: Optional[str]) -> bool:
 def _is_empty_response(res: ViesResult) -> bool:
     """Réponse VIES "vide" : valid=False, sans nom/adresse, sans erreur."""
     return (
-        not res.valid
-        and not res.error
-        and not res.name.strip()
-        and not res.address.strip()
+            not res.valid
+            and not res.error
+            and not res.name.strip()
+            and not res.address.strip()
     )
 
 
@@ -792,9 +842,9 @@ def _is_downgrade(previous: ViesResult, new_result: ViesResult) -> bool:
     """Détecte un downgrade suspect : numéro précédemment VALIDE qui revient
     soudainement vide sans erreur (dégradation serveur VIES sous charge)."""
     return (
-        previous.valid
-        and not new_result.valid
-        and not new_result.error
+            previous.valid
+            and not new_result.valid
+            and not new_result.error
     )
 
 
@@ -920,11 +970,11 @@ def check_vat(country_code: str, vat_number: str, timeout: int = DEFAULT_TIMEOUT
 
 
 def check_vat_with_retry(
-    country_code: str,
-    vat_number: str,
-    timeout: int = DEFAULT_TIMEOUT,
-    max_attempts: int = _RETRY_MAX_ATTEMPTS,
-    base_delay: float = _RETRY_BASE_DELAY,
+        country_code: str,
+        vat_number: str,
+        timeout: int = DEFAULT_TIMEOUT,
+        max_attempts: int = _RETRY_MAX_ATTEMPTS,
+        base_delay: float = _RETRY_BASE_DELAY,
 ) -> ViesResult:
     """Appelle check_vat avec retry backoff exponentiel sur erreurs transitoires."""
     delay = base_delay
@@ -1009,11 +1059,11 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
 # ---------------------------------------------------------------------------
 
 def validate_vat_numbers_parallel(
-    scope_id: str,
-    vat_ids: list[str],
-    max_workers: int = 25,
-    timeout: int = DEFAULT_TIMEOUT,
-    progress_callback=None,
+        scope_id: str,
+        vat_ids: list[str],
+        max_workers: int = 25,
+        timeout: int = DEFAULT_TIMEOUT,
+        progress_callback=None,
 ) -> dict[str, ViesResult]:
     """Valide plusieurs numéros de TVA en parallèle.
 
@@ -1118,8 +1168,8 @@ def validate_vat_numbers_parallel(
         empty_results = [r for r in invalid_results if _is_empty_response(r)]
         _EMPTY_RATIO_THRESHOLD = 0.3
         server_degraded = (
-            len(invalid_results) >= 3
-            and len(empty_results) / len(invalid_results) > _EMPTY_RATIO_THRESHOLD
+                len(invalid_results) >= 3
+                and len(empty_results) / len(invalid_results) > _EMPTY_RATIO_THRESHOLD
         )
         if server_degraded:
             logger.warning(
@@ -1184,10 +1234,10 @@ def validate_vat_numbers_parallel(
 
 
 def validate_vat_numbers(
-    scope_id: str,
-    vat_ids: list[str],
-    timeout: int = DEFAULT_TIMEOUT,
-    progress_callback=None,
+        scope_id: str,
+        vat_ids: list[str],
+        timeout: int = DEFAULT_TIMEOUT,
+        progress_callback=None,
 ) -> dict[str, ViesResult]:
     """Compatibilité descendante (version séquentielle-friendly, même cascade)."""
     return validate_vat_numbers_parallel(

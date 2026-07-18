@@ -54,6 +54,16 @@ def render_telechargements(ctx: TabContext) -> None:
     local_vat_numbers = ctx.local_vat_numbers
     all_fc_transfers = ctx.all_fc_transfers
     all_invoice_credit_notes = ctx.all_invoice_credit_notes
+    # Couplage inter-onglets intentionnel (voir tabs/context.py) : ce module
+    # suppose que render_declarations(ctx) a déjà tourné dans ce rerun et y a
+    # écrit oss_tva_net_total. Si l'ordre des onglets est un jour changé dans
+    # app.py, cette hypothèse casse silencieusement (valeur None utilisée
+    # telle quelle dans l'export CSV local FR) — on préfère une erreur
+    # explicite immédiate à un export silencieusement incorrect.
+    assert ctx.oss_tva_net_total is not None, (
+        "ctx.oss_tva_net_total est None : render_declarations(ctx) doit être "
+        "appelé avant render_telechargements(ctx) dans app.py (voir tabs/context.py)."
+    )
     _oss_tva_net_total = ctx.oss_tva_net_total
     home_country = getattr(ctx, "home_country", "FR") or "FR"
 
@@ -99,11 +109,11 @@ def render_telechargements(ctx: TabContext) -> None:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
                     _vies_ids = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
                     xlsx_path = export_xlsx(results, xlsx_tmp.name, scope_id=_vies_scope_id, summary=summary,
-                        refund_results=refund_results, all_fc_transfers=all_fc_transfers,
-                        vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
-                        countries_with_vat=countries_with_vat,
-                        period=period_label, seller_country=home_country,
-                        invoice_credit_notes=all_invoice_credit_notes)
+                                            refund_results=refund_results, all_fc_transfers=all_fc_transfers,
+                                            vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
+                                            countries_with_vat=countries_with_vat,
+                                            period=period_label, seller_country=home_country,
+                                            invoice_credit_notes=all_invoice_credit_notes)
                 with open(xlsx_path, "rb") as f:
                     return f.read()
 

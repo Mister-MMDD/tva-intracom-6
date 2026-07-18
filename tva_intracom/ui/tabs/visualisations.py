@@ -65,8 +65,8 @@ def render_visualisations(ctx: TabContext) -> None:
 
         types = [_("viz_france_ca3"), _("viz_oss_window"), _("viz_local_tax")]
         colors = {
-            _("viz_france_ca3"): "#2ca02c", 
-            _("viz_oss_window"): "#1f77b4", 
+            _("viz_france_ca3"): "#2ca02c",
+            _("viz_oss_window"): "#1f77b4",
             _("viz_local_tax"): "#9467bd"
         }
 
@@ -77,7 +77,7 @@ def render_visualisations(ctx: TabContext) -> None:
             vals = [viz_data_by_country[c].get(t, 0) * _rate for c in sorted_countries]
             # On prépare les totaux par pays pour les afficher dans la bulle d'aide (tooltip)
             totals = [vat_net_by_country[c] * _rate for c in sorted_countries]
-            
+
             if any(v != 0 for v in vals):
                 symbol = st.session_state.get("currency_symbol", "€")
                 fig_bar.add_trace(go.Bar(
@@ -88,10 +88,10 @@ def render_visualisations(ctx: TabContext) -> None:
                     # Modification de la bulle d'aide : une ligne pour le total pays, 
                     # une ligne pour le canal spécifique (CA3, OSS, etc.)
                     hovertemplate=(
-                        _("viz_tooltip_pays") +
-                        _("viz_tooltip_total_pays") +
-                        _("viz_tooltip_canal") +
-                        "<extra></extra>"
+                            _("viz_tooltip_pays") +
+                            _("viz_tooltip_total_pays") +
+                            _("viz_tooltip_canal") +
+                            "<extra></extra>"
                     ).replace("€", symbol),
                     marker_color=colors.get(t),
                     text=[f"{v:,.2f}{symbol}" if v != 0 else "" for v in vals],
@@ -119,10 +119,10 @@ def render_visualisations(ctx: TabContext) -> None:
         if float(summary.import_vat)>0: pie_l.append(_("viz_customs")); pie_v.append(float(summary.import_vat) * _rate); pie_c.append("#9467bd")
         if pie_v:
             fig_pie = go.Figure(go.Pie(labels=pie_l, values=pie_v,
-                marker=dict(colors=pie_c), hole=0.4, textinfo="label+percent",
-                hovertemplate=f"%{{label}} : %{{value:,.2f}} {_currency_symbol} (%{{percent}})<extra></extra>"))
+                                       marker=dict(colors=pie_c), hole=0.4, textinfo="label+percent",
+                                       hovertemplate=f"%{{label}} : %{{value:,.2f}} {_currency_symbol} (%{{percent}})<extra></extra>"))
             fig_pie.update_layout(height=400, margin=dict(t=20,b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
+                                  legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
             st.plotly_chart(fig_pie, use_container_width=True)
 
     with ch2:
@@ -131,11 +131,11 @@ def render_visualisations(ctx: TabContext) -> None:
             st.info(_("viz_locked_map_info"))
         elif vat_net_by_country:
             map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt * _rate}
-                for c, amt in vat_net_by_country.items() if c in COUNTRY_ISO3]
+                        for c, amt in vat_net_by_country.items() if c in COUNTRY_ISO3]
             if map_data:
                 fig_map = px.choropleth(map_data, locations="iso_alpha", color="tva",
-                    hover_name="pays", color_continuous_scale="YlOrRd", scope="europe",
-                    labels={"tva": _("viz_map_label_vat")})
+                                        hover_name="pays", color_continuous_scale="YlOrRd", scope="europe",
+                                        labels={"tva": _("viz_map_label_vat")})
                 fig_map.update_layout(
                     height=400,
                     # Marge droite réservée explicitement à la légende (au lieu
@@ -164,27 +164,35 @@ def render_visualisations(ctx: TabContext) -> None:
 
     # ── B : Évolution temporelle ──────────────────────────────────────
     st.subheader(_("viz_evolution_subheader"))
-    _monthly: dict = {}
-    for r in results:
-        _d = r.sale.transaction_date
-        if _d and len(_d) >= 7:
-            _ym = _d[:7]
-            if _ym not in _monthly:
-                _monthly[_ym] = {"CA HT": 0.0, "TVA due": 0.0, "Remb. HT": 0.0, "TVA remb.": 0.0}
-            if r.sale.amount_ht > 0:
-                _monthly[_ym]["CA HT"]   += float(r.sale.amount_ht)
-                _monthly[_ym]["TVA due"]  += float(r.vat_amount)
-    for r in (refund_results or []):
-        _d = r.sale.transaction_date
-        if _d and len(_d) >= 7:
-            _ym = _d[:7]
-            if _ym not in _monthly:
-                _monthly[_ym] = {"CA HT": 0.0, "TVA due": 0.0, "Remb. HT": 0.0, "TVA remb.": 0.0}
-            _monthly[_ym]["Remb. HT"]  += float(r.sale.amount_ht)   # négatif
-            _monthly[_ym]["TVA remb."] += float(r.vat_amount)        # négatif
 
-    if len(_monthly) >= 2:
-        _months_sorted = sorted(_monthly.keys())
+    def _monthly_agg(rows, only_positive_ht: bool) -> pd.DataFrame:
+        """Agrège HT/TVA par mois (YYYY-MM) via pandas plutôt qu'en boucle
+        Python ligne à ligne — même filtrage que l'ancienne version
+        (date de transaction présente et sur >= 7 caractères ; pour les
+        ventes uniquement, `amount_ht > 0`, les remboursements n'ont pas
+        ce filtre car leurs montants sont déjà négatifs par nature)."""
+        data = [
+            (r.sale.transaction_date[:7], float(r.sale.amount_ht), float(r.vat_amount))
+            for r in rows
+            if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
+               and (not only_positive_ht or r.sale.amount_ht > 0)
+        ]
+        if not data:
+            return pd.DataFrame(columns=["ht", "vat"])
+        return pd.DataFrame(data, columns=["ym", "ht", "vat"]).groupby("ym")[["ht", "vat"]].sum()
+
+    _sales_m = _monthly_agg(results, only_positive_ht=True)
+    _refunds_m = _monthly_agg(refund_results or [], only_positive_ht=False)
+
+    _all_months = sorted(set(_sales_m.index) | set(_refunds_m.index))
+    _monthly_df = pd.DataFrame(index=_all_months)
+    _monthly_df["CA HT"] = _sales_m["ht"].reindex(_all_months).fillna(0.0)
+    _monthly_df["TVA due"] = _sales_m["vat"].reindex(_all_months).fillna(0.0)
+    _monthly_df["Remb. HT"] = _refunds_m["ht"].reindex(_all_months).fillna(0.0)
+    _monthly_df["TVA remb."] = _refunds_m["vat"].reindex(_all_months).fillna(0.0)
+
+    if len(_monthly_df) >= 2:
+        _months_sorted = _all_months
         _MOIS_MAP = {
             "01": _("jan"), "02": _("feb"), "03": _("mar"), "04": _("apr"),
             "05": _("may"), "06": _("jun"), "07": _("jul"), "08": _("aug"),
@@ -193,17 +201,17 @@ def render_visualisations(ctx: TabContext) -> None:
         def _mois_label(ym: str) -> str:
             y, m = ym.split("-")
             return f"{_MOIS_MAP.get(m, m)} {y}"
-        
+
         _col_ca_sales = _("viz_evolution_ca_sales")
         _col_refunds_ht = _("viz_evolution_refunds_ht")
         _col_vat_net = _("viz_evolution_vat_net")
         _col_month = _("month_column_label")
-        
+
         _df_monthly = pd.DataFrame([
             {_col_month: _mois_label(m),
-             _col_ca_sales: _monthly[m]["CA HT"] * _rate,
-             _col_refunds_ht: _monthly[m]["Remb. HT"] * _rate,
-             _col_vat_net: (_monthly[m]["TVA due"] + _monthly[m]["TVA remb."]) * _rate}
+             _col_ca_sales: _monthly_df.at[m, "CA HT"] * _rate,
+             _col_refunds_ht: _monthly_df.at[m, "Remb. HT"] * _rate,
+             _col_vat_net: (_monthly_df.at[m, "TVA due"] + _monthly_df.at[m, "TVA remb."]) * _rate}
             for m in _months_sorted
         ])
         _tviz1, _tviz2 = st.columns(2)
@@ -256,11 +264,11 @@ def render_visualisations(ctx: TabContext) -> None:
                 textposition="auto",
             ))
             fig_scen.update_layout(height=360, margin=dict(t=20, b=60),
-                xaxis_tickangle=-30, yaxis_title=_("viz_nb_transactions"))
+                                   xaxis_tickangle=-30, yaxis_title=_("viz_nb_transactions"))
             st.plotly_chart(fig_scen, use_container_width=True)
             st.caption(" · ".join(
                 _("viz_scen_caption", scen=s, n=n, ht=f"{_scen_ht.get(s, 0) * _rate:,.0f}", currency=_currency_symbol)
                 for s, n in _scen_data
             ))
-    elif _monthly:
+    elif len(_monthly_df):
         st.caption(_("viz_single_month_caption"))

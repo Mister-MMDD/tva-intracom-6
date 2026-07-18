@@ -44,21 +44,35 @@ def render_declarations(ctx: TabContext) -> None:
     # PAS cette reconversion et affichait donc un total légèrement
     # différent de celui des exports pour les ventes en devise
     # étrangère — on ne l'utilise plus ici pour éviter la divergence.
-    _oss_period_agg = aggregate_oss_results(results + (refund_results or []), period=period_label)
-    _oss_country_totals: dict = {}
-    for _dep, _dests in _oss_period_agg.items():
-        for _arr, _rates in _dests.items():
-            _acc = _oss_country_totals.setdefault(_arr, {
-                "tva_vente": _ZERO, "tva_remb": _ZERO, "tva_net": _ZERO,
-                "ht_vente": _ZERO, "ht_remb": _ZERO, "ht_net": _ZERO
-            })
-            for _rate, _amt in _rates.items():
-                _acc["tva_vente"] += _amt["tva_vente"]
-                _acc["tva_remb"]  += _amt["tva_remb"]
-                _acc["tva_net"]   += _amt["tva"]
-                _acc["ht_vente"]  += _amt["ht_vente"]
-                _acc["ht_remb"]   += _amt["ht_remb"]
-                _acc["ht_net"]    += _amt["ht"]
+    #
+    # Mémoïsation sur calc_key : contrairement à detail_ventes.py
+    # (@st.fragment) ou telechargements.py (cache _dl_cache_key),
+    # ce recalcul (aggregate_oss_results + reconversion BCE) tournait
+    # à chaque rerun de la page, même pour une interaction sans rapport
+    # (sidebar, autre onglet). On ne le relance que si le contenu réel
+    # des résultats a changé (calc_key) ou si la période affichée change.
+    _oss_cache_key = (ctx.calc_key, period_label)
+    if ctx.calc_key is not None and st.session_state.get("_oss_decl_cache_key") == _oss_cache_key:
+        _oss_country_totals = st.session_state["_oss_decl_cache_val"]
+    else:
+        _oss_period_agg = aggregate_oss_results(results + (refund_results or []), period=period_label)
+        _oss_country_totals = {}
+        for _dep, _dests in _oss_period_agg.items():
+            for _arr, _rates in _dests.items():
+                _acc = _oss_country_totals.setdefault(_arr, {
+                    "tva_vente": _ZERO, "tva_remb": _ZERO, "tva_net": _ZERO,
+                    "ht_vente": _ZERO, "ht_remb": _ZERO, "ht_net": _ZERO
+                })
+                for _rate, _amt in _rates.items():
+                    _acc["tva_vente"] += _amt["tva_vente"]
+                    _acc["tva_remb"]  += _amt["tva_remb"]
+                    _acc["tva_net"]   += _amt["tva"]
+                    _acc["ht_vente"]  += _amt["ht_vente"]
+                    _acc["ht_remb"]   += _amt["ht_remb"]
+                    _acc["ht_net"]    += _amt["ht"]
+        if ctx.calc_key is not None:
+            st.session_state["_oss_decl_cache_key"] = _oss_cache_key
+            st.session_state["_oss_decl_cache_val"] = _oss_country_totals
 
     _oss_tva_vente_total = sum((v["tva_vente"] for v in _oss_country_totals.values()), _ZERO)
     _oss_tva_remb_total  = sum((v["tva_remb"]  for v in _oss_country_totals.values()), _ZERO)
@@ -173,8 +187,14 @@ def render_declarations(ctx: TabContext) -> None:
         if home_country == "FR":
             local_label = _("canal_local_hors_fr")
         else:
-            # On renomme dynamiquement le libellé pour refléter le pays d'origine choisi
-            local_label = _("canal_local_hors_fr").replace("FR", home_country)
+            # Clé paramétrée plutôt qu'un .replace("FR", home_country) sur le
+            # texte déjà traduit de "canal_local_hors_fr" — un .replace() sur
+            # une chaîne traduite est fragile dès que le mot "FR" apparaît
+            # ailleurs que comme code pays (ex. dans un futur texte anglais
+            # contenant "FR" par coïncidence). Nécessite la clé
+            # "canal_local_hors_country" (placeholder {country}) dans les 7
+            # fichiers TOML — voir tva_intracom/i18n/*.toml.
+            local_label = _("canal_local_hors_country", country=home_country)
 
         recap_data.append({
             _("col_canal"): local_label,
@@ -265,7 +285,7 @@ def render_declarations(ctx: TabContext) -> None:
         ]
         if _bucket_rows:
             _gated_preview_table(pd.DataFrame(_bucket_rows), _can_export,
-                column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))})
+                                 column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))})
         c1, c2, c3 = st.columns(3)
         c1.metric(_("kpi_declared_net_ht"), _fmt(_declared_net_ht))
         c2.metric(_("kpi_sum_canals_net_ht"), _fmt(_bucket_net_ht))

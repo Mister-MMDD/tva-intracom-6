@@ -16,8 +16,14 @@ from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _r
 from tva_intracom.ui.tabs.context import TabContext
 
 
+@st.fragment
 def render_audit(ctx: TabContext) -> None:
-    """Rendu complet de l'onglet Audit Amazon."""
+    """Rendu complet de l'onglet Audit Amazon.
+
+    Décoré en `@st.fragment` (comme `detail_ventes.py`) : une interaction
+    locale à cet onglet (filtre, changement de sous-onglet) ne redéclenche
+    plus le rerun de toute l'app.
+    """
     results = ctx.results
     _can_export = ctx.can_export
     _gated_download = ctx.gated_download
@@ -59,44 +65,73 @@ def render_audit(ctx: TabContext) -> None:
             _lbl_tva_mot = _("col_tva_moteur_eur", currency=_target_currency)
             _lbl_gap = _("col_gap_eur", currency=_target_currency)
 
-            ecarts_vies_tab, ecarts_b2b_dom_tab, ecarts_gb_tab, ecarts_autres_tab, ecarts_amz_manquante_tab = [], [], [], [], []
-            nb_arrondis = 0
-            for r in results:
-                tva_amazon = float(getattr(r.sale,"amazon_vat_amount",Decimal("0")))
-                tva_moteur = float(r.vat_amount)
-                if tva_amazon==0 and tva_moteur==0: continue
-                ecart = tva_amazon - tva_moteur
-                row_d = {"ID":(r.sale.display_id or r.sale.sale_id),
-                    "Stock→Dest":f"{r.sale.stock_country}→{r.sale.buyer_country}",
-                    "Dest": r.sale.buyer_country,
-                    "Scénario":r.scenario.value, _lbl_ht:float(r.sale.amount_ht),
-                    _lbl_tva_amz:round(tva_amazon,2), _lbl_tva_mot:round(tva_moteur,2),
-                    _lbl_gap:round(ecart,2),
-                    "Taux Amazon (%)":round(tva_amazon/float(r.sale.amount_ht)*100,2) if r.sale.amount_ht else 0,
-                    "Taux moteur (%)":float(r.vat_rate),
-                    "Canal": r.channel.value}
-                if abs(ecart)<=0.05:
-                    if abs(ecart)>0: nb_arrondis+=1
-                    continue
-                _dep = r.sale.stock_country; _arr = r.sale.buyer_country; _sid = str(r.sale.sale_id)
-                _is_b2b = (r.sale.buyer_type == _BT_APP.B2B)
-                if _dep == "GB" or _arr == "GB": ecarts_gb_tab.append(row_d)
-                elif _sid in _vies_rc_ids_app or id(r.sale) in _vies_affected_ids: ecarts_vies_tab.append(row_d)
-                elif _sid in _dom_rc_ids_app or (_is_b2b and _arr in _DRC_APP and tva_moteur == 0 and tva_amazon > 0): ecarts_b2b_dom_tab.append(row_d)
-                elif tva_amazon == 0 and tva_moteur > 0: ecarts_amz_manquante_tab.append(row_d)
-                else: ecarts_autres_tab.append(row_d)
+            # Mémoïsation sur calc_key (+ devise cible et enable_vies, qui
+            # influencent respectivement les libellés de colonnes baked-in
+            # dans row_d et la présence des reclassifications VIES) : cette
+            # boucle parcourt TOUS les résultats (pas seulement les écarts),
+            # coûteux à refaire à chaque interaction sans rapport (filtre,
+            # changement de sous-onglet FBA...).
+            _audit_cache_key = (ctx.calc_key, _target_currency, enable_vies)
+            if ctx.calc_key is not None and st.session_state.get("_audit_cats_cache_key") == _audit_cache_key:
+                (ecarts_vies_tab, ecarts_b2b_dom_tab, ecarts_gb_tab,
+                 ecarts_autres_tab, ecarts_amz_manquante_tab, nb_arrondis) = st.session_state["_audit_cats_cache_val"]
+            else:
+                ecarts_vies_tab, ecarts_b2b_dom_tab, ecarts_gb_tab, ecarts_autres_tab, ecarts_amz_manquante_tab = [], [], [], [], []
+                nb_arrondis = 0
+                for r in results:
+                    tva_amazon = float(getattr(r.sale,"amazon_vat_amount",Decimal("0")))
+                    tva_moteur = float(r.vat_amount)
+                    if tva_amazon==0 and tva_moteur==0: continue
+                    ecart = tva_amazon - tva_moteur
+                    row_d = {"ID":(r.sale.display_id or r.sale.sale_id),
+                             "Stock→Dest":f"{r.sale.stock_country}→{r.sale.buyer_country}",
+                             "Dest": r.sale.buyer_country,
+                             "Scénario":r.scenario.value, _lbl_ht:float(r.sale.amount_ht),
+                             _lbl_tva_amz:round(tva_amazon,2), _lbl_tva_mot:round(tva_moteur,2),
+                             _lbl_gap:round(ecart,2),
+                             "Taux Amazon (%)":round(tva_amazon/float(r.sale.amount_ht)*100,2) if r.sale.amount_ht else 0,
+                             "Taux moteur (%)":float(r.vat_rate),
+                             "Canal": r.channel.value}
+                    if abs(ecart)<=0.05:
+                        if abs(ecart)>0: nb_arrondis+=1
+                        continue
+                    _dep = r.sale.stock_country; _arr = r.sale.buyer_country; _sid = str(r.sale.sale_id)
+                    _is_b2b = (r.sale.buyer_type == _BT_APP.B2B)
+                    if _dep == "GB" or _arr == "GB": ecarts_gb_tab.append(row_d)
+                    elif _sid in _vies_rc_ids_app or id(r.sale) in _vies_affected_ids: ecarts_vies_tab.append(row_d)
+                    elif _sid in _dom_rc_ids_app or (_is_b2b and _arr in _DRC_APP and tva_moteur == 0 and tva_amazon > 0): ecarts_b2b_dom_tab.append(row_d)
+                    elif tva_amazon == 0 and tva_moteur > 0: ecarts_amz_manquante_tab.append(row_d)
+                    else: ecarts_autres_tab.append(row_d)
+                if ctx.calc_key is not None:
+                    st.session_state["_audit_cats_cache_key"] = _audit_cache_key
+                    st.session_state["_audit_cats_cache_val"] = (
+                        ecarts_vies_tab, ecarts_b2b_dom_tab, ecarts_gb_tab,
+                        ecarts_autres_tab, ecarts_amz_manquante_tab, nb_arrondis)
 
             # Amélioration 4 : helper formatage uniforme pour tous les sous-onglets audit
             def _audit_df(rows, key_suffix: str):
-                """Affiche un tableau d'écarts avec formatage smart monétaire et taux."""
+                """Affiche un tableau d'écarts avec formatage smart monétaire, taux, et
+                pagination (comme detail_ventes.py) — sans quoi un compte avec
+                plusieurs milliers d'écarts renverrait l'intégralité du tableau à
+                chaque rerun, filtres compris (recalcul de tri/unique() sur tout)."""
                 if not rows:
                     return
                 _df_full = pd.DataFrame(rows)
                 _df_filt = _render_filter_bar(_df_full, key_suffix)
-                _cfg = _smart_money_df(_df_filt,
-                    money_cols=[_lbl_ht, _lbl_tva_amz, _lbl_tva_mot, _lbl_gap],
-                    pct_cols=[_("col_rate_amz_pct"), _("col_rate_moteur_pct")])
-                _gated_preview_table(_df_filt, _can_export, column_config=_cfg)
+
+                _ps = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
+                                       value=250, key=f"page_size_{key_suffix}")
+                _n = len(_df_filt)
+                _lim = _n if _ps == _("rows_all") else int(_ps)
+                st.caption(_("results_count_caption", count=_n,
+                             filtered=(_("results_filtered_tag") if _n < len(_df_full) else ''),
+                             visible=min(_lim, _n)))
+                _df_page = _df_filt.head(_lim).copy()
+
+                _cfg = _smart_money_df(_df_page,
+                                       money_cols=[_lbl_ht, _lbl_tva_amz, _lbl_tva_mot, _lbl_gap],
+                                       pct_cols=[_("col_rate_amz_pct"), _("col_rate_moteur_pct")])
+                _gated_preview_table(_df_page, _can_export, column_config=_cfg)
 
             sub1, sub2, sub3, sub4, sub5 = st.tabs([
                 _("audit_tab_rate_gaps", count=len(ecarts_autres_tab)),
@@ -146,11 +181,11 @@ def render_audit(ctx: TabContext) -> None:
                     _w2.writerow([_("vies_col_id"),_("col_stock_dest"),_("col_scenario"),_lbl_ht,_lbl_tva_amz,_lbl_tva_mot,_lbl_gap])
                     for _rw in ecarts_amz_manquante_tab:
                         _w2.writerow([_rw["ID"],_rw[_("col_stock_dest")],_rw[_("col_scenario")],
-                            str(_rw[_lbl_ht]).replace(".",","),str(_rw[_lbl_tva_amz]).replace(".",","),
-                            str(_rw[_lbl_tva_mot]).replace(".",","),str(_rw[_lbl_gap]).replace(".",",")])
+                                      str(_rw[_lbl_ht]).replace(".",","),str(_rw[_lbl_tva_amz]).replace(".",","),
+                                      str(_rw[_lbl_tva_mot]).replace(".",","),str(_rw[_lbl_gap]).replace(".",",")])
                     _gated_download(_("audit_dl_manquante_btn"),
-                        data=("\ufeff"+_buf2.getvalue()).encode("utf-8"),
-                        file_name=_("audit_dl_manquante_filename", company=nom_entreprise, period=period_label), mime="text/csv")
+                                    data=("\ufeff"+_buf2.getvalue()).encode("utf-8"),
+                                    file_name=_("audit_dl_manquante_filename", company=nom_entreprise, period=period_label), mime="text/csv")
                 else:
                     st.success(_("audit_manquante_success"))
             if nb_arrondis > 0:
@@ -169,8 +204,8 @@ def render_audit(ctx: TabContext) -> None:
             if at_risk: st.error(_("audit_local_sales_error", countries=', '.join(at_risk)))
             if ok: st.success(_("audit_local_sales_success", countries=', '.join(ok)))
             _df_loc = pd.DataFrame([{"ID": c, "Dest":c, _("type_column_label"):c, _("col_sales_count"):d["nb"], _("col_volume_ht_eur", currency=_target_currency):round(d["ht"],2),
-                _("col_status"):_("audit_status_ok") if c in countries_with_vat else _("audit_status_required")}
-                for c,d in by_c.items()])
+                                     _("col_status"):_("audit_status_ok") if c in countries_with_vat else _("audit_status_required")}
+                                    for c,d in by_c.items()])
             _df_loc_filt = _render_filter_bar(_df_loc, "stock_loc")
             _loc_cfg = _smart_money_df(_df_loc_filt, money_cols=[_("col_volume_ht_eur", currency=_target_currency)])
             _gated_preview_table(_df_loc_filt, _can_export, column_config=_loc_cfg)
@@ -184,6 +219,13 @@ def render_audit(ctx: TabContext) -> None:
                 if "Dest" not in _df_fc.columns and "arrival_country" in _df_fc.columns:
                     _df_fc["Dest"] = _df_fc["arrival_country"]
                 _df_fc_filt = _render_filter_bar(_df_fc, "fba_transfers")
-                _gated_preview_table(_df_fc_filt, _can_export)
+                _ps_fc = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
+                                          value=250, key="page_size_fba_transfers")
+                _n_fc = len(_df_fc_filt)
+                _lim_fc = _n_fc if _ps_fc == _("rows_all") else int(_ps_fc)
+                st.caption(_("results_count_caption", count=_n_fc,
+                             filtered=(_("results_filtered_tag") if _n_fc < len(_df_fc) else ''),
+                             visible=min(_lim_fc, _n_fc)))
+                _gated_preview_table(_df_fc_filt.head(_lim_fc).copy(), _can_export)
         else:
             st.info(_("audit_fba_none"))
