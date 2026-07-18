@@ -1087,4 +1087,4 @@ engine_note_domestic_local = "Vente domestique {country} : TVA {rate}%. Immatric
 engine_note_ddp_import = "Import > 150 EUR, vendeur importateur officiel (DDP) : livraison domestique {country}. TVA locale {rate}%."
 engine_note_import_standard = "Import > 150 EUR depuis pays tiers : TVA d'importation {country} ({rate}%) due à la douane par l'importateur."
 engine_note_oss_under_threshold = "Sous le seuil OSS ({cumulative}/{limit} {currency}). Option TVA {country} activée."
-engine_note_oss_threshold_crossed = "Franchissement du seuil OSS ! Vente vers {country}."
+engine_note_oss_threshold_crossed = "Franchissement du seuil OSS ! Vente vers {country}. "
