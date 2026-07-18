@@ -130,7 +130,7 @@ filter_canal = "Canal"
 filter_canal_placeholder = "Tous les canaux"
 
 # Gated preview
-gated_locked = "Option premium"
+gated_locked = "🔒 Débloquez pour voir"
 gated_preview_warning = "🔒 Aperçu limité : {count} autres lignes sont masquées. Débloquez la période pour voir le détail complet."
 
 # Seuil OSS
@@ -444,12 +444,6 @@ password_signin_btn = "Se connecter"
 password_signup_btn = "Créer un compte"
 password_signup_confirm_email_info = "✅ Compte créé — vérifiez votre boîte mail pour confirmer votre adresse avant de vous connecter."
 password_login_error = "⛔ Erreur de connexion : {error}"
-premium_banner_title = "⭐ Passez Premium"
-premium_banner_body = "Exports illimités, alertes VIES avancées, gestion multi-SIREN."
-premium_banner_cta_btn = "Voir les tarifs"
-unlock_export_btn = "🔓 Débloquer cet export — {price}"
-unlock_export_footer = "Ou passez en illimité avec Premium"
-reset_password_error = "⛔ Erreur lors de l'envoi de l'e-mail : {error}"
 oauth_divider_label = "— ou continuer avec —"
 oauth_google_btn = "Google"
 oauth_github_btn = "GitHub"
@@ -1087,4 +1081,4 @@ engine_note_domestic_local = "Vente domestique {country} : TVA {rate}%. Immatric
 engine_note_ddp_import = "Import > 150 EUR, vendeur importateur officiel (DDP) : livraison domestique {country}. TVA locale {rate}%."
 engine_note_import_standard = "Import > 150 EUR depuis pays tiers : TVA d'importation {country} ({rate}%) due à la douane par l'importateur."
 engine_note_oss_under_threshold = "Sous le seuil OSS ({cumulative}/{limit} {currency}). Option TVA {country} activée."
-engine_note_oss_threshold_crossed = "Franchissement du seuil OSS ! Vente vers {country}. "
+engine_note_oss_threshold_crossed = "Franchissement du seuil OSS ! Vente vers {country}."

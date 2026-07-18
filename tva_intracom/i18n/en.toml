@@ -130,7 +130,7 @@ filter_canal = "Channel"
 filter_canal_placeholder = "All channels"
 
 # Gated preview
-gated_locked = "Premium option"
+gated_locked = "Unlock to view"
 gated_preview_warning = "🔒 Limited preview: {count} other rows are hidden. Unlock the period to see full details."
 
 # OSS Threshold
@@ -445,12 +445,6 @@ password_signin_btn = "Sign in"
 password_signup_btn = "Create account"
 password_signup_confirm_email_info = "✅ Account created — check your inbox to confirm your address before signing in."
 password_login_error = "⛔ Login error: {error}"
-premium_banner_title = "⭐ Go Premium"
-premium_banner_body = "Unlimited exports, advanced VIES alerts, multi-SIREN management."
-premium_banner_cta_btn = "View pricing"
-unlock_export_btn = "🔓 Unlock this export — {price}"
-unlock_export_footer = "Or go unlimited with Premium"
-reset_password_error = "⛔ Error sending email: {error}"
 oauth_divider_label = "— or continue with —"
 oauth_google_btn = "Google"
 oauth_github_btn = "GitHub"

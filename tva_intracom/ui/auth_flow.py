@@ -24,8 +24,6 @@ Usage dans app.py :
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import secrets
 import time
 from dataclasses import dataclass
@@ -130,35 +128,10 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_provider = _qp.get("sb_provider")
     _sb_nonce = _qp.get("sb_nonce")
     _sb_access_token = _qp.get("access_token")
-    _sb_type = _qp.get("type")
     _sb_error_code = _qp.get("error_code")
     _sb_error_desc = _qp.get("error_description")
 
     if st.session_state.get("auth_user") is None:
-        # Cas A0 : Retour du lien "mot de passe oublié" (type=recovery) —
-        # le token Supabase est valide pour changer le mot de passe, mais on
-        # ne doit PAS l'utiliser pour connecter directement l'utilisateur
-        # (sinon il n'a jamais l'occasion de saisir un nouveau mot de passe).
-        if _sb_access_token and _sb_type == "recovery":
-            st.subheader(_("reset_password_title"))
-            _new_pwd = st.text_input(
-                _("new_password_label"), type="password", key="reset_new_password_input"
-            )
-            _new_pwd_confirm = st.text_input(
-                _("new_password_label"), type="password", key="reset_new_password_confirm_input"
-            )
-            if st.button(_("update_password_btn"), key="btn_update_password", type="primary"):
-                if not _new_pwd or _new_pwd != _new_pwd_confirm:
-                    st.warning(_("invalid_email_warning"))
-                else:
-                    try:
-                        tva_sb_auth.update_user_password(_sb_access_token, _new_pwd)
-                        st.success(_("password_updated_success"))
-                        st.query_params.clear()
-                    except Exception as _sb_err:
-                        st.error(_("password_update_error", error=str(_sb_err)))
-            st.stop()
-
         # Cas A : Jeton direct (Implicit flow / retour mail)
         if _sb_access_token:
             try:
@@ -196,31 +169,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             if _verifier:
                 try:
                     _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
-                    if _sb_provider == "recovery":
-                        # Retour du lien "mot de passe oublié" via PKCE : on a un
-                        # jeton valide, mais on ne connecte PAS directement —
-                        # l'utilisateur doit d'abord choisir son nouveau mot de
-                        # passe (sinon il se retrouve connecté sans jamais avoir
-                        # pu le changer).
-                        st.session_state.pop(_cache_key, None)
-                        st.subheader(_("reset_password_title"))
-                        _new_pwd = st.text_input(
-                            _("new_password_label"), type="password", key="reset_new_password_input"
-                        )
-                        _new_pwd_confirm = st.text_input(
-                            _("new_password_label"), type="password", key="reset_new_password_confirm_input"
-                        )
-                        if st.button(_("update_password_btn"), key="btn_update_password", type="primary"):
-                            if not _new_pwd or _new_pwd != _new_pwd_confirm:
-                                st.warning(_("invalid_email_warning"))
-                            else:
-                                try:
-                                    tva_sb_auth.update_user_password(_sb_result.access_token, _new_pwd)
-                                    st.success(_("password_updated_success"))
-                                    st.query_params.clear()
-                                except Exception as _sb_err:
-                                    st.error(_("password_update_error", error=str(_sb_err)))
-                        st.stop()
                     _finalize_login(_sb_result.email, cookie_manager)
                     # Nettoyage complet
                     st.session_state.pop(_cache_key, None)
@@ -437,38 +385,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             else:
                 st.warning(_("invalid_email_warning"))
 
-        # ── Mot de passe oublié ─────────────────────────────────────────────
-        # ⚠️ Même problème que l'OAuth (voir plus bas) : le mode implicite de
-        # Supabase renvoie #access_token=...&type=recovery dans le FRAGMENT
-        # d'URL, invisible côté serveur — dépendre du JS de conversion
-        # fragment→query s'est révélé peu fiable en production. On utilise
-        # donc le même flux PKCE (nonce/verifier stockés côté serveur) que
-        # pour Google/GitHub/Amazon : Supabase redirige alors avec un `?code=`
-        # classique, lu et échangé normalement par le Cas B ci-dessous.
-        with st.expander(_("forgot_password_btn")):
-            st.caption(_("reset_password_instructions"))
-            _reset_email = st.text_input(
-                _("email_label"), value=_login_email, key="reset_password_email_input"
-            )
-            if st.button(_("forgot_password_btn"), key="btn_send_reset_password"):
-                if _reset_email and "@" in _reset_email:
-                    try:
-                        _reset_nonce = secrets.token_urlsafe(24)
-                        _reset_verifier = tva_sb_auth.new_code_verifier()
-                        tva_auth.save_pkce_verifier(_reset_nonce, "recovery", _reset_verifier)
-                        _reset_challenge = base64.urlsafe_b64encode(
-                            hashlib.sha256(_reset_verifier.encode()).digest()
-                        ).decode().rstrip("=")
-                        _reset_redirect_to = f"{_app_base_url_login}/?sb_provider=recovery&sb_nonce={_reset_nonce}"
-                        tva_sb_auth.reset_password_for_email(
-                            _reset_email, redirect_to=_reset_redirect_to, code_challenge=_reset_challenge
-                        )
-                        st.success(_("reset_password_success"))
-                    except Exception as _sb_err:
-                        st.error(_("reset_password_error", error=str(_sb_err)))
-                else:
-                    st.warning(_("invalid_email_warning"))
-
         # ── OAuth social (Google / GitHub / Amazon) — Supabase Auth ─
         # Le code_verifier PKCE est stocké côté serveur (Postgres,
         # tva_oauth_pkce), retrouvé au retour via un nonce transmis dans
@@ -552,8 +468,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                         """,
                         unsafe_allow_html=True
                     )
-                except Exception as _oauth_render_err:
-                    st.error(f"⛔ {_provider} : {_oauth_render_err}")
+                except Exception:
                     st.markdown(
                         f"""
                         <div style="

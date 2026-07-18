@@ -238,21 +238,18 @@ def _smart_money_df(
         # convertie en float par _fmt (ex. un n° de TVA italien purement
         # numérique s'affiche alors comme un montant en euros).
         if col in n_cols:
-            # 900px en dur plutôt que le préréglage "large" (~200px) ou
-            # l'ancien 500px — toujours insuffisants pour un texte de
-            # plusieurs phrases avec référence légale + URL bit.ly (150-200
-            # caractères). Le composant st.dataframe ne fait pas de retour à
-            # la ligne : au-delà, l'utilisateur peut élargir la colonne à la
-            # souris (poignée native) — les autres note_cols (n° de TVA,
-            # identifiant technique passés par vies_ui.py) restent à la
-            # largeur par défaut, plus adaptée.
-            _width = 900 if ("note" in col_lower or "commentaire" in col_lower) else None
+            # 500px en dur plutôt que le préréglage "large" (~200px, toujours
+            # insuffisant pour un texte de plusieurs phrases avec référence
+            # légale) — les autres note_cols (n° de TVA, identifiant
+            # technique passés par vies_ui.py) restent à la largeur par
+            # défaut, plus adaptée.
+            _width = 500 if ("note" in col_lower or "commentaire" in col_lower) else None
             column_config[col] = st.column_config.TextColumn(col, width=_width) if _width else st.column_config.TextColumn(col)
         # Colonnes de commentaire/justification détectées par heuristique
         # (au cas où elles ne seraient pas listées explicitement en note_cols
         # par l'appelant) : même traitement.
         elif "note" in col_lower or "commentaire" in col_lower:
-            column_config[col] = st.column_config.TextColumn(col, width=900)
+            column_config[col] = st.column_config.TextColumn(col, width=500)
         # Pré-formatage dans le df : on remplace les floats par des strings formatées
         elif col in m_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total", "remboursé"]):
             column_config[col] = st.column_config.TextColumn(col)

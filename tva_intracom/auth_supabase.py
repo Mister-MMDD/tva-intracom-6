@@ -164,21 +164,11 @@ def sign_in_with_password(email: str, password: str) -> SupabaseAuthResult:
     )
 
 
-def reset_password_for_email(
-    email: str, redirect_to: Optional[str] = None, code_challenge: Optional[str] = None
-) -> None:
-    """Envoie un e-mail de réinitialisation de mot de passe à l'utilisateur.
-
-    Si `code_challenge` est fourni, Supabase redirige au retour avec un `?code=`
-    classique (flux PKCE, lisible côté serveur) plutôt qu'un `#access_token=`
-    dans le fragment d'URL (invisible côté serveur, voir commentaire plus bas
-    sur le flux OAuth — le même problème s'applique ici)."""
+def reset_password_for_email(email: str, redirect_to: Optional[str] = None) -> None:
+    """Envoie un e-mail de réinitialisation de mot de passe à l'utilisateur."""
     body = {"email": email.strip().lower()}
     if redirect_to:
         body["redirectTo"] = redirect_to
-    if code_challenge:
-        body["code_challenge"] = code_challenge
-        body["code_challenge_method"] = "s256"
     resp = requests.post(
         f"{_base_url()}/auth/v1/recover",
         headers=_headers(),
