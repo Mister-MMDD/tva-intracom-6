@@ -189,29 +189,6 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         st.caption(_("theme_caption"))
         file_format = st.radio(_("platform_source"), _PLATFORM_OPTIONS, index=0, key="platform_source_select")
 
-        # ── Connexion Amazon SP-API ───────────────────────────────────────────────
-        with st.expander(_("amazon_conn_header"), expanded=False):
-            _amz_creds = _cached_db_read(
-                f"amz_creds_{_current_user.id}",
-                lambda: tva_auth.get_amazon_credentials(_current_user.id),
-            )
-            if _amz_creds:
-                st.success(_("amazon_connected", id=_amz_creds['selling_partner_id']))
-                if st.button(_("amazon_disconnect_btn"), key="btn_disconnect_amazon"):
-                    tva_auth.delete_amazon_credentials(_current_user.id)
-                    _invalidate_db_cache(f"amz_creds_{_current_user.id}")
-                    st.rerun()
-            else:
-                st.info(_("amazon_info_auth"))
-                # On génère un 'state' pour sécuriser l'OAuth (optionnel mais recommandé)
-                _state = secrets.token_hex(8)
-                from tva_intracom import amazon_spapi
-                try:
-                    _auth_url = amazon_spapi.get_authorization_url(state=_state)
-                    st.link_button(_("amazon_connect_btn"), _auth_url)
-                except Exception as _err:
-                    st.error(_("amazon_config_err", error=_err))
-
         # ── Validation & Devises ──────────────────────────────────────────────────
         with st.expander(_("validation_devise_header"), expanded=False):
             # Fonctions toujours actives sur ce compte — cases grisées et
@@ -572,8 +549,17 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 _sub_status.billing_interval if _sub_status else None, "")
 
             if _sub_status and _sub_status.active:
-                st.success(_("sub_active_msg", plan=_plan_label, interval=_interval_label)
-                    + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
+                _msg = _("sub_active_msg", plan=_plan_label, interval=_interval_label)
+                if _sub_status.plan == "cabinet":
+                    _msg += f" — {_sub_status.siren_quantity} SIREN"
+
+                if _sub_status.current_period_end:
+                    import datetime as _dt
+                    _date_str = _dt.datetime.fromtimestamp(_sub_status.current_period_end).strftime("%d/%m/%Y")
+                    # On affiche la date de fin (renouvellement ou expiration)
+                    _msg += f" — ({_('expired_at', date=_date_str)})"
+
+                st.success(_msg)
 
                 # Gestion des SIREN pour un abonnement Cabinet (ajout via la section
                 # Entreprise, retrait différé ici, effectif à la date anniversaire).
@@ -630,7 +616,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             except Exception as _credit_err:
                 st.caption(_("purchase_history_unavailable", error=_credit_err))
             else:
-                if _sub_status and _sub_status.status:
+                if _sub_status and _sub_status.status and not _sub_status.active:
                     # Abonnement existant mais inactif (annulé/expiré) : état actuel
                     # affiché pour information, sans historique complet.
                     st.warning(_("last_sub_msg", plan=_plan_label, status=_sub_status.status)
@@ -638,31 +624,28 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                            if _sub_status.current_period_end else ""))
 
                 # ── Bannière d'incitation Premium (utilisateurs gratuits) ───────
-                st.markdown(
-                    f"""
-                    <div style="
-                        background-color: #EEEDFE;
-                        border-radius: 12px;
-                        padding: 14px 16px;
-                        margin-bottom: 12px;
-                    ">
-                        <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
-                            {_("premium_banner_title")}
-                        </p>
-                        <p style="margin: 0; font-size: 12px; color: #3C3489;">
-                            {_("premium_banner_body")}
-                        </p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(_("premium_banner_cta_btn"), key="btn_premium_banner_cta", use_container_width=True):
-                    st.session_state["_show_pricing_grid"] = True
-                    st.rerun()
-
+                if not (_sub_status and _sub_status.active):
+                    st.markdown(
+                        f"""
+                        <div style="
+                            background-color: #EEEDFE;
+                            border-radius: 12px;
+                            padding: 14px 16px;
+                            margin-bottom: 12px;
+                        ">
+                            <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
+                                {_("premium_banner_title")}
+                            </p>
+                            <p style="margin: 0; font-size: 12px; color: #3C3489;">
+                                {_("premium_banner_body")}
+                            </p>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
                 st.caption(_("billing_caption"))
 
-                with st.expander(_("pricing_grid_expander"), expanded=st.session_state.get("_show_pricing_grid", False)):
+                with st.expander(_("pricing_grid_expander"), expanded=False):
                     try:
                         _grid = _cached_db_read(
                             f"pricing_grid_{_current_user.id}",

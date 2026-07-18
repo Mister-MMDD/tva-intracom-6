@@ -130,7 +130,7 @@ filter_canal = "Channel"
 filter_canal_placeholder = "All channels"
 
 # Gated preview
-gated_locked = "Unlock to view"
+gated_locked = "Premium option"
 gated_preview_warning = "🔒 Limited preview: {count} other rows are hidden. Unlock the period to see full details."
 
 # OSS Threshold
