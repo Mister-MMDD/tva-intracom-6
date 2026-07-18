@@ -385,7 +385,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             else:
                 st.warning(_("invalid_email_warning"))
 
-        # ── OAuth social (Google / Microsoft / GitHub / Amazon) — Supabase Auth ─
+        # ── OAuth social (Google / GitHub / Amazon) — Supabase Auth ─
         # Le code_verifier PKCE est stocké côté serveur (Postgres,
         # tva_oauth_pkce), retrouvé au retour via un nonce transmis dans
         # `redirect_to` — plus fiable qu'un cookie posé depuis l'iframe du
@@ -401,12 +401,33 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # session_state — une seule écriture DB par provider tant que le
         # login n'a pas abouti.
         st.caption(_("oauth_divider_label"))
-        _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
-        for _col, _provider, _label_key in (
-            (_col_google, "google", "oauth_google_btn"),
-            (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
-            (_col_github, "github", "oauth_github_btn"),
-            (_col_amazon, "cognito", "cognito_login_btn"),
+        _col_google, _col_github, _col_amazon = st.columns(3)
+
+        for _col, _provider, _label_key, _icon_url, _bg, _text in (
+                (
+                        _col_google,
+                        "google",
+                        "oauth_google_btn",
+                        "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/google/google-original.svg",
+                        "#FFFFFF",
+                        "#000000"
+                ),
+                (
+                        _col_github,
+                        "github",
+                        "oauth_github_btn",
+                        "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/github/github-original.svg",
+                        "#24292E",
+                        "#FFFFFF"
+                ),
+                (
+                        _col_amazon,
+                        "cognito",
+                        "amazon_login_btn",
+                        "https://upload.wikimedia.org/wikipedia/commons/4/4a/Amazon_icon.svg",
+                        "#FF9900",
+                        "#000000"
+                ),
         ):
             with _col:
                 try:
