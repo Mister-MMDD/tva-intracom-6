@@ -526,57 +526,18 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                         st.session_state[_cache_key] = (_nonce, _verifier)
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}&sb_nonce={_nonce}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
-                    
-                    # Rendu d'un bouton HTML stylisé avec logo et couleurs officielles
-                    st.markdown(
-                        f"""
-                        <a href="{_oauth_url}" target="_top" style="text-decoration: none;">
-                            <div style="
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                background-color: {_bg};
-                                color: {_text};
-                                border: 1px solid {'#ddd' if _bg == '#FFFFFF' else _bg};
-                                border-radius: 8px;
-                                padding: 8px 16px;
-                                font-size: 14px;
-                                font-weight: 500;
-                                cursor: pointer;
-                                width: 100%;
-                            ">
-                                <img src="{_icon_url}" width="20" height="20" style="margin-right: 12px;">
-                                {_(_label_key)}
-                            </div>
-                        </a>
-                        """,
-                        unsafe_allow_html=True
-                    )
+
+                    # st.link_button natif plutôt qu'un <a> en HTML brut : ce
+                    # dernier s'est révélé peu fiable pour sortir de l'iframe
+                    # Streamlit Cloud (clic sans effet, malgré un href valide et
+                    # un survol fonctionnel) — st.link_button utilise le
+                    # mécanisme de navigation propre à Streamlit, garanti de
+                    # fonctionner dans cet environnement.
+                    st.link_button(_(_label_key), _oauth_url, use_container_width=True)
                 except Exception as _oauth_render_err:
                     st.error(f"⛔ {_provider} : {_oauth_render_err}")
-                    st.markdown(
-                        f"""
-                        <div style="
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            background-color: #f0f2f6;
-                            color: #a3a8b4;
-                            border: 1px solid #ddd;
-                            border-radius: 8px;
-                            padding: 8px 16px;
-                            font-size: 14px;
-                            font-weight: 500;
-                            width: 100%;
-                            cursor: not-allowed;
-                            opacity: 0.7;
-                        ">
-                            <img src="{_icon_url}" width="20" height="20" style="margin-right: 12px; filter: grayscale(100%);">
-                            {_(_label_key)}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                    st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", disabled=True,
+                              use_container_width=True)
 
         st.divider()
 
