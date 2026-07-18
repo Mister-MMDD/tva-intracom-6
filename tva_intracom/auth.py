@@ -50,7 +50,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
         with _pool_lock:
             if _pool is None:
                 dsn = get_secret("SUPABASE_DB_URL")
-
+                
                 if not dsn:
                     raise RuntimeError(
                         "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
@@ -344,19 +344,19 @@ def consume_magic_link(token: str, ip_address: str = "unknown") -> Optional[User
             (token,),
         )
         row = cur.fetchone()
-
+        
         if not row:
             # Enregistrer l'échec
             cur.execute("INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)", (ip_hash, time.time()))
             conn.commit()
             return None
-
+            
         email, created_at, consumed = row
         if consumed or (time.time() - created_at) > MAGIC_LINK_TTL_SECONDS:
             cur.execute("INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)", (ip_hash, time.time()))
             conn.commit()
             return None
-
+            
         # Succès : on nettoie les anciens échecs pour cet IP et on marque consommé
         cur.execute("DELETE FROM tva_failed_logins WHERE ip_hash=%s", (ip_hash,))
         cur.execute("UPDATE tva_magic_links SET consumed=TRUE WHERE token=%s", (token,))
@@ -387,22 +387,9 @@ def get_user_by_id(user_id: str) -> Optional[User]:
 
 
 def delete_account(user_id: str) -> None:
-    """Supprime définitivement un compte utilisateur et les données associées
-    (RGPD). Supprime les abonnements Stripe, les identifiants Amazon chiffrés,
-    les SIREN.
-
-    Cas particulier de l'historique VIES (si scope privé "user:<email>") :
-    conformément à l'art. 17.3.b du RGPD (obligation légale prévalant sur le
-    droit à l'effacement), `vies_check_history` n'est PAS supprimé — cette
-    piste d'audit justifie d'éventuelles exonérations B2B en cas de contrôle
-    fiscal et est déjà retenue 365 jours en fonctionnement normal (voir
-    `vies_engine._db_delete_expired_scope`). Elle est seulement pseudonymisée
-    (le scope_id, qui contient l'e-mail en clair, est remplacé par un
-    identifiant haché non réversible) puis purgée automatiquement à
-    l'échéance des 365 jours par la purge périodique habituelle. Le cache
-    privé (`vies_scope_cache`) et les overrides manuels, eux, sont bien
-    supprimés immédiatement — voir `vies_engine.delete_all_scope_data`.
-    """
+    """Supprime définitivement un compte utilisateur et toutes les données associées
+    (RGPD). Supprime les abonnements Stripe, les identifiants Amazon chiffrés, 
+    les SIREN et l'historique VIES (si scope privé)."""
     from .billing import delete_user_billing_data
     from .vies_engine import delete_all_scope_data, resolve_scope_id
 
@@ -413,8 +400,7 @@ def delete_account(user_id: str) -> None:
     # 1. Facturation & Stripe
     delete_user_billing_data(user_id)
 
-    # 2. VIES (seulement si scope privé user:email) — pseudonymisation de
-    # l'historique + suppression du cache/overrides, voir docstring ci-dessus.
+    # 2. VIES (seulement si scope privé user:email)
     scope_id = resolve_scope_id(user.email)
     if scope_id.startswith("user:"):
         delete_all_scope_data(scope_id)
@@ -424,12 +410,7 @@ def delete_account(user_id: str) -> None:
         cur.execute("DELETE FROM tva_amazon_credentials WHERE user_id=%s", (user_id,))
         cur.execute("DELETE FROM tva_session_tokens WHERE user_id=%s", (user_id,))
         cur.execute("DELETE FROM tva_magic_links WHERE email=%s", (user.email,))
-        # Pas de purge de tva_oauth_pkce ici : cette table n'a pas de user_id
-        # (nonce/provider/verifier uniquement) et une suppression sur un
-        # critère temporel générique supprimerait les flux PKCE d'AUTRES
-        # utilisateurs en cours de connexion OAuth. Le nettoyage périodique
-        # (fenêtre de 15 min) est déjà assuré indépendamment par
-        # save_pkce_verifier() à chaque nouvelle tentative de connexion.
+        cur.execute("DELETE FROM tva_oauth_pkce WHERE created_at < %s", (time.time(),))  # Nettoyage générique
 
         # Appel de la fonction SQL SECURITY DEFINER pour supprimer de auth.users
         # car le SDK client ne peut pas le faire lui-même.
@@ -451,7 +432,7 @@ def export_all_user_data(user_id: str) -> dict:
         return {}
 
     billing_data = export_user_billing_data(user_id)
-
+    
     scope_id = resolve_scope_id(user.email)
     vies_data = export_scope_data(scope_id)
 

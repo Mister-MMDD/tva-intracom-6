@@ -130,37 +130,10 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_access_token = _qp.get("access_token")
     _sb_error_code = _qp.get("error_code")
     _sb_error_desc = _qp.get("error_description")
-    _sb_type = _qp.get("type")
 
     if st.session_state.get("auth_user") is None:
-        # Cas A : Jeton direct (Implicit flow / retour mail / recovery)
+        # Cas A : Jeton direct (Implicit flow / retour mail)
         if _sb_access_token:
-            # Cas A.1 : Réinitialisation de mot de passe
-            if _sb_type == "recovery":
-                st.info(_("reset_password_title"))
-                _new_password = st.text_input(_("new_password_label"), type="password", key="reset_new_password_input")
-                if st.button(_("update_password_btn"), key="btn_update_password", type="primary", use_container_width=True):
-                    if len(_new_password) >= 6:
-                        try:
-                            _updated_user = tva_sb_auth.update_user_password(_sb_access_token, _new_password)
-                            _email = _updated_user.get("email")
-                            st.success(_("password_updated_success"))
-                            time.sleep(2)
-                            if _email:
-                                _finalize_login(_email, cookie_manager)
-                            st.query_params.clear()
-                            st.rerun()
-                        except Exception as _e:
-                            st.error(_("password_update_error", error=str(_e)))
-                    else:
-                        st.warning("Le mot de passe doit faire au moins 6 caractères.")
-                
-                if st.button(_("cancel_btn"), key="btn_cancel_reset", use_container_width=True):
-                    st.query_params.clear()
-                    st.rerun()
-                st.stop()
-
-            # Cas A.2 : Connexion directe (retour d'e-mail de confirmation par exemple)
             try:
                 _sb_result = tva_sb_auth.get_user_from_access_token(_sb_access_token)
                 _finalize_login(_sb_result.email, cookie_manager)
@@ -175,11 +148,11 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             _cache_key = f"_sb_pkce_{_sb_provider}"
             _cached = st.session_state.get(_cache_key)
             _verifier = None
-
+            
             # 1. On cherche d'abord en session (très robuste aux reruns)
             if _cached and _cached[0] == _sb_nonce:
                 _verifier = _cached[1]
-
+            
             # 2. Sinon on cherche en DB (cas d'une nouvelle session)
             _pkce_diag = None
             if not _verifier and _sb_nonce:
@@ -192,7 +165,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     # suivants (déclenchés par st.query_params ou cookies)
                     # le trouvent sans retourner en DB.
                     st.session_state[_cache_key] = (_sb_nonce, _verifier)
-
+            
             if _verifier:
                 try:
                     _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
@@ -220,7 +193,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.warning(_("oauth_email_verification_required"))
         else:
             st.error(f"Erreur OAuth ({_sb_error_code}): {_sb_error_desc or 'inconnue'}")
-
+        
         if st.button(_("cancel_btn"), key="clear_oauth_error"):
             st.query_params.clear()
             st.rerun()
@@ -383,31 +356,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         _app_base_url_login = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
 
         # ── Mot de passe (Supabase Auth) ────────────────────────────────────
-        if st.session_state.get("show_forgot_password"):
-            st.subheader(_("reset_password_title"))
-            st.write(_("reset_password_instructions"))
-            _recovery_email = st.text_input(_("email_label"), key="recovery_email_input")
-            _col_rec_send, _col_rec_cancel = st.columns(2)
-            if _col_rec_send.button(_("send_magic_link_btn"), key="btn_send_recovery", use_container_width=True, type="primary"):
-                if _recovery_email and "@" in _recovery_email:
-                    try:
-                        tva_sb_auth.reset_password_for_email(_recovery_email, redirect_to=_app_base_url_login)
-                        st.success(_("reset_password_success"))
-                        time.sleep(2)
-                        st.session_state["show_forgot_password"] = False
-                        st.rerun()
-                    except Exception as _e:
-                        st.error(str(_e))
-                else:
-                    st.warning(_("invalid_email_warning"))
-            if _col_rec_cancel.button(_("cancel_btn"), key="btn_cancel_recovery", use_container_width=True):
-                st.session_state["show_forgot_password"] = False
-                st.rerun()
-            st.stop()
-
         _login_email = st.text_input(_("email_label"), key="login_email_input")
         _login_password = st.text_input(_("password_label"), type="password", key="login_password_input")
-        
         _col_signin, _col_signup = st.columns(2)
 
         if _col_signin.button(_("password_signin_btn"), key="btn_password_signin", use_container_width=True, type="primary"):
@@ -435,10 +385,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             else:
                 st.warning(_("invalid_email_warning"))
 
-        if st.button(_("forgot_password_btn"), key="btn_forgot_password"):
-            st.session_state["show_forgot_password"] = True
-            st.rerun()
-
         # ── OAuth social (Google / Microsoft / GitHub / Amazon) — Supabase Auth ─
         # Le code_verifier PKCE est stocké côté serveur (Postgres,
         # tva_oauth_pkce), retrouvé au retour via un nonce transmis dans
@@ -455,11 +401,12 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # session_state — une seule écriture DB par provider tant que le
         # login n'a pas abouti.
         st.caption(_("oauth_divider_label"))
-        _col_google, _col_github, _col_amazon = st.columns(3)
-        for _col, _provider, _label_key, _icon_url, _bg, _text in (
-                (_col_google, "google", "oauth_google_btn", "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/google/google-original.svg", "#FFFFFF", "#000000"),
-                (_col_github, "github", "oauth_github_btn", "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/github/github-original.svg", "#24292E", "#FFFFFF"),
-                (_col_amazon, "cognito", "amazon_login_btn", "https://upload.wikimedia.org/wikipedia/commons/4/4a/Amazon_icon.svg", "#FF9900", "#000000"),
+        _col_google, _col_microsoft, _col_github, _col_amazon = st.columns(4)
+        for _col, _provider, _label_key in (
+            (_col_google, "google", "oauth_google_btn"),
+            (_col_microsoft, "microsoft", "oauth_microsoft_btn"),
+            (_col_github, "github", "oauth_github_btn"),
+            (_col_amazon, "cognito", "cognito_login_btn"),
         ):
             with _col:
                 try:
@@ -474,25 +421,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                         st.session_state[_cache_key] = (_nonce, _verifier)
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}&sb_nonce={_nonce}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
-
-                    # Apparence officielle via HTML
-                    st.markdown(
-                        f"""
-                        <a href="{_oauth_url}" target="_self" style="text-decoration: none;">
-                            <div style="
-                                display: flex; align-items: center; justify-content: center;
-                                background-color: {_bg}; color: {_text};
-                                padding: 8px 12px; border-radius: 4px; border: 1px solid #ddd;
-                                font-weight: 500; height: 38px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-                                transition: background-color 0.2s;
-                            " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-                                <img src="{_icon_url}" width="18" height="18" style="margin-right: 10px;">
-                                {(_(_label_key))}
-                            </div>
-                        </a>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                    st.link_button(_(_label_key), _oauth_url, use_container_width=True)
                 except Exception:
                     st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", use_container_width=True, disabled=True)
 
@@ -526,11 +455,11 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     tva_auth.delete_session_token(_current_token)
                 except Exception:
                     pass
-
+            
             # 2. Nettoyage session locale
             st.session_state["auth_user"] = None
             st.session_state["manual_logout"] = True
-
+            
             # 3. Suppression du cookie (asynchrone côté client)
             try:
                 cookie_manager.delete("tva_session_token", key=f"logout_del_{int(time.time())}")

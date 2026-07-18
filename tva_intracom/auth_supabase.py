@@ -27,16 +27,29 @@ Configuration côté tableau de bord Supabase (Authentication > Providers) :
       console du provider concerné, et déclarer l'URL de callback Supabase
       (affichée dans le panneau de configuration du provider, du type
       https://xxxx.supabase.co/auth/v1/callback) côté provider.
-    - Amazon (Login with Amazon / LWA) : Authentication > Providers >
-      "Add custom OAuth provider". Provider Identifier = "amazon" (utilisé
-      ensuite en interne sous la forme "custom:amazon"). Configuration
-      manuelle : Authorization URL = https://www.amazon.com/ap/oa,
-      Token URL = https://api.amazon.com/auth/o2/token,
-      Userinfo URL = https://api.amazon.com/user/profile, Scopes = "profile",
-      Client ID / Client Secret = ceux de l'app Amazon LWA (Seller Central
-      > Login with Amazon, PAS l'app SP-API utilisée par ailleurs pour la
-      récupération des rapports). Coller la "Callback URL" affichée par
-      Supabase dans la configuration Amazon LWA côté Seller Central.
+    - Amazon (Login with Amazon / LWA) : Supabase Auth n'a PAS de provider
+      natif pour LWA. Le chemin retenu passe par AWS Cognito comme
+      intermédiaire, qui lui gère la fédération avec "Login with Amazon" :
+      Authentication > Providers > "Add custom OAuth provider", Provider
+      Identifier = "cognito" (utilisé ensuite en interne sous la forme
+      "custom:cognito" — voir OAUTH_PROVIDERS ci-dessous). Configuration
+      manuelle côté Supabase : Authorization/Token/Userinfo URL = celles du
+      domaine Hosted UI du User Pool Cognito (ex.
+      https://<domaine>.auth.<region>.amazoncognito.com/oauth2/...),
+      Client ID / Client Secret = ceux de l'App Client Cognito. Côté AWS
+      Cognito (hors de ce dépôt, console AWS) : le User Pool doit avoir
+      "Login with Amazon" configuré comme fournisseur d'identité fédéré
+      (Client ID / Secret de l'app LWA Seller Central, PAS l'app SP-API),
+      et l'App Client Cognito doit lister l'URL de callback Supabase
+      (https://xxxx.supabase.co/auth/v1/callback) dans ses "Allowed callback
+      URLs". Côté Amazon Seller Central (app LWA) : les "Allowed Return
+      URLs" doivent lister l'URI de redirection Cognito
+      (https://<domaine>.auth.<region>.amazoncognito.com/oauth2/idpresponse),
+      pas l'URL Supabase directement. Trois configurations distinctes à
+      tenir synchronisées (Supabase, Cognito, Seller Central) — une
+      incohérence sur l'un des trois maillons (secret Cognito/LWA changé,
+      URL de callback modifiée, app LWA repassée en revue/sandbox côté
+      Amazon) casse le flux sans message d'erreur explicite côté app.
     - Authentication > URL Configuration : ajouter l'URL de l'app
       (APP_BASE_URL) à la liste "Redirect URLs", sinon Supabase refusera la
       redirection post-connexion.
@@ -55,9 +68,14 @@ import requests
 from .config import get_secret
 
 # "azure" est l'identifiant de provider utilisé par Supabase pour Microsoft
-# (Azure AD / Entra ID). "custom:amazon" correspond au Custom OAuth Provider
-# "amazon" configuré manuellement côté tableau de bord Supabase.
-# "custom:cognito" est utilisé pour Amazon Cognito via un Custom OAuth Provider.
+# (Azure AD / Entra ID). "custom:cognito" correspond au Custom OAuth
+# Provider "cognito" configuré manuellement côté tableau de bord Supabase —
+# c'est le bouton "Se connecter avec Amazon" de l'écran de connexion : Supabase
+# n'ayant pas de provider natif pour "Login with Amazon" (LWA), ce provider
+# pointe en réalité sur le Hosted UI d'un User Pool AWS Cognito, qui fédère
+# lui-même LWA comme fournisseur d'identité (voir docstring de ce module
+# pour le détail des trois configurations à synchroniser : Supabase, Cognito,
+# Seller Central).
 OAUTH_PROVIDERS = {
     "google": "google",
     "microsoft": "azure",
