@@ -637,9 +637,32 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         + (f" ({_('expired_at', date=__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y'))})"
                            if _sub_status.current_period_end else ""))
 
+                # ── Bannière d'incitation Premium (utilisateurs gratuits) ───────
+                st.markdown(
+                    f"""
+                    <div style="
+                        background-color: #EEEDFE;
+                        border-radius: 12px;
+                        padding: 14px 16px;
+                        margin-bottom: 12px;
+                    ">
+                        <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
+                            {_("premium_banner_title")}
+                        </p>
+                        <p style="margin: 0; font-size: 12px; color: #3C3489;">
+                            {_("premium_banner_body")}
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button(_("premium_banner_cta_btn"), key="btn_premium_banner_cta", use_container_width=True):
+                    st.session_state["_show_pricing_grid"] = True
+                    st.rerun()
+
                 st.caption(_("billing_caption"))
 
-                with st.expander(_("pricing_grid_expander"), expanded=False):
+                with st.expander(_("pricing_grid_expander"), expanded=st.session_state.get("_show_pricing_grid", False)):
                     try:
                         _grid = _cached_db_read(
                             f"pricing_grid_{_current_user.id}",
