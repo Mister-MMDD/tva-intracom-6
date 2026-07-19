@@ -178,31 +178,51 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # "recovery" via la seule hypothèse restante : la dernière demande de
         # reset de mot de passe en attente (voir consume_latest_pkce_verifier_by_provider).
         if _sb_code and not _sb_provider:
-            _verifier = tva_auth.consume_latest_pkce_verifier_by_provider("recovery")
-            if _verifier:
-                try:
-                    _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
-                    st.subheader(_("reset_password_title"))
-                    _new_pwd = st.text_input(
-                        _("new_password_label"), type="password", key="reset_new_password_input"
-                    )
-                    _new_pwd_confirm = st.text_input(
-                        _("new_password_label"), type="password", key="reset_new_password_confirm_input"
-                    )
-                    if st.button(_("update_password_btn"), key="btn_update_password", type="primary"):
-                        if not _new_pwd or _new_pwd != _new_pwd_confirm:
-                            st.warning(_("invalid_email_warning"))
-                        else:
-                            try:
-                                tva_sb_auth.update_user_password(_sb_result.access_token, _new_pwd)
-                                st.success(_("password_updated_success"))
-                                st.query_params.clear()
-                            except Exception as _sb_err:
-                                st.error(_("password_update_error", error=str(_sb_err)))
-                    st.stop()
-                except Exception as _sb_err:
-                    st.error(_("oauth_login_error", error=str(_sb_err)))
-                    st.query_params.clear()
+            _b0_cache_key = "_sb_pkce_recovery_bare"
+            _b0_cached = st.session_state.get(_b0_cache_key)
+            _b0_access_token = None
+
+            # 1. On cherche d'abord en session (robuste aux reruns Streamlit :
+            #    chaque frappe/clic ré-exécute le script, et re-poster le même
+            #    `code` à Supabase une 2e fois échoue avec "invalid flow state,
+            #    no valid flow state found" car le flow_state est déjà consommé
+            #    côté Supabase après le premier échange réussi).
+            if _b0_cached and _b0_cached[0] == _sb_code:
+                _b0_access_token = _b0_cached[1]
+            else:
+                _verifier = tva_auth.consume_latest_pkce_verifier_by_provider("recovery")
+                if _verifier:
+                    try:
+                        _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
+                        _b0_access_token = _sb_result.access_token
+                        # Mis en session IMMÉDIATEMENT pour que les reruns
+                        # suivants (déclenchés par les widgets ci-dessous)
+                        # réutilisent ce jeton sans retourner échanger le code.
+                        st.session_state[_b0_cache_key] = (_sb_code, _b0_access_token)
+                    except Exception as _sb_err:
+                        st.error(_("oauth_login_error", error=str(_sb_err)))
+                        st.query_params.clear()
+
+            if _b0_access_token:
+                st.subheader(_("reset_password_title"))
+                _new_pwd = st.text_input(
+                    _("new_password_label"), type="password", key="reset_new_password_input"
+                )
+                _new_pwd_confirm = st.text_input(
+                    _("new_password_label"), type="password", key="reset_new_password_confirm_input"
+                )
+                if st.button(_("update_password_btn"), key="btn_update_password", type="primary"):
+                    if not _new_pwd or _new_pwd != _new_pwd_confirm:
+                        st.warning(_("invalid_email_warning"))
+                    else:
+                        try:
+                            tva_sb_auth.update_user_password(_b0_access_token, _new_pwd)
+                            st.session_state.pop(_b0_cache_key, None)
+                            st.success(_("password_updated_success"))
+                            st.query_params.clear()
+                        except Exception as _sb_err:
+                            st.error(_("password_update_error", error=str(_sb_err)))
+                st.stop()
 
         # Cas B : Code à échanger (PKCE flow / bouton login)
         elif _sb_code and _sb_provider:
