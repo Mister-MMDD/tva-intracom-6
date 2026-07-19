@@ -497,7 +497,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.markdown(
             f"""
             <style>
-            .st-key-oauth_btn_google button {{
+            .st-key-oauth_btn_google a[data-testid^="stBaseLinkButton"] {{
                 background-color: #FFFFFF !important;
                 color: #3C4043 !important;
                 border: 1px solid #dadce0 !important;
@@ -507,7 +507,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 background-size: 18px 18px;
                 padding-left: 38px !important;
             }}
-            .st-key-oauth_btn_github button {{
+            .st-key-oauth_btn_google a[data-testid^="stBaseLinkButton"] p {{ color: #3C4043 !important; }}
+            .st-key-oauth_btn_github a[data-testid^="stBaseLinkButton"] {{
                 background-color: #24292E !important;
                 color: #FFFFFF !important;
                 border: 1px solid #24292E !important;
@@ -516,10 +517,9 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 background-position: 14px center;
                 background-size: 18px 18px;
                 padding-left: 38px !important;
-                filter: none;
             }}
-            .st-key-oauth_btn_github button p {{ color: #FFFFFF !important; }}
-            .st-key-oauth_btn_cognito button {{
+            .st-key-oauth_btn_github a[data-testid^="stBaseLinkButton"] p {{ color: #FFFFFF !important; }}
+            .st-key-oauth_btn_cognito a[data-testid^="stBaseLinkButton"] {{
                 background-color: #FF9900 !important;
                 color: #000000 !important;
                 border: 1px solid #FF9900 !important;
@@ -529,6 +529,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 background-size: 18px 18px;
                 padding-left: 38px !important;
             }}
+            .st-key-oauth_btn_cognito a[data-testid^="stBaseLinkButton"] p {{ color: #000000 !important; }}
             </style>
             """,
             unsafe_allow_html=True,
