@@ -650,17 +650,23 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
         st.divider()
 
-        # ── Lien magique : en préparation ───────────────────────────────────
-        # Reste dans le code (tva_auth.create_magic_link / send_magic_link_email)
-        # mais désactivé côté écran de connexion le temps de finaliser sa
-        # bascule éventuelle vers Supabase Auth (magic link natif Supabase) —
-        # voir README. La connexion Amazon (ci-dessus) est en revanche
-        # pleinement fonctionnelle via le Custom OAuth Provider Supabase.
+        # ── Lien magique ────────────────────────────────────────────────────
+        # Reactivé le 2024-05-22 suite à demande utilisateur.
         st.caption(_("legacy_login_methods_caption"))
-        st.button(
-            _("send_magic_link_btn"), key="btn_send_magic_link_disabled",
-            use_container_width=True, disabled=True, help=_("coming_soon_help"),
-        )
+        if st.button(
+            _("send_magic_link_btn"), key="btn_send_magic_link",
+            use_container_width=True,
+        ):
+            if _login_email and "@" in _login_email:
+                try:
+                    _magic_token = tva_auth.create_magic_link(_login_email)
+                    _magic_url = f"{_app_base_url_login}/?login_token={_magic_token}"
+                    tva_auth.send_magic_link_email(_login_email, _magic_url)
+                    st.success(_("magic_link_sent_success", email=_login_email))
+                except Exception as _e:
+                    st.error(_("magic_link_sent_error", error=str(_e)))
+            else:
+                st.warning(_("invalid_email_warning"))
 
         st.stop()
 
