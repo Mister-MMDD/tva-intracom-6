@@ -487,6 +487,53 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         st.caption(_("oauth_divider_label"))
         _col_google, _col_github, _col_amazon = st.columns(3)
 
+        # ── Style officiel (logo + couleur) appliqué à st.link_button ──────
+        # st.link_button est fiable pour sortir de l'iframe Streamlit Cloud
+        # (contrairement à un <a> en HTML brut, cf. incident précédent), mais
+        # n'a pas de paramètre pour un logo/une couleur de marque. On cible
+        # donc chaque bouton via la classe "st-key-{key}" que Streamlit ajoute
+        # automatiquement sur son conteneur, et on pose le logo en
+        # background-image du <button> natif généré par Streamlit.
+        st.markdown(
+            f"""
+            <style>
+            .st-key-oauth_btn_google button {{
+                background-color: #FFFFFF !important;
+                color: #3C4043 !important;
+                border: 1px solid #dadce0 !important;
+                background-image: url('https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/google/google-original.svg');
+                background-repeat: no-repeat;
+                background-position: 14px center;
+                background-size: 18px 18px;
+                padding-left: 38px !important;
+            }}
+            .st-key-oauth_btn_github button {{
+                background-color: #24292E !important;
+                color: #FFFFFF !important;
+                border: 1px solid #24292E !important;
+                background-image: url('https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/github/github-original.svg');
+                background-repeat: no-repeat;
+                background-position: 14px center;
+                background-size: 18px 18px;
+                padding-left: 38px !important;
+                filter: none;
+            }}
+            .st-key-oauth_btn_github button p {{ color: #FFFFFF !important; }}
+            .st-key-oauth_btn_cognito button {{
+                background-color: #FF9900 !important;
+                color: #000000 !important;
+                border: 1px solid #FF9900 !important;
+                background-image: url('https://upload.wikimedia.org/wikipedia/commons/4/4a/Amazon_icon.svg');
+                background-repeat: no-repeat;
+                background-position: 14px center;
+                background-size: 18px 18px;
+                padding-left: 38px !important;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         for _col, _provider, _label_key, _icon_url, _bg, _text in (
                 (
                         _col_google,
@@ -533,7 +580,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     # un survol fonctionnel) — st.link_button utilise le
                     # mécanisme de navigation propre à Streamlit, garanti de
                     # fonctionner dans cet environnement.
-                    st.link_button(_(_label_key), _oauth_url, use_container_width=True)
+                    st.link_button(_(_label_key), _oauth_url, use_container_width=True,
+                                    key=f"oauth_btn_{_provider}")
                 except Exception as _oauth_render_err:
                     st.error(f"⛔ {_provider} : {_oauth_render_err}")
                     st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", disabled=True,
