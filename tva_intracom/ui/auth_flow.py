@@ -170,6 +170,40 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 st.error(f"Erreur access_token: {str(_e)}")
                 st.query_params.clear()
 
+        # Cas B0 : Code présent mais SANS sb_provider/sb_nonce — Supabase a
+        # tronqué la query string du redirect_to (n'arrive que via une entrée
+        # wildcard de la Redirect URLs allowlist ; seule une correspondance
+        # EXACTE préserve la query string, impossible ici puisque sb_nonce
+        # change à chaque demande). On ne peut alors distinguer que le cas
+        # "recovery" via la seule hypothèse restante : la dernière demande de
+        # reset de mot de passe en attente (voir consume_latest_pkce_verifier_by_provider).
+        if _sb_code and not _sb_provider:
+            _verifier = tva_auth.consume_latest_pkce_verifier_by_provider("recovery")
+            if _verifier:
+                try:
+                    _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
+                    st.subheader(_("reset_password_title"))
+                    _new_pwd = st.text_input(
+                        _("new_password_label"), type="password", key="reset_new_password_input"
+                    )
+                    _new_pwd_confirm = st.text_input(
+                        _("new_password_label"), type="password", key="reset_new_password_confirm_input"
+                    )
+                    if st.button(_("update_password_btn"), key="btn_update_password", type="primary"):
+                        if not _new_pwd or _new_pwd != _new_pwd_confirm:
+                            st.warning(_("invalid_email_warning"))
+                        else:
+                            try:
+                                tva_sb_auth.update_user_password(_sb_result.access_token, _new_pwd)
+                                st.success(_("password_updated_success"))
+                                st.query_params.clear()
+                            except Exception as _sb_err:
+                                st.error(_("password_update_error", error=str(_sb_err)))
+                    st.stop()
+                except Exception as _sb_err:
+                    st.error(_("oauth_login_error", error=str(_sb_err)))
+                    st.query_params.clear()
+
         # Cas B : Code à échanger (PKCE flow / bouton login)
         elif _sb_code and _sb_provider:
             _cache_key = f"_sb_pkce_{_sb_provider}"

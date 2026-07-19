@@ -653,6 +653,52 @@ def consume_pkce_verifier(nonce: str, provider: str) -> Optional[str]:
         return None
 
 
+def consume_latest_pkce_verifier_by_provider(provider: str, max_age_seconds: int = 15 * 60) -> Optional[str]:
+    """Récupère le code_verifier PKCE le plus récent pour ce provider, SANS filtrer
+    sur le nonce.
+
+    Utilisé pour le flux "mot de passe oublié" : Supabase tronque la query string
+    du `redirect_to` (perte de `sb_provider`/`sb_nonce`) dès que l'URL n'est
+    autorisée que via une entrée wildcard de la liste blanche (et non une
+    correspondance exacte). Le lien de retour n'expose donc plus que `?code=...`,
+    sans nonce exploitable — on retombe sur "la dernière demande de recovery
+    en attente" (hypothèse raisonnable : un seul utilisateur redemande rarement
+    plusieurs reset en parallèle dans la fenêtre de 15 minutes).
+
+    Même logique idempotente que `consume_pkce_verifier` (fenêtre de grâce de
+    30s pour tolérer un rerun/retry Streamlit)."""
+    GRACE_SECONDS = 30
+
+    def _fn(conn, cur):
+        now = time.time()
+        cur.execute(
+            """
+            SELECT nonce, verifier, consumed_at FROM tva_oauth_pkce
+            WHERE provider=%s AND created_at >= %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (provider, now - max_age_seconds),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        nonce, verifier, consumed_at = row
+        if consumed_at is not None and (now - consumed_at) > GRACE_SECONDS:
+            return None  # consommé depuis trop longtemps : vraiment expiré
+        cur.execute(
+            "UPDATE tva_oauth_pkce SET consumed_at=%s WHERE nonce=%s",
+            (now, nonce),
+        )
+        conn.commit()
+        return verifier
+
+    try:
+        return _run(_fn)
+    except Exception:
+        return None
+
+
 def purge_old_pkce_entries(older_than_seconds: int = 15 * 60) -> None:
     """Nettoyage périodique des vieilles entrées PKCE (consommées ou non)."""
     def _fn(conn, cur):
