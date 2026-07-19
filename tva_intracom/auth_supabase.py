@@ -226,11 +226,14 @@ def build_oauth_authorize_url(provider: str, redirect_to: str, code_verifier: st
     return f"{_base_url()}/auth/v1/authorize?{urlencode(params)}"
 
 
-def exchange_pkce_code(code: str, code_verifier: str) -> SupabaseAuthResult:
+def exchange_pkce_code(code: str, code_verifier: str, redirect_uri: Optional[str] = None) -> SupabaseAuthResult:
+    body = {"auth_code": code, "code_verifier": code_verifier}
+    if redirect_uri:
+        body["redirect_uri"] = redirect_uri
     resp = requests.post(
         f"{_base_url()}/auth/v1/token?grant_type=pkce",
         headers=_headers(),
-        json={"auth_code": code, "code_verifier": code_verifier},
+        json=body,
         timeout=10,
     )
     _raise_for_supabase_error(resp)

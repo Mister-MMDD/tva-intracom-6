@@ -124,6 +124,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     if "manual_logout" not in st.session_state:
         st.session_state["manual_logout"] = False
 
+    _app_base_url_login = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+
     # ── 1. Interception PRIORITAIRE du code OAuth (PKCE ou Implicit) ────────
     _qp = st.query_params
     _sb_code = _qp.get("code")
@@ -193,7 +195,9 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 _verifier = tva_auth.consume_latest_pkce_verifier_by_provider("recovery")
                 if _verifier:
                     try:
-                        _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
+                        _sb_result = tva_sb_auth.exchange_pkce_code(
+                            _sb_code, _verifier, redirect_uri=_app_base_url_login
+                        )
                         _b0_access_token = _sb_result.access_token
                         # Mis en session IMMÉDIATEMENT pour que les reruns
                         # suivants (déclenchés par les widgets ci-dessous)
@@ -249,7 +253,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             
             if _verifier:
                 try:
-                    _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
+                    _redir = f"{_app_base_url_login}/?sb_provider={_sb_provider}&sb_nonce={_sb_nonce}"
+                    _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier, redirect_uri=_redir)
                     if _sb_provider == "recovery":
                         # Retour du lien "mot de passe oublié" via PKCE : on a un
                         # jeton valide, mais on ne connecte PAS directement —
@@ -459,8 +464,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     st.warning(_("invalid_email_warning"))
             st.stop()
 
-        _app_base_url_login = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
-
         # ── Mot de passe (Supabase Auth) ────────────────────────────────────
         _login_email = st.text_input(_("email_label"), key="login_email_input")
         _login_password = st.text_input(_("password_label"), type="password", key="login_password_input")
@@ -513,7 +516,10 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                         _reset_challenge = base64.urlsafe_b64encode(
                             hashlib.sha256(_reset_verifier.encode()).digest()
                         ).decode().rstrip("=")
-                        _reset_redirect_to = f"{_app_base_url_login}/?sb_provider=recovery&sb_nonce={_reset_nonce}"
+                        # On utilise l'URL de base sans paramètres pour le redirect_to de recovery,
+                        # car Supabase a tendance à tronquer les query params s'ils ne correspondent
+                        # pas exactement à une entrée de l'allowlist (wildcards). Cas B0 gère le retour.
+                        _reset_redirect_to = _app_base_url_login
                         tva_sb_auth.reset_password_for_email(
                             _reset_email, redirect_to=_reset_redirect_to, code_challenge=_reset_challenge
                         )
