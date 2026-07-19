@@ -464,86 +464,83 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     st.warning(_("invalid_email_warning"))
             st.stop()
 
-        # ── Mot de passe (Supabase Auth) ────────────────────────────────────
+        # ── Identification ──────────────────────────────────────────────────
         _login_email = st.text_input(_("email_label"), key="login_email_input")
-        _login_password = st.text_input(_("password_label"), type="password", key="login_password_input")
-        _col_signin, _col_signup = st.columns(2)
 
-        if _col_signin.button(_("password_signin_btn"), key="btn_password_signin", use_container_width=True, type="primary"):
-            if _login_email and "@" in _login_email and _login_password:
-                try:
-                    _sb_res = tva_sb_auth.sign_in_with_password(_login_email, _login_password)
-                    _finalize_login(_sb_res.email, cookie_manager)
-                    st.rerun()
-                except Exception as _sb_err:
-                    st.error(_("password_login_error", error=str(_sb_err)))
-            else:
-                st.warning(_("invalid_email_warning"))
+        _tab_pwd, _tab_magic = st.tabs([_("password_signin_btn"), _("send_magic_link_btn")])
 
-        if _col_signup.button(_("password_signup_btn"), key="btn_password_signup", use_container_width=True):
-            if _login_email and "@" in _login_email and _login_password:
-                try:
-                    _sb_res = tva_sb_auth.sign_up_with_password(_login_email, _login_password)
-                    if _sb_res.access_token:
+        with _tab_pwd:
+            _login_password = st.text_input(_("password_label"), type="password", key="login_password_input")
+            _col_signin, _col_signup = st.columns(2)
+
+            if _col_signin.button(_("password_signin_btn"), key="btn_password_signin", use_container_width=True, type="primary"):
+                if _login_email and "@" in _login_email and _login_password:
+                    try:
+                        _sb_res = tva_sb_auth.sign_in_with_password(_login_email, _login_password)
                         _finalize_login(_sb_res.email, cookie_manager)
                         st.rerun()
-                    else:
-                        st.success(_("password_signup_confirm_email_info"))
-                except Exception as _sb_err:
-                    st.error(_("password_login_error", error=str(_sb_err)))
-            else:
-                st.warning(_("invalid_email_warning"))
-
-        # ── Mot de passe oublié ─────────────────────────────────────────────
-        # ⚠️ Même problème que l'OAuth (voir plus bas) : le mode implicite de
-        # Supabase renvoie #access_token=...&type=recovery dans le FRAGMENT
-        # d'URL, invisible côté serveur — dépendre du JS de conversion
-        # fragment→query s'est révélé peu fiable en production. On utilise
-        # donc le même flux PKCE (nonce/verifier stockés côté serveur) que
-        # pour Google/GitHub/Amazon : Supabase redirige alors avec un `?code=`
-        # classique, lu et échangé normalement par le Cas B ci-dessous.
-        with st.expander(_("forgot_password_btn")):
-            st.caption(_("reset_password_instructions"))
-            _reset_email = st.text_input(
-                _("email_label"), value=_login_email, key="reset_password_email_input"
-            )
-            if st.button(_("forgot_password_btn"), key="btn_send_reset_password"):
-                if _reset_email and "@" in _reset_email:
-                    try:
-                        _reset_nonce = secrets.token_urlsafe(24)
-                        _reset_verifier = tva_sb_auth.new_code_verifier()
-                        tva_auth.save_pkce_verifier(_reset_nonce, "recovery", _reset_verifier)
-                        _reset_challenge = base64.urlsafe_b64encode(
-                            hashlib.sha256(_reset_verifier.encode()).digest()
-                        ).decode().rstrip("=")
-                        # On utilise l'URL de base sans paramètres pour le redirect_to de recovery,
-                        # car Supabase a tendance à tronquer les query params s'ils ne correspondent
-                        # pas exactement à une entrée de l'allowlist (wildcards). Cas B0 gère le retour.
-                        _reset_redirect_to = _app_base_url_login
-                        tva_sb_auth.reset_password_for_email(
-                            _reset_email, redirect_to=_reset_redirect_to, code_challenge=_reset_challenge
-                        )
-                        st.success(_("reset_password_success"))
                     except Exception as _sb_err:
-                        st.error(_("reset_password_error", error=str(_sb_err)))
+                        st.error(_("password_login_error", error=str(_sb_err)))
+                else:
+                    st.warning(_("invalid_email_warning"))
+
+            if _col_signup.button(_("password_signup_btn"), key="btn_password_signup", use_container_width=True):
+                if _login_email and "@" in _login_email and _login_password:
+                    try:
+                        _sb_res = tva_sb_auth.sign_up_with_password(_login_email, _login_password)
+                        if _sb_res.access_token:
+                            _finalize_login(_sb_res.email, cookie_manager)
+                            st.rerun()
+                        else:
+                            st.success(_("password_signup_confirm_email_info"))
+                    except Exception as _sb_err:
+                        st.error(_("password_login_error", error=str(_sb_err)))
+                else:
+                    st.warning(_("invalid_email_warning"))
+
+            # ── Mot de passe oublié ─────────────────────────────────────────────
+            with st.expander(_("forgot_password_btn")):
+                st.caption(_("reset_password_instructions"))
+                _reset_email = st.text_input(
+                    _("email_label"), value=_login_email, key="reset_password_email_input"
+                )
+                if st.button(_("forgot_password_btn"), key="btn_send_reset_password"):
+                    if _reset_email and "@" in _reset_email:
+                        try:
+                            _reset_nonce = secrets.token_urlsafe(24)
+                            _reset_verifier = tva_sb_auth.new_code_verifier()
+                            tva_auth.save_pkce_verifier(_reset_nonce, "recovery", _reset_verifier)
+                            _reset_challenge = base64.urlsafe_b64encode(
+                                hashlib.sha256(_reset_verifier.encode()).digest()
+                            ).decode().rstrip("=")
+                            _reset_redirect_to = _app_base_url_login
+                            tva_sb_auth.reset_password_for_email(
+                                _reset_email, redirect_to=_reset_redirect_to, code_challenge=_reset_challenge
+                            )
+                            st.success(_("reset_password_success"))
+                        except Exception as _sb_err:
+                            st.error(_("reset_password_error", error=str(_sb_err)))
+                    else:
+                        st.warning(_("invalid_email_warning"))
+
+        with _tab_magic:
+            st.caption(_("legacy_login_methods_caption"))
+            if st.button(
+                _("send_magic_link_btn"), key="btn_send_magic_link",
+                use_container_width=True,
+            ):
+                if _login_email and "@" in _login_email:
+                    try:
+                        _magic_token = tva_auth.create_magic_link(_login_email)
+                        _magic_url = f"{_app_base_url_login}/?login_token={_magic_token}"
+                        tva_auth.send_magic_link_email(_login_email, _magic_url)
+                        st.success(_("magic_link_sent_success", email=_login_email))
+                    except Exception as _e:
+                        st.error(_("magic_link_sent_error", error=str(_e)))
                 else:
                     st.warning(_("invalid_email_warning"))
 
         # ── OAuth social (Google / GitHub / Amazon) — Supabase Auth ─
-        # Le code_verifier PKCE est stocké côté serveur (Postgres,
-        # tva_oauth_pkce), retrouvé au retour via un nonce transmis dans
-        # `redirect_to` — plus fiable qu'un cookie posé depuis l'iframe du
-        # composant extra_streamlit_components, qui ne survivait pas de
-        # façon fiable à la redirection externe.
-        #
-        # ⚠️ Streamlit ré-exécute tout le script à chaque interaction (frappe
-        # dans les champs mot de passe ci-dessus, etc.). Générer un nonce/
-        # verifier NEUF à chaque rerun (comme avant) créait une ligne DB à
-        # chaque fois et pouvait laisser le lien affiché dans le navigateur
-        # pointer vers un nonce déjà remplacé par un plus récent au moment du
-        # clic. On met donc en cache le couple (nonce, verifier) en
-        # session_state — une seule écriture DB par provider tant que le
-        # login n'a pas abouti.
         st.caption(_("oauth_divider_label"))
         _col_google, _col_github, _col_amazon = st.columns(3)
 
@@ -647,26 +644,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     st.error(f"⛔ {_provider} : {_oauth_render_err}")
                     st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", disabled=True,
                               use_container_width=True)
-
-        st.divider()
-
-        # ── Lien magique ────────────────────────────────────────────────────
-        # Reactivé le 2024-05-22 suite à demande utilisateur.
-        st.caption(_("legacy_login_methods_caption"))
-        if st.button(
-            _("send_magic_link_btn"), key="btn_send_magic_link",
-            use_container_width=True,
-        ):
-            if _login_email and "@" in _login_email:
-                try:
-                    _magic_token = tva_auth.create_magic_link(_login_email)
-                    _magic_url = f"{_app_base_url_login}/?login_token={_magic_token}"
-                    tva_auth.send_magic_link_email(_login_email, _magic_url)
-                    st.success(_("magic_link_sent_success", email=_login_email))
-                except Exception as _e:
-                    st.error(_("magic_link_sent_error", error=str(_e)))
-            else:
-                st.warning(_("invalid_email_warning"))
 
         st.stop()
 
