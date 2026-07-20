@@ -24,6 +24,8 @@ Usage dans app.py :
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import secrets
 import time
 from dataclasses import dataclass
@@ -122,6 +124,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     if "manual_logout" not in st.session_state:
         st.session_state["manual_logout"] = False
 
+    _app_base_url_login = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+
     # ── 1. Interception PRIORITAIRE du code OAuth (PKCE ou Implicit) ────────
     _qp = st.query_params
     _sb_code = _qp.get("code")
@@ -168,6 +172,62 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 st.error(f"Erreur access_token: {str(_e)}")
                 st.query_params.clear()
 
+        # Cas B0 : Code présent mais SANS sb_provider/sb_nonce — Supabase a
+        # tronqué la query string du redirect_to (n'arrive que via une entrée
+        # wildcard de la Redirect URLs allowlist ; seule une correspondance
+        # EXACTE préserve la query string, impossible ici puisque sb_nonce
+        # change à chaque demande). On ne peut alors distinguer que le cas
+        # "recovery" via la seule hypothèse restante : la dernière demande de
+        # reset de mot de passe en attente (voir consume_latest_pkce_verifier_by_provider).
+        if _sb_code and not _sb_provider:
+            _b0_cache_key = "_sb_pkce_recovery_bare"
+            _b0_cached = st.session_state.get(_b0_cache_key)
+            _b0_access_token = None
+
+            # 1. On cherche d'abord en session (robuste aux reruns Streamlit :
+            #    chaque frappe/clic ré-exécute le script, et re-poster le même
+            #    `code` à Supabase une 2e fois échoue avec "invalid flow state,
+            #    no valid flow state found" car le flow_state est déjà consommé
+            #    côté Supabase après le premier échange réussi).
+            if _b0_cached and _b0_cached[0] == _sb_code:
+                _b0_access_token = _b0_cached[1]
+            else:
+                _verifier = tva_auth.consume_latest_pkce_verifier_by_provider("recovery")
+                if _verifier:
+                    try:
+                        _sb_result = tva_sb_auth.exchange_pkce_code(
+                            _sb_code, _verifier, redirect_uri=_app_base_url_login
+                        )
+                        _b0_access_token = _sb_result.access_token
+                        # Mis en session IMMÉDIATEMENT pour que les reruns
+                        # suivants (déclenchés par les widgets ci-dessous)
+                        # réutilisent ce jeton sans retourner échanger le code.
+                        st.session_state[_b0_cache_key] = (_sb_code, _b0_access_token)
+                    except Exception as _sb_err:
+                        st.error(_("oauth_login_error", error=str(_sb_err)))
+                        st.query_params.clear()
+
+            if _b0_access_token:
+                st.subheader(_("reset_password_title"))
+                _new_pwd = st.text_input(
+                    _("new_password_label"), type="password", key="reset_new_password_input"
+                )
+                _new_pwd_confirm = st.text_input(
+                    _("new_password_label"), type="password", key="reset_new_password_confirm_input"
+                )
+                if st.button(_("update_password_btn"), key="btn_update_password", type="primary"):
+                    if not _new_pwd or _new_pwd != _new_pwd_confirm:
+                        st.warning(_("invalid_email_warning"))
+                    else:
+                        try:
+                            tva_sb_auth.update_user_password(_b0_access_token, _new_pwd)
+                            st.session_state.pop(_b0_cache_key, None)
+                            st.success(_("password_updated_success"))
+                            st.query_params.clear()
+                        except Exception as _sb_err:
+                            st.error(_("password_update_error", error=str(_sb_err)))
+                st.stop()
+
         # Cas B : Code à échanger (PKCE flow / bouton login)
         elif _sb_code and _sb_provider:
             _cache_key = f"_sb_pkce_{_sb_provider}"
@@ -193,7 +253,33 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             
             if _verifier:
                 try:
-                    _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier)
+                    _redir = f"{_app_base_url_login}/?sb_provider={_sb_provider}&sb_nonce={_sb_nonce}"
+                    _sb_result = tva_sb_auth.exchange_pkce_code(_sb_code, _verifier, redirect_uri=_redir)
+                    if _sb_provider == "recovery":
+                        # Retour du lien "mot de passe oublié" via PKCE : on a un
+                        # jeton valide, mais on ne connecte PAS directement —
+                        # l'utilisateur doit d'abord choisir son nouveau mot de
+                        # passe (sinon il se retrouve connecté sans jamais avoir
+                        # pu le changer).
+                        st.session_state.pop(_cache_key, None)
+                        st.subheader(_("reset_password_title"))
+                        _new_pwd = st.text_input(
+                            _("new_password_label"), type="password", key="reset_new_password_input"
+                        )
+                        _new_pwd_confirm = st.text_input(
+                            _("new_password_label"), type="password", key="reset_new_password_confirm_input"
+                        )
+                        if st.button(_("update_password_btn"), key="btn_update_password", type="primary"):
+                            if not _new_pwd or _new_pwd != _new_pwd_confirm:
+                                st.warning(_("invalid_email_warning"))
+                            else:
+                                try:
+                                    tva_sb_auth.update_user_password(_sb_result.access_token, _new_pwd)
+                                    st.success(_("password_updated_success"))
+                                    st.query_params.clear()
+                                except Exception as _sb_err:
+                                    st.error(_("password_update_error", error=str(_sb_err)))
+                        st.stop()
                     _finalize_login(_sb_result.email, cookie_manager)
                     # Nettoyage complet
                     st.session_state.pop(_cache_key, None)
@@ -378,73 +464,133 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     st.warning(_("invalid_email_warning"))
             st.stop()
 
-        _app_base_url_login = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
-
-        # ── Mot de passe (Supabase Auth) ────────────────────────────────────
+        # ── Identification ──────────────────────────────────────────────────
         _login_email = st.text_input(_("email_label"), key="login_email_input")
-        _login_password = st.text_input(_("password_label"), type="password", key="login_password_input")
-        _col_signin, _col_signup = st.columns(2)
 
-        if _col_signin.button(_("password_signin_btn"), key="btn_password_signin", use_container_width=True, type="primary"):
-            if _login_email and "@" in _login_email and _login_password:
-                try:
-                    _sb_res = tva_sb_auth.sign_in_with_password(_login_email, _login_password)
-                    _finalize_login(_sb_res.email, cookie_manager)
-                    st.rerun()
-                except Exception as _sb_err:
-                    st.error(_("password_login_error", error=str(_sb_err)))
-            else:
-                st.warning(_("invalid_email_warning"))
+        _tab_pwd, _tab_magic = st.tabs([_("password_signin_btn"), _("send_magic_link_btn")])
 
-        if _col_signup.button(_("password_signup_btn"), key="btn_password_signup", use_container_width=True):
-            if _login_email and "@" in _login_email and _login_password:
-                try:
-                    _sb_res = tva_sb_auth.sign_up_with_password(_login_email, _login_password)
-                    if _sb_res.access_token:
+        with _tab_pwd:
+            _login_password = st.text_input(_("password_label"), type="password", key="login_password_input")
+            _col_signin, _col_signup = st.columns(2)
+
+            if _col_signin.button(_("password_signin_btn"), key="btn_password_signin", use_container_width=True, type="primary"):
+                if _login_email and "@" in _login_email and _login_password:
+                    try:
+                        _sb_res = tva_sb_auth.sign_in_with_password(_login_email, _login_password)
                         _finalize_login(_sb_res.email, cookie_manager)
                         st.rerun()
-                    else:
-                        st.success(_("password_signup_confirm_email_info"))
-                except Exception as _sb_err:
-                    st.error(_("password_login_error", error=str(_sb_err)))
-            else:
-                st.warning(_("invalid_email_warning"))
-
-        # ── Mot de passe oublié ─────────────────────────────────────────────
-        with st.expander(_("forgot_password_btn")):
-            st.caption(_("reset_password_instructions"))
-            _reset_email = st.text_input(
-                _("email_label"), value=_login_email, key="reset_password_email_input"
-            )
-            if st.button(_("forgot_password_btn"), key="btn_send_reset_password"):
-                if _reset_email and "@" in _reset_email:
-                    try:
-                        tva_sb_auth.reset_password_for_email(
-                            _reset_email, redirect_to=_app_base_url_login
-                        )
-                        st.success(_("reset_password_success"))
                     except Exception as _sb_err:
-                        st.error(_("reset_password_error", error=str(_sb_err)))
+                        st.error(_("password_login_error", error=str(_sb_err)))
+                else:
+                    st.warning(_("invalid_email_warning"))
+
+            if _col_signup.button(_("password_signup_btn"), key="btn_password_signup", use_container_width=True):
+                if _login_email and "@" in _login_email and _login_password:
+                    try:
+                        _sb_res = tva_sb_auth.sign_up_with_password(_login_email, _login_password)
+                        if _sb_res.access_token:
+                            _finalize_login(_sb_res.email, cookie_manager)
+                            st.rerun()
+                        else:
+                            st.success(_("password_signup_confirm_email_info"))
+                    except Exception as _sb_err:
+                        st.error(_("password_login_error", error=str(_sb_err)))
+                else:
+                    st.warning(_("invalid_email_warning"))
+
+            # ── Mot de passe oublié ─────────────────────────────────────────────
+            with st.expander(_("forgot_password_btn")):
+                st.caption(_("reset_password_instructions"))
+                _reset_email = st.text_input(
+                    _("email_label"), value=_login_email, key="reset_password_email_input"
+                )
+                if st.button(_("forgot_password_btn"), key="btn_send_reset_password"):
+                    if _reset_email and "@" in _reset_email:
+                        try:
+                            _reset_nonce = secrets.token_urlsafe(24)
+                            _reset_verifier = tva_sb_auth.new_code_verifier()
+                            tva_auth.save_pkce_verifier(_reset_nonce, "recovery", _reset_verifier)
+                            _reset_challenge = base64.urlsafe_b64encode(
+                                hashlib.sha256(_reset_verifier.encode()).digest()
+                            ).decode().rstrip("=")
+                            _reset_redirect_to = _app_base_url_login
+                            tva_sb_auth.reset_password_for_email(
+                                _reset_email, redirect_to=_reset_redirect_to, code_challenge=_reset_challenge
+                            )
+                            st.success(_("reset_password_success"))
+                        except Exception as _sb_err:
+                            st.error(_("reset_password_error", error=str(_sb_err)))
+                    else:
+                        st.warning(_("invalid_email_warning"))
+
+        with _tab_magic:
+            st.caption(_("legacy_login_methods_caption"))
+            if st.button(
+                _("send_magic_link_btn"), key="btn_send_magic_link",
+                use_container_width=True,
+            ):
+                if _login_email and "@" in _login_email:
+                    try:
+                        _magic_token = tva_auth.create_magic_link(_login_email)
+                        _magic_url = f"{_app_base_url_login}/?login_token={_magic_token}"
+                        tva_auth.send_magic_link_email(_login_email, _magic_url)
+                        st.success(_("magic_link_sent_success", email=_login_email))
+                    except Exception as _e:
+                        st.error(_("magic_link_sent_error", error=str(_e)))
                 else:
                     st.warning(_("invalid_email_warning"))
 
         # ── OAuth social (Google / GitHub / Amazon) — Supabase Auth ─
-        # Le code_verifier PKCE est stocké côté serveur (Postgres,
-        # tva_oauth_pkce), retrouvé au retour via un nonce transmis dans
-        # `redirect_to` — plus fiable qu'un cookie posé depuis l'iframe du
-        # composant extra_streamlit_components, qui ne survivait pas de
-        # façon fiable à la redirection externe.
-        #
-        # ⚠️ Streamlit ré-exécute tout le script à chaque interaction (frappe
-        # dans les champs mot de passe ci-dessus, etc.). Générer un nonce/
-        # verifier NEUF à chaque rerun (comme avant) créait une ligne DB à
-        # chaque fois et pouvait laisser le lien affiché dans le navigateur
-        # pointer vers un nonce déjà remplacé par un plus récent au moment du
-        # clic. On met donc en cache le couple (nonce, verifier) en
-        # session_state — une seule écriture DB par provider tant que le
-        # login n'a pas abouti.
         st.caption(_("oauth_divider_label"))
         _col_google, _col_github, _col_amazon = st.columns(3)
+
+        # ── Style officiel (logo + couleur) appliqué à st.link_button ──────
+        # st.link_button est fiable pour sortir de l'iframe Streamlit Cloud
+        # (contrairement à un <a> en HTML brut, cf. incident précédent), mais
+        # n'a pas de paramètre pour un logo/une couleur de marque. On cible
+        # donc chaque bouton via la classe "st-key-{key}" que Streamlit ajoute
+        # automatiquement sur son conteneur, et on pose le logo en
+        # background-image du <button> natif généré par Streamlit.
+        st.markdown(
+            f"""
+            <style>
+            .st-key-oauth_btn_google a[data-testid^="stBaseLinkButton"] {{
+                background-color: #FFFFFF !important;
+                color: #3C4043 !important;
+                border: 1px solid #dadce0 !important;
+                background-image: url('https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/google/google-original.svg');
+                background-repeat: no-repeat;
+                background-position: 14px center;
+                background-size: 18px 18px;
+                padding-left: 38px !important;
+            }}
+            .st-key-oauth_btn_google a[data-testid^="stBaseLinkButton"] p {{ color: #3C4043 !important; }}
+            .st-key-oauth_btn_github a[data-testid^="stBaseLinkButton"] {{
+                background-color: #24292E !important;
+                color: #FFFFFF !important;
+                border: 1px solid #24292E !important;
+                background-image: url('https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/github/github-original.svg');
+                background-repeat: no-repeat;
+                background-position: 14px center;
+                background-size: 18px 18px;
+                padding-left: 38px !important;
+            }}
+            .st-key-oauth_btn_github a[data-testid^="stBaseLinkButton"] p {{ color: #FFFFFF !important; }}
+            .st-key-oauth_btn_cognito a[data-testid^="stBaseLinkButton"] {{
+                background-color: #FF9900 !important;
+                color: #000000 !important;
+                border: 1px solid #FF9900 !important;
+                background-image: url('https://upload.wikimedia.org/wikipedia/commons/4/4a/Amazon_icon.svg');
+                background-repeat: no-repeat;
+                background-position: 14px center;
+                background-size: 18px 18px;
+                padding-left: 38px !important;
+            }}
+            .st-key-oauth_btn_cognito a[data-testid^="stBaseLinkButton"] p {{ color: #000000 !important; }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
         for _col, _provider, _label_key, _icon_url, _bg, _text in (
                 (
@@ -485,70 +631,19 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                         st.session_state[_cache_key] = (_nonce, _verifier)
                     _redirect_to = f"{_app_base_url_login}/?sb_provider={_provider}&sb_nonce={_nonce}"
                     _oauth_url = tva_sb_auth.build_oauth_authorize_url(_provider, _redirect_to, _verifier)
-                    
-                    # Rendu d'un bouton HTML stylisé avec logo et couleurs officielles
-                    st.markdown(
-                        f"""
-                        <a href="{_oauth_url}" target="_top" style="text-decoration: none;">
-                            <div style="
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                background-color: {_bg};
-                                color: {_text};
-                                border: 1px solid {'#ddd' if _bg == '#FFFFFF' else _bg};
-                                border-radius: 8px;
-                                padding: 8px 16px;
-                                font-size: 14px;
-                                font-weight: 500;
-                                cursor: pointer;
-                                width: 100%;
-                            ">
-                                <img src="{_icon_url}" width="20" height="20" style="margin-right: 12px;">
-                                {_(_label_key)}
-                            </div>
-                        </a>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                except Exception:
-                    st.markdown(
-                        f"""
-                        <div style="
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            background-color: #f0f2f6;
-                            color: #a3a8b4;
-                            border: 1px solid #ddd;
-                            border-radius: 8px;
-                            padding: 8px 16px;
-                            font-size: 14px;
-                            font-weight: 500;
-                            width: 100%;
-                            cursor: not-allowed;
-                            opacity: 0.7;
-                        ">
-                            <img src="{_icon_url}" width="20" height="20" style="margin-right: 12px; filter: grayscale(100%);">
-                            {_(_label_key)}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
 
-        st.divider()
-
-        # ── Lien magique : en préparation ───────────────────────────────────
-        # Reste dans le code (tva_auth.create_magic_link / send_magic_link_email)
-        # mais désactivé côté écran de connexion le temps de finaliser sa
-        # bascule éventuelle vers Supabase Auth (magic link natif Supabase) —
-        # voir README. La connexion Amazon (ci-dessus) est en revanche
-        # pleinement fonctionnelle via le Custom OAuth Provider Supabase.
-        st.caption(_("legacy_login_methods_caption"))
-        st.button(
-            _("send_magic_link_btn"), key="btn_send_magic_link_disabled",
-            use_container_width=True, disabled=True, help=_("coming_soon_help"),
-        )
+                    # st.link_button natif plutôt qu'un <a> en HTML brut : ce
+                    # dernier s'est révélé peu fiable pour sortir de l'iframe
+                    # Streamlit Cloud (clic sans effet, malgré un href valide et
+                    # un survol fonctionnel) — st.link_button utilise le
+                    # mécanisme de navigation propre à Streamlit, garanti de
+                    # fonctionner dans cet environnement.
+                    st.link_button(_(_label_key), _oauth_url, use_container_width=True,
+                                    key=f"oauth_btn_{_provider}")
+                except Exception as _oauth_render_err:
+                    st.error(f"⛔ {_provider} : {_oauth_render_err}")
+                    st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", disabled=True,
+                              use_container_width=True)
 
         st.stop()
 
