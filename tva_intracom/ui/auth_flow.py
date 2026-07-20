@@ -6,7 +6,6 @@ Regroupe :
   - la restauration de session via cookie ;
   - la consommation du lien magique (magic link) envoyé par e-mail ;
   - la migration d'un ancien lien `?session_token=` vers cookie ;
-  - la consommation du callback OAuth Amazon SP-API ;
   - l'écran de connexion (bypass dev local, magic link, bouton Amazon) —
     bloque l'exécution (`st.stop()`) tant que l'utilisateur n'est pas
     authentifié, exactement comme le comportement d'origine ;
@@ -67,20 +66,6 @@ class AuthContext:
     def stripe_cancel_url(self) -> str:
         _tok = st.query_params.get("session_token", "")
         return f"{self.app_base_url}/?session_token={_tok}" if _tok else f"{self.app_base_url}/"
-
-
-def get_or_create_spapi_oauth_state() -> str:
-    """Génère (ou réutilise) le paramètre `state` de la demande d'autorisation
-    Amazon SP-API et le conserve en session pour vérification au retour du
-    callback (protection CSRF standard sur un flux OAuth).
-
-    Un nouveau `state` n'est généré que s'il n'y en a pas déjà un "en attente"
-    en session — évite d'en émettre un nouveau à chaque rerun Streamlit tant
-    que l'utilisateur n'a pas cliqué sur le bouton de connexion Amazon.
-    """
-    if "_spapi_oauth_state" not in st.session_state:
-        st.session_state["_spapi_oauth_state"] = secrets.token_urlsafe(24)
-    return st.session_state["_spapi_oauth_state"]
 
 
 def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
@@ -398,55 +383,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     if _qp_session_token:
         cookie_manager.set("tva_session_token", _qp_session_token, expires_at=datetime.now() + timedelta(days=30))
         st.query_params.pop("session_token", None)
-        st.rerun()
-
-    # ── Consommation du callback Amazon SP-API OAuth ───────────────────────
-    _spapi_code = st.query_params.get("spapi_oauth_code")
-    _spapi_selling_partner_id = st.query_params.get("selling_partner_id")
-    if _spapi_code and _spapi_selling_partner_id:
-        _returned_state = st.query_params.get("state")
-        _expected_state = st.session_state.pop("_spapi_oauth_state", None)
-        # Le state est à usage unique : on le retire de la session dès qu'on
-        # le lit, qu'il soit valide ou non, pour empêcher toute réutilisation.
-        if not _expected_state or not _returned_state or _returned_state != _expected_state:
-            st.error(_("amazon_oauth_state_mismatch_error"))
-            st.query_params.clear()
-            st.stop()
-
-        from tva_intracom import amazon_spapi
-        try:
-            _tokens = amazon_spapi.exchange_code_for_token(_spapi_code)
-            _refresh_token = _tokens.get("refresh_token")
-            _access_token = _tokens.get("access_token")
-
-            if _refresh_token:
-                _amz_email = None
-                try:
-                    if _access_token:
-                        _amz_email = amazon_spapi.get_seller_email(_access_token)
-                except Exception:
-                    pass
-
-                _current_u = st.session_state.get("auth_user")
-
-                if _current_u is None and _amz_email:
-                    _finalize_login(_amz_email, cookie_manager)
-                    _current_u = st.session_state.get("auth_user")
-
-                if _current_u:
-                    tva_auth.save_amazon_credentials(
-                        _current_u.id, _spapi_selling_partner_id, _refresh_token
-                    )
-                    st.success(_("amazon_linked_success", email=_current_u.email))
-                    time.sleep(1)
-                else:
-                    st.error(_("amazon_linked_error"))
-            else:
-                st.error(_("amazon_no_refresh_token"))
-        except Exception as _e:
-            st.error(_("amazon_auth_general_error", error=str(_e)))
-
-        st.query_params.clear()
         st.rerun()
 
     # ── Interface de connexion non-authentifiée ────────────────────────────

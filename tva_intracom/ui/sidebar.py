@@ -1,7 +1,6 @@
 """Rendu complet de la barre latérale (extrait tel quel de app.py).
 
 Regroupe tous les accordéons de la sidebar :
-  - Connexion Amazon SP-API
   - Validation & Devises (toggles toujours actifs)
   - Cache VIES (TTL, stats, purge)
   - Paramètres du fichier (encodage)
@@ -188,29 +187,6 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         # Rappel pour le thème si l'utilisateur ne le trouve plus
         st.caption(_("theme_caption"))
         file_format = st.radio(_("platform_source"), _PLATFORM_OPTIONS, index=0, key="platform_source_select")
-
-        # ── Connexion Amazon SP-API ───────────────────────────────────────────────
-        with st.expander(_("amazon_conn_header"), expanded=False):
-            _amz_creds = _cached_db_read(
-                f"amz_creds_{_current_user.id}",
-                lambda: tva_auth.get_amazon_credentials(_current_user.id),
-            )
-            if _amz_creds:
-                st.success(_("amazon_connected", id=_amz_creds['selling_partner_id']))
-                if st.button(_("amazon_disconnect_btn"), key="btn_disconnect_amazon"):
-                    tva_auth.delete_amazon_credentials(_current_user.id)
-                    _invalidate_db_cache(f"amz_creds_{_current_user.id}")
-                    st.rerun()
-            else:
-                st.info(_("amazon_info_auth"))
-                # On génère un 'state' pour sécuriser l'OAuth (optionnel mais recommandé)
-                _state = secrets.token_hex(8)
-                from tva_intracom import amazon_spapi
-                try:
-                    _auth_url = amazon_spapi.get_authorization_url(state=_state)
-                    st.link_button(_("amazon_connect_btn"), _auth_url)
-                except Exception as _err:
-                    st.error(_("amazon_config_err", error=_err))
 
         # ── Validation & Devises ──────────────────────────────────────────────────
         with st.expander(_("validation_devise_header"), expanded=False):
