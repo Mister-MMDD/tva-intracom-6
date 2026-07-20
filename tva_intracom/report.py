@@ -39,6 +39,14 @@ class ReportSummary:
     refund_amazon_vat: Decimal = _ZERO                    # TVA Amazon remboursée
     refund_count: int = 0
 
+    # Ventilation mensuelle NETTE (ventes + remboursements déjà combinés,
+    # remboursement = vat_amount négatif) par pays : {pays: {"YYYY-MM": Decimal}}.
+    # Alimente les colonnes mois par mois des onglets OSS_Détail / TVA locale
+    # dans excel_report.py — le total par pays (colonnes Brut/Remb/Net) reste
+    # calculé séparément via oss_by_country / refund_oss_by_country ci-dessus.
+    oss_by_country_month: Dict[str, Dict[str, Decimal]] = field(default_factory=dict)
+    local_by_country_month: Dict[str, Dict[str, Decimal]] = field(default_factory=dict)
+
     # Cas 4 : pays ou le stock reside et qui imposent une immatriculation locale.
     stock_countries_requiring_registration: Set[str] = field(default_factory=set)
 
@@ -160,6 +168,8 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
     target = summary.refund_ht_by_bucket if is_refund else summary.ht_by_bucket
     target[bucket] = target.get(bucket, _ZERO) + ht
 
+    month = (r.sale.transaction_date or "")[:7]  # "YYYY-MM", "" si absent/invalide
+
     if is_refund:
         summary.refund_total_ht += ht
         summary.refund_count += 1
@@ -169,10 +179,16 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
             summary.refund_oss_by_country[r.vat_country] = (
                     summary.refund_oss_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
+            if month:
+                by_month = summary.oss_by_country_month.setdefault(r.vat_country, {})
+                by_month[month] = by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.LOCAL_REGISTRATION:
             summary.refund_local_by_country[r.vat_country] = (
                     summary.refund_local_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
+            if month:
+                by_month = summary.local_by_country_month.setdefault(r.vat_country, {})
+                by_month[month] = by_month.get(month, _ZERO) + r.vat_amount
         if r.collector == Collector.AMAZON:
             summary.refund_amazon_vat += r.vat_amount
     else:
@@ -188,10 +204,16 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
             summary.oss_by_country[r.vat_country] = (
                     summary.oss_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
+            if month:
+                by_month = summary.oss_by_country_month.setdefault(r.vat_country, {})
+                by_month[month] = by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.LOCAL_REGISTRATION:
             summary.local_by_country[r.vat_country] = (
                     summary.local_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
+            if month:
+                by_month = summary.local_by_country_month.setdefault(r.vat_country, {})
+                by_month[month] = by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.IOSS:
             summary.ioss_vat += r.vat_amount
         if r.collector == Collector.AMAZON:

@@ -1200,21 +1200,36 @@ def _write_fba_aic_tab(
     _auto_width(ws)
 
 
+def _month_label(month_key: str) -> str:
+    """Formate une clé "YYYY-MM" en libellé colonne lisible "MM/YYYY"."""
+    y, _sep, m = month_key.partition("-")
+    return f"{m}/{y}" if m else month_key
+
+
 def _write_oss_tab(ws, summary: ReportSummary) -> None:
-    """Onglet OSS détaillé : Brut / Remboursements / Net par pays de destination."""
+    """Onglet OSS détaillé : mois par mois (net) puis Brut / Remboursements / Net
+    (total période) par pays de destination."""
     ws.title = _("xl_tab_oss")
 
     ws.cell(row=1, column=1, value=_("xl_oss_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
 
-    headers = [_("xl_oss_col_country"), _("xl_oss_col_code"), _("xl_oss_col_vat_gross"), _("xl_oss_col_vat_refunds"), _("xl_oss_col_vat_net")]
-    _set_header(ws, 3, headers, fill=_BLUE_HEADER_FILL)
-    ws.row_dimensions[3].height = 22
-
     _z = Decimal("0.00")
     all_countries = sorted(
         set(summary.oss_by_country) | set(getattr(summary, "refund_oss_by_country", {}))
     )
+    by_country_month = getattr(summary, "oss_by_country_month", {}) or {}
+    months = sorted({m for per_country in by_country_month.values() for m in per_country})
+
+    # Colonnes : Pays, Code, [mois...] (net seul), Brut, Remboursements, Net (total période)
+    month_start_col = 3
+    total_start_col = month_start_col + len(months)
+
+    headers = [_("xl_oss_col_country"), _("xl_oss_col_code")]
+    headers += [_month_label(m) for m in months]
+    headers += [_("xl_oss_col_vat_gross"), _("xl_oss_col_vat_refunds"), _("xl_oss_col_vat_net")]
+    _set_header(ws, 3, headers, fill=_BLUE_HEADER_FILL)
+    ws.row_dimensions[3].height = 22
 
     row = 4
     for country in all_countries:
@@ -1225,13 +1240,21 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
         ws.cell(row=row, column=1, value=_get_country_name(country))
         ws.cell(row=row, column=2, value=country)
 
-        c_brut = ws.cell(row=row, column=3, value=float(brut))
+        month_values = by_country_month.get(country, {})
+        for i, m in enumerate(months):
+            c_month = ws.cell(row=row, column=month_start_col + i, value=float(month_values.get(m, _z)))
+            c_month.number_format = _EUR_FORMAT
+
+        col_brut, col_ref, col_net = total_start_col, total_start_col + 1, total_start_col + 2
+        letter_brut, letter_ref, letter_net = get_column_letter(col_brut), get_column_letter(col_ref), get_column_letter(col_net)
+
+        c_brut = ws.cell(row=row, column=col_brut, value=float(brut))
         c_brut.number_format = _EUR_FORMAT
 
-        c_ref = ws.cell(row=row, column=4, value=float(refund))
+        c_ref = ws.cell(row=row, column=col_ref, value=float(refund))
         c_ref.number_format = _EUR_FORMAT
 
-        c_net = ws.cell(row=row, column=5, value=f"=C{row}+D{row}")
+        c_net = ws.cell(row=row, column=col_net, value=f"={letter_brut}{row}+{letter_ref}{row}")
         c_net.number_format = _EUR_FORMAT
         c_net.font = _BOLD_FONT
         c_net.fill = _LIGHT_GRAY_FILL
@@ -1240,9 +1263,22 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
         row += 1
 
     # Ligne de total
+    col_brut, col_ref, col_net = total_start_col, total_start_col + 1, total_start_col + 2
+    letter_brut, letter_ref, letter_net = get_column_letter(col_brut), get_column_letter(col_ref), get_column_letter(col_net)
     row += 1
     ws.cell(row=row, column=1, value=_("xl_oss_total")).font = _BOLD_FONT
-    for col, formula in [(3, f"=SUM(C4:C{row-2})"), (4, f"=SUM(D4:D{row-2})"), (5, f"=C{row}+D{row}")]:
+    for i in range(len(months)):
+        col = month_start_col + i
+        letter = get_column_letter(col)
+        c = ws.cell(row=row, column=col, value=f"=SUM({letter}4:{letter}{row-2})")
+        c.number_format = _EUR_FORMAT
+        c.font = _HEADER_FONT_WHITE
+        c.fill = _BLUE_HEADER_FILL
+    for col, formula in [
+        (col_brut, f"=SUM({letter_brut}4:{letter_brut}{row-2})"),
+        (col_ref, f"=SUM({letter_ref}4:{letter_ref}{row-2})"),
+        (col_net, f"={letter_brut}{row}+{letter_ref}{row}"),
+    ]:
         c = ws.cell(row=row, column=col, value=formula)
         c.number_format = _EUR_FORMAT
         c.font = _HEADER_FONT_WHITE
@@ -1253,7 +1289,8 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
 
 
 def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None) -> None:
-    """Onglet TVA locale par pays (immatriculation locale hors OSS)."""
+    """Onglet TVA locale par pays (immatriculation locale hors OSS) : mois par
+    mois (net) puis Brut / Remboursements / Net (total période) et statut."""
     ws.title = _("xl_tab_local")
     countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
 
@@ -1265,6 +1302,8 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     refund_local = getattr(summary, "refund_local_by_country", {}) or {}
     all_countries = sorted(set(local) | set(refund_local))
     unregistered = [c for c in all_countries if c not in countries_with_vat]
+    by_country_month = getattr(summary, "local_by_country_month", {}) or {}
+    months = sorted({m for per_country in by_country_month.values() for m in per_country})
 
     header_row = 3
     if unregistered:
@@ -1272,7 +1311,15 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         ws.cell(row=2, column=1).fill = _ALERT_FILL
         ws.row_dimensions[2].height = 18
 
-    headers = [_("xl_local_col_country"), _("xl_local_col_code"), _("xl_local_col_vat_due"), _("xl_local_col_vat_refunds"), _("xl_local_col_vat_net"), _("xl_local_col_status")]
+    # Colonnes : Pays, Code, [mois...] (net seul), Brut, Remboursements, Net (total période), Statut
+    month_start_col = 3
+    total_start_col = month_start_col + len(months)
+    col_brut, col_ref, col_net, col_status = total_start_col, total_start_col + 1, total_start_col + 2, total_start_col + 3
+    letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
+
+    headers = [_("xl_local_col_country"), _("xl_local_col_code")]
+    headers += [_month_label(m) for m in months]
+    headers += [_("xl_local_col_vat_due"), _("xl_local_col_vat_refunds"), _("xl_local_col_vat_net"), _("xl_local_col_status")]
     _set_header(ws, header_row, headers, fill=_ORANGE_HEADER_FILL)
     ws.row_dimensions[header_row].height = 22
 
@@ -1280,23 +1327,27 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     for country in all_countries:
         brut   = local.get(country, _z)
         refund = refund_local.get(country, _z)
-        net    = brut + refund
         is_registered = country in countries_with_vat
 
         ws.cell(row=row, column=1, value=_get_country_name(country))
         ws.cell(row=row, column=2, value=country)
 
-        for col, val in [(3, float(brut)), (4, float(refund))]:
+        month_values = by_country_month.get(country, {})
+        for i, m in enumerate(months):
+            c_month = ws.cell(row=row, column=month_start_col + i, value=float(month_values.get(m, _z)))
+            c_month.number_format = _EUR_FORMAT
+
+        for col, val in [(col_brut, float(brut)), (col_ref, float(refund))]:
             c = ws.cell(row=row, column=col, value=val)
             c.number_format = _EUR_FORMAT
 
-        c_net = ws.cell(row=row, column=5, value=f"=C{row}+D{row}")
+        c_net = ws.cell(row=row, column=col_net, value=f"={letter_brut}{row}+{letter_ref}{row}")
         c_net.number_format = _EUR_FORMAT
         c_net.font = _BOLD_FONT
         c_net.fill = _LIGHT_GRAY_FILL
 
         c_status = ws.cell(
-            row=row, column=6,
+            row=row, column=col_status,
             value=_("xl_local_status_registered") if is_registered else _("xl_local_status_unconfirmed"),
         )
         if not is_registered:
@@ -1309,7 +1360,18 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     # Total
     row += 1
     ws.cell(row=row, column=1, value=_("xl_local_total")).font = _BOLD_FONT
-    for col, formula in [(3, f"=SUM(C{header_row+1}:C{row-2})"), (4, f"=SUM(D{header_row+1}:D{row-2})"), (5, f"=C{row}+D{row}")]:
+    for i in range(len(months)):
+        col = month_start_col + i
+        letter = get_column_letter(col)
+        c = ws.cell(row=row, column=col, value=f"=SUM({letter}{header_row+1}:{letter}{row-2})")
+        c.number_format = _EUR_FORMAT
+        c.font = _HEADER_FONT_WHITE
+        c.fill = _ORANGE_HEADER_FILL
+    for col, formula in [
+        (col_brut, f"=SUM({letter_brut}{header_row+1}:{letter_brut}{row-2})"),
+        (col_ref, f"=SUM({letter_ref}{header_row+1}:{letter_ref}{row-2})"),
+        (col_net, f"={letter_brut}{row}+{letter_ref}{row}"),
+    ]:
         c = ws.cell(row=row, column=col, value=formula)
         c.number_format = _EUR_FORMAT
         c.font = _HEADER_FONT_WHITE
