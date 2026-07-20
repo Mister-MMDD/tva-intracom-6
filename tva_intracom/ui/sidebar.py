@@ -41,6 +41,7 @@ from tva_intracom.vies_engine import (
     set_cache_ttl,
 )
 from tva_intracom.ui.theme import _PLATFORM_OPTIONS
+from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 
 
 @dataclass
@@ -148,7 +149,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         if home_country != _current_home:
             tva_auth.set_home_country(_current_user.id, home_country)
             _current_user.home_country = home_country
-            st.rerun()
+            preserve_upload_rerun()
 
         # ── Devise d'affichage ──────────────────────────────────────────
         # Indépendante du pays d'origine : par défaut, l'affichage utilise la
@@ -186,7 +187,10 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
         # Rappel pour le thème si l'utilisateur ne le trouve plus
         st.caption(_("theme_caption"))
-        file_format = st.radio(_("platform_source"), _PLATFORM_OPTIONS, index=0, key="platform_source_select")
+        # Sélecteur de plateforme masqué : seul Amazon est géré pour le
+        # moment (voir _PLATFORM_OPTIONS, ui/theme.py). On fixe la valeur
+        # directement plutôt que d'afficher un choix à une seule option.
+        file_format = _PLATFORM_OPTIONS[0]
 
         # ── Validation & Devises ──────────────────────────────────────────────────
         with st.expander(_("validation_devise_header"), expanded=False):
@@ -210,7 +214,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     help=_("ttl_cache_help"))
                 if _ttl_days != _cs["ttl_days"]:
                     set_cache_ttl(_ttl_days)
-                    st.rerun()
+                    preserve_upload_rerun()
                 _c1, _c2, _c3 = st.columns(3)
                 _c1.metric(_("total"), _cs["total"])
                 _c2.metric(_("fresh"), _cs["fresh"])
@@ -228,7 +232,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
                         n = purge_expired_cache(_vies_scope_id)
                         st.success(_("purge_success", count=n))
-                        st.rerun()
+                        preserve_upload_rerun()
             except Exception as _e:
                 st.caption(_("cache_unavailable", error=_e))
 
@@ -273,7 +277,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         tva_fr = ""
         local_vat_numbers: dict[str, str] = {}
 
-        with st.expander(_("company_header"), expanded=False):
+        with st.expander(_("company_header"), expanded=True):
             st.markdown(f"**{_('fiscal_period_title')}**")
             st.caption(_("fiscal_period_caption"))
 
@@ -416,7 +420,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                 st.success(_("siren_save_success"))
                                 _invalidate_db_cache(f"sirens_{_current_user.id}")
                                 _invalidate_db_cache(f"siren_quota_{_current_user.id}")
-                                st.rerun()
+                                preserve_upload_rerun()
                             except Exception as _reg_err:
                                 st.error(_("siren_save_error", error=_reg_err))
             else:
@@ -500,7 +504,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             st.success(_("update_success"))
                             _invalidate_db_cache(f"sirens_{_current_user.id}")
                             _invalidate_db_cache(f"siren_quota_{_current_user.id}")
-                            st.rerun()
+                            preserve_upload_rerun()
                         except Exception as _reg_err:
                             st.error(_("update_error", error=_reg_err))
 
@@ -515,7 +519,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
                             _invalidate_db_cache(f"sirens_{_current_user.id}")
                             _invalidate_db_cache(f"siren_quota_{_current_user.id}")
-                            st.rerun()
+                            preserve_upload_rerun()
                     else:
                         if st.button(_("remove_siren_btn"), key=f"btn_remove_entreprise_{siren_entreprise}",
                                     help=_("remove_siren_help"),
@@ -529,7 +533,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                 st.success(_("remove_success"))
                             else:
                                 st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
-                            st.rerun()
+                            preserve_upload_rerun()
 
         # ── Abonnements & forfaits ────────────────────────────────────────────────
         with st.expander(_("billing_header"), expanded=True):
@@ -568,7 +572,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                 _invalidate_db_cache(f"siren_quota_{_current_user.id}")
                                 import datetime as _dt
                                 st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
-                                st.rerun()
+                                preserve_upload_rerun()
 
                 # Session de portail Stripe générée UNIQUEMENT au clic — avant
                 # ce correctif, `create_billing_portal_session()` (un appel
@@ -850,13 +854,13 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             if not st.session_state["confirm_delete_account"]:
                 if st.button(_("delete_account_btn"), key="btn_pre_delete_account"):
                     st.session_state["confirm_delete_account"] = True
-                    st.rerun()
+                    preserve_upload_rerun()
             else:
                 st.error(_("delete_account_final_confirmation"))
                 _col1, _col2 = st.columns(2)
                 if _col1.button(_("cancel_btn"), key="btn_cancel_delete"):
                     st.session_state["confirm_delete_account"] = False
-                    st.rerun()
+                    preserve_upload_rerun()
                 if _col2.button(_("confirm_delete_btn"), key="btn_confirm_delete", type="primary"):
                     try:
                         tva_auth.delete_account(_current_user.id)
@@ -864,7 +868,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         st.session_state["manual_logout"] = True
                         st.success(_("account_deleted_success"))
                         time.sleep(2)
-                        st.rerun()
+                        preserve_upload_rerun()
                     except Exception as _del_err:
                         st.error(f"Erreur lors de la suppression : {_del_err}")
 

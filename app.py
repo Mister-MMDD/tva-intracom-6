@@ -101,12 +101,13 @@ _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 # - Sinon, si la langue de session a changé depuis (l'utilisateur vient
 #   d'utiliser le sélecteur) : on persiste ce choix sur le compte.
 from tva_intracom import auth as tva_auth
+from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
 _sess_lang = st.session_state.get("language", "fr")
 if st.session_state.get("_prefs_synced_user") != _current_user.id:
     if _current_user.language and _current_user.language != _sess_lang:
         st.session_state["language"] = _current_user.language
         st.session_state["_prefs_synced_user"] = _current_user.id
-        st.rerun()
+        preserve_upload_rerun()
     st.session_state["_prefs_synced_user"] = _current_user.id
 elif _current_user.language != _sess_lang:
     tva_auth.set_language(_current_user.id, _sess_lang)
@@ -167,16 +168,14 @@ uploaded_files = st.file_uploader(
 )
 
 # ── Filet de sécurité : widget vide mais fichiers déjà chargés en session ───
-# On a constaté empiriquement qu'un changement de pays d'origine (qui
-# déclenche un `st.rerun()` explicite au milieu du rendu de la sidebar, voir
-# sidebar.py) peut faire ressortir `uploaded_files` vide, alors même que rien
-# n'a été retiré côté utilisateur. Plutôt que de dépendre du widget pour
-# obtenir à nouveau les octets du fichier (ce qui échouait quand une vraie
-# ré-analyse était nécessaire, ex: le pays d'origine a changé), on met en
-# cache les octets bruts de chaque fichier dès qu'on les a, et on reconstruit
-# des objets de substitution portant ces MÊMES octets si le widget ressort
-# vide. Un vrai reparse reste alors possible, quelle que soit la cause exacte
-# de la disparition côté widget.
+# Un changement de pays d'origine (qui déclenche un rerun explicite en plein
+# rendu de la sidebar, voir sidebar.py) peut faire ressortir `uploaded_files`
+# vide, alors même que rien n'a été retiré côté utilisateur. On ne réutilise
+# le cache d'octets QUE si ce rerun a été signalé comme "interne" (via
+# `preserve_upload_rerun()`, voir rerun_utils.py) — sinon, un widget vide
+# signifie un vrai retrait du fichier par l'utilisateur, et tout l'état
+# dérivé (résultats calculés, période détectée, tableaux) doit être purgé
+# pour ne pas rester affiché après suppression.
 class _CachedUploadedFile:
     __slots__ = ("name", "size", "_data")
     def __init__(self, name: str, data: bytes) -> None:
@@ -186,13 +185,26 @@ class _CachedUploadedFile:
     def getvalue(self) -> bytes:
         return self._data
 
+_preserve_upload_this_run = consume_preserve_flag()
+
 if uploaded_files:
     st.session_state["_last_uploaded_files_bytes"] = {f.name: f.getvalue() for f in uploaded_files}
-elif st.session_state.get("_last_uploaded_files_bytes"):
+elif _preserve_upload_this_run and st.session_state.get("_last_uploaded_files_bytes"):
     uploaded_files = [
         _CachedUploadedFile(_name, _data)
         for _name, _data in st.session_state["_last_uploaded_files_bytes"].items()
     ]
+else:
+    # Vrai retrait de fichier (ou aucun fichier n'a jamais été chargé) :
+    # on purge tout l'état dérivé pour que les tableaux, la période
+    # auto-détectée, etc. disparaissent immédiatement plutôt que de rester
+    # affichés avec les anciennes données.
+    for _stale_key in (
+        "_last_uploaded_files_bytes", "_results", "_refund_results", "_summary",
+        "_calc_key", "_vies_summary", "_oss_summary", "_parse_cache_key",
+        "_parse_cache_data", "_period_label", "_period_sync_key",
+    ):
+        st.session_state.pop(_stale_key, None)
 
 if uploaded_files:
     from tva_intracom.parsers import ParseResult
@@ -455,6 +467,14 @@ if uploaded_files:
             st.session_state["_summary"]        = summary
             st.session_state["_vies_summary"]   = vies_summary
             st.session_state["_oss_summary"]    = oss_summary
+            # La sidebar (rendue AVANT le calcul, voir render_sidebar() plus
+            # haut) affiche la période auto-détectée à partir de
+            # `st.session_state["_results"]` : sans ce rerun, elle resterait
+            # vide pendant tout le run où le fichier vient d'être analysé, et
+            # n'afficherait la période qu'au prochain rerun fortuit.
+            if st.session_state.get("_period_sync_key") != _cache_key:
+                st.session_state["_period_sync_key"] = _cache_key
+                preserve_upload_rerun()
         else:
             results        = st.session_state["_results"]
             refund_results = st.session_state["_refund_results"]
