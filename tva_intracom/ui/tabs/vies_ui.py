@@ -217,7 +217,7 @@ def render_vies(ctx: TabContext) -> None:
             
             _fraud_cfg = _smart_money_df(_fraud_df_filt,
                 money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
-                note_cols=[_("vies_col_rejected_vat"), _("vies_col_id")])
+                note_cols=[_("vies_col_rejected_vat"), _("vies_col_id"), _("vies_col_expl")])
             _gated_preview_table(_fraud_df_filt, _can_export, column_config=_fraud_cfg)
 
             if avec_delta:

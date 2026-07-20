@@ -195,6 +195,19 @@ def _money_col(label: str, help_txt: str = "", symbol=None) -> st.column_config.
     )
 
 
+def _truncate_note(text: object, limit: int = 500) -> str:
+    """Tronque un texte long (ex. note de scénario fiscal + réf. légale + URL)
+    pour l'affichage en tableau. st.dataframe ne fait pas de retour à la
+    ligne dans une cellule : un texte de 150-250 caractères (comme les notes
+    OSS avec référence BOFiP + lien bit.ly) forçait un défilement horizontal
+    disproportionné même avec une largeur de colonne plafonnée. La troncature
+    ici s'applique uniquement à l'affichage (copie du DataFrame passée à
+    st.dataframe) — les exports CSV/Excel repartent des `results` bruts et
+    ne sont pas affectés."""
+    s = "" if text is None else str(text)
+    return s if len(s) <= limit else s[:limit].rstrip() + "…"
+
+
 def _pct_col(label: str, help_txt: str = "") -> st.column_config.NumberColumn:
     """NumberColumn pourcentage : 1 décimale, suffixe %."""
     return st.column_config.NumberColumn(
@@ -238,21 +251,17 @@ def _smart_money_df(
         # convertie en float par _fmt (ex. un n° de TVA italien purement
         # numérique s'affiche alors comme un montant en euros).
         if col in n_cols:
-            # Largeur fixe 900px abandonnée : sur les tableaux à nombreuses
-            # colonnes (ex. détail des ventes), elle imposait un défilement
-            # horizontal disproportionné rien que pour cette colonne, reléguant
-            # les autres colonnes hors champ. Le préréglage "large" de Streamlit
-            # tronque proprement le texte (avec "…") tout en restant
-            # raisonnable ; l'utilisateur peut toujours élargir la colonne à la
-            # souris (poignée native) ou cliquer la cellule pour voir le texte
-            # complet.
-            _width = "large" if ("note" in col_lower or "commentaire" in col_lower) else None
-            column_config[col] = st.column_config.TextColumn(col, width=_width) if _width else st.column_config.TextColumn(col)
+            # Largeur fixe augmentée pour les notes afin d'éviter une troncature
+            # visuelle trop agressive par Streamlit. Le texte est également
+            # tronqué à 500 caractères dans la donnée pour éviter les lags.
+            df[col] = df[col].apply(_truncate_note)
+            column_config[col] = st.column_config.TextColumn(col, width=400, help=_("note_truncated_help"))
         # Colonnes de commentaire/justification détectées par heuristique
         # (au cas où elles ne seraient pas listées explicitement en note_cols
         # par l'appelant) : même traitement.
-        elif "note" in col_lower or "commentaire" in col_lower:
-            column_config[col] = st.column_config.TextColumn(col, width="large")
+        elif any(k in col_lower for k in ["note", "commentaire", "explication"]):
+            df[col] = df[col].apply(_truncate_note)
+            column_config[col] = st.column_config.TextColumn(col, width=400, help=_("note_truncated_help"))
         # Pré-formatage dans le df : on remplace les floats par des strings formatées
         elif col in m_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total", "remboursé"]):
             column_config[col] = st.column_config.TextColumn(col)

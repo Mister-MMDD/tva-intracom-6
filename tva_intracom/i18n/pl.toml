@@ -1088,3 +1088,4 @@ engine_note_ddp_import = "Import > 150 EUR, sprzedawca jest oficjalnym importere
 engine_note_import_standard = "Import > 150 EUR z kraju trzeciego: VAT importowy w {country} ({rate}%) nalezny na granicy od importera."
 engine_note_oss_under_threshold = "Ponizej progu OSS ({cumulative}/{limit} {currency}). Aktywowana opcja VAT {country}."
 engine_note_oss_threshold_crossed = "Przekroczono prog OSS! Sprzedaz do {country}."
+note_truncated_help = "Tekst skrócony do wyświetlania — poszerz kolumnę lub wyeksportuj, aby zobaczyć pełny szczegół."

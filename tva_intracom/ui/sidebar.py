@@ -610,163 +610,170 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             except Exception as _credit_err:
                 st.caption(_("purchase_history_unavailable", error=_credit_err))
             else:
-                if _sub_status and _sub_status.status:
-                    # Abonnement existant mais inactif (annulé/expiré) : état actuel
-                    # affiché pour information, sans historique complet.
-                    st.warning(_("last_sub_msg", plan=_plan_label, status=_sub_status.status)
-                        + (f" ({_('expired_at', date=__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y'))})"
-                           if _sub_status.current_period_end else ""))
+                # Ce bloc ne concerne QUE les comptes non premium : avant ce
+                # correctif, il s'exécutait dès que la lecture des crédits
+                # réussissait (c'est un `else` de try/except, pas une
+                # condition sur l'abonnement), donc la bannière "Passez
+                # Premium" et la grille tarifaire restaient visibles même
+                # pour un compte avec un abonnement actif.
+                if not (_sub_status and _sub_status.active):
+                    if _sub_status and _sub_status.status:
+                        # Abonnement existant mais inactif (annulé/expiré) : état actuel
+                        # affiché pour information, sans historique complet.
+                        st.warning(_("last_sub_msg", plan=_plan_label, status=_sub_status.status)
+                            + (f" ({_('expired_at', date=__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y'))})"
+                               if _sub_status.current_period_end else ""))
 
-                # ── Bannière d'incitation Premium (utilisateurs gratuits) ───────
-                st.markdown(
-                    f"""
-                    <div style="
-                        background-color: #EEEDFE;
-                        border-radius: 12px;
-                        padding: 14px 16px;
-                        margin-bottom: 12px;
-                    ">
-                        <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
-                            {_("premium_banner_title")}
-                        </p>
-                        <p style="margin: 0; font-size: 12px; color: #3C3489;">
-                            {_("premium_banner_body")}
-                        </p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.caption(_("billing_caption"))
+                    # ── Bannière d'incitation Premium (utilisateurs gratuits) ───────
+                    st.markdown(
+                        f"""
+                        <div style="
+                            background-color: #EEEDFE;
+                            border-radius: 12px;
+                            padding: 14px 16px;
+                            margin-bottom: 12px;
+                        ">
+                            <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
+                                {_("premium_banner_title")}
+                            </p>
+                            <p style="margin: 0; font-size: 12px; color: #3C3489;">
+                                {_("premium_banner_body")}
+                            </p>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(_("billing_caption"))
 
-                with st.expander(_("pricing_grid_expander"), expanded=False):
-                    try:
-                        _grid = _cached_db_read(
-                            f"pricing_grid_{_current_user.id}",
-                            lambda: tva_billing.get_pricing_grid(_current_user.id),
-                        )
-                    except Exception as _grid_err:
-                        _grid = None
-                        st.caption(_("pricing_grid_unavailable", error=_grid_err))
-
-                    if _grid:
+                    with st.expander(_("pricing_grid_expander"), expanded=False):
                         try:
-                            _promotions = _cached_db_read(
-                                f"promotions_{_current_user.id}",
-                                lambda: tva_billing.list_available_promotions(_current_user.id),
+                            _grid = _cached_db_read(
+                                f"pricing_grid_{_current_user.id}",
+                                lambda: tva_billing.get_pricing_grid(_current_user.id),
                             )
-                        except Exception as _promo_list_err:
-                            _promotions = []
-                            st.error(_("promo_codes_unavailable", error=_promo_list_err))
-
-                        if _promotions:
-                            st.markdown(f"**{_('available_promo_codes_title')}**")
-                            for _promo_item in _promotions:
-                                if _promo_item.get("percent_off") is not None:
-                                    _reduc = f"{_promo_item['percent_off']:g}%"
-                                elif _promo_item.get("amount_off") is not None:
-                                    _reduc = f"{_promo_item['amount_off']:.2f} {(_promo_item.get('currency') or 'eur').upper()}"
-                                else:
-                                    _reduc = "—"
-
-                                _conditions = []
-                                if _promo_item.get("first_time_only"):
-                                    _conditions.append(_("promo_first_time"))
-                                if _promo_item.get("minimum_amount") is not None:
-                                    _conditions.append(
-                                        _("promo_min_amount", amount=_promo_item['minimum_amount'], currency=(_promo_item.get('minimum_amount_currency') or 'eur').upper())
-                                    )
-                                if _promo_item.get("stock_remaining") is not None:
-                                    _conditions.append(_("promo_stock_remaining", count=_promo_item['stock_remaining']))
-                                if _promo_item.get("expires_at"):
-                                    import datetime as _dt
-                                    _conditions.append(
-                                        _("promo_expires_at", date=_dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y"))
-                                    )
-                                _conditions_txt = " · ".join(_conditions) if _conditions else _("promo_no_conditions")
-
-                                _eligible = _promo_item.get("eligible")
-                                if _eligible is True:
-                                    st.success(f"✅ **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
-                                elif _eligible is False:
-                                    _reasons_txt = ", ".join(_promo_item.get("ineligible_reasons", []))
-                                    st.warning(_("promo_ineligible_msg", code=_promo_item['code'], reduc=_reduc, conditions=_conditions_txt, reasons=_reasons_txt))
-                                else:
-                                    st.markdown(f"- **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
-
-                        if _grid.get("payg"):
-                            _p = _grid["payg"]
-                            _payg_label = _p.get("name") or _("payg_label_default")
-                            if _p.get("discounted_amount") is not None:
-                                st.markdown(
-                                    f"**{_payg_label}** — "
-                                    f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
-                                    f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
-                                    f"({_p['discount_label']}, code {_p['discount_code']}) / {_('per_declaration')}",
-                                    unsafe_allow_html=True,
+                        except Exception as _grid_err:
+                            _grid = None
+                            st.caption(_("pricing_grid_unavailable", error=_grid_err))
+    
+                        if _grid:
+                            try:
+                                _promotions = _cached_db_read(
+                                    f"promotions_{_current_user.id}",
+                                    lambda: tva_billing.list_available_promotions(_current_user.id),
                                 )
-                            else:
-                                st.markdown(f"**{_payg_label}** — {_p['amount']:.2f} "
-                                    f"{_p['currency'].upper()} / {_('per_declaration')}")
-
-                        if _grid.get("business"):
-                            _biz_lines = []
-                            _biz_label = None
-                            for _iv, _lbl in (("month", _("per_month")), ("year", _("per_year"))):
-                                _b = _grid["business"].get(_iv)
-                                if _b and _b["amount"] is not None:
-                                    if _biz_label is None:
-                                        _biz_label = _b.get("name") or _("plan_pro")
-                                    if _b.get("discounted_amount") is not None:
-                                        _biz_lines.append(
-                                            f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
-                                            f"→ <span style='color:#2ca02c;font-weight:bold'>{_b['discounted_amount']:.2f} {_b['currency'].upper()}</span> "
-                                            f"({_b['discount_label']}, code {_b['discount_code']}) / {_lbl}"
-                                        )
+                            except Exception as _promo_list_err:
+                                _promotions = []
+                                st.error(_("promo_codes_unavailable", error=_promo_list_err))
+    
+                            if _promotions:
+                                st.markdown(f"**{_('available_promo_codes_title')}**")
+                                for _promo_item in _promotions:
+                                    if _promo_item.get("percent_off") is not None:
+                                        _reduc = f"{_promo_item['percent_off']:g}%"
+                                    elif _promo_item.get("amount_off") is not None:
+                                        _reduc = f"{_promo_item['amount_off']:.2f} {(_promo_item.get('currency') or 'eur').upper()}"
                                     else:
-                                        _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
-                            if _biz_lines:
-                                st.markdown(f"**{_biz_label}** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
-
-                        if _grid.get("cabinet"):
-                            st.markdown("""
-                                <style>
-                                .cabinet-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
-                                .cabinet-table th { text-align: left; padding: 8px; border-bottom: 2px solid rgba(250, 250, 250, 0.2); background-color: rgba(250, 250, 250, 0.05); }
-                                .cabinet-table td { padding: 8px; border-bottom: 1px solid rgba(250, 250, 250, 0.1); }
-                                </style>
-                            """, unsafe_allow_html=True)
-                            for _iv, _lbl in (("month", _("billing_monthly")), ("year", _("billing_yearly"))):
-                                _c = _grid["cabinet"].get(_iv)
-                                if not _c or not _c.get("tiers"):
-                                    continue
-                                _cab_label = _c.get("name") or _("plan_cabinet")
-                                st.markdown(f"**{_cab_label} — {_lbl}** ({_('min_3_sirens')})")
-                                _rows = []
-                                _prev_bound = 0
-                                for _t in _c["tiers"]:
-                                    _up_to = _t["up_to"]
-                                    _range = f"{_prev_bound + 1} – {_up_to}" if _up_to is not None else f"{_prev_bound + 1}+"
-                                    if _t["unit_amount"] is not None:
-                                        if _t.get("discounted_unit_amount") is not None:
-                                            _price_txt = (
-                                                f"<span style='text-decoration:line-through;color:gray'>{_t['unit_amount']:.2f} {_c['currency'].upper()}</span> "
-                                                f"→ <span style='color:#2ca02c;font-weight:bold'>{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()}</span> "
-                                                f"({_t['discount_label']}, code {_t['discount_code']}) / {_('siren_label')}"
+                                        _reduc = "—"
+    
+                                    _conditions = []
+                                    if _promo_item.get("first_time_only"):
+                                        _conditions.append(_("promo_first_time"))
+                                    if _promo_item.get("minimum_amount") is not None:
+                                        _conditions.append(
+                                            _("promo_min_amount", amount=_promo_item['minimum_amount'], currency=(_promo_item.get('minimum_amount_currency') or 'eur').upper())
+                                        )
+                                    if _promo_item.get("stock_remaining") is not None:
+                                        _conditions.append(_("promo_stock_remaining", count=_promo_item['stock_remaining']))
+                                    if _promo_item.get("expires_at"):
+                                        import datetime as _dt
+                                        _conditions.append(
+                                            _("promo_expires_at", date=_dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y"))
+                                        )
+                                    _conditions_txt = " · ".join(_conditions) if _conditions else _("promo_no_conditions")
+    
+                                    _eligible = _promo_item.get("eligible")
+                                    if _eligible is True:
+                                        st.success(f"✅ **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
+                                    elif _eligible is False:
+                                        _reasons_txt = ", ".join(_promo_item.get("ineligible_reasons", []))
+                                        st.warning(_("promo_ineligible_msg", code=_promo_item['code'], reduc=_reduc, conditions=_conditions_txt, reasons=_reasons_txt))
+                                    else:
+                                        st.markdown(f"- **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
+    
+                            if _grid.get("payg"):
+                                _p = _grid["payg"]
+                                _payg_label = _p.get("name") or _("payg_label_default")
+                                if _p.get("discounted_amount") is not None:
+                                    st.markdown(
+                                        f"**{_payg_label}** — "
+                                        f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
+                                        f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
+                                        f"({_p['discount_label']}, code {_p['discount_code']}) / {_('per_declaration')}",
+                                        unsafe_allow_html=True,
+                                    )
+                                else:
+                                    st.markdown(f"**{_payg_label}** — {_p['amount']:.2f} "
+                                        f"{_p['currency'].upper()} / {_('per_declaration')}")
+    
+                            if _grid.get("business"):
+                                _biz_lines = []
+                                _biz_label = None
+                                for _iv, _lbl in (("month", _("per_month")), ("year", _("per_year"))):
+                                    _b = _grid["business"].get(_iv)
+                                    if _b and _b["amount"] is not None:
+                                        if _biz_label is None:
+                                            _biz_label = _b.get("name") or _("plan_pro")
+                                        if _b.get("discounted_amount") is not None:
+                                            _biz_lines.append(
+                                                f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
+                                                f"→ <span style='color:#2ca02c;font-weight:bold'>{_b['discounted_amount']:.2f} {_b['currency'].upper()}</span> "
+                                                f"({_b['discount_label']}, code {_b['discount_code']}) / {_lbl}"
                                             )
                                         else:
-                                            _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / {_('siren_label')}"
-                                    else:
-                                        _price_txt = "—"
-                                    if _t.get("flat_amount") is not None:
-                                        _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} {_('fixed_amount')})"
-                                    _rows.append({_("col_managed_sirens"): _range, _("col_price"): _price_txt})
-                                    _prev_bound = _up_to if _up_to is not None else _prev_bound
-                                # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown
-                                # avec l'export HTML du DataFrame pour conserver le formattage.
-                                st.markdown(
-                                    pd.DataFrame(_rows).to_html(escape=False, index=False, classes="cabinet-table"),
-                                    unsafe_allow_html=True
-                                )
+                                            _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
+                                if _biz_lines:
+                                    st.markdown(f"**{_biz_label}** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
+    
+                            if _grid.get("cabinet"):
+                                st.markdown("""
+                                    <style>
+                                    .cabinet-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+                                    .cabinet-table th { text-align: left; padding: 8px; border-bottom: 2px solid rgba(250, 250, 250, 0.2); background-color: rgba(250, 250, 250, 0.05); }
+                                    .cabinet-table td { padding: 8px; border-bottom: 1px solid rgba(250, 250, 250, 0.1); }
+                                    </style>
+                                """, unsafe_allow_html=True)
+                                for _iv, _lbl in (("month", _("billing_monthly")), ("year", _("billing_yearly"))):
+                                    _c = _grid["cabinet"].get(_iv)
+                                    if not _c or not _c.get("tiers"):
+                                        continue
+                                    _cab_label = _c.get("name") or _("plan_cabinet")
+                                    st.markdown(f"**{_cab_label} — {_lbl}** ({_('min_3_sirens')})")
+                                    _rows = []
+                                    _prev_bound = 0
+                                    for _t in _c["tiers"]:
+                                        _up_to = _t["up_to"]
+                                        _range = f"{_prev_bound + 1} – {_up_to}" if _up_to is not None else f"{_prev_bound + 1}+"
+                                        if _t["unit_amount"] is not None:
+                                            if _t.get("discounted_unit_amount") is not None:
+                                                _price_txt = (
+                                                    f"<span style='text-decoration:line-through;color:gray'>{_t['unit_amount']:.2f} {_c['currency'].upper()}</span> "
+                                                    f"→ <span style='color:#2ca02c;font-weight:bold'>{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()}</span> "
+                                                    f"({_t['discount_label']}, code {_t['discount_code']}) / {_('siren_label')}"
+                                                )
+                                            else:
+                                                _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / {_('siren_label')}"
+                                        else:
+                                            _price_txt = "—"
+                                        if _t.get("flat_amount") is not None:
+                                            _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} {_('fixed_amount')})"
+                                        _rows.append({_("col_managed_sirens"): _range, _("col_price"): _price_txt})
+                                        _prev_bound = _up_to if _up_to is not None else _prev_bound
+                                    # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown
+                                    # avec l'export HTML du DataFrame pour conserver le formattage.
+                                    st.markdown(
+                                        pd.DataFrame(_rows).to_html(escape=False, index=False, classes="cabinet-table"),
+                                        unsafe_allow_html=True
+                                    )
 
                 if not (_sub_status and _sub_status.active):
                     _detected_period_for_payg = st.session_state.get("_period_label", "")
