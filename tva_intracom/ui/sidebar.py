@@ -33,6 +33,7 @@ import streamlit as st
 from tva_intracom.i18n import _
 
 from tva_intracom import auth as tva_auth
+from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom import billing as tva_billing
 from tva_intracom.rates import EU_COUNTRIES, COUNTRY_NAMES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, oss_threshold_in_currency
 from tva_intracom.vies_engine import (
@@ -834,6 +835,43 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
         # ── Compte & Confidentialité ──────────────────────────────────────────────
         with st.expander(_("account_privacy_header"), expanded=False):
+            st.markdown(f"**{_('account_change_password_title')}**")
+            st.caption(_("account_change_password_help"))
+
+            _current_pwd = st.text_input(
+                _("current_password_label"), type="password", key="chg_pwd_current",
+            )
+            _new_pwd_1 = st.text_input(
+                _("new_password_label"), type="password", key="chg_pwd_new",
+            )
+            _new_pwd_2 = st.text_input(
+                _("confirm_new_password_label"), type="password", key="chg_pwd_confirm",
+            )
+            if st.button(_("change_password_btn"), key="btn_change_password"):
+                if not _current_pwd or not _new_pwd_1:
+                    st.warning(_("change_password_missing_fields_warning"))
+                elif _new_pwd_1 != _new_pwd_2:
+                    st.warning(_("change_password_mismatch_warning"))
+                else:
+                    try:
+                        # On vérifie le mot de passe actuel en tentant une
+                        # authentification par mot de passe (sign_in) — cela
+                        # renvoie un access_token valide pour l'utilisateur
+                        # courant, qu'on utilise ensuite pour poser le nouveau
+                        # mot de passe. Pas de session Supabase persistée
+                        # ailleurs dans l'app (voir auth_flow.py) : ce jeton
+                        # n'est utilisé qu'ici, immédiatement, puis jeté.
+                        _sb_result = tva_sb_auth.sign_in_with_password(_current_user.email, _current_pwd)
+                        tva_sb_auth.update_user_password(_sb_result.access_token, _new_pwd_1)
+                        st.success(_("change_password_success"))
+                    except Exception as _chg_pwd_err:
+                        _msg = str(_chg_pwd_err)
+                        if "400" in _msg or "invalid" in _msg.lower() or "credentials" in _msg.lower():
+                            st.error(_("change_password_wrong_current"))
+                        else:
+                            st.error(_("change_password_error", error=_msg))
+
+            st.divider()
             st.markdown(f"**{_('data_portability_title')}**")
             st.caption(_("data_portability_help"))
             

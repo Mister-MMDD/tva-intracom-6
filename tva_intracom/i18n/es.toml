@@ -596,6 +596,16 @@ managed_sirens_qty_help = "Mínimo 3 SIREN para el plan Gabinete. Debe cubrir al
 
 # Sidebar - Cuenta y privacidad
 account_privacy_header = "👤 Cuenta y privacidad"
+account_change_password_title = "Cambiar contraseña"
+account_change_password_help = "Solo aplicable a cuentas creadas con correo electrónico + contraseña. Si te registraste mediante Google, GitHub o Amazon, esta sección no se aplica a tu cuenta."
+current_password_label = "Contraseña actual"
+confirm_new_password_label = "Confirmar nueva contraseña"
+change_password_btn = "Cambiar contraseña"
+change_password_missing_fields_warning = "Introduce tu contraseña actual y una nueva contraseña."
+change_password_mismatch_warning = "Las dos contraseñas introducidas no coinciden."
+change_password_success = "✅ Contraseña cambiada con éxito."
+change_password_wrong_current = "⛔ La contraseña actual es incorrecta."
+change_password_error = "⛔ Error al cambiar la contraseña: {error}"
 data_portability_title = "Portabilidad de datos (RGPD)"
 data_portability_help = "Descargue todos sus datos personales almacenados por el servicio (perfil, facturas, SIREN, historial VIES)."
 export_data_btn = "📂 Preparar mis datos para la exportación"
@@ -745,6 +755,8 @@ xl_intrastat_transfer_desc = "11 — Transferencia de stock (art. 17 dir. 2006/1
 xl_intrastat_estimated_val_remark = "Valor estimado (precio medio de venta BI × cant.) — reemplazar con el valor de compra"
 xl_intrastat_no_flow_detected = "No se detectaron transferencias de {sens} en los archivos importados."
 
+xl_monthly_section_label = "Detalle mensual (neto)"
+xl_period_section_label = "Total del período"
 xl_oss_title = "DECLARACIÓN OSS — DETALLE POR PAÍS DE DESTINO"
 xl_oss_col_country = "País de destino"
 xl_oss_col_code = "Código"

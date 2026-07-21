@@ -596,6 +596,16 @@ managed_sirens_qty_help = "Minimo 3 SIREN per il piano Studio. Deve coprire alme
 
 # Sidebar - Account e Privacy
 account_privacy_header = "👤 Account e Privacy"
+account_change_password_title = "Cambia password"
+account_change_password_help = "Applicabile solo agli account creati con e-mail + password. Se ti sei registrato tramite Google, GitHub o Amazon, questa sezione non si applica al tuo account."
+current_password_label = "Password attuale"
+confirm_new_password_label = "Conferma nuova password"
+change_password_btn = "Cambia password"
+change_password_missing_fields_warning = "Inserisci la password attuale e una nuova password."
+change_password_mismatch_warning = "Le due password inserite non corrispondono."
+change_password_success = "✅ Password modificata con successo."
+change_password_wrong_current = "⛔ La password attuale non è corretta."
+change_password_error = "⛔ Errore durante la modifica della password: {error}"
 data_portability_title = "Portabilità dei dati (GDPR)"
 data_portability_help = "Scarica tutti i tuoi dati personali memorizzati dal servizio (profilo, fatture, SIREN, cronologia VIES)."
 export_data_btn = "📂 Prepara i miei dati per l'esportazione"
@@ -745,6 +755,8 @@ xl_intrastat_transfer_desc = "11 — Trasferimento di stock (art. 17 dir. 2006/1
 xl_intrastat_estimated_val_remark = "Valore stimato (prezzo medio di vendita CV × qtà) — sostituire con il valore di acquisto"
 xl_intrastat_no_flow_detected = "Nessun trasferimento di {sens} rilevato nei file importati."
 
+xl_monthly_section_label = "Dettaglio mensile (netto)"
+xl_period_section_label = "Totale periodo"
 xl_oss_title = "DICHIARAZIONE OSS — DETTAGLIO PER PAESE DI DESTINAZIONE"
 xl_oss_col_country = "Paese di destinazione"
 xl_oss_col_code = "Codice"

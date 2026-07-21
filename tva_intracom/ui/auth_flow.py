@@ -39,6 +39,7 @@ import extra_streamlit_components as stx
 
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
+from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 from tva_intracom.vies_engine import (
     resolve_scope_id as _vies_resolve_scope_id,
     purge_malformed_entries as _vies_purge_malformed_entries,
@@ -68,6 +69,31 @@ class AuthContext:
         return f"{self.app_base_url}/?session_token={_tok}" if _tok else f"{self.app_base_url}/"
 
 
+def _resolve_app_base_url() -> str:
+    """Résout l'URL de base de l'application (pour les redirections OAuth/Stripe).
+    Cherche dans st.secrets["APP_BASE_URL"], sinon tente une détection dynamique via les headers
+    pour supporter plusieurs déploiements sans modification de code."""
+    # 1. Secret Streamlit (prioritaire, permet de forcer une URL propre)
+    _url = get_secret("APP_BASE_URL")
+    if _url:
+        return _url.rstrip("/")
+
+    # 2. Détection dynamique via headers (robuste si le secret est absent)
+    try:
+        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        _headers = _get_websocket_headers()
+        if _headers and "Host" in _headers:
+            _host = _headers["Host"]
+            # Si on est sur localhost, on reste en http, sinon on assume https (Streamlit Cloud)
+            _proto = "http" if "localhost" in _host or "127.0.0.1" in _host else "https"
+            return f"{_proto}://{_host}"
+    except Exception:
+        pass
+
+    # 3. Fallback historique (pour ne pas casser le comportement si tout échoue)
+    return "https://tva-intracom-ue.streamlit.app"
+
+
 def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
     """Mappe un e-mail authentifié (mot de passe ou OAuth Supabase) sur un
     tva_users local, ouvre la session applicative (session_state + cookie
@@ -86,11 +112,39 @@ def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
 
 def ensure_cookie_manager() -> "stx.CookieManager":
     """Instancie le gestionnaire de cookies et exécute la maintenance
-    ponctuelle (purge du cache VIES mal préfixé) une fois par session."""
+    ponctuelle (purge du cache VIES mal préfixé) une fois par session).
+
+    Sur un rechargement complet de la page (F5 / Ctrl+R), le composant
+    `extra_streamlit_components` CookieManager doit se remonter côté
+    navigateur et renvoyer les cookies existants via un aller-retour
+    websocket — ce cycle prend presque toujours plus que les 100 ms de
+    pause historiquement utilisées ici, en particulier sur Streamlit Cloud
+    (iframe + latence réseau). Résultat observé : `cookie_manager.get(...)`
+    renvoie encore `None` juste après un F5 alors que le cookie de session
+    existe bel et bien dans le navigateur → l'utilisateur est traité comme
+    non connecté et voit l'écran de connexion, alors qu'un simple rerun
+    supplémentaire aurait suffi à récupérer le cookie.
+
+    On retente donc plusieurs fois (rerun + pause croissante) tant que
+    `get_all()` revient vide, avant de conclure qu'il n'y a réellement pas
+    de cookie (nouvel utilisateur / déconnexion volontaire). Le compteur
+    est borné pour ne jamais boucler indéfiniment sur un poste qui n'a
+    effectivement aucun cookie."""
     cookie_manager = stx.CookieManager(key="tva_cookie_manager")
 
-    if not cookie_manager.get_all(key="ensure_cookies"):
-        time.sleep(0.1)
+    _MAX_SYNC_ATTEMPTS = 4
+    _attempts = st.session_state.get("_cookie_sync_attempts", 0)
+    _all = cookie_manager.get_all(key="ensure_cookies")
+
+    if not _all and _attempts < _MAX_SYNC_ATTEMPTS and st.session_state.get("auth_user") is None \
+            and not st.session_state.get("manual_logout"):
+        st.session_state["_cookie_sync_attempts"] = _attempts + 1
+        time.sleep(0.15 + 0.1 * _attempts)
+        preserve_upload_rerun()
+    else:
+        # Cookies synchronisés (ou tentatives épuisées) : on repart à zéro
+        # pour la prochaine déconnexion/reconnexion de cette session.
+        st.session_state["_cookie_sync_attempts"] = 0
 
     if "_malformed_vies_purged" not in st.session_state:
         try:
@@ -109,7 +163,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     if "manual_logout" not in st.session_state:
         st.session_state["manual_logout"] = False
 
-    _app_base_url_login = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+    _app_base_url_login = _resolve_app_base_url()
 
     # ── 1. Interception PRIORITAIRE du code OAuth (PKCE ou Implicit) ────────
     _qp = st.query_params
@@ -611,7 +665,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.query_params.clear()
             st.rerun()
 
-        _app_base_url = get_secret("APP_BASE_URL", "https://tva-intracom-ue.streamlit.app")
+        _app_base_url = _resolve_app_base_url()
         _vies_scope_id = _vies_resolve_scope_id(_current_user.email)
 
         return AuthContext(

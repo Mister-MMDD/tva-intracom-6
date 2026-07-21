@@ -596,6 +596,16 @@ managed_sirens_qty_help = "Minimum 3 numery SIREN dla planu Gabinet. Musi obejmo
 
 # Sidebar - Konto i prywatność
 account_privacy_header = "👤 Konto i prywatność"
+account_change_password_title = "Zmien haslo"
+account_change_password_help = "Dotyczy wylacznie kont utworzonych za pomoca e-mail + haslo. Jesli zarejestrowales sie przez Google, GitHub lub Amazon, ta sekcja nie dotyczy Twojego konta."
+current_password_label = "Obecne haslo"
+confirm_new_password_label = "Potwierdz nowe haslo"
+change_password_btn = "Zmien haslo"
+change_password_missing_fields_warning = "Podaj obecne haslo i nowe haslo."
+change_password_mismatch_warning = "Wprowadzone hasla nie sa identyczne."
+change_password_success = "✅ Haslo zostalo zmienione."
+change_password_wrong_current = "⛔ Obecne haslo jest nieprawidlowe."
+change_password_error = "⛔ Blad podczas zmiany hasla: {error}"
 data_portability_title = "Przenoszenie danych (RODO)"
 data_portability_help = "Pobierz wszystkie swoje dane osobowe przechowywane przez serwis (profil, faktury, SIREN, historia VIES)."
 export_data_btn = "📂 Przygotuj moje dane do eksportu"
@@ -745,6 +755,8 @@ xl_intrastat_transfer_desc = "11 — Przesuniecie zapasow (art. 17 dyr. 2006/112
 xl_intrastat_estimated_val_remark = "Wartosc szacunkowa (srednia cena sprzedazy Netto × ilosc) — zastap wartoscia zakupu"
 xl_intrastat_no_flow_detected = "Nie wykryto przesunięć {sens} w zaimportowanych plikach."
 
+xl_monthly_section_label = "Szczegoly miesieczne (netto)"
+xl_period_section_label = "Suma za okres"
 xl_oss_title = "DEKLARACJA OSS — SZCZEGOLY WEDLUG KRAJU DOCELOWEGO"
 xl_oss_col_country = "Kraj docelowy"
 xl_oss_col_code = "Kod"

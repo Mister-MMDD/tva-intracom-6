@@ -442,7 +442,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         ws.cell(row=row, column=6, value=float(d["mot"])).number_format = _EUR_FORMAT
         c_e = ws.cell(row=row, column=7, value=float(ecart_abs))
         c_e.number_format = _EUR_FORMAT
-        c_e.font = Font(bold=True, color="C00000" if float(ecart_abs) > 1 else "000000")
+        c_e.font = Font(bold=True, color="C00000" if abs(float(ecart_abs)) > 1 else "000000")
         c_p = ws.cell(row=row, column=8, value=float(_round(pct)))
         c_p.number_format = '0.0"%"'
         ws.cell(row=row, column=9, value=risque)
@@ -1206,6 +1206,29 @@ def _month_label(month_key: str) -> str:
     return f"{m}/{y}" if m else month_key
 
 
+def _write_section_group_row(ws, row: int, month_start_col: int, n_months: int, total_start_col: int, n_total_cols: int, fill) -> None:
+    """Écrit une ligne de regroupement au-dessus des en-têtes de colonnes :
+    un libellé fusionné sur les colonnes mois ("Détail mensuel (net)") et un
+    libellé fusionné sur les colonnes de total période ("Total période").
+    Ne fait rien pour la partie mensuelle si n_months == 0.
+    """
+    if n_months:
+        first, last = month_start_col, month_start_col + n_months - 1
+        ws.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
+        c = ws.cell(row=row, column=first, value=_("xl_monthly_section_label"))
+        c.font = _HEADER_FONT_WHITE
+        c.fill = fill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+
+    first, last = total_start_col, total_start_col + n_total_cols - 1
+    ws.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
+    c = ws.cell(row=row, column=first, value=_("xl_period_section_label"))
+    c.font = _HEADER_FONT_WHITE
+    c.fill = fill
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 18
+
+
 def _write_oss_tab(ws, summary: ReportSummary) -> None:
     """Onglet OSS détaillé : mois par mois (net) puis Brut / Remboursements / Net
     (total période) par pays de destination."""
@@ -1225,13 +1248,17 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
     month_start_col = 3
     total_start_col = month_start_col + len(months)
 
+    group_row = 3
+    header_row = 4
+    _write_section_group_row(ws, group_row, month_start_col, len(months), total_start_col, 3, fill=_BLUE_HEADER_FILL)
+
     headers = [_("xl_oss_col_country"), _("xl_oss_col_code")]
     headers += [_month_label(m) for m in months]
     headers += [_("xl_oss_col_vat_gross"), _("xl_oss_col_vat_refunds"), _("xl_oss_col_vat_net")]
-    _set_header(ws, 3, headers, fill=_BLUE_HEADER_FILL)
-    ws.row_dimensions[3].height = 22
+    _set_header(ws, header_row, headers, fill=_BLUE_HEADER_FILL)
+    ws.row_dimensions[header_row].height = 22
 
-    row = 4
+    row = header_row + 1
     for country in all_countries:
         brut   = summary.oss_by_country.get(country, _z)
         refund = summary.refund_oss_by_country.get(country, _z) if getattr(summary, "refund_oss_by_country", None) else _z
@@ -1270,13 +1297,13 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
     for i in range(len(months)):
         col = month_start_col + i
         letter = get_column_letter(col)
-        c = ws.cell(row=row, column=col, value=f"=SUM({letter}4:{letter}{row-2})")
+        c = ws.cell(row=row, column=col, value=f"=SUM({letter}{header_row+1}:{letter}{row-2})")
         c.number_format = _EUR_FORMAT
         c.font = _HEADER_FONT_WHITE
         c.fill = _BLUE_HEADER_FILL
     for col, formula in [
-        (col_brut, f"=SUM({letter_brut}4:{letter_brut}{row-2})"),
-        (col_ref, f"=SUM({letter_ref}4:{letter_ref}{row-2})"),
+        (col_brut, f"=SUM({letter_brut}{header_row+1}:{letter_brut}{row-2})"),
+        (col_ref, f"=SUM({letter_ref}{header_row+1}:{letter_ref}{row-2})"),
         (col_net, f"={letter_brut}{row}+{letter_ref}{row}"),
     ]:
         c = ws.cell(row=row, column=col, value=formula)
@@ -1286,6 +1313,9 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
     ws.row_dimensions[row].height = 20
 
     _auto_width(ws)
+
+
+
 
 
 def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None) -> None:
@@ -1305,7 +1335,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     by_country_month = getattr(summary, "local_by_country_month", {}) or {}
     months = sorted({m for per_country in by_country_month.values() for m in per_country})
 
-    header_row = 3
+    header_row = 4
     if unregistered:
         ws.cell(row=2, column=1, value=_("xl_local_unregistered_warning", countries=", ".join(unregistered))).font = _ALERT_FONT
         ws.cell(row=2, column=1).fill = _ALERT_FILL
@@ -1316,6 +1346,9 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     total_start_col = month_start_col + len(months)
     col_brut, col_ref, col_net, col_status = total_start_col, total_start_col + 1, total_start_col + 2, total_start_col + 3
     letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
+
+    group_row = header_row - 1
+    _write_section_group_row(ws, group_row, month_start_col, len(months), total_start_col, 3, fill=_ORANGE_HEADER_FILL)
 
     headers = [_("xl_local_col_country"), _("xl_local_col_code")]
     headers += [_month_label(m) for m in months]
