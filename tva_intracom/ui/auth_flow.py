@@ -123,14 +123,16 @@ def ensure_cookie_manager() -> "stx.CookieManager":
         # On vérifie si on a déjà essayé de synchroniser les cookies dans cette session
         _attempts = st.session_state.get("_cookie_sync_attempts", 0)
         
-        # Si on ne trouve rien dans st.context.cookies, on laisse une chance au composant
-        # extra_streamlit_components de récupérer les cookies du navigateur.
-        if "tva_session_token" not in st.context.cookies and _attempts < 3:
+        # Si on ne trouve rien dans st.context.cookies et qu'on n'a pas fini les tentatives
+        if "tva_session_token" not in st.context.cookies and 0 <= _attempts < 3:
             st.session_state["_cookie_sync_attempts"] = _attempts + 1
             # On demande une lecture au composant (provoquera un rerun une fois reçu)
             cookie_manager.get_all(key=f"sync_{_attempts}")
             time.sleep(0.15)
             st.rerun()
+        elif _attempts >= 3:
+            # On a épuisé les tentatives, on marque comme "terminé" pour ne plus bloquer
+            st.session_state["_cookie_sync_attempts"] = -1
 
     if "_malformed_vies_purged" not in st.session_state:
         try:
@@ -428,7 +430,8 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
     # ── Interface de connexion non-authentifiée ────────────────────────────
     if st.session_state["auth_user"] is None:
-        # Si on est en train d'attendre les cookies, on n'affiche pas encore l'écran de login
+        # Si on est en train d'attendre les cookies (attempts > 0), on n'affiche pas encore l'écran de login.
+        # Si attempts est -1 (fini) ou 0 (pas commencé), on affiche.
         if st.session_state.get("_cookie_sync_attempts", 0) > 0:
             st.warning(_("magic_link_welcome")) # "Veuillez patienter..."
             st.stop()
