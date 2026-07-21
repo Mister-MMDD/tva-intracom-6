@@ -99,22 +99,38 @@ def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
     st.session_state["auth_user"] = _user
     st.session_state["manual_logout"] = False
     _token = tva_auth.create_session_token(_user.id)
+    # Utilisation d'une date d'expiration stable
+    _expires = datetime.now() + timedelta(days=30)
     cookie_manager.set(
         "tva_session_token",
         _token,
-        expires_at=datetime.now() + timedelta(days=30),
-        key=f"set_cookie_{int(time.time())}", # Clé unique pour forcer l'update
+        expires_at=_expires,
+        key="tva_set_cookie",
     )
+    # Nettoyage immédiat pour éviter les boucles au refresh
+    st.query_params.clear()
+    time.sleep(0.3) 
+    st.rerun()
 
 
 def ensure_cookie_manager() -> "stx.CookieManager":
     """Instancie le gestionnaire de cookies et exécute la maintenance
-    ponctuelle (purge du cache VIES mal préfixé) une fois par session).
-
-    On utilise désormais st.context.cookies pour la lecture des cookies,
-    ce qui est synchrone et évite les déconnexions au rafraîchissement (F5).
-    Le CookieManager reste nécessaire pour l'écriture (set/delete)."""
+    ponctuelle (purge du cache VIES mal préfixé) une fois par session)."""
     cookie_manager = stx.CookieManager(key="tva_cookie_manager")
+
+    # Mécanisme de synchronisation robuste pour le rafraîchissement (F5)
+    if st.session_state.get("auth_user") is None and not st.session_state.get("manual_logout"):
+        # On vérifie si on a déjà essayé de synchroniser les cookies dans cette session
+        _attempts = st.session_state.get("_cookie_sync_attempts", 0)
+        
+        # Si on ne trouve rien dans st.context.cookies, on laisse une chance au composant
+        # extra_streamlit_components de récupérer les cookies du navigateur.
+        if "tva_session_token" not in st.context.cookies and _attempts < 3:
+            st.session_state["_cookie_sync_attempts"] = _attempts + 1
+            # On demande une lecture au composant (provoquera un rerun une fois reçu)
+            cookie_manager.get_all(key=f"sync_{_attempts}")
+            time.sleep(0.15)
+            st.rerun()
 
     if "_malformed_vies_purged" not in st.session_state:
         try:
@@ -135,7 +151,35 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
     _app_base_url_login = _resolve_app_base_url()
 
-    # ── 1. Interception PRIORITAIRE du code OAuth (PKCE ou Implicit) ────────
+    # ── 0. Restauration de session PRIORITAIRE (Cookie) ─────────────────────
+    _cookie_token = st.context.cookies.get("tva_session_token")
+    if not _cookie_token:
+        # Fallback sur le composant si st.context n'a pas encore le header
+        try:
+            _cookie_token = cookie_manager.get("tva_session_token")
+        except Exception:
+            _cookie_token = None
+
+    # Fallback ultime sur les paramètres d'URL (utile après redirection Stripe/OAuth)
+    if not _cookie_token:
+        _cookie_token = st.query_params.get("session_token")
+
+    if _cookie_token:
+        _cookie_token = str(_cookie_token).strip('"')
+
+    if _cookie_token and _cookie_token != "LOGGED_OUT" and st.session_state.get("auth_user") is None:
+        _restored_user = tva_auth.get_user_by_session_token(_cookie_token)
+        if _restored_user is not None:
+            st.session_state["auth_user"] = _restored_user
+            # Nettoyage si on vient de restaurer via URL
+            if "session_token" in st.query_params:
+                st.query_params.pop("session_token")
+                st.rerun()
+        else:
+            # DEBUG DISCRET : Le cookie existe mais la session est invalide en DB
+            st.sidebar.caption("⚠️ Session expired")
+
+    # ── 1. Interception du code OAuth (PKCE ou Implicit) ────────────────────
     _qp = st.query_params
     _sb_code = _qp.get("code")
     _sb_provider = _qp.get("sb_provider")
@@ -145,7 +189,13 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     _sb_error_code = _qp.get("error_code")
     _sb_error_desc = _qp.get("error_description")
 
-    if st.session_state.get("auth_user") is None:
+    # On n'intercepte les paramètres de connexion QUE si on n'est pas déjà authentifié.
+    # Si on est déjà logué (via cookie), on nettoie juste l'URL si elle contient des restes d'OAuth.
+    if st.session_state.get("auth_user") is not None:
+        if any(k in _qp for k in ["code", "access_token", "login_token", "sb_provider"]):
+            st.query_params.clear()
+            st.rerun()
+    else:
         # Cas A0 : Retour du lien "mot de passe oublié" (type=recovery) —
         # le token Supabase est valide pour changer le mot de passe, mais on
         # ne doit PAS l'utiliser pour connecter directement l'utilisateur
@@ -319,7 +369,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.rerun()
         st.stop()
 
-    # ── 2. Conversion du fragment URL (#) en paramètres (?) ─────────────────
+    # ── Conversion du fragment URL (#) en paramètres (?) ─────────────────
     if st.session_state.get("auth_user") is None:
         components.html(
             """
@@ -341,24 +391,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         _local_bypass = bool(get_secret("LOCAL_DEV_BYPASS_AUTH", False))
     except Exception:
         _local_bypass = False
-
-    # ── Lecture des cookies ──────────────────────────────────────────────────
-    # On privilégie st.context.cookies (synchrone, Streamlit 1.36+) pour éviter
-    # les déconnexions au refresh. On garde CookieManager en fallback.
-    try:
-        _cookie_token = st.context.cookies.get("tva_session_token")
-    except Exception:
-        _cookie_token = cookie_manager.get("tva_session_token")
-
-    # Si l'utilisateur a cliqué sur Déconnexion, on ignore le cookie pour cette session
-    # Streamlit, même s'il n'a pas encore été effacé du navigateur.
-    if st.session_state.get("manual_logout"):
-        _cookie_token = None
-
-    if _cookie_token and _cookie_token != "LOGGED_OUT" and st.session_state.get("auth_user") is None:
-        _restored_user = tva_auth.get_user_by_session_token(_cookie_token)
-        if _restored_user is not None:
-            st.session_state["auth_user"] = _restored_user
 
     # ── Consommation du lien magique ────────────────────────────────────────
     _qp_token = st.query_params.get("login_token")
@@ -396,6 +428,11 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
     # ── Interface de connexion non-authentifiée ────────────────────────────
     if st.session_state["auth_user"] is None:
+        # Si on est en train d'attendre les cookies, on n'affiche pas encore l'écran de login
+        if st.session_state.get("_cookie_sync_attempts", 0) > 0:
+            st.warning(_("magic_link_welcome")) # "Veuillez patienter..."
+            st.stop()
+
         st.info(_("auth_required_info"))
 
         if _local_bypass:
