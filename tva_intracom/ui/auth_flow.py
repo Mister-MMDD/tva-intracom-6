@@ -39,7 +39,6 @@ import extra_streamlit_components as stx
 
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
-from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 from tva_intracom.vies_engine import (
     resolve_scope_id as _vies_resolve_scope_id,
     purge_malformed_entries as _vies_purge_malformed_entries,
@@ -114,37 +113,10 @@ def ensure_cookie_manager() -> "stx.CookieManager":
     """Instancie le gestionnaire de cookies et exécute la maintenance
     ponctuelle (purge du cache VIES mal préfixé) une fois par session).
 
-    Sur un rechargement complet de la page (F5 / Ctrl+R), le composant
-    `extra_streamlit_components` CookieManager doit se remonter côté
-    navigateur et renvoyer les cookies existants via un aller-retour
-    websocket — ce cycle prend presque toujours plus que les 100 ms de
-    pause historiquement utilisées ici, en particulier sur Streamlit Cloud
-    (iframe + latence réseau). Résultat observé : `cookie_manager.get(...)`
-    renvoie encore `None` juste après un F5 alors que le cookie de session
-    existe bel et bien dans le navigateur → l'utilisateur est traité comme
-    non connecté et voit l'écran de connexion, alors qu'un simple rerun
-    supplémentaire aurait suffi à récupérer le cookie.
-
-    On retente donc plusieurs fois (rerun + pause croissante) tant que
-    `get_all()` revient vide, avant de conclure qu'il n'y a réellement pas
-    de cookie (nouvel utilisateur / déconnexion volontaire). Le compteur
-    est borné pour ne jamais boucler indéfiniment sur un poste qui n'a
-    effectivement aucun cookie."""
+    On utilise désormais st.context.cookies pour la lecture des cookies,
+    ce qui est synchrone et évite les déconnexions au rafraîchissement (F5).
+    Le CookieManager reste nécessaire pour l'écriture (set/delete)."""
     cookie_manager = stx.CookieManager(key="tva_cookie_manager")
-
-    _MAX_SYNC_ATTEMPTS = 4
-    _attempts = st.session_state.get("_cookie_sync_attempts", 0)
-    _all = cookie_manager.get_all(key="ensure_cookies")
-
-    if not _all and _attempts < _MAX_SYNC_ATTEMPTS and st.session_state.get("auth_user") is None \
-            and not st.session_state.get("manual_logout"):
-        st.session_state["_cookie_sync_attempts"] = _attempts + 1
-        time.sleep(0.15 + 0.1 * _attempts)
-        preserve_upload_rerun()
-    else:
-        # Cookies synchronisés (ou tentatives épuisées) : on repart à zéro
-        # pour la prochaine déconnexion/reconnexion de cette session.
-        st.session_state["_cookie_sync_attempts"] = 0
 
     if "_malformed_vies_purged" not in st.session_state:
         try:
@@ -372,21 +344,13 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     except Exception:
         _local_bypass = False
 
-    # ── Lecture unique des cookies pour tout le reste de la fonction ────────
-    # ⚠️ Avec extra_streamlit_components, chaque `key` distincte passée à
-    # get_all()/get() crée une INSTANCE DE COMPOSANT SÉPARÉE, qui doit se
-    # remonter et se resynchroniser indépendamment avec le navigateur. Utiliser
-    # des clés différentes à plusieurs endroits (ce qui était le cas
-    # auparavant : "ensure_cookies", "sb_oauth_cookies", clé absente...)
-    # provoque des lectures désynchronisées : une instance peut ne pas encore
-    # avoir reçu les cookies du navigateur alors qu'une autre les a déjà.
-    # C'était la cause du "Session de connexion expirée ou perdue" après
-    # retour de Google : le verifier PKCE était bien posé en cookie, mais lu
-    # via une instance de composant qui n'avait pas fini de se synchroniser.
-    _all_cookies = cookie_manager.get_all(key="tva_all_cookies")
-
-    # ── Restauration de session via Cookie ──────────────────────────────────
-    _cookie_token = cookie_manager.get("tva_session_token")
+    # ── Lecture des cookies ──────────────────────────────────────────────────
+    # On privilégie st.context.cookies (synchrone, Streamlit 1.36+) pour éviter
+    # les déconnexions au refresh. On garde CookieManager en fallback.
+    try:
+        _cookie_token = st.context.cookies.get("tva_session_token")
+    except Exception:
+        _cookie_token = cookie_manager.get("tva_session_token")
 
     # Si l'utilisateur a cliqué sur Déconnexion, on ignore le cookie pour cette session
     # Streamlit, même s'il n'a pas encore été effacé du navigateur.
@@ -645,7 +609,10 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         _col_user.caption(_("logged_in_as", email=_current_user.email))
         if _col_logout.button(_("logout_btn"), key="btn_logout"):
             # 1. Invalidation côté serveur
-            _current_token = cookie_manager.get("tva_session_token")
+            try:
+                _current_token = st.context.cookies.get("tva_session_token")
+            except Exception:
+                _current_token = cookie_manager.get("tva_session_token")
             if _current_token:
                 try:
                     tva_auth.delete_session_token(_current_token)
