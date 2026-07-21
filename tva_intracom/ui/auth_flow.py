@@ -79,10 +79,8 @@ def _resolve_app_base_url() -> str:
 
     # 2. Détection dynamique via headers (robuste si le secret est absent)
     try:
-        from streamlit.web.server.websocket_headers import _get_websocket_headers
-        _headers = _get_websocket_headers()
-        if _headers and "Host" in _headers:
-            _host = _headers["Host"]
+        _host = st.context.headers.get("Host")
+        if _host:
             # Si on est sur localhost, on reste en http, sinon on assume https (Streamlit Cloud)
             _proto = "http" if "localhost" in _host or "127.0.0.1" in _host else "https"
             return f"{_proto}://{_host}"
@@ -368,14 +366,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         if st.session_state.get("auth_user") is None:
             st.info(_("magic_link_welcome"))
             if st.button(_("magic_link_confirm_btn"), key="confirm_magic_link"):
-                _ip = "unknown"
-                try:
-                    from streamlit.web.server.websocket_headers import _get_websocket_headers  # type: ignore[import]
-                    _headers = _get_websocket_headers()
-                    if _headers:
-                        _ip = _headers.get("X-Forwarded-For", _headers.get("Remote-Addr", "unknown")).split(",")[0]
-                except Exception:
-                    pass
+                _ip = st.context.ip_address or "unknown"
 
                 try:
                     _u = tva_auth.consume_magic_link(_qp_token, ip_address=_ip)
