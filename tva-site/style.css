@@ -16,6 +16,7 @@
     --alert-border: #fecaca;
     --alert-text: #991b1b;
     --table-stripe: #f8fafc;
+    --cta-bg: linear-gradient(135deg, #eff6ff, #dbeafe);
 }
 
 body {
@@ -306,12 +307,16 @@ li strong {
 }
 
 /* Call To Action Section */
-.cta {
-    background: linear-gradient(135deg, #eff6ff, #dbeafe);
+.cta, .card.cta-card {
+    background: var(--cta-bg);
     padding: 40px;
     border-radius: var(--radius);
     text-align: center;
     border: 1px solid #bfdbfe;
+}
+
+[data-theme="dark"] .cta, [data-theme="dark"] .card.cta-card {
+    border-color: #1e3a5f;
 }
 
 /* Footer Épuré */
@@ -561,6 +566,7 @@ footer {
     --alert-border: #452323;
     --alert-text: #fca5a5;
     --table-stripe: #1e293b;
+    --cta-bg: linear-gradient(135deg, #0c1a2e, #0f2740);
 }
 
 :root {
