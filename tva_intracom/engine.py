@@ -552,8 +552,9 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     - Vente de franchissement → ajoute note d'alerte.
     - Sinon → retourne le résultat inchangé.
 
-    Cette fonction est la source unique de la logique OSS partagée entre
-    compute_all() et compute_all_with_vies() — corriger ici corrige les deux.
+    Cette fonction est la source unique de la logique OSS pour
+    compute_all_with_vies() (VIES est désormais obligatoire partout ;
+    l'ancienne variante compute_all() sans vérification VIES a été retirée).
     """
     if lang is None:
         lang = _resolve_lang()
@@ -639,7 +640,7 @@ def _run_oss_loop(
     apply_fr_under_threshold: bool,
     effective_sale_fn=None,
 ) -> tuple[list[VatResult], OssThresholdSummary]:
-    """Boucle chronologique OSS partagée entre compute_all et compute_all_with_vies.
+    """Boucle chronologique OSS utilisée par compute_all_with_vies.
 
     Factorise le reset annuel du cumul OSS, l'éligibilité OSS, le build de la
     note sous/sur seuil, et la construction de OssThresholdSummary.
@@ -715,37 +716,6 @@ def _run_oss_loop(
         oss_ht_by_year=oss_ht_by_year,
     )
     return results, oss_summary
-
-
-def compute_all(
-    sales: list[Sale],
-    marketplace_name: str = "Amazon",
-    asin_to_category: dict[str, str] = None,
-    apply_fr_under_threshold: bool = False,
-    refunds: list[Sale] | None = None,
-) -> tuple[list[VatResult], OssThresholdSummary]:
-    """Calcule la TVA pour une liste de ventes en gérant le seuil OSS 10 000 €.
-
-    Le seuil OSS est annuel (1er janvier — 31 décembre, art. 59 ter directive
-    2006/112/CE). Si le fichier couvre plusieurs années civiles, le cumul
-    est remis à zéro au changement d'année.
-
-    Les remboursements sont intégrés chronologiquement : un avoir réduit
-    le cumul OSS au moment où il se produit.
-
-    Args:
-        refunds: avoirs (amount_ht négatif). Intégrés chronologiquement —
-                 ne sont PAS ajoutés à `results` (traités séparément dans app.py).
-    """
-    if asin_to_category is None:
-        asin_to_category = {}
-    refund_ids: set[int] = {id(r) for r in (refunds or [])}
-    all_items = list(sales) + list(refunds or [])
-    sorted_items = sorted(all_items, key=_chronological_sort_key)
-    return _run_oss_loop(
-        sorted_items, refund_ids, marketplace_name,
-        asin_to_category, apply_fr_under_threshold,
-    )
 
 
 def compute_all_with_vies(
@@ -890,7 +860,7 @@ def compute_all_with_vies(
     # Boucle principale : classification VIES + OSS via _run_oss_loop
     # La logique VIES est encapsulée dans effective_sale_fn (closure) ;
     # le reset annuel OSS, l'éligibilité et le build note sont délégués
-    # à _run_oss_loop pour éviter la duplication avec compute_all().
+    # à _run_oss_loop.
     # -----------------------------------------------------------------------
 
     # État mutable partagé avec la closure (suivi des reclassifications)

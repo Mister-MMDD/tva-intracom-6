@@ -7,7 +7,7 @@ Usage dans app.py :
     from historical_rates_widget import render_historical_rates_alert
     render_historical_rates_alert(results)
 
-où `results` est la liste de VatResult retournée par compute_all().
+où `results` est la liste de VatResult retournée par compute_all_with_vies().
 """
 
 from __future__ import annotations

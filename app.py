@@ -32,7 +32,7 @@ from tva_intracom.vies_engine import (
     purge_expired_cache,
     set_cache_ttl,
 )
-from tva_intracom.engine import ViesValidationSummary, compute_all, compute_all_with_vies
+from tva_intracom.engine import ViesValidationSummary, compute_all_with_vies
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.models import Scenario, BuyerType, Channel, Collector
 from tva_intracom.report import build_report
@@ -425,42 +425,35 @@ if uploaded_files:
 
         vies_summary = None
         if st.session_state.get("_calc_key") != _cache_key:
-            vies_summary = None
-            if enable_vies:
-                with calc_progress_ph.container():
-                    _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
+            with calc_progress_ph.container():
+                _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
 
-                    def _vies_progress_cb(done: int, total: int) -> None:
-                        if total <= 0:
-                            return
-                        _vies_bar.progress(
-                            min(done / total, 1.0),
-                            text=_("calc_progress_vies_count", done=done, total=total),
-                        )
+                def _vies_progress_cb(done: int, total: int) -> None:
+                    if total <= 0:
+                        return
+                    _vies_bar.progress(
+                        min(done / total, 1.0),
+                        text=_("calc_progress_vies_count", done=done, total=total),
+                    )
 
-                    results, vies_summary, oss_summary = compute_all_with_vies(
-                        sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
-                        on_invalid=on_invalid_behavior, marketplace_name=platform_name,
-                        apply_fr_under_threshold=apply_fr_under_threshold,
-                        refunds=refunds if refunds else None,
-                        vies_progress_callback=_vies_progress_cb)
+                results, vies_summary, oss_summary = compute_all_with_vies(
+                    sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
+                    on_invalid=on_invalid_behavior, marketplace_name=platform_name,
+                    apply_fr_under_threshold=apply_fr_under_threshold,
+                    refunds=refunds if refunds else None,
+                    vies_progress_callback=_vies_progress_cb)
 
-                calc_progress_ph.empty()
-                with calc_progress_ph.container():
-                    with st.spinner(_("calc_progress_vat")):
-                        refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
-                        summary = build_report(results, refund_results=refund_results or None)
-                calc_progress_ph.empty()
-            else:
-                with calc_progress_ph.container():
-                    with st.spinner(_("calc_progress_vat")):
-                        results, oss_summary = compute_all(
-                            sales, marketplace_name=platform_name, asin_to_category=asin_to_category,
-                            apply_fr_under_threshold=apply_fr_under_threshold,
-                            refunds=refunds if refunds else None)
-                        refund_results = compute_all(refunds, marketplace_name=platform_name)[0] if refunds else []
-                        summary = build_report(results, refund_results=refund_results or None)
-                calc_progress_ph.empty()
+            calc_progress_ph.empty()
+            with calc_progress_ph.container():
+                with st.spinner(_("calc_progress_vat")):
+                    # VIES obligatoire aussi sur les avoirs (plus de distinction
+                    # avec le calcul principal) : scope_id requis même si les
+                    # avoirs n'ont en général pas de n° TVA B2B à valider.
+                    refund_results = compute_all_with_vies(
+                        refunds, scope_id=_vies_scope_id, marketplace_name=platform_name
+                    )[0] if refunds else []
+                    summary = build_report(results, refund_results=refund_results or None)
+            calc_progress_ph.empty()
             st.session_state["_calc_key"]       = _cache_key
             st.session_state["_results"]        = results
             st.session_state["_refund_results"] = refund_results

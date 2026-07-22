@@ -1100,4 +1100,3 @@ engine_note_ddp_import = "Importación > 150 EUR, el vendedor es el importador o
 engine_note_import_standard = "Importación > 150 EUR desde un tercer país: IVA de importación en {country} ({rate}%) debido en aduana por el importador."
 engine_note_oss_under_threshold = "Por debajo del umbral OSS ({cumulative}/{limit} {currency}). Opción de IVA {country} activada."
 engine_note_oss_threshold_crossed = "¡Umbral OSS superado! Venta a {country}."
-note_truncated_help = "Texto truncado para la visualización — amplíe la columna o exporte para ver el detalle completo."

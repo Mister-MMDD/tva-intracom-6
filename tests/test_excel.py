@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from openpyxl import load_workbook
 
-from tva_intracom import BuyerType, Sale, compute_all
+from tva_intracom import BuyerType, Sale, compute_all_with_vies
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.report import build_report
 
@@ -22,7 +22,7 @@ def sample_results():
         Sale("C", Decimal("200"), BuyerType.B2B, stock_country="FR",
              buyer_country="DE", buyer_vat_valid=True),
     ]
-    return compute_all(sales)
+    return compute_all_with_vies(sales, scope_id="test")[0]
 
 
 def test_export_creates_file(sample_results, tmp_path):

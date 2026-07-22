@@ -2,9 +2,11 @@
 
 Usage:
     python -m tva_intracom.cli [chemin_ventes.csv] [--details] [--xlsx rapport.xlsx]
-    python -m tva_intracom.cli rapport_amazon.tsv --amazon [--vies] [--xlsx rapport.xlsx]
+    python -m tva_intracom.cli rapport_amazon.tsv --amazon [--xlsx rapport.xlsx]
 
 Sans argument de fichier, le jeu de donnees d'exemple est utilise.
+La validation VIES des numeros de TVA B2B est desormais toujours active
+(requiert Internet) -- il n'y a plus de flag pour la desactiver.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import List
 
-from .engine import compute_all, compute_all_with_vies
+from .engine import compute_all_with_vies
 from .models import BuyerType, Sale, VatResult
 from .report import build_report, render_report
 
@@ -93,11 +95,6 @@ def main(argv: List[str] | None = None) -> int:
         help="Exporter le rapport au format Excel (.xlsx).",
     )
     parser.add_argument(
-        "--vies",
-        action="store_true",
-        help="Valider les numeros de TVA B2B via le service VIES (requiert Internet).",
-    )
-    parser.add_argument(
         "--platform",
         choices=["amazon", "mirakl", "shopify", "woocommerce", "aliexpress"],
         default=None,
@@ -170,20 +167,22 @@ def main(argv: List[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    if args.vies:
-        results, vies_summary, oss_summary = compute_all_with_vies(
-            sales, refunds=refunds if refunds else None
-        )
-    else:
-        results, oss_summary = compute_all(
-            sales, refunds=refunds if refunds else None
-        )
-        vies_summary = None
+    # scope_id "cli:local" : le CLI n'a pas de compte/email authentifie comme
+    # dans l'UI (resolve_scope_id) -- portee de cache VIES dediee, non partagee
+    # avec les scopes utilisateur/domaine de l'application web.
+    _CLI_VIES_SCOPE_ID = "cli:local"
+
+    results, vies_summary, oss_summary = compute_all_with_vies(
+        sales, scope_id=_CLI_VIES_SCOPE_ID, refunds=refunds if refunds else None
+    )
 
     # Recalcul des avoirs avec marketplace_name pour appliquer les bons taux reduits.
     # asin_to_category indisponible en CLI : categories portees par le parser (product_category).
-    refund_results = compute_all(
+    # VIES obligatoire aussi sur les avoirs (plus de distinction avec le calcul
+    # principal).
+    refund_results = compute_all_with_vies(
         refunds,
+        scope_id=_CLI_VIES_SCOPE_ID,
         marketplace_name=platform or "",
     )[0] if refunds else []
 

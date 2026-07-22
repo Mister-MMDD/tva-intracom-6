@@ -10,7 +10,7 @@ Couvre l'intégralité des scénarios de compute_vat() :
   - IMPORT_STANDARD (acheteur = importateur)
   - IMPORT_SELLER_AS_IMPORTER (DDP, vendeur = importateur)
   - Taux réduits / super-réduits / parking
-  - Seuil OSS 10 000 EUR (compute_all)
+  - Seuil OSS 10 000 EUR (compute_all_with_vies)
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from decimal import Decimal
 
 import pytest
 
-from tva_intracom.engine import compute_vat, compute_all
+from tva_intracom.engine import compute_vat, compute_all_with_vies
 from tva_intracom.models import (
     BuyerType,
     Channel,
@@ -547,7 +547,7 @@ class TestVatRates:
 
 
 # ---------------------------------------------------------------------------
-# 10. Seuil OSS 10 000 EUR — compute_all
+# 10. Seuil OSS 10 000 EUR — compute_all_with_vies
 # ---------------------------------------------------------------------------
 
 class TestOssThreshold:
@@ -563,7 +563,8 @@ class TestOssThreshold:
     def test_under_threshold_no_oss_option(self):
         """Sous le seuil, option FR non activée → OSS normal."""
         sales = [self._make_oss_sale("S1", Decimal("5000"))]
-        results, oss_summary = compute_all(sales, apply_fr_under_threshold=False)
+        results, _vies_summary, oss_summary = compute_all_with_vies(
+            sales, scope_id="test", apply_fr_under_threshold=False)
         assert oss_summary.total_oss_ht == Decimal("5000")
         assert not oss_summary.is_threshold_exceeded
         assert results[0].scenario == Scenario.OSS_B2C
@@ -571,7 +572,8 @@ class TestOssThreshold:
     def test_under_threshold_with_fr_option(self):
         """Sous le seuil, option FR activée → taxe FR locale."""
         sales = [self._make_oss_sale("S1", Decimal("3000"))]
-        results, oss_summary = compute_all(sales, apply_fr_under_threshold=True)
+        results, _vies_summary, oss_summary = compute_all_with_vies(
+            sales, scope_id="test", apply_fr_under_threshold=True)
         assert results[0].channel == Channel.FR_DOMESTIC
         assert results[0].vat_country == "FR"
 
@@ -581,7 +583,7 @@ class TestOssThreshold:
             self._make_oss_sale("S1", Decimal("6000")),
             self._make_oss_sale("S2", Decimal("5000")),
         ]
-        _, oss_summary = compute_all(sales)
+        _, _vies_summary, oss_summary = compute_all_with_vies(sales, scope_id="test")
         assert oss_summary.total_oss_ht == Decimal("11000")
         assert oss_summary.is_threshold_exceeded
 
@@ -591,7 +593,8 @@ class TestOssThreshold:
             self._make_oss_sale("S1", Decimal("9000")),
             self._make_oss_sale("S2", Decimal("2000")),  # fait franchir le seuil
         ]
-        results, oss_summary = compute_all(sales, apply_fr_under_threshold=True)
+        results, _vies_summary, oss_summary = compute_all_with_vies(
+            sales, scope_id="test", apply_fr_under_threshold=True)
         assert oss_summary.is_threshold_exceeded
         # S2 passe en OSS car elle fait franchir le seuil
         s2_res = next(r for r in results if r.sale.sale_id == "S2")
@@ -604,7 +607,7 @@ class TestOssThreshold:
                       amount_ht=Decimal("8000"), transaction_date="2024-01-01"),
             self._make_oss_sale("OSS", Decimal("3000")),
         ]
-        _, oss_summary = compute_all(sales)
+        _, _vies_summary, oss_summary = compute_all_with_vies(sales, scope_id="test")
         assert oss_summary.total_oss_ht == Decimal("3000")
         assert not oss_summary.is_threshold_exceeded
 

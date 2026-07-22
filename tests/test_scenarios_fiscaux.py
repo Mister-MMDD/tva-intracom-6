@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 from decimal import Decimal
-from tva_intracom.engine import compute_vat, compute_all
+from tva_intracom.engine import compute_vat, compute_all_with_vies
 from tva_intracom.models import Sale, BuyerType, Scenario, Collector
 
 def make_sale(**kwargs) -> Sale:
@@ -73,14 +73,16 @@ def test_oss_threshold_exactly_10000():
     ]
     
     # Sans option "apply_fr_under_threshold", tout est en OSS destination
-    res_no_opt, summary_no_opt = compute_all(sales, apply_fr_under_threshold=False)
+    res_no_opt, _vies_no_opt, summary_no_opt = compute_all_with_vies(
+        sales, scope_id="test", apply_fr_under_threshold=False)
     assert summary_no_opt.is_threshold_exceeded is True # 10000.01 > 10000
     assert res_no_opt[0].vat_country == "DE"
     assert res_no_opt[1].vat_country == "IT"
     assert res_no_opt[2].vat_country == "ES"
 
     # Avec option "apply_fr_under_threshold"
-    res_opt, summary_opt = compute_all(sales, apply_fr_under_threshold=True)
+    res_opt, _vies_opt, summary_opt = compute_all_with_vies(
+        sales, scope_id="test", apply_fr_under_threshold=True)
     # S1 (9000) <= 10000 -> FR
     assert res_opt[0].vat_country == "FR"
     # S2 (9000+1000=10000) <= 10000 -> FR
@@ -98,7 +100,8 @@ def test_oss_threshold_multi_year():
         make_sale(sale_id="2024-1", amount_ht=Decimal("2000.00"), buyer_country="IT", transaction_date="2024-01-01"),
     ]
     
-    res, summary = compute_all(sales, apply_fr_under_threshold=True)
+    res, _vies_summary, summary = compute_all_with_vies(
+        sales, scope_id="test", apply_fr_under_threshold=True)
     
     assert summary.is_threshold_exceeded is False
     assert res[0].vat_country == "FR"
@@ -118,7 +121,8 @@ def test_oss_returns_impact():
     # Vente suivante de 1000€ -> cumul remonte à 9500€ (toujours sous le seuil)
     sales.append(make_sale(sale_id="S2", amount_ht=Decimal("1000.00"), buyer_country="IT", transaction_date="2024-01-03"))
     
-    res, summary = compute_all(sales, refunds=refunds, apply_fr_under_threshold=True)
+    res, _vies_summary, summary = compute_all_with_vies(
+        sales, scope_id="test", refunds=refunds, apply_fr_under_threshold=True)
     
     assert summary.is_threshold_exceeded is False
     assert summary.total_oss_ht == Decimal("9500") # 9500 - 1000 + 1000
@@ -135,7 +139,8 @@ def test_oss_returns_different_years():
         make_sale(sale_id="R1", amount_ht=Decimal("-5000.00"), buyer_country="DE", transaction_date="2024-01-01"),
     ]
     
-    res, summary = compute_all(sales, refunds=refunds, apply_fr_under_threshold=True)
+    res, _vies_summary, summary = compute_all_with_vies(
+        sales, scope_id="test", refunds=refunds, apply_fr_under_threshold=True)
     
     # En 2023, le seuil a été dépassé (12000 > 10000)
     assert summary.oss_ht_by_year["2023"] == Decimal("12000.00")

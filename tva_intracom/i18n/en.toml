@@ -1100,4 +1100,3 @@ engine_note_ddp_import = "Import > EUR 150, seller is the official importer (DDP
 engine_note_import_standard = "Import > EUR 150 from a third country: import VAT in {country} ({rate}%) due to customs by the importer."
 engine_note_oss_under_threshold = "Below the OSS threshold ({cumulative}/{limit} {currency}). {country} VAT option applied."
 engine_note_oss_threshold_crossed = "OSS threshold exceeded! Sale to {country}."
-note_truncated_help = "Text truncated for display — widen the column or export for the full detail."

@@ -1099,4 +1099,3 @@ engine_note_ddp_import = "Import > 150 EUR, Verkäufer ist offizieller Importeur
 engine_note_import_standard = "Import > 150 EUR aus einem Drittland: Einfuhrumsatzsteuer in {country} ({rate}%) vom Importeur beim Zoll geschuldet."
 engine_note_oss_under_threshold = "Unter der OSS-Schwelle ({cumulative}/{limit} {currency}). MwSt-Option {country} aktiviert."
 engine_note_oss_threshold_crossed = "OSS-Schwelle überschritten! Verkauf nach {country}."
-note_truncated_help = "Text zur Anzeige gekürzt — Spalte verbreitern oder exportieren für das vollständige Detail."

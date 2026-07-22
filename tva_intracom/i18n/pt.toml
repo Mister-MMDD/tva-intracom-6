@@ -1100,4 +1100,3 @@ engine_note_ddp_import = "Importação > 150 EUR, o vendedor é o importador ofi
 engine_note_import_standard = "Importação > 150 EUR de um país terceiro: IVA de importação em {country} ({rate}%) devido na alfândega pelo importador."
 engine_note_oss_under_threshold = "Abaixo do limiar OSS ({cumulative}/{limit} {currency}). Opção de IVA {country} ativada."
 engine_note_oss_threshold_crossed = "Limiar OSS ultrapassado! Venda para {country}."
-note_truncated_help = "Texto truncado para exibição — alargue a coluna ou exporte para ver o detalhe completo."
