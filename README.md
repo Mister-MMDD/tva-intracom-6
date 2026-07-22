@@ -307,10 +307,12 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
   - Jeton de session applicatif distinct (30 jours, réutilisable, porté par
     cookie `tva_session_token`) permettant de rester connecté après une
     redirection externe (OAuth, paiement Stripe) ou un rafraîchissement de
-    page, quelle que soit la méthode de connexion utilisée. En développement
-    local uniquement, le secret `LOCAL_DEV_BYPASS_AUTH` (jamais défini en
-    production, à réserver au `.streamlit/secrets.toml` local non commité)
-    permet de se connecter avec n'importe quelle adresse e-mail.
+    page, quelle que soit la méthode de connexion utilisée. La détection de
+    l'URL de l'application est dynamique (headers HTTP) ou forcée via le secret
+    `APP_BASE_URL`. En développement local uniquement, le secret
+    `LOCAL_DEV_BYPASS_AUTH` (jamais défini en production, à réserver au
+    `.streamlit/secrets.toml` local non commité) permet de se connecter avec
+    n'importe quelle adresse e-mail.
   - **Secrets requis** : `SUPABASE_URL`, `SUPABASE_ANON_KEY` (clé **anon**,
     jamais `service_role`) en plus de `SUPABASE_DB_URL` (connexion Postgres
     directe, utilisée par `auth.py`/`billing.py`/`vies_engine.py`, à ne pas
