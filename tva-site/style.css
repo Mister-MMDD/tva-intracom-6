@@ -12,6 +12,9 @@
     --border-color: #e2e8f0;
     --radius: 16px;
     --transition: all 0.25s ease-in-out;
+    --alert-bg: #fdf2f2;
+    --alert-border: #fecaca;
+    --alert-text: #991b1b;
 }
 
 body {
@@ -179,6 +182,26 @@ section h2 {
 .cross-link a:hover {
     text-decoration: underline;
     color: var(--primary-hover);
+}
+
+.card.alert {
+    background: var(--alert-bg) !important;
+    border-color: var(--alert-border) !important;
+}
+
+.card.alert h2 {
+    color: var(--alert-text) !important;
+}
+
+.card.alert li {
+    color: var(--text-main);
+}
+
+/* Blocs de code et pre */
+pre {
+    background: var(--bg-primary) !important;
+    color: var(--text-main) !important;
+    border: 1px solid var(--border-color);
 }
 
 /* Badges Spécifiques pour les Cas Pratiques et Régimes */
@@ -509,6 +532,9 @@ footer {
     --accent: #38bdf8;
     --border-color: #1f2937;
     --line-color: #374151;
+    --alert-bg: #1a1010;
+    --alert-border: #452323;
+    --alert-text: #fca5a5;
 }
 
 :root {

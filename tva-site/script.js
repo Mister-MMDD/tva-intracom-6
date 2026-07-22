@@ -10,6 +10,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const isDark = root.getAttribute("data-theme") === "dark";
         themeToggle.textContent = isDark ? "☀️" : "🌙";
         themeToggle.setAttribute("aria-label", isDark ? "Passer en mode clair" : "Passer en mode sombre");
+
+        // Mise à jour du thème Stripe si présent
+        const pricingTable = document.querySelector('stripe-pricing-table');
+        if (pricingTable) {
+            pricingTable.setAttribute('theme', isDark ? 'dark' : 'light');
+        }
     };
     applyThemeIcon();
 
