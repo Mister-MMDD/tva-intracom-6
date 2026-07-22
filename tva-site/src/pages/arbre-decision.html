@@ -22,9 +22,20 @@
         ou la <a href="documentation.html">documentation technique</a>.
     </p>
 </div>
+
 <div class="container" style="max-width: 100%; padding: 0;">
-    <div class="tree-diagram-wrapper">
-        <div class="tree-diagram" role="img" aria-label="Arbre de décision fiscal : de la localisation du stock et de l'acheteur jusqu'au régime de TVA applicable. Voir l'alternative textuelle ci-dessus.">
+    <div class="tree-controls" style="display: flex; justify-content: center; gap: 20px; margin-bottom: 20px; align-items: center; background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-color); margin: 0 24px 20px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <label for="zoom-range" style="font-weight: 600; font-size: 0.9rem;">Zoom :</label>
+            <input type="range" id="zoom-range" min="0.3" max="1.5" step="0.05" value="1" style="cursor: pointer;">
+            <span id="zoom-value" style="font-size: 0.85rem; min-width: 40px;">100%</span>
+            <button id="reset-zoom" class="toggle-button" style="width: auto; margin: 0; padding: 5px 12px; font-size: 0.8rem;">Réinitialiser</button>
+        </div>
+        <button id="download-tree" class="button" style="padding: 8px 16px; font-size: 0.85rem;">📥 Télécharger l'arbre (PDF)</button>
+    </div>
+
+    <div class="tree-diagram-wrapper" id="tree-capture-area">
+        <div class="tree-diagram" id="zoom-target" role="img" aria-label="Arbre de décision fiscal : de la localisation du stock et de l'acheteur jusqu'au régime de TVA applicable. Voir l'alternative textuelle ci-dessus.">
 <div class="tree-branch">
     <div class="node">
         <h3>Où se situe physiquement le stock au départ ?</h3>
@@ -259,10 +270,12 @@
         </div>
     </div>
 </div>
+    </div>
+</div>
 
 <div class="footnotes">
     <h3>Notes et Informations Fiscales Complémentaires</h3>
-    
+
     <div class="footnote-section">
         <h4>* Territoires Exclus de la Zone de TVA Européenne (Exclusions Art. 6 Directive 2006/112/CE)</h4>
         <p>Certains territoires, bien que politiquement rattachés à des États membres de l'UE, sont exclus du territoire fiscal et douanier commun. Toute livraison vers ces régions est traitée comme une <strong>exportation exonérée</strong> (0%) : Îles Canaries, Ceuta et Melilla (Espagne)[cite: 1, 9, 25], Heligoland et Büsingen (Allemagne), Åland (Finlande), Mont Athos (Grèce), et la Martinique, la Guadeloupe, Mayotte ou la Guyane (France, soumises à régimes spécifiques d'octroi de mer ou hors champ).</p>
@@ -281,6 +294,65 @@
         <p>Contrairement à une idée reçue, l'Article 194 (autoliquidation domestique) ne concerne que les ventes <strong>sans</strong> franchissement de frontière (voir note ** ci-dessus). En cross-border, un numéro de TVA acheteur invalide ou introuvable sur VIES fait toujours perdre l'exonération intracommunautaire (Art. 138), quel que soit le pays de l'acheteur — la vente reste bien une expédition transfrontalière. Seul le lieu de taxation qui en résulte diffère : pays de départ (Art. 31) si l'acheteur est dans un pays de la liste ci-dessus, ou reclassification OSS au pays de destination (Art. 33) sinon.</p>
     </div>
 </div>
-        </div>
-    </div>
-</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const zoomRange = document.getElementById('zoom-range');
+    const zoomValue = document.getElementById('zoom-value');
+    const resetZoom = document.getElementById('reset-zoom');
+    const zoomTarget = document.getElementById('zoom-target');
+    const downloadBtn = document.getElementById('download-tree');
+    const wrapper = document.querySelector('.tree-diagram-wrapper');
+
+    function updateZoom(value) {
+        zoomTarget.style.transform = `scale(${value})`;
+        zoomTarget.style.transformOrigin = 'top center';
+        zoomValue.textContent = Math.round(value * 100) + '%';
+
+        // Ajuster l'espace en bas pour compenser le scale
+        if (value < 1) {
+            zoomTarget.style.marginBottom = `calc(-${(1 - value) * 100}% + 40px)`;
+        } else {
+            zoomTarget.style.marginBottom = '40px';
+        }
+    }
+
+    zoomRange.addEventListener('input', (e) => {
+        updateZoom(e.target.value);
+    });
+
+    resetZoom.addEventListener('click', () => {
+        zoomRange.value = 1;
+        updateZoom(1);
+        centerTree();
+    });
+
+    downloadBtn.addEventListener('click', () => {
+        window.print();
+    });
+
+    function centerTree() {
+        if (!zoomTarget || !wrapper) return;
+        const rootNode = zoomTarget.querySelector('.tree-branch > .node');
+        if (rootNode) {
+            const currentZoom = parseFloat(zoomRange.value) || 1;
+            const rootMid = rootNode.offsetLeft + (rootNode.offsetWidth / 2);
+            const wrapperMid = wrapper.offsetWidth / 2;
+
+            // On centre sur diagramCenter * currentZoom
+            const diagramCenter = zoomTarget.offsetWidth / 2;
+            wrapper.scrollLeft = (diagramCenter * currentZoom) - wrapperMid;
+        }
+    }
+
+    // Centrage initial au milieu de l'arbre
+    setTimeout(centerTree, 150);
+
+    // Auto-ajustement initial si l'écran est petit
+    if (window.innerWidth < 1400) {
+        const initialZoom = Math.max(0.4, window.innerWidth / 2000);
+        zoomRange.value = initialZoom.toFixed(2);
+        updateZoom(initialZoom);
+    }
+});
+</script>

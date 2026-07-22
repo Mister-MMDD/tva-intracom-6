@@ -680,6 +680,7 @@ footer {
     min-width: 100%;
     margin: 0 auto;
     font-size: 0.85rem;
+    transition: transform 0.2s ease-out;
 }
 
 .tree-diagram .node,
@@ -691,6 +692,7 @@ footer {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
     position: relative;
     z-index: 2;
+    box-sizing: border-box;
 }
 
 .tree-diagram .node {
@@ -762,9 +764,9 @@ footer {
 }
 
 .tree-diagram .line-vertical {
-    width: 2px;
+    width: 0;
     height: 40px;
-    background-color: var(--line-color);
+    border-left: 2px solid var(--line-color);
 }
 
 .tree-diagram .split-container {
@@ -781,10 +783,9 @@ footer {
 .tree-diagram .split-columns {
     display: flex;
     justify-content: center;
-    gap: var(--branch-gap, 100px);
+    gap: 0;
     width: max-content;
     min-width: 100%;
-    padding-top: 40px;
     position: relative;
 }
 
@@ -794,39 +795,42 @@ footer {
     align-items: center;
     flex: 0 0 auto;
     position: relative;
+    padding: 40px 30px 0;
 }
 
 .tree-diagram .column::before {
     content: '';
     position: absolute;
-    top: -40px;
+    top: 0;
     left: 50%;
-    width: 2px;
+    width: 0;
     height: 40px;
-    background-color: var(--line-color);
+    border-left: 2px solid var(--line-color);
     z-index: 1;
 }
 
 .tree-diagram .column::after {
     content: '';
     position: absolute;
-    top: -40px;
-    height: 2px;
-    background-color: var(--line-color);
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 0;
+    border-top: 2px solid var(--line-color);
     z-index: 1;
 }
 
 .tree-diagram .column:first-child::after {
     left: 50%;
-    width: calc(50% + (var(--branch-gap, 100px) / 2));
+    width: 50%;
 }
 
 .tree-diagram .column:last-child::after {
-    left: calc(-1 * (var(--branch-gap, 100px) / 2));
-    width: calc(50% + (var(--branch-gap, 100px) / 2));
+    left: 0;
+    width: 50%;
 }
 
-.tree-diagram .column:first-child:last-child::after {
+.tree-diagram .column:only-child::after {
     display: none;
 }
 
@@ -856,9 +860,45 @@ footer {
     font-size: 0.95rem;
 }
 
-.footnote-section p {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    line-height: 1.6;
+/* Print styles for Arbre de Décision */
+@media print {
+    @page {
+        size: A2 landscape;
+        margin: 1cm;
+    }
+    nav.menu, header, .footnote-section, footer, .tree-controls, .footnotes, .skip-link, .tree-page-header p, .container > p {
+        display: none !important;
+    }
+    body, html {
+        background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    .container {
+        margin: 0 !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+    }
+    .tree-diagram-wrapper {
+        padding: 0 !important;
+        overflow: visible !important;
+        display: block !important;
+    }
+    .tree-diagram {
+        transform: scale(0.7) !important;
+        transform-origin: top center !important;
+        margin: 0 auto !important;
+        width: 100% !important;
+        display: flex !important;
+    }
+    /* Force visibility of lines in PDF */
+    .tree-diagram .line-vertical,
+    .tree-diagram .column::before,
+    .tree-diagram .column::after {
+        border-color: #000 !important;
+    }
 }

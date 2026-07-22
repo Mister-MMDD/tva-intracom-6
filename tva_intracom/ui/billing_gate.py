@@ -130,15 +130,10 @@ class BillingGate:
     def gated_download(self, label, data, file_name, mime, **kwargs) -> None:
         """Remplace st.download_button : affiche le vrai bouton si crédit
         disponible pour la période, sinon un lien direct vers Stripe Checkout."""
-        # Priorité 0 : Rattachement compte Amazon <-> SIREN non résolu (anti-abus).
-        # Vérifié avant même le paiement : peu importe qu'une période soit déjà
-        # débloquée, un fichier appartenant à un autre client ne doit jamais
-        # être exportable sans confirmation/résolution explicite du conflit.
-        if self.account_link_blocked:
-            st.error(_("gate_account_link_blocked_err", label=label))
-            return
-
-        # Priorité 1 : Paiement / Déblocage de la période
+        # Priorité 0 : Paiement / Déblocage de la période (l'abonnement/crédit
+        # doit toujours être la 1ère raison de blocage affichée à l'utilisateur,
+        # avant toute autre vérification — un non-abonné n'a pas à voir un
+        # message de conformité ou d'anti-abus tant qu'il n'a pas payé).
         if not self.can_export:
             if self.quota_status and self.quota_status.blocked:
                 st.error(
@@ -179,6 +174,15 @@ class BillingGate:
             else:
                 _err = st.session_state.get(f"_stripe_checkout_error::{self.period_label}", _("unknown_error"))
                 st.error(_("gate_payment_unavailable_err", label=label, error=_err))
+            return
+
+        # Priorité 1 : Rattachement compte Amazon <-> SIREN non résolu (anti-abus).
+        # Vérifié seulement une fois l'abonnement/crédit confirmé : peu importe
+        # qu'une période soit déjà débloquée, un fichier appartenant à un autre
+        # client ne doit jamais être exportable sans confirmation/résolution
+        # explicite du conflit.
+        if self.account_link_blocked:
+            st.error(_("gate_account_link_blocked_err", label=label))
             return
 
         # Priorité 2 : Conformité (seulement si la période est débloquée)
