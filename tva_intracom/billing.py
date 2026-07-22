@@ -15,7 +15,6 @@ n'intervient pas côté code, seul le price_id compte pour le Checkout).
 """
 from __future__ import annotations
 
-import logging
 import os
 import secrets
 import time
@@ -669,7 +668,7 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
 
         try:
             # On récupère l'objet complet pour être sûr d'avoir applies_to et les montants
-            coupon = stripe.Coupon.retrieve(coupon_id) if coupon_id else coupon_ref
+            coupon = stripe.Coupon.retrieve(coupon_id, expand=["applies_to"]) if coupon_id else coupon_ref
         except Exception:
             coupon = coupon_ref
 
@@ -830,17 +829,9 @@ def get_pricing_grid(user_id: Optional[str] = None) -> dict:
                     match_product = product_id in allowed_products if (product_id and allowed_products) else False
                     match_price = price_id in allowed_prices if (price_id and allowed_prices) else False
 
-                    logging.warning(
-                        "DEBUG_PROMO code=%r product_id=%r price_id=%r allowed_products=%r allowed_prices=%r match=%r",
-                        promo.get("code"), product_id, price_id, allowed_products, allowed_prices,
-                        (match_product or match_price),
-                    )
-
                     # Si aucune des restrictions n'est satisfaite, on ignore ce coupon
                     if not (match_product or match_price):
                         continue
-            else:
-                logging.warning("DEBUG_PROMO code=%r product_id=%r price_id=%r applies_to=None (pas de restriction -> s'applique à tout)", promo.get("code"), product_id, price_id)
 
             _min = promo.get("minimum_amount")
             if _min is not None and (cents / 100) < _min:
