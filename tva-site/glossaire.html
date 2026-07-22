@@ -17,12 +17,11 @@
 <nav class="menu" aria-label="Navigation principale">
     <a href="index.html">Accueil</a>
     <a href="documentation.html">Documentation</a>
-    <a href="cas-pratiques.html">Cas pratiques</a>
     <a href="tarifs.html">Tarifs</a>
     <a href="securite.html">Sécurité</a>
     <a href="glossaire.html" class="active" aria-current="page">Glossaire</a>
     <a href="faq.html">FAQ</a>
-    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="regimes.html">Liste des régimes</a>
     <a href="arbre-decision.html">Arbre de décision</a>
     <a href="interface.html">Interface moteur</a>
     <a href="tutoriels.html">Simulateur & Tutoriels</a>
@@ -40,31 +39,56 @@
 
 <div class="card">
     <h2>OSS (One Stop Shop)</h2>
-    <p class="cross-link"><a href="cas-pratiques.html#cas-oss">Voir un cas pratique →</a></p>
+    <p class="cross-link"><a href="tutoriels.html#cas-oss">Voir un cas pratique →</a></p>
     <p>Guichet unique pour déclarer la TVA des ventes B2C transfrontalières dans l’UE.</p>
 </div>
 
 <div class="card">
     <h2>IOSS</h2>
-    <p class="cross-link"><a href="cas-pratiques.html#cas-import">Voir un cas pratique →</a></p>
+    <p class="cross-link"><a href="tutoriels.html#cas-import">Voir un cas pratique →</a></p>
     <p>Guichet unique pour les importations de faible valeur (≤ 150 €) vers des consommateurs.</p>
 </div>
 
 <div class="card">
     <h2>Reverse charge (autoliquidation)</h2>
-    <p class="cross-link"><a href="cas-pratiques.html#cas-reverse-charge">Voir un cas pratique →</a></p>
+    <p class="cross-link"><a href="tutoriels.html#cas-reverse-charge">Voir un cas pratique →</a></p>
     <p>Mécanisme où l’acheteur déclare la TVA due à la place du vendeur (B2B intra-UE, art. 194 dans certains pays).</p>
 </div>
 
 <div class="card">
     <h2>Deemed supplier</h2>
-    <p class="cross-link"><a href="cas-pratiques.html#cas-deemed-supplier">Voir un cas pratique →</a></p>
+    <p class="cross-link"><a href="tutoriels.html#cas-deemed-supplier">Voir un cas pratique →</a></p>
     <p>Situation où la marketplace (ex. Amazon) est réputée collecteur de la TVA, le vendeur étant exonéré.</p>
 </div>
 
 <div class="card">
-    <h2>FEC</h2>
-    <p>Fichier des Écritures Comptables, export comptable normé pour les contrôles fiscaux.</p>
+    <h2>CA3</h2>
+    <p>Formulaire de déclaration de TVA française. Le moteur génère une synthèse prête à l'emploi avec les lignes 08 (Acquisitions intracommunautaires) et les ventilations par taux.</p>
+</div>
+
+<div class="card">
+    <h2>Seuil de 10 000 € (Seuil OSS)</h2>
+    <p>Seuil unique de chiffre d'affaires annuel pour l'ensemble des ventes B2C transfrontalières dans l'UE. En dessous, vous pouvez appliquer la TVA de votre pays d'origine. Au-delà, l'OSS est obligatoire.</p>
+</div>
+
+<div class="card">
+    <h2>Territoire exclu (Zones Art. 6)</h2>
+    <p>Zones géographiques rattachées à un État membre mais exclues du territoire fiscal de l'UE (ex: Canaries, DOM-TOM, Mont Athos). Les flux vers ces zones sont traités comme des exportations.</p>
+</div>
+
+<div class="card">
+    <h2>Amazon V1-V5 (Formats de fichiers)</h2>
+    <p>Différentes versions de rapports fiscaux générés par Amazon. Le format V5 (VAT Transaction Report détaillé) est le plus complet et recommandé pour une classification précise.</p>
+</div>
+
+<div class="card">
+    <h2>EMEBI / Intrastat</h2>
+    <p>Enquête Mensuelle sur les Échanges de Biens Intra-UE. Déclaration statistique obligatoire au-delà de certains seuils d'expédition ou d'introduction de marchandises.</p>
+</div>
+
+<div class="card">
+    <h2>BCE (Taux de change)</h2>
+    <p>Banque Centrale Européenne. Notre moteur synchronise quotidiennement ses taux de change pour convertir précisément vos ventes multi-devises en euros.</p>
 </div>
 
 <div class="card">
@@ -89,7 +113,7 @@
 </main>
 
 <footer>
-    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a> | Contact : <a href="mailto:support@tvacalculator.eu" style="color: #94a3b8; text-decoration: none;">support@tvacalculator.eu</a></p>
 </footer>
 
 </body>

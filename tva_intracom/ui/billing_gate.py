@@ -92,6 +92,7 @@ class BillingGate:
     missing_vats: list
     ioss_missing: bool
     unlock_label_suffix: str
+    sub_status: Optional[str] = None
 
     # Rattachement compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) <-> SIREN —
     # anti-abus (voir billing.get_siren_links_for_identifiers). Bloque
@@ -135,6 +136,10 @@ class BillingGate:
         # avant toute autre vérification — un non-abonné n'a pas à voir un
         # message de conformité ou d'anti-abus tant qu'il n'a pas payé).
         if not self.can_export:
+            if self.sub_status == "incomplete":
+                st.info(_("gate_payment_pending_info"))
+                return
+
             if self.quota_status and self.quota_status.blocked:
                 st.error(
                     _("gate_quota_blocked_err",
@@ -371,6 +376,7 @@ def build_billing_gate(
         missing_vats=missing_vats,
         ioss_missing=ioss_missing,
         unlock_label_suffix=unlock_label_suffix,
+        sub_status=_cached_sub_status.status if _cached_sub_status else None,
         account_link_blocked=account_link_blocked,
         unlinked_identifiers=unlinked_identifiers,
         conflicting_links=conflicting_links,

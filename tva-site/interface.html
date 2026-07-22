@@ -17,12 +17,11 @@
 <nav class="menu" aria-label="Navigation principale">
     <a href="index.html">Accueil</a>
     <a href="documentation.html">Documentation</a>
-    <a href="cas-pratiques.html">Cas pratiques</a>
     <a href="tarifs.html">Tarifs</a>
     <a href="securite.html">Sécurité</a>
     <a href="glossaire.html">Glossaire</a>
     <a href="faq.html">FAQ</a>
-    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="regimes.html">Liste des régimes</a>
     <a href="arbre-decision.html">Arbre de décision</a>
     <a href="interface.html" class="active" aria-current="page">Interface moteur</a>
     <a href="tutoriels.html">Simulateur & Tutoriels</a>
@@ -38,20 +37,51 @@
     <p>Une interface modulaire pour piloter le moteur fiscal et les exports.</p>
 </header>
 
-<div class="card">
-    <h2>Onglets principaux</h2>
-    <ul>
-        <li><strong>💶 Déclarations</strong> : synthèse “Ce que vous devez reverser” (CA3, OSS, IOSS, immatriculations locales).</li>
-        <li><strong>📋 Détail ventes</strong> : vue ligne par ligne, séparation “Vous / Amazon / Douane”.</li>
-        <li><strong>🛡️ VIES</strong> : validation des numéros TVA, overrides, reclassification B2B/B2C.</li>
-        <li><strong>🔬 Audit Amazon</strong> : écarts TVA Amazon, mouvements de stock FBA.</li>
-        <li><strong>📥 Téléchargements</strong> : exports Excel, XML OSS, rapports CA3, rapports locaux, FEC.</li>
-        <li><strong>📊 Visualisations</strong> : TVA par pays, carte Europe, évolution mensuelle.</li>
-    </ul>
-</div>
+<section class="interface-grid">
+    <h2>Onglets principaux de l'interface</h2>
+    <p class="section-subtitle">Découvrez les différents modules conçus pour automatiser votre conformité fiscale.</p>
+
+    <div class="grid-cards">
+        <div class="card">
+            <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/D%C3%A9clarations-%20TVA%20Intracommunautaire.png" alt="Aperçu Déclarations" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
+            <h3>💶 Déclarations</h3>
+            <p>Synthèse complète de vos obligations : CA3 (France), guichet unique OSS & IOSS, et détection des immatriculations locales requises à l'étranger.</p>
+        </div>
+
+        <div class="card">
+            <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/d%C3%A9tails%20ventes-%20TVA%20Intracommunautaire.png" alt="Aperçu Détail ventes" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
+            <h3>📋 Détail ventes</h3>
+            <p>Analyse ligne à ligne de chaque transaction. Visualisez instantanément la répartition des responsabilités entre vous, Amazon et la Douane.</p>
+        </div>
+
+        <div class="card">
+            <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/VIES%20-%20D%C3%A9clarations-%20TVA%20Intracommunautaire.png" alt="Aperçu VIES" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
+            <h3>🛡️ VIES & B2B</h3>
+            <p>Audit automatisé des numéros de TVA acheteurs. Gérez les overrides manuels et sécurisez vos exonérations avec une piste d'audit conforme.</p>
+        </div>
+
+        <div class="card">
+            <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/%C3%A9ccart%20amazon%20-%20D%C3%A9clarations-%20TVA%20Intracommunautaire.png" alt="Aperçu Audit" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
+            <h3>🔬 Audit Amazon</h3>
+            <p>Réconciliation des données : identifiez les écarts de TVA collectée par Amazon et suivez les mouvements de stock FBA entre entrepôts.</p>
+        </div>
+
+        <div class="card">
+            <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/T%C3%A9l%C3%A9chargement%20-%20TVA%20Intracommunautaire.png" alt="Aperçu Téléchargements" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
+            <h3>📥 Téléchargements</h3>
+            <p>Générez vos livrables en un clic : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi-onglets et export comptable FEC.</p>
+        </div>
+
+        <div class="card">
+            <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/Visualisation%20-%20TVA%20Intracommunautaire.png" alt="Aperçu Visualisations" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
+            <h3>📊 Visualisations</h3>
+            <p>Tableaux de bord dynamiques : exposition fiscale par pays, carte de chaleur européenne et évolution mensuelle de votre activité.</p>
+        </div>
+    </div>
+</section>
 
 
-<div class="card cta-card" style="border: 2px solid var(--primary);">
+<div class="card cta" style="text-align: center;">
     <h2>Accéder à l’interface de calcul</h2>
     <p>Le moteur est accessible via une application web sécurisée. Importez vos fichiers et obtenez vos rapports en quelques secondes.</p>
     <a class="button" href="https://tvacalculator.streamlit.app/" target="_blank" rel="noopener" style="font-size: 1.2rem; padding: 16px 40px;">🚀 Lancer l’application</a>
@@ -60,7 +90,7 @@
 </main>
 
 <footer>
-    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a> | Contact : <a href="mailto:support@tvacalculator.eu" style="color: #94a3b8; text-decoration: none;">support@tvacalculator.eu</a></p>
 </footer>
 
 </body>

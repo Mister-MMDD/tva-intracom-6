@@ -85,7 +85,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Configuration initiale propre : on mémorise le libellé "fermé" propre à ce bouton
         details.style.display = "none";
         const closedLabel = button.textContent;
-        const openLabel = closedLabel.replace(/^Afficher/, "Masquer");
+        const openLabel = closedLabel.replace(/^(Afficher|Voir)/, "Masquer");
 
         button.addEventListener("click", () => {
             const isOpen = card.getAttribute("data-open") === "true";
@@ -97,11 +97,11 @@ document.addEventListener("DOMContentLoaded", () => {
             if (isOpen) {
                 details.style.display = "none";
                 button.textContent = closedLabel;
-                button.style.background = "";
+                button.classList.remove("active");
             } else {
                 details.style.display = "block";
                 button.textContent = openLabel;
-                button.style.background = "#e2e8f0";
+                button.classList.add("active");
             }
         });
     });

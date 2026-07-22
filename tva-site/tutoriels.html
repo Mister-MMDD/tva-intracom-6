@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tutoriels & Simulateur – Moteur TVA Intracommunautaire</title>
-    <meta name="description" content="Tutoriels et simulateur interactif de TVA intracommunautaire : testez un scénario de vente et découvrez le traitement fiscal appliqué.">
+    <meta name="description" content="Simulateur interactif de TVA intracommunautaire et guides thématiques : testez un scénario de vente et parcourez des cas pratiques concrets (B2B, B2C, OSS, deemed supplier, imports).">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
     <link rel="stylesheet" href="style.css">
     <script src="script.js" defer></script>
@@ -17,12 +17,11 @@
 <nav class="menu" aria-label="Navigation principale">
     <a href="index.html">Accueil</a>
     <a href="documentation.html">Documentation</a>
-    <a href="cas-pratiques.html">Cas pratiques</a>
     <a href="tarifs.html">Tarifs</a>
     <a href="securite.html">Sécurité</a>
     <a href="glossaire.html">Glossaire</a>
     <a href="faq.html">FAQ</a>
-    <a href="regimes.html">Régimes spéciaux</a>
+    <a href="regimes.html">Liste des régimes</a>
     <a href="arbre-decision.html">Arbre de décision</a>
     <a href="interface.html">Interface moteur</a>
     <a href="tutoriels.html" class="active" aria-current="page">Simulateur & Tutoriels</a>
@@ -123,10 +122,14 @@
     </section>
 
     <section class="tutoriels">
-        <h2>Guides Thématiques</h2>
+        <h2>Guides & Cas pratiques</h2>
+        <p class="section-subtitle">Retrouvez ci-dessous les guides thématiques et les cas concrets modélisés par le moteur. Chaque cas peut être déplié pour voir le détail des règles appliquées.</p>
+
         <div class="grid-cards">
+            <!-- Guides Thématiques -->
             <div class="card interactive" data-open="false">
-                <h3>Tutoriel 1 – Livraison B2B</h3>
+                <strong>GUIDE</strong>
+                <h3>Livraison B2B</h3>
                 <p>Comprendre quand une livraison est exonérée de TVA.</p>
                 <div class="details">
                     <ol>
@@ -136,11 +139,12 @@
                         <li>Conserver les preuves de sortie.</li>
                     </ol>
                 </div>
-                <button class="toggle-button">Afficher le tutoriel</button>
+                <button class="toggle-button">Voir les détails</button>
             </div>
 
             <div class="card interactive" data-open="false">
-                <h3>Tutoriel 2 – Acquisition B2B</h3>
+                <strong>GUIDE</strong>
+                <h3>Acquisition B2B</h3>
                 <p>Appliquer l’autoliquidation correctement.</p>
                 <div class="details">
                     <ol>
@@ -150,11 +154,12 @@
                         <li>Reporter les montants dans la déclaration.</li>
                     </ol>
                 </div>
-                <button class="toggle-button">Afficher le tutoriel</button>
+                <button class="toggle-button">Voir les détails</button>
             </div>
 
             <div class="card interactive" data-open="false">
-                <h3>Tutoriel 3 – Ventes B2C et OSS</h3>
+                <strong>GUIDE</strong>
+                <h3>Ventes B2C et OSS</h3>
                 <p>Gérer les ventes à des consommateurs dans plusieurs pays.</p>
                 <div class="details">
                     <ol>
@@ -164,7 +169,74 @@
                         <li>Déclarer via OSS si applicable.</li>
                     </ol>
                 </div>
-                <button class="toggle-button">Afficher le tutoriel</button>
+                <button class="toggle-button">Voir les détails</button>
+            </div>
+
+            <!-- Cas Pratiques -->
+            <div class="card interactive" data-open="false" id="cas-domestic">
+                <strong>SCÉNARIO</strong>
+                <h3>DOMESTIC – Vente locale</h3>
+                <p>Stock et acheteur dans le même pays UE.</p>
+                <div class="details">
+                    <p><strong>Règle :</strong> TVA locale, canal CA3 ou immatriculation locale.</p>
+                    <p><strong>Traitement moteur :</strong> classification DOMESTIC, ventilation par taux, intégration dans CA3 ou rapport local.</p>
+                </div>
+                <button class="toggle-button">Voir le cas</button>
+            </div>
+
+            <div class="card interactive" data-open="false" id="cas-oss">
+                <strong>SCÉNARIO</strong>
+                <h3>OSS_B2C – Vente B2C</h3>
+                <p>Stock UE, acheteur dans un autre pays UE, B2C.</p>
+                <div class="details">
+                    <p><strong>Règle :</strong> TVA du pays de destination, déclaration via OSS.</p>
+                    <p><strong>Traitement moteur :</strong> agrégation OSS par pays, génération XML OSS officiel + Excel.</p>
+                </div>
+                <button class="toggle-button">Voir le cas</button>
+            </div>
+
+            <div class="card interactive" data-open="false" id="cas-reverse-charge">
+                <strong>SCÉNARIO</strong>
+                <h3>B2B_REVERSE_CHARGE</h3>
+                <p>B2B intra-UE avec numéro TVA VIES valide.</p>
+                <div class="details">
+                    <p><strong>Règle :</strong> exonération côté vendeur, autoliquidation chez l’acheteur.</p>
+                    <p><strong>Traitement moteur :</strong> classification B2B_REVERSE_CHARGE, note fiscale avec références légales, contrôle VIES.</p>
+                </div>
+                <button class="toggle-button">Voir le cas</button>
+            </div>
+
+            <div class="card interactive" data-open="false" id="cas-deemed-supplier">
+                <strong>SCÉNARIO</strong>
+                <h3>DEEMED_SUPPLIER</h3>
+                <p>Vendeur hors UE ou import ≤ 150 € B2C.</p>
+                <div class="details">
+                    <p><strong>Règle :</strong> Amazon est réputé collecteur, vente exonérée pour le vendeur.</p>
+                    <p><strong>Traitement moteur :</strong> séparation "Vous / Amazon / Douane" dans les visualisations, exclusion des montants collectés par Amazon des déclarations du vendeur.</p>
+                </div>
+                <button class="toggle-button">Voir le cas</button>
+            </div>
+
+            <div class="card interactive" data-open="false" id="cas-import">
+                <strong>SCÉNARIO</strong>
+                <h3>IMPORT & IOSS_DIRECT</h3>
+                <p>Import > 150 € (douane) ou ≤ 150 € avec IOSS.</p>
+                <div class="details">
+                    <p><strong>Règle :</strong> TVA d’importation (douane) ou TVA collectée via IOSS.</p>
+                    <p><strong>Traitement moteur :</strong> classification IMPORT_STANDARD ou IOSS_DIRECT, ventilation par canal (douane, IOSS), intégration dans les rapports.</p>
+                </div>
+                <button class="toggle-button">Voir le cas</button>
+            </div>
+
+            <div class="card interactive" data-open="false" id="cas-monaco">
+                <strong>SCÉNARIO</strong>
+                <h3>MONACO – Flux spécial</h3>
+                <p>Stock en France, acheteur situé à Monaco (MC).</p>
+                <div class="details">
+                    <p><strong>Règle :</strong> en vertu de la convention fiscale franco-monégasque de 1963, Monaco est traité comme du territoire français au plan de la TVA — ce n'est ni une vente intra-UE, ni une exportation.</p>
+                    <p><strong>Traitement moteur :</strong> Monaco est exclu par défaut des recherches "UE" classiques ; le moteur applique un cas spécial dans <code>engine.py</code> qui reclassifie automatiquement ce flux comme vente domestique française (TVA française standard, pas d'OSS, pas de VIES).</p>
+                </div>
+                <button class="toggle-button">Voir le cas</button>
             </div>
         </div>
     </section>
@@ -172,7 +244,7 @@
 </main>
 
 <footer>
-    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a> | Contact : <a href="mailto:support@tvacalculator.eu" style="color: #94a3b8; text-decoration: none;">support@tvacalculator.eu</a></p>
 </footer>
 
 <script>

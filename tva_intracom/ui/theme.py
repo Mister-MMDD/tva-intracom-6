@@ -16,9 +16,20 @@ _PLATFORM_OPTIONS = [
 
 _CSS = """
 <style>
-/* ---- Définition de la couleur de marque (indépendante du thème) ---- */
+/* ---- Définition de la couleur de marque (adaptative) ---- */
 :root {
     --brand-blue: #1f4e79;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --brand-blue: #38bdf8;
+    }
+}
+
+/* On surcharge si Streamlit est en mode sombre (basé sur la couleur de fond) */
+[data-theme="dark"], .stApp[data-theme="dark"] {
+    --brand-blue: #38bdf8;
 }
 
 .block-container {

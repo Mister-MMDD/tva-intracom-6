@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Régimes spéciaux – TVA Intracommunautaire</title>
-    <meta name="description" content="Comparatif des régimes de TVA applicables aux vendeurs Amazon : régime national, OSS, IOSS, deemed supplier, import classique.">
+    <title>Liste des régimes de TVA – TVA Intracommunautaire</title>
+    <meta name="description" content="Liste exhaustive des régimes de TVA applicables aux vendeurs Amazon : régime national, OSS, IOSS, B2B exonéré, deemed supplier, import classique, Monaco, territoires exclus.">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
     <link rel="stylesheet" href="style.css">
     <script src="script.js" defer></script>
@@ -17,12 +17,11 @@
 <nav class="menu" aria-label="Navigation principale">
     <a href="index.html">Accueil</a>
     <a href="documentation.html">Documentation</a>
-    <a href="cas-pratiques.html">Cas pratiques</a>
     <a href="tarifs.html">Tarifs</a>
     <a href="securite.html">Sécurité</a>
     <a href="glossaire.html">Glossaire</a>
     <a href="faq.html">FAQ</a>
-    <a href="regimes.html" class="active" aria-current="page">Régimes spéciaux</a>
+    <a href="regimes.html" class="active" aria-current="page">Liste des régimes</a>
     <a href="arbre-decision.html">Arbre de décision</a>
     <a href="interface.html">Interface moteur</a>
     <a href="tutoriels.html">Simulateur & Tutoriels</a>
@@ -34,75 +33,166 @@
 
 <main id="main-content">
 <header>
-    <h1>Régimes spéciaux TVA</h1>
-    <p>Régimes particuliers gérés automatiquement par le moteur.</p>
+    <h1>Liste des régimes de TVA</h1>
+    <p>Panorama complet des régimes de TVA intracommunautaire appliqués par le moteur — des régimes classiques aux cas particuliers, dans leur intégralité.</p>
 </header>
 
 <div class="card">
-    <h2>Tableau Comparatif des Régimes</h2>
+    <h2>Tableau comparatif rapide</h2>
     <div style="overflow-x: auto;">
         <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
             <thead>
-                <tr>
-                    <th>Régime</th>
-                    <th>Application</th>
-                    <th>Seuil</th>
-                    <th>TVA</th>
+                <tr style="background: var(--nav-bg); color: white;">
+                    <th style="padding: 12px; text-align: left; border: 1px solid #334155;">Régime</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #334155;">Application</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #334155;">Seuil</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #334155;">TVA</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
-                    <td><strong>OSS</strong></td>
-                    <td>B2C Intra-UE</td>
-                    <td>10 000 € / an</td>
-                    <td>Pays de destination</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-domestic">DOMESTIC</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Vente locale, même pays</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Dès le 1er €</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Locale</td>
                 </tr>
                 <tr class="stripe">
-                    <td><strong>IOSS</strong></td>
-                    <td>B2C Import (Vente à distance)</td>
-                    <td>≤ 150 € par envoi</td>
-                    <td>Pays de destination</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong>Art. 194 (B2B Local)</strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">B2B domestique (certains pays UE)</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">N/A</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Autoliquidation (0%)</td>
                 </tr>
                 <tr>
-                    <td><strong>Local (FBA)</strong></td>
-                    <td>Stockage local hors pays siège</td>
-                    <td>Dès le 1er €</td>
-                    <td>Locale</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-oss">OSS (OSS_B2C)</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">B2C Intra-UE transfrontalier</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">10 000 € / an</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Pays de destination</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-ioss">IOSS (IOSS_DIRECT)</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">B2C Import (vente à distance)</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">≤ 150 € par envoi</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Pays de destination</td>
                 </tr>
                 <tr class="stripe">
-                    <td><strong>B2B</strong></td>
-                    <td>Professionnels Assujettis</td>
-                    <td>N/A</td>
-                    <td>Autoliquidation (0%)</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-b2b-exonere">B2B exonéré (B2B_REVERSE_CHARGE)</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Professionnels assujettis, VIES valide</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">N/A</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Autoliquidation (0%)</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-local">Local (FBA)</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Stockage local hors pays siège</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Dès le 1er €</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Locale (immatriculation requise)</td>
+                </tr>
+                <tr class="stripe">
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-deemed-supplier">DEEMED_SUPPLIER</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Vendeur hors UE ou import ≤ 150 € B2C</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">≤ 150 € ou hors UE</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Collectée par Amazon</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-import">IMPORT_STANDARD</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Import hors UE, sans IOSS</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">&gt; 150 €</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Payée en douane par le client</td>
+                </tr>
+                <tr class="stripe">
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong>IMPORT DDP</strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Import &gt; 150 €, vendeur importateur</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">&gt; 150 €</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Locale (vendeur collecteur)</td>
+                </tr>
+                <tr>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-territoires-exclus">EXPORT / Hors UE</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Vente hors territoire fiscal UE</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">N/A</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Exonérée (0%)</td>
+                </tr>
+                <tr class="stripe">
+                    <td style="padding: 12px; border: 1px solid var(--border-color);"><strong><a href="#regime-monaco">MONACO</a></strong></td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Livraison vers Monaco</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">N/A</td>
+                    <td style="padding: 12px; border: 1px solid var(--border-color);">Assimilée France (convention 1963)</td>
                 </tr>
             </tbody>
         </table>
     </div>
 </div>
 
-<div class="card">
-    <h2>OSS & IOSS</h2>
-    <p>Suivi du seuil OSS 10 000 €, agrégation multi‑année, génération XML OSS, gestion IOSS pour les importations ≤ 150 €.</p>
+<div class="card" id="regime-domestic">
+    <h2>DOMESTIC – Vente locale</h2>
+    <p><strong>Situation :</strong> stock et acheteur dans le même pays UE.</p>
+    <p><strong>Règle :</strong> TVA locale, canal CA3 (pays d'établissement) ou immatriculation locale (autre pays).</p>
+    <p><strong>Traitement moteur :</strong> classification DOMESTIC, ventilation par taux, intégration dans CA3 ou rapport local.</p>
+
+    <h3 style="margin-top: 15px;">Cas particulier : Art. 194 (Autoliquidation B2B locale)</h3>
+    <p>Dans les pays pratiquant l'autoliquidation nationale (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV), une vente B2B domestique hors du pays d'établissement du vendeur est facturée HT, l'acheteur autoliquidant la taxe.</p>
 </div>
 
-<div class="card">
-    <h2>Reverse charge art. 194</h2>
-    <p>Gestion des reverse charges domestiques dans les pays concernés (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV).</p>
+<div class="card" id="regime-oss">
+    <h2>OSS_B2C – Vente B2C transfrontalière (Guichet unique OSS)</h2>
+    <p><strong>Situation :</strong> stock UE, acheteur dans un autre pays UE, B2C.</p>
+    <p><strong>Règle :</strong> dès que le chiffre d'affaires cumulé des ventes transfrontalières dépasse 10 000 €/an, TVA du pays de destination du consommateur, déclarée via le guichet unique OSS.</p>
+    <p><strong>Traitement moteur :</strong> suivi dynamique du seuil, agrégation OSS par pays, génération du XML OSS officiel + export Excel.</p>
+    <p><strong>Cas particulier B2B reclassifié :</strong> une vente B2B cross-border dont le numéro de TVA acheteur est invalide sur VIES et pour laquelle aucun régime domestique concurrent ne s'applique dans le pays de destination est automatiquement reclassifiée B2C et suit ce régime (Art. 33 Directive TVA).</p>
 </div>
 
-<div class="card">
-    <h2>Immatriculations locales FBA</h2>
-    <p>Détection des stocks Amazon dans des pays UE autres que le pays d’origine du compte, plan d’action immatriculations.</p>
+<div class="card" id="regime-ioss">
+    <h2>IOSS_DIRECT – Import Guichet unique</h2>
+    <p><strong>Situation :</strong> importation B2C ≤ 150 €, vendeur disposant de son propre numéro IOSS.</p>
+    <p><strong>Règle :</strong> TVA du pays de destination collectée directement par le vendeur via son guichet IOSS.</p>
+    <p><strong>Traitement moteur :</strong> classification IOSS_DIRECT, ventilation par canal IOSS, intégration dans les rapports de déclaration.</p>
 </div>
 
-<div class="card">
-    <h2>Territoires hors UE fiscale</h2>
-    <p>Détection des territoires comme Canaries, DOM‑TOM, Åland, etc., exclus des régimes intracommunautaires.</p>
+<div class="card" id="regime-b2b-exonere">
+    <h2>B2B_REVERSE_CHARGE – Livraison B2B exonérée (autoliquidation)</h2>
+    <p><strong>Situation :</strong> B2B intra-UE avec numéro TVA VIES valide chez l'acheteur, biens quittant physiquement le pays d'origine.</p>
+    <p><strong>Règle :</strong> exonération de TVA côté vendeur (Art. 138 Directive 2006/112/CE), autoliquidation par l'acheteur dans sa déclaration nationale.</p>
+    <p><strong>Traitement moteur :</strong> classification B2B_REVERSE_CHARGE, note fiscale avec références légales, contrôle et archivage de la validité VIES (piste d'audit).</p>
+    <p><strong>Cas particulier — VIES invalide :</strong> si le numéro de TVA acheteur échoue à la validation VIES, l'exonération Art. 138 est refusée. Le moteur applique alors soit une taxation au pays de départ (si ce pays pratique l'autoliquidation domestique — Art. 194 n'a d'effet qu'au national, jamais en cross-border), soit une reclassification B2C/OSS — voir <a href="#regime-domestic">DOMESTIC</a> et <a href="#regime-oss">OSS_B2C</a>.</p>
+</div>
+
+<div class="card" id="regime-local">
+    <h2>Local (immatriculations FBA)</h2>
+    <p><strong>Situation :</strong> stock Amazon détecté dans un pays UE autre que le pays d'établissement du vendeur.</p>
+    <p><strong>Règle :</strong> immatriculation TVA locale obligatoire dès le premier euro de stock, déclaration domestique dans ce pays.</p>
+    <p><strong>Traitement moteur :</strong> détection automatique des stocks Amazon multi-pays, alerte et plan d'action immatriculations, intégration dans les rapports locaux.</p>
+</div>
+
+<div class="card" id="regime-deemed-supplier">
+    <h2>DEEMED_SUPPLIER – TVA collectée par la Marketplace</h2>
+    <p><strong>Situation :</strong> vendeur établi hors UE, ou vente B2C par un vendeur hors UE avec import ≤ 150 €.</p>
+    <p><strong>Règle :</strong> Amazon (la marketplace) est réputé fournisseur ("deemed supplier") : elle collecte et reverse directement la TVA. La vente est exonérée pour le vendeur tiers.</p>
+    <p><strong>Traitement moteur :</strong> séparation "Vous / Amazon / Douane" dans les visualisations, exclusion des montants collectés par Amazon des déclarations du vendeur.</p>
+</div>
+
+<div class="card" id="regime-import">
+    <h2>IMPORT_STANDARD & DDP — Importation classique</h2>
+    <p><strong>Situation :</strong> importation hors UE &gt; 150 €, sans IOSS.</p>
+    <p><strong>Règle générale (DDU) :</strong> la TVA d'importation est payée en douane par le client final, le vendeur n'est pas collecteur.</p>
+    <p><strong>Cas particulier (DDP) :</strong> si l'incoterm est DDP, le vendeur est l'importateur officiel et collecte lui-même la TVA du pays de destination (scénario IMPORT_SELLER_AS_IMPORTER).</p>
+    <p><strong>Traitement moteur :</strong> classification IMPORT_STANDARD ou IMPORT_SELLER_AS_IMPORTER selon l'incoterm, ventilation par canal (douane, IOSS), intégration dans les rapports.</p>
+</div>
+
+<div class="card" id="regime-monaco">
+    <h2>MONACO – Stock français, livraison à Monaco</h2>
+    <p><strong>Situation :</strong> stock en France, acheteur situé à Monaco (MC).</p>
+    <p><strong>Règle :</strong> en vertu de la convention fiscale franco-monégasque de 1963, Monaco est traité comme du territoire français au plan de la TVA — ce n'est ni une vente intra-UE, ni une exportation.</p>
+    <p><strong>Traitement moteur :</strong> Monaco est exclu par défaut des recherches "UE" classiques ; le moteur applique un cas spécial dans <code>engine.py</code> qui reclassifie automatiquement ce flux comme vente domestique française si le stock part de France, ou comme OSS vers la France si le stock part d'un autre pays UE (TVA française standard, pas de VIES).</p>
+</div>
+
+<div class="card" id="regime-territoires-exclus">
+    <h2>EXPORT & Territoires hors UE</h2>
+    <p><strong>Situation :</strong> livraison hors Union Européenne (USA, UK, Suisse...) ou vers un territoire rattaché administrativement à un État membre mais exclu du territoire fiscal UE (Canaries, DOM‑TOM, Åland...).</p>
+    <p><strong>Règle :</strong> ces zones sont traitées comme des exportations exonérées de TVA (Art. 262 du CGI), jamais comme de l'intracommunautaire (pas d'OSS, pas de VIES).</p>
+    <p><strong>Traitement moteur :</strong> reclassification automatique en régime d'exportation (taux 0%). Justificatif de sortie du territoire requis pour l'audit.</p>
 </div>
 </main>
 
 <footer>
-    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a></p>
+    <p>&copy; 2026 &ndash; Moteur TVA Intracommunautaire &mdash; Conformité légale européenne | <a href="mentions.html" style="color: #94a3b8; text-decoration: none;">Mentions légales</a> | <a href="confidentialite.html" style="color: #94a3b8; text-decoration: none;">Politique de confidentialité</a> | Contact : <a href="mailto:support@tvacalculator.eu" style="color: #94a3b8; text-decoration: none;">support@tvacalculator.eu</a></p>
 </footer>
 
 </body>

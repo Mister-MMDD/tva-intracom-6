@@ -16,7 +16,6 @@
     --alert-border: #fecaca;
     --alert-text: #991b1b;
     --table-stripe: #f8fafc;
-    --cta-bg: linear-gradient(135deg, #eff6ff, #dbeafe);
 }
 
 body {
@@ -26,6 +25,16 @@ body {
     background-color: var(--bg-primary);
     color: var(--text-main);
     line-height: 1.6;
+}
+
+a {
+    color: var(--primary);
+    text-decoration: none;
+    transition: var(--transition);
+}
+
+a:hover {
+    text-decoration: underline;
 }
 
 /* Menu de Navigation Épuré */
@@ -52,7 +61,7 @@ body {
 }
 
 .menu a.active {
-    color: #ffffff;
+    color: #ffffff !important;
     background: var(--primary);
 }
 
@@ -201,9 +210,19 @@ section h2 {
 
 /* Blocs de code et pre */
 pre {
-    background: var(--bg-primary) !important;
-    color: var(--text-main) !important;
+    background: #f1f5f9;
+    color: var(--text-main);
     border: 1px solid var(--border-color);
+    padding: 15px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+[data-theme="dark"] pre {
+    background: #0d1420 !important;
+    border-color: var(--border-color);
 }
 
 /* Tables */
@@ -227,7 +246,11 @@ td {
 }
 
 tr.stripe {
-    background: var(--table-stripe);
+    background: #f8fafc;
+}
+
+[data-theme="dark"] tr.stripe {
+    background: #1e293b !important;
 }
 
 /* Badges Spécifiques pour les Cas Pratiques et Régimes */
@@ -297,6 +320,11 @@ li strong {
     background: #e2e8f0;
 }
 
+.toggle-button.active {
+    background: #e2e8f0;
+    border-color: var(--primary);
+}
+
 /* Détails masqués des tutoriels */
 .details {
     background: #f8fafc;
@@ -307,16 +335,12 @@ li strong {
 }
 
 /* Call To Action Section */
-.cta, .card.cta-card {
-    background: var(--cta-bg);
+.cta {
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
     padding: 40px;
     border-radius: var(--radius);
     text-align: center;
     border: 1px solid #bfdbfe;
-}
-
-[data-theme="dark"] .cta, [data-theme="dark"] .card.cta-card {
-    border-color: #1e3a5f;
 }
 
 /* Footer Épuré */
@@ -566,7 +590,14 @@ footer {
     --alert-border: #452323;
     --alert-text: #fca5a5;
     --table-stripe: #1e293b;
-    --cta-bg: linear-gradient(135deg, #0c1a2e, #0f2740);
+}
+
+[data-theme="dark"] a {
+    color: var(--primary);
+}
+
+[data-theme="dark"] a:visited {
+    color: var(--primary);
 }
 
 :root {
@@ -595,13 +626,18 @@ footer {
 }
 
 [data-theme="dark"] .toggle-button {
-    background: #1e293b;
+    background: #1f2937;
     color: var(--text-dark);
     border-color: var(--border-color);
 }
 
 [data-theme="dark"] .toggle-button:hover {
-    background: #273549;
+    background: #374151;
+}
+
+[data-theme="dark"] .toggle-button.active {
+    background: #374151;
+    border-color: var(--primary);
 }
 
 [data-theme="dark"] .radio-group {

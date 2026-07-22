@@ -29,12 +29,11 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 NAV_LINKS = [
     ("index.html", "Accueil"),
     ("documentation.html", "Documentation"),
-    ("cas-pratiques.html", "Cas pratiques"),
     ("tarifs.html", "Tarifs"),
     ("securite.html", "Sécurité"),
     ("glossaire.html", "Glossaire"),
     ("faq.html", "FAQ"),
-    ("regimes.html", "Régimes spéciaux"),
+    ("regimes.html", "Liste des régimes"),
     ("arbre-decision.html", "Arbre de décision"),
     ("interface.html", "Interface moteur"),
     ("tutoriels.html", "Simulateur & Tutoriels"),
