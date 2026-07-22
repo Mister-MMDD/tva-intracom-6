@@ -15,6 +15,7 @@ n'intervient pas côté code, seul le price_id compte pour le Checkout).
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import time
@@ -209,7 +210,7 @@ def delete_user_billing_data(user_id: str) -> None:
     """Supprime toutes les données de facturation d'un utilisateur, y compris
     ses SIREN enregistrés, ses crédits d'export et ses liens Amazon.
     Supprime également le client Stripe (ce qui annule ses abonnements)."""
-    
+
     # 1. Supprimer le client Stripe (si configuré)
     customer_id = _existing_stripe_customer_id(user_id)
     if customer_id and _stripe_configured():
@@ -238,16 +239,16 @@ def export_user_billing_data(user_id: str) -> dict:
     """Récupère toutes les données de facturation d'un utilisateur pour export."""
     def _fn(conn, cur):
         data = {}
-        
+
         cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE user_id=%s", (user_id,))
         data["customer"] = cur.fetchone()
-        
+
         cur.execute("SELECT * FROM tva_subscriptions WHERE user_id=%s", (user_id,))
         data["subscriptions"] = [dict(zip([col[0] for col in cur.description], row)) for row in cur.fetchall()]
-        
+
         cur.execute("SELECT * FROM tva_export_credits WHERE user_id=%s", (user_id,))
         data["export_credits"] = [dict(zip([col[0] for col in cur.description], row)) for row in cur.fetchall()]
-        
+
         cur.execute("SELECT * FROM tva_siren_registrations WHERE user_id=%s", (user_id,))
         rows = cur.fetchall()
         # Déchiffrement des noms d'entreprises
@@ -258,7 +259,7 @@ def export_user_billing_data(user_id: str) -> dict:
                 d["company_name"] = _dec(d["company_name"])
             regs.append(d)
         data["siren_registrations"] = regs
-        
+
         return data
 
     return _run(_fn)
@@ -455,10 +456,10 @@ def can_register_new_siren(user_id: str) -> tuple[bool, str]:
 
 
 def register_siren(
-    user_id: str, siren: str, company_name: str = "", tva_number: str = "",
-    ioss_number: str = "", seller_is_importer: bool = False,
-    apply_fr_under_threshold: bool = False, countries_with_vat: str = "",
-    vat_numbers_json: str = ""
+        user_id: str, siren: str, company_name: str = "", tva_number: str = "",
+        ioss_number: str = "", seller_is_importer: bool = False,
+        apply_fr_under_threshold: bool = False, countries_with_vat: str = "",
+        vat_numbers_json: str = ""
 ) -> None:
     """Enregistre un SIREN pour ce compte, ou met à jour ses métadonnées s'il
     est déjà enregistré. Le contrôle de quota (`can_register_new_siren`) doit
@@ -665,16 +666,16 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
         _promotion_obj = _safe_get(promo, "promotion")
         coupon_ref = _safe_get(_promotion_obj, "coupon") if _promotion_obj else _safe_get(promo, "coupon")
         coupon_id = coupon_ref if isinstance(coupon_ref, str) else _safe_get(coupon_ref, "id")
-        
+
         try:
             # On récupère l'objet complet pour être sûr d'avoir applies_to et les montants
             coupon = stripe.Coupon.retrieve(coupon_id) if coupon_id else coupon_ref
         except Exception:
             coupon = coupon_ref
-        
+
         # Conversion en dict pour la stabilité du cache et de l'accès aux champs
         coupon_dict = coupon.to_dict() if hasattr(coupon, "to_dict") else (coupon if isinstance(coupon, dict) else {})
-        
+
         # Extraction très robuste de applies_to (restrictions produits/prix)
         applies_to_raw = coupon_dict.get("applies_to")
         applies_to_clean = None
@@ -688,7 +689,7 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
                     "products": getattr(applies_to_raw, "products", []) or [],
                     "prices": getattr(applies_to_raw, "prices", []) or []
                 }
-        
+
         percent_off = coupon_dict.get("percent_off")
         amount_off_cents = coupon_dict.get("amount_off")
         currency = coupon_dict.get("currency")
@@ -820,18 +821,26 @@ def get_pricing_grid(user_id: Optional[str] = None) -> dict:
             if applies_to:
                 allowed_products = _safe_get(applies_to, "products", []) or []
                 allowed_prices = _safe_get(applies_to, "prices", []) or []
-                
+
                 # Si des restrictions existent, on vérifie si l'une d'elles correspond
                 has_product_restriction = bool(allowed_products)
                 has_price_restriction = bool(allowed_prices)
-                
+
                 if has_product_restriction or has_price_restriction:
                     match_product = product_id in allowed_products if (product_id and allowed_products) else False
                     match_price = price_id in allowed_prices if (price_id and allowed_prices) else False
-                    
+
+                    logging.warning(
+                        "DEBUG_PROMO code=%r product_id=%r price_id=%r allowed_products=%r allowed_prices=%r match=%r",
+                        promo.get("code"), product_id, price_id, allowed_products, allowed_prices,
+                        (match_product or match_price),
+                    )
+
                     # Si aucune des restrictions n'est satisfaite, on ignore ce coupon
                     if not (match_product or match_price):
                         continue
+            else:
+                logging.warning("DEBUG_PROMO code=%r product_id=%r price_id=%r applies_to=None (pas de restriction -> s'applique à tout)", promo.get("code"), product_id, price_id)
 
             _min = promo.get("minimum_amount")
             if _min is not None and (cents / 100) < _min:
@@ -990,13 +999,13 @@ def create_payg_checkout_session(user_id: str, email: str, period_label: str, su
 
 
 def create_subscription_checkout_session(
-    user_id: str,
-    email: str,
-    plan: str,
-    interval: str,
-    success_url: str,
-    cancel_url: str,
-    quantity: int = 1,
+        user_id: str,
+        email: str,
+        plan: str,
+        interval: str,
+        success_url: str,
+        cancel_url: str,
+        quantity: int = 1,
 ) -> str:
     """Crée une session Stripe Checkout pour un abonnement.
 
@@ -1108,13 +1117,13 @@ def _extract_subscription_item_details(data) -> tuple[int, Optional[str], Option
 
 
 def _upsert_subscription(
-    user_id: str,
-    stripe_subscription_id: str,
-    status: str,
-    plan: str,
-    current_period_end: float,
-    billing_interval: Optional[str],
-    siren_quantity: int,
+        user_id: str,
+        stripe_subscription_id: str,
+        status: str,
+        plan: str,
+        current_period_end: float,
+        billing_interval: Optional[str],
+        siren_quantity: int,
 ) -> None:
     def _fn(conn, cur):
         cur.execute(
