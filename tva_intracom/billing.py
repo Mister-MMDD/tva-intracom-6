@@ -636,6 +636,7 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
           "minimum_amount_currency": str|None, "max_redemptions": int|None,
           "stock_remaining": int|None (None = illimité),
           "eligible": bool|None, "ineligible_reasons": list[str],
+          "applies_to": dict|None,
         }
     """
     if not _stripe_configured():
@@ -646,7 +647,11 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
 
     results: list[dict] = []
     try:
-        promos = stripe.PromotionCode.list(active=True, limit=100, expand=["data.coupon"])
+        # On étend le coupon (quel que soit son emplacement selon la version de l'API)
+        promos = stripe.PromotionCode.list(
+            active=True, limit=100,
+            expand=["data.coupon", "data.promotion.coupon"]
+        )
     except Exception:
         return results
 
@@ -656,28 +661,38 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
             # Code privé réservé à un autre client précis : jamais affiché.
             continue
 
-        # Schéma API Stripe constaté sur ce compte (version récente) : le
-        # coupon n'est PAS un champ top-level "coupon" sur le Promotion Code,
-        # mais imbriqué sous "promotion": {"coupon": "<id>", "type": "coupon"}.
-        # Repli sur l'ancien emplacement top-level "coupon" par prudence, au
-        # cas où un compte/une version d'API renverrait l'ancien format.
+        # Récupération robuste du coupon
         _promotion_obj = _safe_get(promo, "promotion")
         coupon_ref = _safe_get(_promotion_obj, "coupon") if _promotion_obj else _safe_get(promo, "coupon")
-        # L'objet "coupon" imbriqué dans PromotionCode.list(...) ne s'est pas
-        # révélé fiable pour lire percent_off/amount_off (cf. bug constaté :
-        # toujours None malgré un coupon à -25% bien actif dans Stripe). On
-        # récupère donc le coupon explicitement via Coupon.retrieve(id),
-        # comme le faisait l'ancienne version de get_pricing_grid qui, elle,
-        # fonctionnait correctement.
         coupon_id = coupon_ref if isinstance(coupon_ref, str) else _safe_get(coupon_ref, "id")
+        
         try:
+            # On récupère l'objet complet pour être sûr d'avoir applies_to et les montants
             coupon = stripe.Coupon.retrieve(coupon_id) if coupon_id else coupon_ref
         except Exception:
             coupon = coupon_ref
-        percent_off = _safe_get(coupon, "percent_off")
-        amount_off_cents = _safe_get(coupon, "amount_off")
-        currency = _safe_get(coupon, "currency")
-        coupon_valid = _safe_get(coupon, "valid", True)
+        
+        # Conversion en dict pour la stabilité du cache et de l'accès aux champs
+        coupon_dict = coupon.to_dict() if hasattr(coupon, "to_dict") else (coupon if isinstance(coupon, dict) else {})
+        
+        # Extraction très robuste de applies_to (restrictions produits/prix)
+        applies_to_raw = coupon_dict.get("applies_to")
+        applies_to_clean = None
+        if applies_to_raw:
+            if hasattr(applies_to_raw, "to_dict"):
+                applies_to_clean = applies_to_raw.to_dict()
+            elif isinstance(applies_to_raw, dict):
+                applies_to_clean = applies_to_raw
+            else:
+                applies_to_clean = {
+                    "products": getattr(applies_to_raw, "products", []) or [],
+                    "prices": getattr(applies_to_raw, "prices", []) or []
+                }
+        
+        percent_off = coupon_dict.get("percent_off")
+        amount_off_cents = coupon_dict.get("amount_off")
+        currency = coupon_dict.get("currency")
+        coupon_valid = coupon_dict.get("valid", True)
         if not coupon_valid:
             continue
 
@@ -735,6 +750,7 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
             "stock_remaining": stock_remaining,
             "eligible": eligible,
             "ineligible_reasons": reasons,
+            "applies_to": applies_to_clean,
         })
 
     return results
@@ -789,16 +805,34 @@ def get_pricing_grid(user_id: Optional[str] = None) -> dict:
         # a disparu serait plus trompeuse qu'une erreur explicite.
         raise RuntimeError(f"Erreur lors du calcul des codes promo applicables : {_promo_err}") from _promo_err
 
-    def _best_discount(cents: Optional[int]) -> tuple[Optional[float], Optional[str], Optional[str]]:
+    def _best_discount(cents: Optional[int], product_id: Optional[str] = None, price_id: Optional[str] = None) -> tuple[Optional[float], Optional[str], Optional[str]]:
         """Retourne (montant_réduit, libellé, code) pour le meilleur candidat
-        applicable à ce montant (en centimes), ou (None, None, None) si aucun
-        candidat n'est applicable."""
+        applicable à ce montant (en centimes), ce produit et ce prix, ou (None, None, None)
+        si aucun candidat n'est applicable."""
         if cents is None:
             return None, None, None
         best_cents: Optional[float] = None
         best_label: Optional[str] = None
         best_code: Optional[str] = None
         for promo in _candidates:
+            # Restriction par produit/prix (Stripe Coupon "applies_to")
+            applies_to = promo.get("applies_to")
+            if applies_to:
+                allowed_products = _safe_get(applies_to, "products", []) or []
+                allowed_prices = _safe_get(applies_to, "prices", []) or []
+                
+                # Si des restrictions existent, on vérifie si l'une d'elles correspond
+                has_product_restriction = bool(allowed_products)
+                has_price_restriction = bool(allowed_prices)
+                
+                if has_product_restriction or has_price_restriction:
+                    match_product = product_id in allowed_products if (product_id and allowed_products) else False
+                    match_price = price_id in allowed_prices if (price_id and allowed_prices) else False
+                    
+                    # Si aucune des restrictions n'est satisfaite, on ignore ce coupon
+                    if not (match_product or match_price):
+                        continue
+
             _min = promo.get("minimum_amount")
             if _min is not None and (cents / 100) < _min:
                 continue  # montant minimum requis non atteint par cette offre
@@ -824,15 +858,18 @@ def get_pricing_grid(user_id: Optional[str] = None) -> dict:
     if _payg_id:
         p = stripe.Price.retrieve(_payg_id, expand=["product"])
         _cents = _safe_get(p, "unit_amount")
-        _disc_amount, _disc_label, _disc_code = _best_discount(_cents)
         _product = _safe_get(p, "product")
+        # Extraction robuste des IDs (p.product peut être l'ID ou l'objet expanded)
+        _product_id = _product if isinstance(_product, str) else _safe_get(_product, "id")
+        _price_id = _safe_get(p, "id")
+        _disc_amount, _disc_label, _disc_code = _best_discount(_cents, _product_id, _price_id)
         grid["payg"] = {
             "amount": _amount(_cents),
             "currency": _safe_get(p, "currency", "eur"),
             "discounted_amount": _disc_amount,
             "discount_label": _disc_label,
             "discount_code": _disc_code,
-            "name": _safe_get(_product, "name") if _product else None,
+            "name": _safe_get(_product, "name") if not isinstance(_product, str) else None,
         }
 
     _biz_keys = {"month": "STRIPE_PRICE_SUB_BUSINESS_MONTHLY", "year": "STRIPE_PRICE_SUB_BUSINESS_YEARLY"}
@@ -842,15 +879,17 @@ def get_pricing_grid(user_id: Optional[str] = None) -> dict:
             continue
         p = stripe.Price.retrieve(price_id, expand=["product"])
         _cents = _safe_get(p, "unit_amount")
-        _disc_amount, _disc_label, _disc_code = _best_discount(_cents)
         _product = _safe_get(p, "product")
+        _product_id = _product if isinstance(_product, str) else _safe_get(_product, "id")
+        _price_id = _safe_get(p, "id")
+        _disc_amount, _disc_label, _disc_code = _best_discount(_cents, _product_id, _price_id)
         grid["business"][interval] = {
             "amount": _amount(_cents),
             "currency": _safe_get(p, "currency", "eur"),
             "discounted_amount": _disc_amount,
             "discount_label": _disc_label,
             "discount_code": _disc_code,
-            "name": _safe_get(_product, "name") if _product else None,
+            "name": _safe_get(_product, "name") if not isinstance(_product, str) else None,
         }
 
     _cab_keys = {"month": "STRIPE_PRICE_SUB_CABINET_MONTHLY", "year": "STRIPE_PRICE_SUB_CABINET_YEARLY"}
@@ -859,11 +898,14 @@ def get_pricing_grid(user_id: Optional[str] = None) -> dict:
         if not price_id:
             continue
         p = stripe.Price.retrieve(price_id, expand=["tiers", "product"])
+        _product = _safe_get(p, "product")
+        _product_id = _product if isinstance(_product, str) else _safe_get(_product, "id")
+        _price_id = _safe_get(p, "id")
         tiers_raw = _safe_get(p, "tiers", []) or []
         tiers = []
         for t in tiers_raw:
             _unit_cents = _safe_get(t, "unit_amount")
-            _disc_amount, _disc_label, _disc_code = _best_discount(_unit_cents)
+            _disc_amount, _disc_label, _disc_code = _best_discount(_unit_cents, _product_id, _price_id)
             tiers.append({
                 "up_to": _safe_get(t, "up_to"),  # None = infini (dernier palier)
                 "unit_amount": _amount(_unit_cents),
@@ -872,12 +914,11 @@ def get_pricing_grid(user_id: Optional[str] = None) -> dict:
                 "discount_label": _disc_label,
                 "discount_code": _disc_code,
             })
-        _product = _safe_get(p, "product")
         grid["cabinet"][interval] = {
             "billing_scheme": _safe_get(p, "billing_scheme"),
             "currency": _safe_get(p, "currency", "eur"),
             "tiers": tiers,
-            "name": _safe_get(_product, "name") if _product else None,
+            "name": _safe_get(_product, "name") if not isinstance(_product, str) else None,
         }
 
     return grid
