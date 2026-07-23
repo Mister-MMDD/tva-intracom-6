@@ -1100,3 +1100,43 @@ engine_note_ddp_import = "Import > 150 EUR, Verkäufer ist offizieller Importeur
 engine_note_import_standard = "Import > 150 EUR aus einem Drittland: Einfuhrumsatzsteuer in {country} ({rate}%) vom Importeur beim Zoll geschuldet."
 engine_note_oss_under_threshold = "Unter der OSS-Schwelle ({cumulative}/{limit} {currency}). MwSt-Option {country} aktiviert."
 engine_note_oss_threshold_crossed = "OSS-Schwelle überschritten! Verkauf nach {country}."
+
+# ── VIES-Gültigkeitszertifikat (PDF) ────────────────────────────────────────
+vies_certificate_expander = "📄 VIES-Gültigkeitszertifikat (PDF)"
+vies_certificate_caption = "Erstellen Sie ein PDF mit dem vollständigen Verlauf der VIES-Prüfungen Ihrer B2B-Kunden — als Nachweis Ihres guten Glaubens bei einer Steuerprüfung."
+vies_certificate_btn = "Zertifikat erstellen"
+vies_certificate_empty_info = "Für dieses Konto wurde noch keine B2B-USt-IdNr. geprüft."
+vies_certificate_error = "Fehler beim Erstellen des Zertifikats: {error}"
+vies_certificate_dl_btn = "⬇️ Zertifikat herunterladen (PDF)"
+vies_certificate_filename = "VIES_Zertifikat_{company}.pdf"
+
+# ── Geführte Tour (Onboarding) ───────────────────────────────────────────────
+onboarding_step_progress = "Schritt {step}/{total}"
+onboarding_skip_btn = "Überspringen"
+onboarding_next_btn = "Weiter →"
+onboarding_finish_btn = "Fertig"
+
+onboarding_sidebar_step1_title = "👋 Willkommen! Beginnen wir mit der Seitenleiste"
+onboarding_sidebar_step1_body = "Bevor Sie Ihre erste Datei importieren, bestimmen einige Einstellungen in der Seitenleiste (links) alle Berechnungen. Machen wir einen kurzen Rundgang."
+onboarding_sidebar_step2_title = "🏠 Herkunftsland & Währung"
+onboarding_sidebar_step2_body = "Oben in der Seitenleiste: Wählen Sie das **Sitzland** Ihres Unternehmens (das auf Ihrer Haupt-USt-IdNr. steht) und bei Bedarf eine andere **Anzeigewährung**. Diese Einstellung bestimmt die gesamte steuerliche Einstufung — prüfen Sie sie zuerst."
+onboarding_sidebar_step3_title = "🏢 Unternehmen & Einstellungen"
+onboarding_sidebar_step3_body = "Im Bereich **Unternehmen & Einstellungen**: geben Sie Ihre SIREN-Nummer, Ihre USt-IdNr., eine optionale **IOSS**-Nummer sowie die Länder an, in denen Sie bereits lokal umsatzsteuerlich registriert sind. Diese Angaben sind für eine korrekte Berechnung erforderlich."
+onboarding_sidebar_step4_title = "💳 Abonnement"
+onboarding_sidebar_step4_body = "Im Bereich **Abonnements & Tarife** können Sie schließlich Exporte freischalten (Einzelkauf oder Abo). Sie können das Tool kostenlos testen, bevor Sie sich für einen Tarif entscheiden. Sie sind bereit: importieren Sie Ihre erste Datei!"
+
+onboarding_tabs_step1_title = "📑 Ihre Datei ist importiert — hier sind die 6 Reiter"
+onboarding_tabs_step1_body = "Die Zusammenfassung oben gibt Ihnen einen Überblick. Darunter zeigen sechs Reiter jeden Aspekt Ihrer Umsatzsteuersituation im Detail."
+onboarding_tabs_step2_title = "🧾 Erklärungen"
+onboarding_tabs_step2_body = "Eine zahlenbasierte Zusammenfassung Ihrer Meldepflichten: fällige USt nach Land und Regime (national, OSS, B2B)."
+onboarding_tabs_step3_title = "📋 Verkaufsdetails"
+onboarding_tabs_step3_body = "Eine zeilenweise Liste all Ihrer Verkäufe mit der jeweils angewendeten USt-Berechnung."
+onboarding_tabs_step4_title = "✅ VIES"
+onboarding_tabs_step4_body = "Prüfung der USt-IdNr. Ihrer B2B-Kunden über den europäischen VIES-Dienst — plus das PDF-Zertifikat für eine Steuerprüfung."
+onboarding_tabs_step5_title = "🔍 Amazon-Audit"
+onboarding_tabs_step5_body = "Ein Vergleich zwischen der von unserer Engine berechneten USt und der von Ihrem Marktplatz angewendeten USt — um mögliche Konfigurationsabweichungen zu erkennen."
+onboarding_tabs_step6_title = "⬇️ Downloads & 📊 Visualisierungen"
+onboarding_tabs_step6_body = "Der erste bietet alle Exporte (Excel, OSS-XML, CA3, FEC...). Der zweite bietet Diagramme zur Visualisierung Ihrer Aktivität. Viel Spaß beim Entdecken!"
+
+# ── Hintergrundberechnung (große Dateien) ───────────────────────────────────
+calc_bg_running_caption = "📊 Große Datei ({rows} Zeilen) — die Berechnung läuft im Hintergrund weiter. Sie können währenddessen die Seitenleiste weiter nutzen."

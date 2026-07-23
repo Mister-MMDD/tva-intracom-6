@@ -448,45 +448,64 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 # Option pour déverrouiller la modification des numéros déjà enregistrés
                 allow_edit_ids = st.checkbox(_("edit_ids_checkbox"), value=False, help=_("edit_ids_help"))
 
-                # IOSS
+                # ── Valeurs EFFECTIVES (persistées) vs BROUILLON (widgets) ──
+                # BUGFIX : avant, ioss_number / seller_is_importer /
+                # apply_fr_under_threshold / countries_with_vat étaient les
+                # valeurs LIVE des widgets, renvoyées telles quelles dans
+                # SidebarResult — donc injectées dans _cache_key (app.py) à
+                # chaque frappe, avant même le clic sur "Enregistrer les
+                # modifications" : ça déclenchait un recalcul TVA/VIES complet
+                # pour un simple caractère tapé. Les valeurs renvoyées pour le
+                # calcul restent maintenant celles réellement enregistrées en
+                # base (_match) ; les widgets ci-dessous n'alimentent qu'un
+                # brouillon local, utilisé uniquement pour construire le
+                # payload de sauvegarde au clic sur le bouton.
                 _ioss_val = _match.get("ioss_number") or ""
-                if _ioss_val and not allow_edit_ids:
-                    st.caption(f"IOSS : **{_ioss_val}**")
-                    ioss_number = _ioss_val
-                else:
-                    ioss_number = st.text_input(_("ioss_number_label"),
-                        value=_ioss_val,
-                        placeholder="ex: IM1234567890", key="ioss_edit")
-
-                seller_is_importer = st.toggle(_("ddp_label"), value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
-                apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", limit=_oss_limit_label(home_country)), value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
-
                 _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
                 _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
 
-                countries_with_vat = st.multiselect(_("local_vat_countries_label"),
+                ioss_number = _ioss_val
+                seller_is_importer = _match.get("seller_is_importer") or False if _match else False
+                apply_fr_under_threshold = _match.get("apply_fr_under_threshold") or False if _match else False
+                countries_with_vat = list(_default_vat_countries)
+                tva_fr = _tva_fr_fixed
+                local_vat_numbers = dict(_existing_vats)
+
+                # IOSS (brouillon)
+                if _ioss_val and not allow_edit_ids:
+                    st.caption(f"IOSS : **{_ioss_val}**")
+                    _draft_ioss_number = _ioss_val
+                else:
+                    _draft_ioss_number = st.text_input(_("ioss_number_label"),
+                        value=_ioss_val,
+                        placeholder="ex: IM1234567890", key="ioss_edit")
+
+                _draft_seller_is_importer = st.toggle(_("ddp_label"), value=_match.get("seller_is_importer") or False if _match else False, key="ddp_edit")
+                _draft_apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", limit=_oss_limit_label(home_country)), value=_match.get("apply_fr_under_threshold") or False if _match else False, key="oss_thr_edit")
+
+                _draft_countries_with_vat = st.multiselect(_("local_vat_countries_label"),
                     options=sorted(list(EU_COUNTRIES)), default=_default_vat_countries, key="vat_countries_edit")
 
-                local_vat_numbers = {}
+                _draft_local_vat_numbers = {}
                 _missing_vat_input = False
-                if countries_with_vat:
+                if _draft_countries_with_vat:
                     st.caption(_("local_vat_numbers_caption"))
-                    for ccode in sorted(countries_with_vat):
+                    for ccode in sorted(_draft_countries_with_vat):
                         _val = _existing_vats.get(ccode, "")
                         if _val and not allow_edit_ids:
                             st.caption(f"✅ {ccode} : **{_val}**")
-                            local_vat_numbers[ccode] = _val
+                            _draft_local_vat_numbers[ccode] = _val
                         else:
                             _v = st.text_input(_("vat_number_for", country=ccode),
                                                value=_val,
                                                key=f"vat_num_edit_{ccode}",
                                                placeholder=f"ex: {ccode}123456789")
-                            local_vat_numbers[ccode] = _v.strip()
+                            _draft_local_vat_numbers[ccode] = _v.strip()
                             if not _v.strip():
                                 _missing_vat_input = True
 
                 # Mise à jour de tva_fr pour le XML OSS (toujours basé sur le numéro FR)
-                tva_fr = local_vat_numbers.get("FR", _tva_fr_fixed)
+                _draft_tva_fr = _draft_local_vat_numbers.get("FR", _tva_fr_fixed)
 
                 if st.button(_("save_changes_btn"), key="btn_update_siren"):
                     if _missing_vat_input:
@@ -495,12 +514,12 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         try:
                             tva_billing.register_siren(
                                 _current_user.id, siren_entreprise.strip(),
-                                nom_entreprise.strip(), tva_fr.strip(),
-                                ioss_number=ioss_number.strip(),
-                                seller_is_importer=seller_is_importer,
-                                apply_fr_under_threshold=apply_fr_under_threshold,
-                                countries_with_vat=",".join(countries_with_vat),
-                                vat_numbers_json=json.dumps(local_vat_numbers)
+                                nom_entreprise.strip(), _draft_tva_fr.strip(),
+                                ioss_number=_draft_ioss_number.strip(),
+                                seller_is_importer=_draft_seller_is_importer,
+                                apply_fr_under_threshold=_draft_apply_fr_under_threshold,
+                                countries_with_vat=",".join(_draft_countries_with_vat),
+                                vat_numbers_json=json.dumps(_draft_local_vat_numbers)
                             )
                             st.success(_("update_success"))
                             _invalidate_db_cache(f"sirens_{_current_user.id}")

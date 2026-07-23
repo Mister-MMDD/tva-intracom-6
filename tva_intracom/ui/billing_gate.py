@@ -102,6 +102,17 @@ class BillingGate:
     unlinked_identifiers: list = field(default_factory=list)
     conflicting_links: list = field(default_factory=list)  # [(identifier, other_siren)]
 
+    # SIREN saisi non retrouvé parmi les SIREN enregistrés pour ce compte —
+    # distinct de account_link_blocked (rattachement compte Amazon<->SIREN) :
+    # ici c'est le SIREN lui-même qui n'est pas reconnu. Les deux forcent
+    # can_export=False mais doivent afficher un message différent de celui
+    # du paywall Stripe dans gated_download() — voir BUGFIX ci-dessous.
+    siren_mismatch: bool = False
+
+    # Abonnement actif OU crédit ponctuel — indépendant des gates de
+    # conformité (SIREN, rattachement compte, quota). Voir build_billing_gate.
+    billing_ok: bool = True
+
     current_user: Any = field(repr=False, default=None)
     vies_summary: Any = field(repr=False, default=None)
     stripe_success_url: Any = field(repr=False, default=None)
@@ -148,6 +159,31 @@ class BillingGate:
                       quota=self.quota_status.quota,
                       over=self.quota_status.over_quota_by)
                 )
+                return
+
+            # BUGFIX (priorité) : account_link_blocked / siren_mismatch
+            # forcent can_export=False mais N'ONT DE SENS QUE pour un compte
+            # DÉJÀ payant — ce sont des gates de conformité, pas de
+            # facturation. Un utilisateur qui n'est PAS (encore) abonné doit
+            # toujours voir le paywall Stripe en priorité : sinon, un
+            # nouveau compte non-abonné (dont le rattachement Amazon<->SIREN
+            # n'a par définition jamais pu être confirmé) voyait le message
+            # "confirmez le rattachement du compte" au lieu du vrai message
+            # bloquant, "abonnez-vous". `billing_ok` est calculé plus haut,
+            # AVANT les gates de conformité, précisément pour permettre
+            # cette distinction.
+            if not self.billing_ok:
+                pass  # tombe directement dans le paywall Stripe ci-dessous
+
+            # Ces deux cas ne concernent donc que le cas où le compte EST
+            # déjà payant (billing_ok True) mais reste bloqué par une
+            # conformité non résolue.
+            elif self.account_link_blocked:
+                st.error(_("gate_account_link_blocked_err", label=label))
+                return
+
+            elif self.siren_mismatch:
+                st.error(_("gate_siren_not_registered_err", siren=self.siren_entreprise))
                 return
 
             _url = self.get_payg_checkout_url()
@@ -266,6 +302,13 @@ def build_billing_gate(
         (_cached_sub_status and _cached_sub_status.active)
         or tva_billing.has_export_credit(current_user.id, period_label)
     )
+    # État "financier" pur (abonnement actif OU crédit ponctuel), capturé
+    # AVANT les gates de conformité (SIREN, quota, rattachement compte)
+    # ci-dessous qui peuvent eux aussi mettre can_export à False. Nécessaire
+    # pour prioriser correctement le message affiché dans gated_download() :
+    # un utilisateur non abonné doit voir "abonnez-vous", jamais un message
+    # de conformité qui n'a de sens que s'il est déjà payant.
+    billing_ok = can_export
 
     quota_status = siren_quota_status
 
@@ -273,6 +316,7 @@ def build_billing_gate(
     # Réutilise le même cache (clé identique) que render_sidebar() : la
     # sidebar a déjà lu/mis en cache cette liste plus tôt dans le même
     # rerun, donc pas de second aller-retour Postgres ici.
+    siren_mismatch = False
     if can_export and siren_entreprise:
         try:
             _siren_ok = any(
@@ -286,6 +330,7 @@ def build_billing_gate(
             _siren_ok = True
         if not _siren_ok:
             can_export = False
+            siren_mismatch = True
             st.error(_("gate_siren_not_registered_err", siren=siren_entreprise))
 
     # ── Gate sur-quota
@@ -371,6 +416,7 @@ def build_billing_gate(
         period_label=period_label,
         period_detected_range=period_detected_range,
         can_export=can_export,
+        billing_ok=billing_ok,
         quota_status=quota_status,
         compliance_blocked=compliance_blocked,
         missing_vats=missing_vats,
@@ -378,6 +424,7 @@ def build_billing_gate(
         unlock_label_suffix=unlock_label_suffix,
         sub_status=_cached_sub_status.status if _cached_sub_status else None,
         account_link_blocked=account_link_blocked,
+        siren_mismatch=siren_mismatch,
         unlinked_identifiers=unlinked_identifiers,
         conflicting_links=conflicting_links,
         current_user=current_user,
@@ -388,6 +435,37 @@ def build_billing_gate(
         siren_entreprise=siren_entreprise,
         nom_entreprise=nom_entreprise,
     )
+
+
+@st.fragment
+def _render_unlinked_identifiers_fragment(gate: "BillingGate") -> None:
+    """Isolé en fragment : BUGFIX — cocher la case de confirmation ne fait
+    que révéler le bouton "Confirmer" juste en dessous, ça ne doit surtout
+    pas redessiner toute la page (les 6 onglets, tableaux et graphiques déjà
+    affichés) à chaque coche. Seul le clic sur "Confirmer" a besoin d'un
+    rerun complet (st.rerun() par défaut, hors fragment) puisqu'il faut que
+    build_billing_gate() soit ré-évalué en amont pour faire disparaître ce
+    panneau et débloquer les téléchargements."""
+    for _identifier in gate.unlinked_identifiers:
+        st.markdown(
+            _("account_link_new_title", identifier=_identifier)
+        )
+        st.caption(_("account_link_new_caption"))
+        _confirm_key = f"confirm_link_{gate.vies_scope_id}_{_identifier}"
+        _confirmed = st.checkbox(
+            _("account_link_confirm_checkbox",
+              identifier=_identifier, company=gate.nom_entreprise or gate.siren_entreprise,
+              siren=gate.siren_entreprise),
+            key=_confirm_key,
+        )
+        if _confirmed:
+            if st.button(_("account_link_confirm_btn"), key=f"btn_link_{gate.vies_scope_id}_{_identifier}"):
+                try:
+                    tva_billing.link_account_identifier(gate.vies_scope_id, _identifier, gate.siren_entreprise)
+                    st.success(_("account_link_success", identifier=_identifier, siren=gate.siren_entreprise))
+                    st.rerun()  # rerun complet volontaire : fait disparaître ce panneau
+                except Exception as _link_err:
+                    st.error(_("account_link_error", error=_link_err))
 
 
 def render_account_link_panel(gate: BillingGate) -> None:
@@ -422,26 +500,7 @@ def render_account_link_panel(gate: BillingGate) -> None:
     with st.container():
         st.warning(_("account_link_panel_intro"))
 
-        for _identifier in gate.unlinked_identifiers:
-            st.markdown(
-                _("account_link_new_title", identifier=_identifier)
-            )
-            st.caption(_("account_link_new_caption"))
-            _confirm_key = f"confirm_link_{gate.vies_scope_id}_{_identifier}"
-            _confirmed = st.checkbox(
-                _("account_link_confirm_checkbox",
-                  identifier=_identifier, company=gate.nom_entreprise or gate.siren_entreprise,
-                  siren=gate.siren_entreprise),
-                key=_confirm_key,
-            )
-            if _confirmed:
-                if st.button(_("account_link_confirm_btn"), key=f"btn_link_{gate.vies_scope_id}_{_identifier}"):
-                    try:
-                        tva_billing.link_account_identifier(gate.vies_scope_id, _identifier, gate.siren_entreprise)
-                        st.success(_("account_link_success", identifier=_identifier, siren=gate.siren_entreprise))
-                        st.rerun()
-                    except Exception as _link_err:
-                        st.error(_("account_link_error", error=_link_err))
+        _render_unlinked_identifiers_fragment(gate)
 
         for _identifier, _other_siren in gate.conflicting_links:
             _other_label = _siren_labels.get(_other_siren, _other_siren)

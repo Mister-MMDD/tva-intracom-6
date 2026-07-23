@@ -24,8 +24,47 @@ def render_vies(ctx: TabContext) -> None:
     _vies_scope_id = ctx.vies_scope_id
     enable_vies = ctx.enable_vies
     nom_entreprise = ctx.nom_entreprise
+    siren_entreprise = ctx.siren_entreprise
     period_label = ctx.period_label
     vies_summary = ctx.vies_summary
+
+    # ── Certificat de Validité VIES (PDF) ────────────────────────────────
+    # Photographie complète de l'historique de vérification VIES connu par ce
+    # scope (pas seulement les numéros du fichier importé aujourd'hui) — sert
+    # de preuve de bonne foi en cas de contrôle fiscal (voir docstring de
+    # vies_certificate.py). Affiché même si enable_vies est désactivé ou si
+    # aucun B2B n'a été détecté dans le fichier courant : la piste d'audit,
+    # elle, peut contenir des vérifications issues d'imports précédents.
+    with st.expander(_("vies_certificate_expander"), expanded=False):
+        st.caption(_("vies_certificate_caption"))
+        if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate"):
+            try:
+                from tva_intracom.vies_engine import get_scope_vies_snapshot
+                from tva_intracom.vies_certificate import generate_vies_certificate_pdf
+
+                _snapshot = get_scope_vies_snapshot(_vies_scope_id)
+                _pdf_bytes = generate_vies_certificate_pdf(
+                    _snapshot,
+                    company_name=nom_entreprise,
+                    siren=siren_entreprise,
+                    scope_id=_vies_scope_id,
+                    period_label=period_label,
+                    country_label_fn=_country_label,
+                )
+                st.session_state["_vies_certificate_pdf"] = _pdf_bytes
+                if not _snapshot:
+                    st.info(_("vies_certificate_empty_info"))
+            except Exception as _cert_err:
+                st.error(_("vies_certificate_error", error=_cert_err))
+
+        if st.session_state.get("_vies_certificate_pdf"):
+            _gated_download(
+                _("vies_certificate_dl_btn"),
+                data=st.session_state["_vies_certificate_pdf"],
+                file_name=_("vies_certificate_filename", company=nom_entreprise),
+                mime="application/pdf",
+                type="primary",
+            )
 
     if not enable_vies:
         st.info(_("vies_tab_enable_info"))

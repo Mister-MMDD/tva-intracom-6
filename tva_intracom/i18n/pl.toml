@@ -1101,3 +1101,43 @@ engine_note_ddp_import = "Import > 150 EUR, sprzedawca jest oficjalnym importere
 engine_note_import_standard = "Import > 150 EUR z kraju trzeciego: VAT importowy w {country} ({rate}%) nalezny na granicy od importera."
 engine_note_oss_under_threshold = "Ponizej progu OSS ({cumulative}/{limit} {currency}). Aktywowana opcja VAT {country}."
 engine_note_oss_threshold_crossed = "Przekroczono prog OSS! Sprzedaz do {country}."
+
+# ── Certyfikat Ważności VIES (PDF) ──────────────────────────────────────────
+vies_certificate_expander = "📄 Certyfikat Ważności VIES (PDF)"
+vies_certificate_caption = "Wygeneruj PDF podsumowujący pełną historię weryfikacji VIES Twoich klientów B2B — zachowaj jako dowód dobrej wiary w razie kontroli podatkowej."
+vies_certificate_btn = "Generuj certyfikat"
+vies_certificate_empty_info = "Dla tego konta nie zweryfikowano jeszcze żadnego numeru VAT B2B."
+vies_certificate_error = "Błąd podczas generowania certyfikatu: {error}"
+vies_certificate_dl_btn = "⬇️ Pobierz certyfikat (PDF)"
+vies_certificate_filename = "Certyfikat_VIES_{company}.pdf"
+
+# ── Wycieczka z przewodnikiem (onboarding) ──────────────────────────────────
+onboarding_step_progress = "Krok {step}/{total}"
+onboarding_skip_btn = "Pomiń"
+onboarding_next_btn = "Dalej →"
+onboarding_finish_btn = "Zakończ"
+
+onboarding_sidebar_step1_title = "👋 Witamy! Zacznijmy od paska bocznego"
+onboarding_sidebar_step1_body = "Zanim zaimportujesz pierwszy plik, kilka ustawień na pasku bocznym (po lewej) będzie warunkować wszystkie obliczenia. Zróbmy szybki przegląd."
+onboarding_sidebar_step2_title = "🏠 Kraj siedziby i waluta"
+onboarding_sidebar_step2_body = "Na górze paska bocznego: wybierz **kraj siedziby** swojej firmy (ten z Twojego głównego numeru VAT), a następnie, w razie potrzeby, inną **walutę wyświetlania**. To ustawienie warunkuje całą klasyfikację podatkową — sprawdź je jako pierwsze."
+onboarding_sidebar_step3_title = "🏢 Firma i Ustawienia"
+onboarding_sidebar_step3_body = "W sekcji **Firma i Ustawienia**: podaj swój numer SIREN, numer VAT, ewentualny numer **IOSS** oraz kraje, w których jesteś już zarejestrowany do lokalnego VAT. Te informacje są niezbędne do poprawnego obliczenia."
+onboarding_sidebar_step4_title = "💳 Subskrypcja"
+onboarding_sidebar_step4_body = "Na koniec sekcja **Subskrypcje i plany** pozwala odblokować eksporty (płatność za użycie lub subskrypcja). Możesz bezpłatnie poznać narzędzie przed wyborem planu. Jesteś gotowy: zaimportuj swój pierwszy plik!"
+
+onboarding_tabs_step1_title = "📑 Twój plik został zaimportowany — oto 6 zakładek"
+onboarding_tabs_step1_body = "Powyższe podsumowanie daje ogólny widok. Poniżej sześć zakładek szczegółowo opisuje każdy aspekt Twojej sytuacji VAT."
+onboarding_tabs_step2_title = "🧾 Deklaracje"
+onboarding_tabs_step2_body = "Liczbowe podsumowanie obowiązków deklaracyjnych: VAT należny według kraju i systemu (krajowy, OSS, B2B)."
+onboarding_tabs_step3_title = "📋 Szczegóły sprzedaży"
+onboarding_tabs_step3_body = "Lista wiersz po wierszu wszystkich Twoich transakcji sprzedaży, wraz z zastosowanym obliczeniem VAT."
+onboarding_tabs_step4_title = "✅ VIES"
+onboarding_tabs_step4_body = "Weryfikacja numerów VAT Twoich klientów B2B w europejskim systemie VIES — oraz certyfikat PDF do zachowania na wypadek kontroli."
+onboarding_tabs_step5_title = "🔍 Audyt Amazon"
+onboarding_tabs_step5_body = "Porównanie VAT obliczonego przez nasz silnik z VAT zastosowanym przez Twój marketplace — w celu wykrycia ewentualnych rozbieżności konfiguracyjnych."
+onboarding_tabs_step6_title = "⬇️ Pobieranie i 📊 Wizualizacje"
+onboarding_tabs_step6_body = "Pierwsza zakładka daje wszystkie eksporty (Excel, XML OSS, CA3, FEC...). Druga oferuje wykresy do wizualizacji Twojej działalności. Miłego zwiedzania!"
+
+# ── Obliczenia w tle (duże pliki) ────────────────────────────────────────────
+calc_bg_running_caption = "📊 Duży plik ({rows} wierszy) — obliczenia trwają w tle. W międzyczasie możesz nadal korzystać z paska bocznego."

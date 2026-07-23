@@ -728,6 +728,83 @@ def export_scope_data(scope_id: str) -> dict:
     }
 
 
+def get_scope_vies_snapshot(scope_id: str) -> list[dict]:
+    """Photographie complète, pour un scope donné, de TOUS les numéros de TVA
+    intracommunautaire jamais vérifiés — utilisée pour générer le
+    "Certificat de Validité VIES" (voir vies_certificate.py). Pour chaque
+    numéro :
+      - le statut RETENU aujourd'hui par le moteur (override manuel s'il
+        existe et n'est pas expiré, sinon dernier statut du cache scope) ;
+      - la date de première et de dernière vérification connues par ce
+        scope (piste d'audit vies_check_history).
+
+    Ne renvoie que des données déjà scopées (isolation par compte/cabinet) —
+    jamais le cache global mutualisé.
+    """
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT vat_id, valid, country_code, vat_number, checked_at "
+            "FROM vies_scope_cache WHERE scope_id=%s",
+            (scope_id,),
+        )
+        cache_rows = cur.fetchall()
+
+        cur.execute(
+            "SELECT vat_id, MIN(checked_at), MAX(checked_at), COUNT(*) "
+            "FROM vies_check_history WHERE scope_id=%s GROUP BY vat_id",
+            (scope_id,),
+        )
+        history_bounds = {
+            r[0]: {"first_checked_at": r[1], "last_checked_at": r[2], "nb_checks": r[3]}
+            for r in cur.fetchall()
+        }
+
+        cur.execute(
+            "SELECT full_vat, is_valid, set_at FROM vies_manual_overrides WHERE scope_id=%s",
+            (scope_id,),
+        )
+        overrides = {r[0]: (bool(r[1]), r[2]) for r in cur.fetchall()}
+
+    snapshot = []
+    for vat_id, valid, country_code, vat_number, checked_at in cache_rows:
+        _bounds = history_bounds.get(vat_id, {})
+        _override = overrides.get(vat_id)
+        _is_manual = _override is not None and not _is_expired(_override[1])
+        _final_valid = _override[0] if _is_manual else bool(valid)
+        snapshot.append({
+            "vat_id": vat_id,
+            "country_code": country_code,
+            "vat_number": vat_number,
+            "valid": _final_valid,
+            "source": "manuel" if _is_manual else "VIES",
+            "first_checked_at": (_bounds.get("first_checked_at") or checked_at),
+            "last_checked_at": (_bounds.get("last_checked_at") or checked_at),
+            "nb_checks": _bounds.get("nb_checks", 1),
+        })
+
+    # Numéros classifiés manuellement mais absents du cache scope (rare,
+    # ex. override posé sur un numéro jamais revu depuis par le moteur) :
+    # on les inclut quand même, la piste d'audit doit rester complète.
+    _known_vat_ids = {row["vat_id"] for row in snapshot}
+    for full_vat, (is_valid, set_at) in overrides.items():
+        if full_vat in _known_vat_ids or _is_expired(set_at):
+            continue
+        _bounds = history_bounds.get(full_vat, {})
+        snapshot.append({
+            "vat_id": full_vat,
+            "country_code": full_vat[:2],
+            "vat_number": full_vat[2:],
+            "valid": is_valid,
+            "source": "manuel",
+            "first_checked_at": _bounds.get("first_checked_at") or set_at,
+            "last_checked_at": _bounds.get("last_checked_at") or set_at,
+            "nb_checks": _bounds.get("nb_checks", 0),
+        })
+
+    snapshot.sort(key=lambda d: d["vat_id"])
+    return snapshot
+
+
 def purge_malformed_entries() -> int:
     """Purge administrative, une fois par session (appelée depuis app.py) :
     supprime les entrées vat_id mal préfixées par un bug historique (double

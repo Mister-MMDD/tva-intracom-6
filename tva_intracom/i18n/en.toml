@@ -1101,3 +1101,43 @@ engine_note_ddp_import = "Import > EUR 150, seller is the official importer (DDP
 engine_note_import_standard = "Import > EUR 150 from a third country: import VAT in {country} ({rate}%) due to customs by the importer."
 engine_note_oss_under_threshold = "Below the OSS threshold ({cumulative}/{limit} {currency}). {country} VAT option applied."
 engine_note_oss_threshold_crossed = "OSS threshold exceeded! Sale to {country}."
+
+# ── VIES Validity Certificate (PDF) ─────────────────────────────────────────
+vies_certificate_expander = "📄 VIES Validity Certificate (PDF)"
+vies_certificate_caption = "Generate a PDF summarising the full history of VIES checks for your B2B customers — keep it as proof of good faith in case of a tax audit."
+vies_certificate_btn = "Generate certificate"
+vies_certificate_empty_info = "No B2B VAT number has been checked yet for this account."
+vies_certificate_error = "Error generating the certificate: {error}"
+vies_certificate_dl_btn = "⬇️ Download certificate (PDF)"
+vies_certificate_filename = "VIES_Certificate_{company}.pdf"
+
+# ── Guided tour (onboarding) ─────────────────────────────────────────────────
+onboarding_step_progress = "Step {step}/{total}"
+onboarding_skip_btn = "Skip"
+onboarding_next_btn = "Next →"
+onboarding_finish_btn = "Finish"
+
+onboarding_sidebar_step1_title = "👋 Welcome! Let's start with the sidebar"
+onboarding_sidebar_step1_body = "Before importing your first file, a few settings in the sidebar (on the left) will drive all the calculations. Let's take a quick tour."
+onboarding_sidebar_step2_title = "🏠 Home country & currency"
+onboarding_sidebar_step2_body = "At the top of the sidebar: choose the **country of establishment** of your business (the one on your main VAT number), then, if needed, a different **display currency**. This setting drives the whole tax classification — check it first."
+onboarding_sidebar_step3_title = "🏢 Company & Settings"
+onboarding_sidebar_step3_body = "In the **Company & Settings** section: enter your SIREN, your VAT number, an optional **IOSS** number, and the countries where you're already VAT-registered locally. This information is required for a correct calculation."
+onboarding_sidebar_step4_title = "💳 Subscription"
+onboarding_sidebar_step4_body = "Finally, the **Subscriptions & plans** section lets you unlock exports (pay-per-use or subscription). You can explore the tool for free before choosing a plan. You're all set: import your first file!"
+
+onboarding_tabs_step1_title = "📑 Your file is imported — here are the 6 tabs"
+onboarding_tabs_step1_body = "The summary above gives you an overview. Below it, six tabs detail every aspect of your VAT situation."
+onboarding_tabs_step2_title = "🧾 Declarations"
+onboarding_tabs_step2_body = "A figures-based summary of your filing obligations: VAT due by country and by regime (domestic, OSS, B2B)."
+onboarding_tabs_step3_title = "📋 Sales detail"
+onboarding_tabs_step3_body = "A line-by-line list of all your sales, with the VAT calculation applied to each one."
+onboarding_tabs_step4_title = "✅ VIES"
+onboarding_tabs_step4_body = "Checking your B2B customers' VAT numbers against the European VIES service — plus the PDF certificate to keep in case of an audit."
+onboarding_tabs_step5_title = "🔍 Amazon Audit"
+onboarding_tabs_step5_body = "A comparison between the VAT computed by our engine and the VAT applied by your marketplace — to spot possible configuration discrepancies."
+onboarding_tabs_step6_title = "⬇️ Downloads & 📊 Visualisations"
+onboarding_tabs_step6_body = "The first gives you all the exports (Excel, OSS XML, CA3, FEC...). The second offers charts to visualise your activity. Enjoy exploring!"
+
+# ── Background calculation (large files) ────────────────────────────────────
+calc_bg_running_caption = "📊 Large file ({rows} rows) — the calculation continues in the background. You can keep using the sidebar in the meantime."

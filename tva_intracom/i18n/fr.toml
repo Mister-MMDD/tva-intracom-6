@@ -1101,3 +1101,43 @@ engine_note_ddp_import = "Import > 150 EUR, vendeur importateur officiel (DDP) :
 engine_note_import_standard = "Import > 150 EUR depuis pays tiers : TVA d'importation {country} ({rate}%) due à la douane par l'importateur."
 engine_note_oss_under_threshold = "Sous le seuil OSS ({cumulative}/{limit} {currency}). Option TVA {country} activée."
 engine_note_oss_threshold_crossed = "Franchissement du seuil OSS ! Vente vers {country}."
+
+# ── Certificat de Validité VIES (PDF) ───────────────────────────────────────
+vies_certificate_expander = "📄 Certificat de Validité VIES (PDF)"
+vies_certificate_caption = "Générez un document PDF récapitulant l'historique complet des vérifications VIES de vos clients B2B — à conserver comme preuve de bonne foi en cas de contrôle fiscal."
+vies_certificate_btn = "Générer le certificat"
+vies_certificate_empty_info = "Aucun numéro de TVA B2B n'a encore été vérifié pour ce compte."
+vies_certificate_error = "Erreur lors de la génération du certificat : {error}"
+vies_certificate_dl_btn = "⬇️ Télécharger le certificat (PDF)"
+vies_certificate_filename = "Certificat_VIES_{company}.pdf"
+
+# ── Visite guidée (onboarding) ──────────────────────────────────────────────
+onboarding_step_progress = "Étape {step}/{total}"
+onboarding_skip_btn = "Passer"
+onboarding_next_btn = "Suivant →"
+onboarding_finish_btn = "Terminer"
+
+onboarding_sidebar_step1_title = "👋 Bienvenue ! Commençons par la barre latérale"
+onboarding_sidebar_step1_body = "Avant d'importer votre premier fichier, quelques réglages dans la barre latérale (à gauche) vont conditionner tous les calculs. On y fait un tour rapide."
+onboarding_sidebar_step2_title = "🏠 Pays d'origine & devise"
+onboarding_sidebar_step2_body = "En haut de la barre latérale : choisissez le **pays d'établissement** de votre entreprise (celui qui figure sur votre numéro de TVA principal), puis, si besoin, une **devise d'affichage** différente. Ce réglage conditionne toute la classification fiscale — vérifiez-le en premier."
+onboarding_sidebar_step3_title = "🏢 Entreprise & Paramètres"
+onboarding_sidebar_step3_body = "Dans la section **Entreprise & Paramètres** : renseignez votre SIREN, votre numéro de TVA, un éventuel numéro **IOSS**, et les pays où vous êtes déjà immatriculé à la TVA locale. Ces informations sont indispensables pour un calcul correct."
+onboarding_sidebar_step4_title = "💳 Abonnement"
+onboarding_sidebar_step4_body = "Enfin, la section **Abonnements & forfaits** vous permet de débloquer les exports (à l'unité ou en abonnement). Vous pouvez explorer l'outil gratuitement avant de choisir une formule. Vous êtes prêt : importez votre premier fichier !"
+
+onboarding_tabs_step1_title = "📑 Votre fichier est importé — voici les 6 onglets"
+onboarding_tabs_step1_body = "Le récapitulatif ci-dessus donne une vue d'ensemble. En dessous, six onglets détaillent chaque aspect de votre situation TVA."
+onboarding_tabs_step2_title = "🧾 Déclarations"
+onboarding_tabs_step2_body = "Le résumé chiffré de vos obligations déclaratives : TVA due par pays et par régime (domestique, OSS, B2B)."
+onboarding_tabs_step3_title = "📋 Détail des ventes"
+onboarding_tabs_step3_body = "La liste ligne par ligne de toutes vos ventes, avec le détail du calcul TVA appliqué à chacune."
+onboarding_tabs_step4_title = "✅ VIES"
+onboarding_tabs_step4_body = "La vérification des numéros de TVA de vos clients B2B auprès du service européen VIES — et le certificat PDF à conserver en cas de contrôle."
+onboarding_tabs_step5_title = "🔍 Audit Amazon"
+onboarding_tabs_step5_body = "La comparaison entre la TVA calculée par notre moteur et celle appliquée par votre marketplace — pour repérer d'éventuels écarts de configuration."
+onboarding_tabs_step6_title = "⬇️ Téléchargements & 📊 Visualisations"
+onboarding_tabs_step6_body = "Le premier vous donne tous les exports (Excel, XML OSS, CA3, FEC...). Le second propose des graphiques pour visualiser votre activité. Bonne exploration !"
+
+# ── Calcul en arrière-plan (gros fichiers) ──────────────────────────────────
+calc_bg_running_caption = "📊 Fichier volumineux ({rows} lignes) — le calcul se poursuit en arrière-plan. Vous pouvez continuer à consulter la barre latérale pendant ce temps."

@@ -102,7 +102,9 @@ def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
                     cabinet_parent_id TEXT,
                     home_country TEXT NOT NULL DEFAULT 'FR',
                     language TEXT NOT NULL DEFAULT 'fr',
-                    display_currency TEXT NOT NULL DEFAULT 'DEFAULT'
+                    display_currency TEXT NOT NULL DEFAULT 'DEFAULT',
+                    onboarding_sidebar_seen BOOLEAN NOT NULL DEFAULT FALSE,
+                    onboarding_tabs_seen BOOLEAN NOT NULL DEFAULT FALSE
                 )
                 """
             )
@@ -117,6 +119,12 @@ def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
             )
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS display_currency TEXT NOT NULL DEFAULT 'DEFAULT'"
+            )
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS onboarding_sidebar_seen BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS onboarding_tabs_seen BOOLEAN NOT NULL DEFAULT FALSE"
             )
             cur.execute(
                 """
@@ -197,6 +205,22 @@ class User:
     home_country: str = "FR"
     language: str = "fr"
     display_currency: str = "DEFAULT"
+    onboarding_sidebar_seen: bool = False
+    onboarding_tabs_seen: bool = False
+
+
+_USER_SELECT_COLS = (
+    "id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency, "
+    "onboarding_sidebar_seen, onboarding_tabs_seen"
+)
+
+
+def _row_to_user(row) -> User:
+    return User(
+        id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3],
+        home_country=row[4] or "FR", language=row[5] or "fr", display_currency=row[6] or "DEFAULT",
+        onboarding_sidebar_seen=bool(row[7]), onboarding_tabs_seen=bool(row[8]),
+    )
 
 
 def get_or_create_user(email: str) -> User:
@@ -204,13 +228,12 @@ def get_or_create_user(email: str) -> User:
 
     def _fn(conn, cur):
         cur.execute(
-            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency FROM tva_users WHERE email=%s",
+            f"SELECT {_USER_SELECT_COLS} FROM tva_users WHERE email=%s",
             (email,),
         )
         row = cur.fetchone()
         if row:
-            return User(id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3],
-                        home_country=row[4] or "FR", language=row[5] or "fr", display_currency=row[6] or "DEFAULT")
+            return _row_to_user(row)
         user_id = secrets.token_hex(12)
         cur.execute(
             "INSERT INTO tva_users (id, email, created_at) VALUES (%s, %s, %s)",
@@ -219,6 +242,30 @@ def get_or_create_user(email: str) -> User:
         return User(id=user_id, email=email)
 
     return _run(_fn)
+
+
+def set_onboarding_seen(user_id: str, *, sidebar: bool | None = None, tabs: bool | None = None) -> None:
+    """Marque une (ou les deux) étape(s) de la visite guidée comme vue(s)
+    pour ce compte — persisté pour ne plus jamais réafficher la même étape
+    aux connexions suivantes. `sidebar` couvre les actions à mener dans la
+    barre latérale (visite au tout premier login) ; `tabs` couvre
+    l'explication des onglets (affichée juste après le premier import de
+    fichier réussi). Un paramètre à None laisse la colonne correspondante
+    inchangée.
+    """
+    def _fn(conn, cur):
+        if sidebar is not None:
+            cur.execute(
+                "UPDATE tva_users SET onboarding_sidebar_seen=%s WHERE id=%s",
+                (bool(sidebar), user_id),
+            )
+        if tabs is not None:
+            cur.execute(
+                "UPDATE tva_users SET onboarding_tabs_seen=%s WHERE id=%s",
+                (bool(tabs), user_id),
+            )
+
+    _run(_fn)
 
 
 def set_home_country(user_id: str, country: str) -> None:
@@ -374,7 +421,7 @@ def get_user_by_id(user_id: str) -> Optional[User]:
     """Retourne l'utilisateur associé à un ID, sans passer par un jeton."""
     def _fetch_user(conn, cur):
         cur.execute(
-            "SELECT id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency FROM tva_users WHERE id=%s",
+            f"SELECT {_USER_SELECT_COLS} FROM tva_users WHERE id=%s",
             (user_id,),
         )
         return cur.fetchone()
@@ -382,8 +429,7 @@ def get_user_by_id(user_id: str) -> Optional[User]:
     urow = _run(_fetch_user)
     if not urow:
         return None
-    return User(id=urow[0], email=urow[1], is_cabinet=bool(urow[2]), cabinet_parent_id=urow[3],
-                home_country=urow[4] or "FR", language=urow[5] or "fr", display_currency=urow[6] or "DEFAULT")
+    return _row_to_user(urow)
 
 
 def delete_account(user_id: str) -> None:

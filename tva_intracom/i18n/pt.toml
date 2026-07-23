@@ -1101,3 +1101,43 @@ engine_note_ddp_import = "Importação > 150 EUR, o vendedor é o importador ofi
 engine_note_import_standard = "Importação > 150 EUR de um país terceiro: IVA de importação em {country} ({rate}%) devido na alfândega pelo importador."
 engine_note_oss_under_threshold = "Abaixo do limiar OSS ({cumulative}/{limit} {currency}). Opção de IVA {country} ativada."
 engine_note_oss_threshold_crossed = "Limiar OSS ultrapassado! Venda para {country}."
+
+# ── Certificado de Validade VIES (PDF) ──────────────────────────────────────
+vies_certificate_expander = "📄 Certificado de Validade VIES (PDF)"
+vies_certificate_caption = "Gere um PDF que resume o histórico completo das verificações VIES dos seus clientes B2B — guarde-o como prova de boa-fé em caso de fiscalização."
+vies_certificate_btn = "Gerar certificado"
+vies_certificate_empty_info = "Ainda não foi verificado nenhum número de IVA B2B para esta conta."
+vies_certificate_error = "Erro ao gerar o certificado: {error}"
+vies_certificate_dl_btn = "⬇️ Descarregar certificado (PDF)"
+vies_certificate_filename = "Certificado_VIES_{company}.pdf"
+
+# ── Visita guiada (onboarding) ───────────────────────────────────────────────
+onboarding_step_progress = "Passo {step}/{total}"
+onboarding_skip_btn = "Ignorar"
+onboarding_next_btn = "Seguinte →"
+onboarding_finish_btn = "Concluir"
+
+onboarding_sidebar_step1_title = "👋 Bem-vindo! Vamos começar pela barra lateral"
+onboarding_sidebar_step1_body = "Antes de importar o primeiro ficheiro, algumas definições na barra lateral (à esquerda) vão condicionar todos os cálculos. Vamos fazer uma volta rápida."
+onboarding_sidebar_step2_title = "🏠 País de origem e moeda"
+onboarding_sidebar_step2_body = "No topo da barra lateral: escolha o **país de estabelecimento** da sua empresa (o do seu número de IVA principal) e, se necessário, uma **moeda de exibição** diferente. Esta definição condiciona toda a classificação fiscal — verifique-a primeiro."
+onboarding_sidebar_step3_title = "🏢 Empresa e Definições"
+onboarding_sidebar_step3_body = "Na secção **Empresa e Definições**: indique o seu SIREN, o seu número de IVA, um eventual número **IOSS** e os países onde já está registado para efeitos de IVA local. Estas informações são indispensáveis para um cálculo correto."
+onboarding_sidebar_step4_title = "💳 Subscrição"
+onboarding_sidebar_step4_body = "Por fim, a secção **Subscrições e planos** permite desbloquear as exportações (por utilização ou por subscrição). Pode explorar a ferramenta gratuitamente antes de escolher um plano. Está pronto: importe o seu primeiro ficheiro!"
+
+onboarding_tabs_step1_title = "📑 O seu ficheiro foi importado — aqui estão os 6 separadores"
+onboarding_tabs_step1_body = "O resumo acima dá-lhe uma visão geral. Abaixo, seis separadores detalham cada aspeto da sua situação de IVA."
+onboarding_tabs_step2_title = "🧾 Declarações"
+onboarding_tabs_step2_body = "O resumo numérico das suas obrigações declarativas: IVA devido por país e por regime (nacional, OSS, B2B)."
+onboarding_tabs_step3_title = "📋 Detalhe de vendas"
+onboarding_tabs_step3_body = "A lista linha a linha de todas as suas vendas, com o cálculo de IVA aplicado a cada uma."
+onboarding_tabs_step4_title = "✅ VIES"
+onboarding_tabs_step4_body = "A verificação dos números de IVA dos seus clientes B2B junto do serviço europeu VIES — e o certificado PDF a guardar em caso de fiscalização."
+onboarding_tabs_step5_title = "🔍 Auditoria Amazon"
+onboarding_tabs_step5_body = "A comparação entre o IVA calculado pelo nosso motor e o aplicado pelo seu marketplace — para detetar eventuais discrepâncias de configuração."
+onboarding_tabs_step6_title = "⬇️ Transferências e 📊 Visualizações"
+onboarding_tabs_step6_body = "O primeiro dá-lhe todas as exportações (Excel, XML OSS, CA3, FEC...). O segundo oferece gráficos para visualizar a sua atividade. Boa exploração!"
+
+# ── Cálculo em segundo plano (ficheiros grandes) ────────────────────────────
+calc_bg_running_caption = "📊 Ficheiro grande ({rows} linhas) — o cálculo continua em segundo plano. Entretanto pode continuar a usar a barra lateral."

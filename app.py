@@ -33,6 +33,12 @@ from tva_intracom.vies_engine import (
     set_cache_ttl,
 )
 from tva_intracom.engine import ViesValidationSummary, compute_all_with_vies
+from tva_intracom.ui.background_calc import (
+    start_background_job,
+    get_job_state,
+    clear_job,
+    render_job_progress,
+)
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.models import Scenario, BuyerType, Channel, Collector
 from tva_intracom.report import build_report
@@ -114,8 +120,10 @@ elif _current_user.language != _sess_lang:
     _current_user.language = _sess_lang
 
 from tva_intracom.ui.sidebar import render_sidebar
+from tva_intracom.ui.onboarding import maybe_show_sidebar_tour, maybe_show_tabs_tour
 
 _sb = render_sidebar(_auth_ctx)
+maybe_show_sidebar_tour(_current_user)
 file_format = _sb.file_format
 enable_vies = _sb.enable_vies
 on_invalid_behavior = _sb.on_invalid_behavior
@@ -423,37 +431,77 @@ if uploaded_files:
 
         calc_progress_ph = st.empty()
 
+        # Seuil au-delà duquel le calcul (VIES + moteur TVA) est délégué à un
+        # thread séparé plutôt qu'exécuté en direct dans le script — voir
+        # tva_intracom/ui/background_calc.py pour la justification détaillée.
+        # En dessous, le chemin synchrone d'origine est conservé à
+        # l'identique (aucun changement de comportement pour les cas
+        # courants, aucun risque de régression sur le chemin le plus
+        # emprunté).
+        _BIG_FILE_ROW_THRESHOLD = 20_000
+        _is_big_file = len(sales) > _BIG_FILE_ROW_THRESHOLD
+
         vies_summary = None
         if st.session_state.get("_calc_key") != _cache_key:
-            with calc_progress_ph.container():
-                _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
 
+            def _run_full_calc(report: "Callable[[float, str], None]"):
+                """Exécute le calcul complet (VIES + moteur + rapport). Ne fait
+                JAMAIS d'appel st.* — voir docstring de background_calc.py.
+                Signature commune, que ce soit appelé en direct (petit
+                fichier) ou dans un thread (gros fichier)."""
                 def _vies_progress_cb(done: int, total: int) -> None:
                     if total <= 0:
                         return
-                    _vies_bar.progress(
-                        min(done / total, 1.0),
-                        text=_("calc_progress_vies_count", done=done, total=total),
-                    )
+                    report(min(done / total, 0.85), _("calc_progress_vies_count", done=done, total=total))
 
-                results, vies_summary, oss_summary = compute_all_with_vies(
+                _results, _vies_summary, _oss_summary = compute_all_with_vies(
                     sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
                     on_invalid=on_invalid_behavior, marketplace_name=platform_name,
                     apply_fr_under_threshold=apply_fr_under_threshold,
                     refunds=refunds if refunds else None,
                     vies_progress_callback=_vies_progress_cb)
 
-            calc_progress_ph.empty()
-            with calc_progress_ph.container():
-                with st.spinner(_("calc_progress_vat")):
-                    # VIES obligatoire aussi sur les avoirs (plus de distinction
-                    # avec le calcul principal) : scope_id requis même si les
-                    # avoirs n'ont en général pas de n° TVA B2B à valider.
-                    refund_results = compute_all_with_vies(
-                        refunds, scope_id=_vies_scope_id, marketplace_name=platform_name
-                    )[0] if refunds else []
-                    summary = build_report(results, refund_results=refund_results or None)
-            calc_progress_ph.empty()
+                report(0.9, _("calc_progress_vat"))
+                # VIES obligatoire aussi sur les avoirs (plus de distinction
+                # avec le calcul principal) : scope_id requis même si les
+                # avoirs n'ont en général pas de n° TVA B2B à valider.
+                _refund_results = compute_all_with_vies(
+                    refunds, scope_id=_vies_scope_id, marketplace_name=platform_name
+                )[0] if refunds else []
+                _summary = build_report(_results, refund_results=_refund_results or None)
+                report(1.0, "")
+                return _results, _vies_summary, _oss_summary, _refund_results, _summary
+
+            if _is_big_file:
+                _job_id = "calc_" + str(abs(hash(_cache_key)))
+                start_background_job(_job_id, _run_full_calc)
+                with calc_progress_ph.container():
+                    st.caption(_("calc_bg_running_caption", rows=f"{len(sales):,}".replace(",", " ")))
+                    render_job_progress(_job_id, label=_("calc_progress_vies"))
+                _job_state = get_job_state(_job_id)
+                with _job_state.lock:
+                    _job_done, _job_error = _job_state.done, _job_state.error
+                if not _job_done:
+                    # Le fragment ci-dessus continue de se rafraîchir tout
+                    # seul (run_every=0.4s) sans ré-exécuter le reste du
+                    # script : on s'arrête ici pour CE rerun, la sidebar et
+                    # les widgets déjà rendus plus haut restent utilisables.
+                    st.stop()
+                if _job_error is not None:
+                    clear_job(_job_id)
+                    st.error(_("processing_error", error=_job_error))
+                    raise _job_error
+                results, vies_summary, oss_summary, refund_results, summary = _job_state.result
+                clear_job(_job_id)
+                calc_progress_ph.empty()
+            else:
+                with calc_progress_ph.container():
+                    _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
+                    results, vies_summary, oss_summary, refund_results, summary = _run_full_calc(
+                        lambda p, t: _vies_bar.progress(p, text=t or _("calc_progress_vies"))
+                    )
+                calc_progress_ph.empty()
+
             st.session_state["_calc_key"]       = _cache_key
             st.session_state["_results"]        = results
             st.session_state["_refund_results"] = refund_results
@@ -714,6 +762,11 @@ if uploaded_files:
             home_country=home_country,
             calc_key=_cache_key,
         )
+
+        # Visite guidée des onglets : uniquement au tout premier import réussi
+        # pour ce compte (voir tva_intracom/ui/onboarding.py) — `results`
+        # n'existe à ce stade que si le calcul a abouti sans lever d'exception.
+        maybe_show_tabs_tour(_current_user)
 
         with tab_decl: render_declarations(_tab_ctx)
         with tab_detail: render_detail_ventes(_tab_ctx)

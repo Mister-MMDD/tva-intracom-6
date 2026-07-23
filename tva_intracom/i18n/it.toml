@@ -1101,3 +1101,43 @@ engine_note_ddp_import = "Importazione > 150 EUR, il venditore è l'importatore 
 engine_note_import_standard = "Importazione > 150 EUR da un paese terzo: IVA all'importazione in {country} ({rate}%) dovuta in dogana dall'importatore."
 engine_note_oss_under_threshold = "Sotto la soglia OSS ({cumulative}/{limit} {currency}). Opzione IVA {country} attivata."
 engine_note_oss_threshold_crossed = "Soglia OSS superata! Vendita verso {country}."
+
+# ── Certificato di Validità VIES (PDF) ──────────────────────────────────────
+vies_certificate_expander = "📄 Certificato di Validità VIES (PDF)"
+vies_certificate_caption = "Genera un PDF che riassume la cronologia completa delle verifiche VIES dei tuoi clienti B2B — da conservare come prova di buona fede in caso di controllo fiscale."
+vies_certificate_btn = "Genera certificato"
+vies_certificate_empty_info = "Nessun numero di partita IVA B2B è ancora stato verificato per questo account."
+vies_certificate_error = "Errore nella generazione del certificato: {error}"
+vies_certificate_dl_btn = "⬇️ Scarica il certificato (PDF)"
+vies_certificate_filename = "Certificato_VIES_{company}.pdf"
+
+# ── Tour guidato (onboarding) ────────────────────────────────────────────────
+onboarding_step_progress = "Passo {step}/{total}"
+onboarding_skip_btn = "Salta"
+onboarding_next_btn = "Avanti →"
+onboarding_finish_btn = "Fine"
+
+onboarding_sidebar_step1_title = "👋 Benvenuto! Iniziamo dalla barra laterale"
+onboarding_sidebar_step1_body = "Prima di importare il primo file, alcune impostazioni nella barra laterale (a sinistra) condizioneranno tutti i calcoli. Facciamo un breve giro."
+onboarding_sidebar_step2_title = "🏠 Paese d'origine e valuta"
+onboarding_sidebar_step2_body = "In alto nella barra laterale: scegli il **paese di stabilimento** della tua azienda (quello del tuo numero di partita IVA principale), quindi, se serve, una **valuta di visualizzazione** diversa. Questa impostazione condiziona tutta la classificazione fiscale — controllala per prima."
+onboarding_sidebar_step3_title = "🏢 Azienda e Parametri"
+onboarding_sidebar_step3_body = "Nella sezione **Azienda e Parametri**: inserisci il tuo SIREN, il tuo numero di partita IVA, un eventuale numero **IOSS** e i paesi in cui sei già registrato ai fini IVA locale. Queste informazioni sono indispensabili per un calcolo corretto."
+onboarding_sidebar_step4_title = "💳 Abbonamento"
+onboarding_sidebar_step4_body = "Infine, la sezione **Abbonamenti e piani** ti permette di sbloccare le esportazioni (a consumo o in abbonamento). Puoi esplorare lo strumento gratuitamente prima di scegliere un piano. Sei pronto: importa il tuo primo file!"
+
+onboarding_tabs_step1_title = "📑 Il tuo file è stato importato — ecco le 6 schede"
+onboarding_tabs_step1_body = "Il riepilogo qui sopra offre una visione d'insieme. Sotto, sei schede dettagliano ogni aspetto della tua situazione IVA."
+onboarding_tabs_step2_title = "🧾 Dichiarazioni"
+onboarding_tabs_step2_body = "Il riepilogo numerico dei tuoi obblighi dichiarativi: IVA dovuta per paese e per regime (nazionale, OSS, B2B)."
+onboarding_tabs_step3_title = "📋 Dettaglio vendite"
+onboarding_tabs_step3_body = "L'elenco riga per riga di tutte le tue vendite, con il calcolo IVA applicato a ciascuna."
+onboarding_tabs_step4_title = "✅ VIES"
+onboarding_tabs_step4_body = "La verifica dei numeri di partita IVA dei tuoi clienti B2B presso il servizio europeo VIES — e il certificato PDF da conservare in caso di controllo."
+onboarding_tabs_step5_title = "🔍 Audit Amazon"
+onboarding_tabs_step5_body = "Il confronto tra l'IVA calcolata dal nostro motore e quella applicata dal tuo marketplace — per individuare eventuali discrepanze di configurazione."
+onboarding_tabs_step6_title = "⬇️ Download e 📊 Visualizzazioni"
+onboarding_tabs_step6_body = "Il primo ti dà tutte le esportazioni (Excel, XML OSS, CA3, FEC...). Il secondo offre grafici per visualizzare la tua attività. Buona esplorazione!"
+
+# ── Calcolo in background (file di grandi dimensioni) ───────────────────────
+calc_bg_running_caption = "📊 File di grandi dimensioni ({rows} righe) — il calcolo continua in background. Nel frattempo puoi continuare a usare la barra laterale."

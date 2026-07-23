@@ -1101,3 +1101,43 @@ engine_note_ddp_import = "Importación > 150 EUR, el vendedor es el importador o
 engine_note_import_standard = "Importación > 150 EUR desde un tercer país: IVA de importación en {country} ({rate}%) debido en aduana por el importador."
 engine_note_oss_under_threshold = "Por debajo del umbral OSS ({cumulative}/{limit} {currency}). Opción de IVA {country} activada."
 engine_note_oss_threshold_crossed = "¡Umbral OSS superado! Venta a {country}."
+
+# ── Certificado de Validez VIES (PDF) ───────────────────────────────────────
+vies_certificate_expander = "📄 Certificado de Validez VIES (PDF)"
+vies_certificate_caption = "Genere un PDF con el historial completo de comprobaciones VIES de sus clientes B2B — consérvelo como prueba de buena fe en caso de inspección fiscal."
+vies_certificate_btn = "Generar certificado"
+vies_certificate_empty_info = "Aún no se ha comprobado ningún número de IVA B2B para esta cuenta."
+vies_certificate_error = "Error al generar el certificado: {error}"
+vies_certificate_dl_btn = "⬇️ Descargar certificado (PDF)"
+vies_certificate_filename = "Certificado_VIES_{company}.pdf"
+
+# ── Visita guiada (onboarding) ───────────────────────────────────────────────
+onboarding_step_progress = "Paso {step}/{total}"
+onboarding_skip_btn = "Omitir"
+onboarding_next_btn = "Siguiente →"
+onboarding_finish_btn = "Finalizar"
+
+onboarding_sidebar_step1_title = "👋 ¡Bienvenido! Empecemos por la barra lateral"
+onboarding_sidebar_step1_body = "Antes de importar su primer archivo, algunos ajustes en la barra lateral (a la izquierda) condicionarán todos los cálculos. Hagamos un recorrido rápido."
+onboarding_sidebar_step2_title = "🏠 País de origen y divisa"
+onboarding_sidebar_step2_body = "En la parte superior de la barra lateral: elija el **país de establecimiento** de su empresa (el que figura en su número de IVA principal) y, si lo desea, una **divisa de visualización** distinta. Este ajuste condiciona toda la clasificación fiscal — compruébelo primero."
+onboarding_sidebar_step3_title = "🏢 Empresa y Parámetros"
+onboarding_sidebar_step3_body = "En la sección **Empresa y Parámetros**: indique su SIREN, su número de IVA, un eventual número **IOSS** y los países en los que ya está registrado a efectos de IVA local. Esta información es indispensable para un cálculo correcto."
+onboarding_sidebar_step4_title = "💳 Suscripción"
+onboarding_sidebar_step4_body = "Por último, la sección **Suscripciones y planes** le permite desbloquear las exportaciones (por uso o por suscripción). Puede explorar la herramienta gratis antes de elegir un plan. Ya está listo: ¡importe su primer archivo!"
+
+onboarding_tabs_step1_title = "📑 Su archivo está importado — aquí tiene las 6 pestañas"
+onboarding_tabs_step1_body = "El resumen de arriba ofrece una visión general. Debajo, seis pestañas detallan cada aspecto de su situación de IVA."
+onboarding_tabs_step2_title = "🧾 Declaraciones"
+onboarding_tabs_step2_body = "El resumen numérico de sus obligaciones declarativas: IVA debido por país y por régimen (nacional, OSS, B2B)."
+onboarding_tabs_step3_title = "📋 Detalle de ventas"
+onboarding_tabs_step3_body = "La lista línea a línea de todas sus ventas, con el cálculo de IVA aplicado a cada una."
+onboarding_tabs_step4_title = "✅ VIES"
+onboarding_tabs_step4_body = "La verificación de los números de IVA de sus clientes B2B ante el servicio europeo VIES — y el certificado PDF a conservar en caso de inspección."
+onboarding_tabs_step5_title = "🔍 Auditoría Amazon"
+onboarding_tabs_step5_body = "La comparación entre el IVA calculado por nuestro motor y el aplicado por su marketplace — para detectar posibles discrepancias de configuración."
+onboarding_tabs_step6_title = "⬇️ Descargas y 📊 Visualizaciones"
+onboarding_tabs_step6_body = "La primera le da todas las exportaciones (Excel, XML OSS, CA3, FEC...). La segunda ofrece gráficos para visualizar su actividad. ¡Que disfrute explorando!"
+
+# ── Cálculo en segundo plano (archivos grandes) ─────────────────────────────
+calc_bg_running_caption = "📊 Archivo grande ({rows} líneas) — el cálculo continúa en segundo plano. Mientras tanto puede seguir usando la barra lateral."
