@@ -406,7 +406,7 @@ dec = "Gru"
 # Home
 how_to_use_title = "Jak korzystać z tej aplikacji?"
 how_to_use_step1 = "1. **Skonfiguruj** swoje informacje na pasku bocznym (numery VAT itp.)."
-how_to_use_step2 = "2. **Prześlij** swoje raporty sprzedaży (Amazon VTR, Mirakl, Shopify itp.) powyżej."
+how_to_use_step2 = "2. **Prześlij** swoje raporty sprzedaży (Amazon) powyżej."
 how_to_use_step3 = "3. **Sprawdź** alerty i obliczenia w różnych zakładkach."
 how_to_use_step4 = "4. **Pobierz** swoje pliki deklaracji (OSS, CA3, FEC)."
 

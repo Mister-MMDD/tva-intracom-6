@@ -406,7 +406,7 @@ dec = "Dic"
 # Home
 how_to_use_title = "¿Cómo usar esta aplicación?"
 how_to_use_step1 = "1. **Configure** su información en la barra lateral (números de IVA, etc.)."
-how_to_use_step2 = "2. **Suba** sus informes de ventas (Amazon VTR, Mirakl, Shopify, etc.) arriba."
+how_to_use_step2 = "2. **Suba** sus informes de ventas (Amazon) arriba."
 how_to_use_step3 = "3. **Verifique** las alertas y los cálculos en las diferentes pestañas."
 how_to_use_step4 = "4. **Descargue** sus archivos de declaración (OSS, CA3, FEC)."
 

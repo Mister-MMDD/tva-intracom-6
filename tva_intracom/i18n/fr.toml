@@ -406,7 +406,7 @@ dec = "Déc"
 # Accueil
 how_to_use_title = "Comment utiliser cette application ?"
 how_to_use_step1 = "1. **Configurez** vos informations dans la barre latérale (SIREN, numéros de TVA, etc.)."
-how_to_use_step2 = "2. **Déposez** vos rapports de ventes (Amazon VTR, Mirakl, Shopify, etc.) ci-dessus."
+how_to_use_step2 = "2. **Déposez** vos rapports de ventes (Amazon) ci-dessus."
 how_to_use_step3 = "3. **Vérifiez** les alertes et les calculs dans les différents onglets."
 how_to_use_step4 = "4. **Téléchargez** vos fichiers de déclaration (OSS, CA3, FEC)."
 
