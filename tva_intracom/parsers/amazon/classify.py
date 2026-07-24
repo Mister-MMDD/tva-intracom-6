@@ -207,7 +207,7 @@ def apply_vat_exception(arrival: str, postal_code: str) -> str:
     Sinon retourne le pays d'arrivée inchangé.
     """
     if _is_exception := is_vat_exception_territory(arrival, postal_code):
-        logger.info(
+        logger.debug(
             "Territoire d'exception TVA détecté (pays=%s, CP=%s) → EXPORT.",
             arrival, postal_code,
         )
