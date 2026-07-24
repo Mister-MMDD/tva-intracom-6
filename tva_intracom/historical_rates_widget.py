@@ -59,28 +59,31 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
 
     countries_dates = _countries_with_sales(results)
 
-    # Pays dans l'historique ET présents dans les données
-    countries_with_history = [
+    # Candidats bruts : pays présents dans les données ET ayant au moins une
+    # entrée d'historique, TOUTES catégories confondues (STANDARD, FOOD,
+    # BOOKS...). Ce n'est qu'une présélection : un pays peut apparaître ici
+    # sans qu'aucune période ne chevauche réellement les dates de vente du
+    # fichier (ex. historique limité à une catégorie de produit non vendue,
+    # ou à une plage de dates antérieure aux ventes). Le compte affiché dans
+    # le titre ne doit PAS se baser sur cette présélection brute — voir plus
+    # bas, il est recalculé à partir des lignes effectivement construites.
+    candidate_countries = [
         c for c in countries_dates
         if rate_periods_for_country(c)
     ]
 
-    if not countries_with_history:
+    if not candidate_countries:
         return  # Rien à afficher — aucun pays concerné dans ce fichier
 
     # Construire le tableau : une ligne par changement de taux détecté
     rows = []
-    for country in sorted(countries_with_history):
+    countries_in_rows: set[str] = set()
+    for country in sorted(candidate_countries):
         sale_dates = countries_dates[country]
         min_date = min(sale_dates)
         max_date = max(sale_dates)
         periods = rate_periods_for_country(country)
         country_name = COUNTRY_NAMES.get(country, country)
-
-        # Vérifier si plusieurs taux distincts ont été appliqués dans la période
-        rates_used: set[Decimal] = set()
-        for tx_date in sale_dates:
-            rates_used.add(vat_rate_at_date(country, tx_date))
 
         for period in periods:
             # N'afficher la période que si elle chevauche la plage du fichier
@@ -103,9 +106,17 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
                     if period.date_from <= d <= (period.date_to or date(2099, 12, 31))
                 ),
             })
+            countries_in_rows.add(country)
 
     if not rows:
         return
+
+    # Le compte affiché dans le titre correspond aux pays qui ont
+    # effectivement au moins une ligne dans le tableau — pas à la
+    # présélection brute (candidate_countries), qui peut inclure des pays
+    # dont l'historique existe mais ne s'applique pas à la période/catégorie
+    # réellement vendue.
+    countries_with_history = sorted(countries_in_rows)
 
     # Déterminer si des ventes ont été calculées avec des taux différents
     # (situation réelle de changement en cours de période)
