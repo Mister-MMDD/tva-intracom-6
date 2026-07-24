@@ -382,7 +382,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         tva_moteur = float(r.vat_amount)
         if dep == "GB" or arr == "GB":
             return _("xl_audit_nature_gb")
-        if id(r.sale) in vies_affected_sale_ids and tva_amazon == 0:
+        if (str(r.sale.sale_id), str(r.sale.amount_ht)) in vies_affected_sale_ids and tva_amazon == 0:
             return _("xl_audit_nature_vies")
         if sid in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):
             return _("xl_audit_nature_art194")

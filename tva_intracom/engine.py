@@ -563,6 +563,19 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     return res
 
 
+def _sale_key(sale: Sale) -> tuple[str, str]:
+    """Clé composite (sale_id, montant_ht) identifiant une ligne de façon stable.
+
+    Remplace id(sale) : un id() Python n'est valable que tant que l'objet
+    Sale d'origine reste physiquement le même jusqu'au point de lecture
+    (aucune copie/recréation via dataclasses.replace entre-temps) — une
+    contrainte fragile et invisible pour quiconque retouche ce chemin plus
+    tard. Le montant (avec son signe : positif=vente, négatif=avoir) évite
+    toute collision avec un remboursement partageant le même sale_id.
+    """
+    return (sale.sale_id, str(sale.amount_ht))
+
+
 def _year_of(sale: Sale) -> str:
     """Extrait l'année YYYY d'une transaction_date 'YYYY-MM-DD'. Retourne '' si absent."""
     d = sale.transaction_date or ""
@@ -699,9 +712,14 @@ def compute_all_with_vies(
 
     vies_summary = ViesValidationSummary()
 
-    # Tri chronologique sur les VENTES UNIQUEMENT pour construire l'index VIES.
-    # Les avoirs n'ont pas de numéro TVA acheteur à valider.
-    sorted_sales = sorted(sales, key=_chronological_sort_key)
+    # Un seul tri chronologique global (ventes + avoirs) : sorted_sales (ventes
+    # uniquement, pour l'index VIES) en est dérivé par un simple filtrage O(N)
+    # qui préserve l'ordre, plutôt que par un second sorted() O(N log N)
+    # redondant sur les mêmes clés.
+    refund_ids: set[int] = {id(r) for r in (refunds or [])}
+    all_items = list(sales) + list(refunds or [])
+    all_items_sorted = sorted(all_items, key=_chronological_sort_key)
+    sorted_sales = [it for it in all_items_sorted if id(it) not in refund_ids]
 
     # ------------------------------------------------------------------------
     # PREPARATION : normalisation des numéros TVA + index sale_id -> full_vat
@@ -869,7 +887,7 @@ def compute_all_with_vies(
                 display_id=getattr(sale, "display_id", ""),
                 stock_country=sale.stock_country,
             ))
-            vies_summary.vies_affected_sale_ids.add(id(sale))
+            vies_summary.vies_affected_sale_ids.add(_sale_key(sale))
             _vies_state["last_classified_sale_id"] = sale.sale_id
             return sale
 
@@ -910,16 +928,12 @@ def compute_all_with_vies(
                                     product_category=product_category, asin=product_asin)
 
             if sale.stock_country != sale.buyer_country:
-                vies_summary.vies_affected_sale_ids.add(id(effective))
+                vies_summary.vies_affected_sale_ids.add(_sale_key(effective))
 
         _vies_state["last_classified_sale_id"] = sale.sale_id
         return effective
 
     _lang, _curr, _sym = lang, currency, symbol
-
-    refund_ids: set[int] = {id(r) for r in (refunds or [])}
-    all_items = list(sales) + list(refunds or [])
-    all_items_sorted = sorted(all_items, key=_chronological_sort_key)
 
     results, oss_summary = _run_oss_loop(
         all_items_sorted, refund_ids, marketplace_name,

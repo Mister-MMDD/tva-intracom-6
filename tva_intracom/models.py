@@ -56,7 +56,7 @@ class Channel(enum.Enum):
     EXONERATION = "EXONERATION"      # Aucun reversement par le vendeur (exclu du flux de taxation vendeur)
 
 
-@dataclass
+@dataclass(slots=True)
 class OssThresholdSummary:
     """Synthese du seuil OSS 10 000 EUR."""
     total_oss_ht: Decimal = Decimal("0.00")
@@ -64,7 +64,7 @@ class OssThresholdSummary:
     oss_ht_by_year: dict[str, Decimal] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Sale:
     """Une ligne de vente.
 
@@ -138,7 +138,7 @@ class Sale:
             raise ValueError(f"Erreur de conversion Decimal pour {field_name}: {value}")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class VatResult:
     """Resultat du calcul de TVA pour une vente."""
 
@@ -152,7 +152,7 @@ class VatResult:
     note: str
 
 
-@dataclass
+@dataclass(slots=True)
 class ViesReclassification:
     """Detail d'une vente B2B reclassifiee en B2C."""
     sale_id: str
@@ -173,7 +173,7 @@ class ViesReclassification:
     taxed_at_departure: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class ViesValidationSummary:
     """Synthese de la validation VIES."""
     total_checked: int = 0

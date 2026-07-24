@@ -204,7 +204,7 @@ du script.
 | Module | Rôle |
 |---|---|
 | `ui/theme.py` | `apply_theme()` — configuration de page Streamlit (titre, icône, layout) et injection du CSS de marque |
-| `ui/formatting.py` | Helpers d'affichage partagés : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df` (formatage vectorisé haute performance), `_gated_preview_table` (optimisé RAM), `_fec_period_end_date`, tri numérique robuste |
+| `ui/formatting.py` | Helpers d'affichage partagés : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df` (formatage vectorisé haute performance), `_gated_preview_table` (optimisé RAM), `_fec_period_end_date`, tri numérique robuste, `_render_filter_bar` (scan optimisé) |
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
 | `ui/onboarding.py` | `maybe_show_sidebar_tour` / `maybe_show_tabs_tour` — Visite guidée de première connexion utilisant `st.dialog` et `st.fragment` |
 | `ui/rerun_utils.py` | `preserve_upload_rerun()` — Gestion fine des reruns pour éviter de perdre le fichier uploadé lors d'interactions sidebar |
@@ -440,6 +440,7 @@ transaction) avant traitement.
   trimestriel pour le XML OSS officiel.
 - Refunds intégrés chronologiquement dans la boucle OSS via `id()` Python (pas
   de collision sur les `sale_id` répétés).
+- Clé composite `(sale_id, amount_ht)` pour le suivi stable des ventes affectées par VIES (remplace `id()` Python).
 - Composite key `(sale_id, buyer_vat_number)` pour `sale_vat_index`.
 
 ### Validation VIES
@@ -791,7 +792,9 @@ conversion BCE.
   - **Téléchargements** : Mise en cache des 5 exports indépendants (Excel principal, OSS Excel, CA3/HTML local, B2B Excel, FEC) via une clé de téléchargement dédiée (`_dl_cache_key`).
 - **Stabilisation du calcul** : Introduction de `calc_key` dans le `TabContext` (transmis depuis `app.py`) pour garantir la cohérence des résultats entre onglets et éviter les recalculs intempestifs.
 - **Efficacité du moteur fiscal** : Optimisation de `engine.py` (résolution de la langue une seule fois par lot dans `_run_oss_loop` au lieu d'une résolution par vente dans `_note()`).
+- **Stabilité des identifiants** : Passage à une clé composite `(sale_id, amount_ht)` pour identifier les transactions de façon stable à travers les différents modules d'audit et de reporting, éliminant la fragilité des `id()` Python lors des copies d'objets.
 - **Stripe** : La session du portail de facturation (Billing Portal) est désormais créée uniquement au clic, au lieu d'être pré-générée à chaque rerun Streamlit.
+- **Filtrage UI (`_render_filter_bar`)** : Optimisation par scan concaténé unique avec gestion robuste des valeurs nulles (évite les lignes vides en recherche).
 
 ### Correctifs & Expérience Utilisateur
 - **Persistance de l'upload** : Correction d'un bug où le changement de langue supprimait les fichiers chargés (stabilisation de l'identité du widget `st.file_uploader` via une clé explicite `main_file_uploader` indépendante du label traduit).

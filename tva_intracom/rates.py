@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 from decimal import Decimal
+from functools import lru_cache
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
@@ -274,7 +275,14 @@ def is_non_fiscal_eu(country: str, post_code: str | None) -> bool:
         return False
     if not post_code:
         return False
-    pc = post_code.strip().replace(" ", "").upper()
+    pc = post_code.strip().replace(" ", "").replace("-", "").upper()
+    # Un code postal "sale" peut porter en préfixe le code pays lui-même
+    # (ex. "ES35000" au lieu de "35000") — fréquent en saisie manuelle,
+    # plus rare via l'export Amazon SP-API mais pas exclu (champ libre côté
+    # acheteur). On retire ce préfixe s'il est présent avant le startswith,
+    # pour ne pas rater une Canaries/Helgoland/Livigno mal formatée.
+    if pc.startswith(code):
+        pc = pc[len(code):]
     rule = NON_FISCAL_EU_POSTCODES[code]
     for prefix in rule.get("prefixes", []):
         if pc.startswith(prefix):
@@ -748,6 +756,7 @@ DOMESTIC_REVERSE_CHARGE_COUNTRIES: Set[str] = {
 }
 
 
+@lru_cache(maxsize=20_000)
 def vat_rate(
     country: str,
     product_category: str = "STANDARD",
