@@ -169,7 +169,7 @@ tva-intracom/
 | `config.py` | Utilitaire de gestion des secrets (lwa, stripe, resend, postgres) avec fallback local |
 | `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
-| `security.py` | Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy) — chiffrement Fernet des PII |
+| `security.py` | Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy) — chiffrement Fernet des PII avec protection **Fail-Safe** contre l'exposition accidentelle en clair. |
 | `vies_certificate.py` | Génération d'un "Certificat de Validité VIES" en PDF (preuve de bonne foi opposable) |
 | `vies_engine.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
 | `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle, convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194), retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires |
@@ -204,7 +204,7 @@ du script.
 | Module | Rôle |
 |---|---|
 | `ui/theme.py` | `apply_theme()` — configuration de page Streamlit (titre, icône, layout) et injection du CSS de marque |
-| `ui/formatting.py` | Helpers d'affichage réutilisés par plusieurs onglets : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df`, `_gated_preview_table`, `_fec_period_end_date` |
+| `ui/formatting.py` | Helpers d'affichage partagés : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df` (formatage vectorisé haute performance), `_gated_preview_table` (optimisé RAM), `_fec_period_end_date`, tri numérique robuste |
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
 | `ui/onboarding.py` | `maybe_show_sidebar_tour` / `maybe_show_tabs_tour` — Visite guidée de première connexion utilisant `st.dialog` et `st.fragment` |
 | `ui/rerun_utils.py` | `preserve_upload_rerun()` — Gestion fine des reruns pour éviter de perdre le fichier uploadé lors d'interactions sidebar |
@@ -484,6 +484,7 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 ### Import des fichiers Amazon
 
 - **Performance extrême** : utilisation de **Polars** (moteur Rust ultra-rapide) pour le parsing des fichiers CSV volumineux, avec repli automatique sur Pandas et `csv.DictReader`.
+- **Détection intelligente d'encodage** : bascule automatique entre **UTF-8** et **Windows-1252** (cp1252) pour garantir la lecture correcte des exports Excel/CSV sans corruption des caractères spéciaux.
 - Détection automatique du format et du séparateur (tab / `;` / `,`).
 - Support des fichiers jusqu'à **100 Mo**.
 - Filtrage des placeholders Amazon (`FRINV…`, `ITINV…`) et des NIF fiscaux nationaux
@@ -674,6 +675,7 @@ Le moteur est conçu pour respecter les exigences strictes d'Amazon concernant l
 
 *   **Sécurité du Transport** : Toutes les connexions à la base de données (Supabase) sont chiffrées de bout en bout via TLS/SSL forcé (`sslmode=require`).
 *   **Chiffrement au Repos (At-Rest)** : Les données sensibles (noms et adresses des acheteurs, noms d'entreprises) sont chiffrées au niveau applicatif avant insertion en base via l'algorithme Fernet (**AES-128 en mode CBC avec signature HMAC-SHA256**).
+*   **Protection Fail-Safe** : Le système de sécurité interdit tout traitement de données si la clé de chiffrement est absente ou invalide, empêchant toute manipulation de PII en clair par accident.
 *   **Protection des Cookies** : Authentification sans jeton dans l'URL. Les sessions sont gérées via des cookies sécurisés pour éviter les fuites de tokens dans l'historique du navigateur ou les en-têtes *Referer*.
 *   **Protection Brute-Force** : Limitation automatique du débit (Rate Limiting) sur les tentatives de connexion basées sur l'empreinte IP.
 *   **Piste d'Audit & Rétention** : Piste d'audit horodatée pour chaque vérification VIES. Suppression automatique des données personnelles de l'historique après 365 jours (délai de conservation minimal justifié par la fiscalité).

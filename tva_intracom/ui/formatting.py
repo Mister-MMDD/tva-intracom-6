@@ -84,25 +84,28 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
         _search = st.text_input(_("filter_search"), placeholder=_("filter_search_placeholder"), key=f"search_{key_suffix}")
     
     with _fb:
-        _dest_opts = sorted(df["Dest"].unique()) if "Dest" in df.columns else []
+        _dest_opts = sorted([str(x) for x in df["Dest"].unique() if pd.notna(x)]) if "Dest" in df.columns else []
         _dest_sel = st.multiselect(_("filter_dest"), _dest_opts, key=f"dest_{key_suffix}", 
                                    placeholder=_("filter_dest_placeholder"))
         
     with _fc:
-        _scen_opts = sorted(df["Scénario"].unique()) if "Scénario" in df.columns else []
+        _scen_opts = sorted([str(x) for x in df["Scénario"].unique() if pd.notna(x)]) if "Scénario" in df.columns else []
         _scen_sel = st.multiselect(_("filter_scenario"), _scen_opts, key=f"scen_{key_suffix}", 
                                    placeholder=_("filter_scenario_placeholder"))
         
     with _fd:
-        _canal_opts = sorted(df["Canal"].unique()) if "Canal" in df.columns else []
+        _canal_opts = sorted([str(x) for x in df["Canal"].unique() if pd.notna(x)]) if "Canal" in df.columns else []
         _canal_sel = st.multiselect(_("filter_canal"), _canal_opts, key=f"canal_{key_suffix}", 
                                    placeholder=_("filter_canal_placeholder"))
         
-    df_filt = df.copy()
+    df_filt = df # On évite la copie systématique ici
+    
     if _search:
-        mask = df_filt["ID"].astype(str).str.contains(_search, case=False, na=False)
-        if "Note" in df_filt.columns:
-            mask |= df_filt["Note"].astype(str).str.contains(_search, case=False, na=False)
+        mask = pd.Series(False, index=df_filt.index)
+        # Recherche sécurisée sur ID et Note
+        for col in ["ID", "Note", "Transaction"]:
+            if col in df_filt.columns:
+                mask |= df_filt[col].astype(str).str.contains(_search, case=False, na=False)
         df_filt = df_filt[mask]
         
     if _dest_sel and "Dest" in df_filt.columns:
@@ -213,50 +216,52 @@ def _smart_money_df(
     note_cols: list[str] = None,
     existing_config: dict = None
 ) -> dict[str, Any]:
-    """Génère un column_config Streamlit pour les colonnes monétaires et de taux.
+    """Génère un column_config Streamlit optimisé.
     
-    Règle d'affichage monétaire : entier si pas de décimale significative, sinon 2 déc.
-    Streamlit NumberColumn avec format="%.2f €" affiche toujours 2 déc.
-    On contourne en pré-formatant les valeurs en string et en utilisant TextColumn
-    pour les colonnes qui nécessitent l'affichage smart (0 ou 2 déc.).
-    
-    Stratégie retenue : pré-formater les colonnes monétaires en string dans le DataFrame
-    (les valeurs sont déjà des floats, on les formate avant st.dataframe).
-    Cette fonction retourne le column_config à passer à st.dataframe.
+    Amélioration Performance : utilise la vectorisation Pandas pour les conversions.
+    Amélioration UX : utilise NumberColumn pour conserver le tri numérique correct.
     """
     column_config = existing_config.copy() if existing_config else {}
     m_cols = money_cols or []
     p_cols = pct_cols or []
     n_cols = note_cols or []
     
+    # Récupération du taux une seule fois pour tout le tableau
+    _target_curr, _rate = _get_conversion_rate()
+    _symbol = st.session_state.get("currency_symbol", "€")
+
     for col in df.columns:
         if col in column_config:
             continue
 
         col_lower = col.lower()
-        # Les colonnes explicitement classées (note_cols) priment toujours sur
-        # l'heuristique par mot-clé.
+        
+        # 1. Colonnes de notes (Texte long)
         if col in n_cols or "note" in col_lower or "commentaire" in col_lower:
-            # Plus de troncature ni de largeur fixe : width=None indique à
-            # Streamlit de dimensionner la colonne pour qu'elle épouse
-            # exactement le contenu le plus long.
             column_config[col] = st.column_config.TextColumn(col)
-        # Pré-formatage dans le df : on remplace les floats par des strings formatées
+            
+        # 2. Colonnes Monétaires (Tri numérique préservé)
         elif col in m_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total", "remboursé"]):
-            column_config[col] = st.column_config.TextColumn(col, width="small")
-            # On applique le formatage smart sur la colonne
-            df[col] = df[col].apply(_fmt)
+            # Conversion vectorisée si nécessaire (plus rapide que .apply)
+            if _rate != 1.0 and df[col].dtype in ['float64', 'int64']:
+                df[col] = df[col] * _rate
+            
+            column_config[col] = st.column_config.NumberColumn(
+                col, 
+                format=f"%.2f {_symbol}", 
+                width="small"
+            )
+            
+        # 3. Pourcentages
         elif col in p_cols or any(k in col_lower for k in ["taux", "pct", "rate"]):
             column_config[col] = _pct_col(col)
-        # Colonnes ultra-courtes (2-3 lettres : Stock, Dest, Pays, Devise)
-        # On inclut "départ" pour l'onglet VIES.
+            
+        # 4. Colonnes ID/Codes (Largeurs fixes)
         elif any(k == col_lower for k in ["stock", "dest", "pays", "devise", "départ"]):
             column_config[col] = st.column_config.TextColumn(col, width=40)
-        # Autres colonnes connues pour être courtes (Date, Canal, Scénario...)
         elif any(k == col_lower for k in ["date", "canal", "type", "collecteur", "collector", "scénario", "scenario"]):
             column_config[col] = st.column_config.TextColumn(col, width="small")
-        # Colonnes de largeur moyenne (ID...)
-        elif any(k in col_lower for k in ["id"]):
+        elif "id" in col_lower:
             column_config[col] = st.column_config.TextColumn(col, width="medium")
             
     return column_config
@@ -266,85 +271,44 @@ def _gated_preview_table(
     df: pd.DataFrame,
     can_export: bool,
     pct: float = 0.15,
-    min_rows: int = 1,
+    min_rows: int = 5,
     key: str = None,
     column_config: dict = None
 ) -> None:
-    """Affiche un tableau de résultats, avec deux comportements :
-    
-    - Compte débloqué pour la période (`can_export=True`) : st.dataframe complet.
-    - Sinon : aperçu bridé mais montrant le VOLUME total.
-    Seules les 10 premières lignes (ou 15% du total si < 10) sont affichées
-    normalement. Le reste est affiché mais avec les colonnes sensibles masquées.
-    Les colonnes Date, Pays et ID restent visibles partout.
-    """
+    """Affiche un tableau de résultats avec protection des données sensibles."""
     if can_export:
         config = _smart_money_df(df, existing_config=column_config)
-        # Fix deprecation warning: use_container_width -> width="stretch"
         st.dataframe(df, width="stretch", column_config=config, hide_index=True)
         return
 
-    # 1. Calcul de la limite "en clair" (15% plafonné à 10)
+    # PERFORMANCE : Si bridé, on ne traite qu'un échantillon pour économiser la RAM
     n_total = len(df)
-    n_full_visible = max(min_rows, min(10, int(n_total * pct)))
-
-    # On travaille sur une copie intégrale pour montrer tout le volume
-    df_preview = df.copy()
-
-    # 2. Masquage des données sensibles pour les lignes > n_full_visible
-    # On identifie les colonnes à masquer
-    lock_msg = "🔒 " + _("gated_locked")
+    n_visible = max(min_rows, min(20, n_total)) # On limite à 20 lignes max en aperçu
     
-    # Liste des colonnes à garder en clair
+    # On crée un aperçu léger
+    df_preview = df.head(n_visible).copy()
+    
+    lock_msg = "🔒 " + _("gated_locked")
     safe_cols = ["Date", "Pays", "Dest", "ID", "Transaction", "Type", "Stock"]
     
+    # Masquage uniquement sur l'échantillon
     for col in df_preview.columns:
-        # Sécurité supplémentaire : si "montant" ou "tva" est dans le nom, on verrouille quand même
         col_lower = col.lower()
-        if col in safe_cols and not any(k in col_lower for k in ["montant", "tva", "ttc", "ht"]):
-            continue # On garde ces informations pour le rapprochement
-            
-        # Pour tout le reste (Scénarios, Montants...), on masque
-        # On vérifie si la colonne est numérique ou non pour le message
-        # de verrouillage (Streamlit dataframe n'aime pas trop les types mixtes)
-        
-        # Conversion en object pour accepter le texte
-        df_preview[col] = df_preview[col].astype(object)
-        
-        # Application du masque à partir de la ligne n_full_visible
-        df_preview.iloc[n_full_visible:, df_preview.columns.get_loc(col)] = lock_msg
+        if col not in safe_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht"]):
+            df_preview[col] = df_preview[col].astype(str)
+            df_preview.iloc[min_rows:, df_preview.columns.get_loc(col)] = lock_msg
 
-    # 3. Ajustement du column_config pour éviter les erreurs de type (ex: NumberColumn vs String)
     config = _smart_money_df(df_preview, existing_config=column_config)
     
+    # On force en TextColumn les colonnes masquées pour éviter les erreurs de type
     for col in df_preview.columns:
-        # Si la colonne contient maintenant du texte de verrouillage, on force le type TextColumn
-        # sauf si l'on est déjà sur une TextColumn (on vérifie via le nom de classe pour la robustesse
-        # face à certaines versions de Streamlit où TextColumn est une factory et non un type).
-        current_config = config.get(col)
-        is_text_col = current_config is not None and type(current_config).__name__ == "TextColumn"
-        
-        if not is_text_col:
-             if df_preview[col].dtype == object and any(lock_msg in str(x) for x in df_preview[col] if x is not None):
-                config[col] = st.column_config.TextColumn(col)
-
-    # 4. Affichage via st.dataframe
-    # To prevent Arrow serialization errors with mixed types (floats vs "🔒 Option premium"),
-    # we ensure all columns that might contain the lock message are fully converted to strings.
-    for col in df_preview.columns:
-        current_config = config.get(col)
-        is_text_col = current_config is not None and type(current_config).__name__ == "TextColumn"
-        
-        if is_text_col:
-            df_preview[col] = df_preview[col].astype(str)
-        elif any(lock_msg in str(x) for x in df_preview[col] if x is not None):
-            # If the column was supposed to be numeric but now contains the lock emoji,
-            # we MUST force it to TextColumn and string type.
+        if df_preview[col].dtype == object:
             config[col] = st.column_config.TextColumn(col)
-            df_preview[col] = df_preview[col].astype(str)
 
     st.dataframe(df_preview, width="stretch", column_config=config, hide_index=True, key=key)
-    st.warning(_("gated_preview_warning", count=n_total - n_full_visible))
+    
+    if n_total > n_visible:
+        st.warning(_("gated_preview_warning", count=n_total - min_rows))
 
 
 def render_oss_threshold_bar(oss_summary: Any) -> None:

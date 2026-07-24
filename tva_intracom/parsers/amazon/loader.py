@@ -402,32 +402,40 @@ def _process_rows(
 def load_amazon_report(
     path: "Path | str",
     seller_country: str = "FR",
-    encoding: str = "utf-8",
+    encoding: Optional[str] = None,
     convert_currencies: bool = False,
     asin_to_category: Optional[dict[str, str]] = None,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> AmazonImportResult:
     """Charge un fichier Amazon VAT Transactions Report (formats 1 à 5).
 
-    La détection du format est automatique sur le header.
-    Interface publique identique à l'ancienne version monolithique
-    (le nouveau paramètre progress_callback est optionnel, valeur par
-    défaut None → aucun changement de comportement pour les appelants
-    existants).
-
-    Args:
-        progress_callback: callable(processed, total) optionnel, appelé
-            périodiquement pendant le traitement ligne par ligne (utile
-            pour afficher une barre de progression sur un gros fichier,
-            ex: st.progress dans app.py).
+    La détection du format et de l'encodage est automatique.
+    Si l'encodage n'est pas fourni, on tente UTF-8 puis Windows-1252 (cp1252).
     """
     path = Path(path)
     result = AmazonImportResult(
         sales=[], refunds=[], fc_transfers=[], stock_countries=set()
     )
 
+    # --- Détection intelligente de l'encodage ---
+    if encoding is None:
+        try:
+            # On tente de lire une petite portion en UTF-8 strict
+            with path.open(encoding="utf-8") as f:
+                f.read(4096)
+            encoding = "utf-8"
+        except UnicodeDecodeError:
+            # Fallback sur l'encodage Windows européen standard
+            encoding = "cp1252"
+            logger.info("Encodage UTF-8 échoué, bascule sur cp1252 pour %s", path.name)
+
     with path.open(encoding=encoding, errors="replace", newline="") as handle:
         first_line = handle.readline()
+        # Si la ligne est vide après lecture, le séparateur sera mal détecté
+        if not first_line.strip():
+            # Tentative de lecture de la ligne suivante si la première est vide
+            first_line = handle.readline()
+
         sep = detect_separator(first_line)
         handle.seek(0)
 
