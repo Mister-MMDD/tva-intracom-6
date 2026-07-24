@@ -84,7 +84,8 @@ def render_vies(ctx: TabContext) -> None:
 
         if st.session_state.get("_vies_certificate_pdf"):
             _cert_suffix = "fichier" if st.session_state.get("_vies_certificate_scope") == "file" else "compte"
-            _gated_download(
+            # Le certificat VIES est gratuit au téléchargement (preuve de bonne foi)
+            st.download_button(
                 _("vies_certificate_dl_btn"),
                 data=st.session_state["_vies_certificate_pdf"],
                 file_name=_("vies_certificate_filename", company=f"{nom_entreprise}_{_cert_suffix}"),
@@ -174,9 +175,9 @@ def render_vies(ctx: TabContext) -> None:
 
             render_manual_vies_classification()
 
-        if st.button(_("vies_reverify_btn"), key="retry_vies_btn"):
-            st.session_state["_vies_retry_nonce"] = _vies_retry_nonce + 1
-            st.rerun()
+            if st.button(_("vies_reverify_btn"), key="retry_vies_btn"):
+                st.session_state["_vies_retry_nonce"] = _vies_retry_nonce + 1
+                st.rerun()
 
         # Overrides manuels en base (toujours accessible, replié par défaut)
         try:
@@ -191,6 +192,17 @@ def render_vies(ctx: TabContext) -> None:
         except Exception:
             _existing_overrides_b = []
             _VIES_TTL_B = 90
+
+        # On ne garde que les overrides concernant un numéro de TVA présent
+        # dans le fichier actuellement chargé — pas tout l'historique du
+        # compte/cabinet (qui peut couvrir d'autres clients/imports).
+        _current_file_vats_b = set(
+            getattr(vies_summary, "vat_to_display_ids", {}) or {}
+        )
+        _existing_overrides_b = [
+            (_v, _iv, _sa) for (_v, _iv, _sa) in _existing_overrides_b
+            if _v in _current_file_vats_b
+        ]
 
         if _existing_overrides_b:
             _nb_expired_b = sum(

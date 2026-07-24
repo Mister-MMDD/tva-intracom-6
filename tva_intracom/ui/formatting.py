@@ -183,7 +183,7 @@ def _country_label(code: str) -> str:
 
 # Helpers column_config réutilisables
 # ── Colonne monétaire : tri numérique conservé, affichage smart (0 déc. ou 2 déc.)
-def _money_col(label: str, help_txt: str = "", symbol=None) -> st.column_config.NumberColumn:
+def _money_col(label: str, help_txt: str = "", symbol=None, width="small") -> st.column_config.NumberColumn:
     """NumberColumn monétaire : entier si .00, sinon 2 décimales."""
     if symbol is None:
         symbol = st.session_state.get("currency_symbol", "€")
@@ -192,15 +192,17 @@ def _money_col(label: str, help_txt: str = "", symbol=None) -> st.column_config.
         label,
         format=f"%.2f {symbol}",   # Streamlit applique toujours 2 déc. dans l'affichage natif
         help=help_txt,
+        width=width,
     )
 
 
-def _pct_col(label: str, help_txt: str = "") -> st.column_config.NumberColumn:
+def _pct_col(label: str, help_txt: str = "", width="small") -> st.column_config.NumberColumn:
     """NumberColumn pourcentage : 1 décimale, suffixe %."""
     return st.column_config.NumberColumn(
         label,
         format="%.1f%%",
         help=help_txt,
+        width=width,
     )
 
 
@@ -233,33 +235,29 @@ def _smart_money_df(
 
         col_lower = col.lower()
         # Les colonnes explicitement classées (note_cols) priment toujours sur
-        # l'heuristique par mot-clé : une colonne comme "N° TVA rejeté" contient
-        # "tva" mais n'est pas un montant — sans cette priorité, elle serait
-        # convertie en float par _fmt (ex. un n° de TVA italien purement
-        # numérique s'affiche alors comme un montant en euros).
-        if col in n_cols:
+        # l'heuristique par mot-clé.
+        if col in n_cols or "note" in col_lower or "commentaire" in col_lower:
             # Plus de troncature ni de largeur fixe : width=None indique à
             # Streamlit de dimensionner la colonne pour qu'elle épouse
-            # exactement le contenu le plus long (comportement natif de
-            # st.dataframe quand `width` n'est pas précisé), donc le texte
-            # complet (note OSS + réf. légale + lien bit.ly) est visible dès
-            # le premier rendu, sans clic sur "..." > Autosize ni troncature
-            # avec "…". Contrepartie assumée : la colonne peut être large et
-            # imposer un défilement horizontal sur les tableaux à texte long
-            # — préférable à un texte coupé qu'il fallait élargir à la main.
-            column_config[col] = st.column_config.TextColumn(col)
-        # Colonnes de commentaire/justification détectées par heuristique
-        # (au cas où elles ne seraient pas listées explicitement en note_cols
-        # par l'appelant) : même traitement.
-        elif "note" in col_lower or "commentaire" in col_lower:
+            # exactement le contenu le plus long.
             column_config[col] = st.column_config.TextColumn(col)
         # Pré-formatage dans le df : on remplace les floats par des strings formatées
         elif col in m_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total", "remboursé"]):
-            column_config[col] = st.column_config.TextColumn(col)
+            column_config[col] = st.column_config.TextColumn(col, width="small")
             # On applique le formatage smart sur la colonne
             df[col] = df[col].apply(_fmt)
         elif col in p_cols or any(k in col_lower for k in ["taux", "pct", "rate"]):
             column_config[col] = _pct_col(col)
+        # Colonnes ultra-courtes (2-3 lettres : Stock, Dest, Pays, Devise)
+        # On inclut "départ" pour l'onglet VIES.
+        elif any(k == col_lower for k in ["stock", "dest", "pays", "devise", "départ"]):
+            column_config[col] = st.column_config.TextColumn(col, width=40)
+        # Autres colonnes connues pour être courtes (Date, Canal, Scénario...)
+        elif any(k == col_lower for k in ["date", "canal", "type", "collecteur", "collector", "scénario", "scenario"]):
+            column_config[col] = st.column_config.TextColumn(col, width="small")
+        # Colonnes de largeur moyenne (ID...)
+        elif any(k in col_lower for k in ["id"]):
+            column_config[col] = st.column_config.TextColumn(col, width="medium")
             
     return column_config
 
@@ -298,7 +296,7 @@ def _gated_preview_table(
     lock_msg = "🔒 " + _("gated_locked")
     
     # Liste des colonnes à garder en clair
-    safe_cols = ["Date", "Pays", "Dest", "ID", "Transaction", "Type"]
+    safe_cols = ["Date", "Pays", "Dest", "ID", "Transaction", "Type", "Stock"]
     
     for col in df_preview.columns:
         # Sécurité supplémentaire : si "montant" ou "tva" est dans le nom, on verrouille quand même

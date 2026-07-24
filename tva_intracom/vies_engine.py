@@ -1240,21 +1240,6 @@ def validate_vat_numbers_parallel(
                 batch_results[norm_id] = result
                 _tick()
 
-        # --- Détection dégradation globale du serveur VIES ---
-        invalid_results = [r for r in batch_results.values() if not r.valid]
-        empty_results = [r for r in invalid_results if _is_empty_response(r)]
-        _EMPTY_RATIO_THRESHOLD = 0.3
-        server_degraded = (
-                len(invalid_results) >= 3
-                and len(empty_results) / len(invalid_results) > _EMPTY_RATIO_THRESHOLD
-        )
-        if server_degraded:
-            logger.warning(
-                "VIES : serveur dégradé détecté (%d/%d réponses invalides vides). "
-                "Ces résultats ne sont pas mis en cache.",
-                len(empty_results), len(invalid_results),
-            )
-
         # --- Phase 3 : classification, puis DEUX écritures batch au lieu de
         #     2×N écritures séquentielles ---
         to_write_global: list[tuple[str, ViesResult]] = []
@@ -1275,18 +1260,6 @@ def validate_vat_numbers_parallel(
                         valid=False, country_code=result.country_code,
                         vat_number=result.vat_number,
                         error=result.error or "Réponse VIES non concluante (à revérifier)",
-                    )
-                continue
-
-            if server_degraded and _is_empty_response(result):
-                fb = fallback_cache.get(norm_id)
-                if fb is not None:
-                    results[orig_id] = fb
-                else:
-                    results[orig_id] = ViesResult(
-                        valid=False, country_code=result.country_code,
-                        vat_number=result.vat_number,
-                        error="Réponse VIES non concluante (à revérifier)",
                     )
                 continue
 

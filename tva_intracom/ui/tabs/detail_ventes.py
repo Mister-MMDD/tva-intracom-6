@@ -54,7 +54,7 @@ def render_detail_ventes(ctx: TabContext) -> None:
     _lbl_ht = _("col_ht_eur", currency=_target_currency)
     _lbl_vat = _("col_vat_eur", currency=_target_currency)
     _lbl_orig = _("col_orig_amount")
-    _orig_cfg = {_lbl_orig: st.column_config.TextColumn(_lbl_orig)}
+    _orig_cfg = {_lbl_orig: st.column_config.TextColumn(_lbl_orig, width="small")}
 
     # Traductions des en-têtes de colonnes hoistées HORS des boucles
     # ligne-par-ligne ci-dessous : elles sont identiques pour toutes les

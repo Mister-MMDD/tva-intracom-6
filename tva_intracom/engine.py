@@ -750,7 +750,6 @@ def compute_all_with_vies(
     from .vies_engine import (
         validate_vat_numbers_parallel,
         _is_unreliable as _vies_is_unreliable,
-        _is_empty_response as _vies_is_empty
     )
 
     vies_summary = ViesValidationSummary()
@@ -836,12 +835,16 @@ def compute_all_with_vies(
             _current_res = checked_vats.get(_fv)
             # Un résultat est considéré comme un "échec de vérification" si :
             # 1. Il est absent (non testé ou erreur fatale)
-            # 2. Il est marqué comme non fiable (erreur transitoire/timeout)
-            # 3. Il est "vide" (VIES répond False sans nom/adresse et sans erreur explicite)
+            # 2. Il est marqué comme non fiable (erreur transitoire/timeout explicite)
+            # Une réponse "vide" (VIES répond False sans nom/adresse et sans erreur)
+            # n'est PAS un échec : c'est la forme normale et définitive d'un numéro
+            # réellement invalide — elle doit être acceptée comme résultat automatique
+            # concluant (voir vies_engine.validate_vat_numbers_parallel, qui la met
+            # désormais en cache comme telle, protégée par _is_downgrade contre une
+            # vraie dégradation silencieuse d'un numéro précédemment valide).
             _is_failed = (
                 _current_res is None
                 or _vies_is_unreliable(_current_res)
-                or _vies_is_empty(_current_res)
             )
 
             if _fv in vat_seen and _is_failed:
