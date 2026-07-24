@@ -442,6 +442,11 @@ if uploaded_files:
 
         vies_summary = None
         if st.session_state.get("_calc_key") != _cache_key:
+            # On capture le contexte de session AVANT de lancer le thread pour 
+            # éviter les appels à st.session_state (ScriptRunContext)
+            _lang_for_thread = st.session_state.get("language", "fr")
+            _curr_for_thread = st.session_state.get("target_currency", "EUR")
+            _sym_for_thread  = st.session_state.get("currency_symbol", "€")
 
             def _run_full_calc(report: "Callable[[float, str], None]"):
                 """Exécute le calcul complet (VIES + moteur + rapport). Ne fait
@@ -451,23 +456,23 @@ if uploaded_files:
                 def _vies_progress_cb(done: int, total: int) -> None:
                     if total <= 0:
                         return
-                    report(min(done / total, 0.85), _("calc_progress_vies_count", done=done, total=total))
+                    report(min(done / total, 0.85), _("calc_progress_vies_count", lang=_lang_for_thread, done=done, total=total))
 
                 _results, _vies_summary, _oss_summary = compute_all_with_vies(
                     sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
                     on_invalid=on_invalid_behavior, marketplace_name=platform_name,
                     apply_fr_under_threshold=apply_fr_under_threshold,
                     refunds=refunds if refunds else None,
-                    vies_progress_callback=_vies_progress_cb)
+                    vies_progress_callback=_vies_progress_cb,
+                    lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread)
 
-                report(0.9, _("calc_progress_vat"))
-                # VIES obligatoire aussi sur les avoirs (plus de distinction
-                # avec le calcul principal) : scope_id requis même si les
-                # avoirs n'ont en général pas de n° TVA B2B à valider.
+                report(0.9, _("calc_progress_vat", lang=_lang_for_thread))
+                # VIES obligatoire aussi sur les avoirs
                 _refund_results = compute_all_with_vies(
-                    refunds, scope_id=_vies_scope_id, marketplace_name=platform_name
+                    refunds, scope_id=_vies_scope_id, marketplace_name=platform_name,
+                    lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread
                 )[0] if refunds else []
-                _summary = build_report(_results, refund_results=_refund_results or None)
+                _summary = build_report(_results, refund_results=_refund_results or None, lang=_lang_for_thread)
                 report(1.0, "")
                 return _results, _vies_summary, _oss_summary, _refund_results, _summary
 

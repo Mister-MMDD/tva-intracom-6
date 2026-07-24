@@ -35,44 +35,32 @@ from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
 
-def _note(fr_text: str, key: str, lang: str | None = None, **kwargs) -> str:
+def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
     """Texte de VatResult.note.
 
-    En français : texte complet avec références légales (Bofip/CGI/directives
-    UE), tel quel — inchangé par rapport au comportement historique.
-    Dans les autres langues : note générique minimale, SANS référence légale
-    propre à un pays (clé i18n `engine_note_*`, voir i18n/*.toml) — les
-    articles de loi cités (CGI, Bofip...) sont spécifiques au droit français
-    et n'ont pas de traduction pertinente dans une autre langue.
-    Fonctionne aussi en usage bibliothèque hors Streamlit (voir README) : si
-    aucune session Streamlit n'est active, on reste en français par défaut
-    (comportement historique, avant l'introduction du multilingue).
-
-    Args:
-        lang: langue déjà résolue par l'appelant (voir `_resolve_lang()`),
-              pour éviter de relire `st.session_state` à chaque vente lors
-              d'un traitement en lot (jusqu'à 20k ventes) — un seul lookup
-              Streamlit par lot au lieu d'un par vente. Si None (usage
-              historique / bibliothèque hors boucle), on retombe sur la
-              résolution à la volée comme avant.
+    En français : texte complet avec références légales.
+    Dans les autres langues : note générique minimale.
+    
+    IMPORTANT : 'lang' doit être passé explicitement pour éviter les appels 
+    à st.session_state dans les threads d'arrière-plan.
     """
-    if lang is None:
-        lang = _resolve_lang()
     if lang == "fr":
         return fr_text
     from .i18n import _ as _i18n
-    return _i18n(key, **kwargs)
+    return _i18n(key, lang=lang, **kwargs)
 
 
 def _resolve_lang() -> str:
-    """Résout la langue de session courante (voir `_note`). Isolée dans sa
-    propre fonction pour être appelée une seule fois par lot (_run_oss_loop)
-    plutôt qu'une fois par vente."""
+    """Fallback pour usage hors boucle / bibliothèque."""
     try:
         import streamlit as _st
-        return _st.session_state.get("language", "fr")
+        # On n'accède à st.session_state QUE si on a un ScriptRunContext
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        if get_script_run_ctx():
+            return _st.session_state.get("language", "fr")
     except Exception:
-        return "fr"
+        pass
+    return "fr"
 
 # Seuil de valeur intrinseque d'un envoi pour le regime IOSS (import).
 IOSS_THRESHOLD = Decimal("150")
@@ -502,34 +490,16 @@ def _oss_eligible(sale: Sale) -> bool:
     )
 
 
-def _oss_threshold_display(cumulative_eur: Decimal) -> tuple[str, str, str]:
-    """Cumul et seuil OSS à afficher dans la note, dans la devise choisie par
-    l'utilisateur (voir sidebar "Pays d'origine" / sélecteur de devise
-    d'affichage). Renvoie (cumulative_str, limit_str, symbole).
-
-    Le seuil légal de 10 000 EUR (Art. 59 quater Dir. 2006/112/CE) est fixe et
-    ne doit PAS fluctuer au gré du taux BCE du jour : les États membres hors
-    zone euro publient une contre-valeur nationale FIXE pour ce seuil
-    (`rates.OSS_THRESHOLD_FIXED_EQUIVALENTS`). Le cumul affiché est mis à
-    l'échelle du même rapport implicite pour rester visuellement cohérent
-    avec ce seuil fixe (plutôt que de comparer un cumul converti au taux du
-    jour à un seuil qui ne l'est pas). Repli sur l'EUR si aucune session
-    Streamlit n'est active (usage bibliothèque, voir README)."""
-    try:
-        import streamlit as _st
-        currency = _st.session_state.get("target_currency", "EUR")
-        symbol = _st.session_state.get("currency_symbol", "€")
-    except Exception:
-        currency, symbol = "EUR", "€"
-
+def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbol: str = "€") -> tuple[str, str, str]:
+    """Cumul et seuil OSS à afficher dans la note. 
+    Les paramètres currency et symbol doivent être passés par l'appelant 
+    pour éviter d'accéder à st.session_state dans un thread d'arrière-plan.
+    """
     if not currency or currency.upper() == "EUR":
         return f"{cumulative_eur:,.2f}", f"{Decimal('10000.00'):,.2f}", "€"
 
     eur_rate = None
     if currency.upper() not in OSS_THRESHOLD_FIXED_EQUIVALENTS:
-        # Devise sans contre-valeur légale fixe (ex. GBP, hors périmètre OSS) :
-        # repli sur le taux BCE du jour pour rester cohérent avec le reste de
-        # l'affichage (voir ui/formatting.py::_get_conversion_rate).
         try:
             from .ecb_rates import get_rate
             from datetime import date as _d
@@ -545,27 +515,17 @@ def _oss_threshold_display(cumulative_eur: Decimal) -> tuple[str, str, str]:
 
 def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                     sale: Sale, product_category: str,
-                    apply_fr_under_threshold: bool, lang: str | None = None) -> VatResult:
-    """Applique la logique du seuil OSS à un VatResult déjà calculé.
-
-    - Sous le seuil et option FR activée → reclassifie en DOMESTIC FR.
-    - Vente de franchissement → ajoute note d'alerte.
-    - Sinon → retourne le résultat inchangé.
-
-    Cette fonction est la source unique de la logique OSS pour
-    compute_all_with_vies() (VIES est désormais obligatoire partout ;
-    l'ancienne variante compute_all() sans vérification VIES a été retirée).
-    """
+                    apply_fr_under_threshold: bool, lang: str | None = None,
+                    currency: str = "EUR", symbol: str = "€") -> VatResult:
+    """Applique la logique du seuil OSS à un VatResult déjà calculé."""
     if lang is None:
         lang = _resolve_lang()
     if not apply_fr_under_threshold:
         return res
 
-    prev_cumul = cumulative - sale.amount_ht   # cumul AVANT cette vente
+    prev_cumul = cumulative - sale.amount_ht
 
     if cumulative <= Decimal("10000.00"):
-        # Encore sous le seuil : application de la TVA du pays d'origine.
-        # Le vendeur (et en dessous du seuil) applique sa propre TVA sur ses ventes intra-UE.
         origin_country = sale.seller_country
         _oss_tx_date = None
         if sale.transaction_date:
@@ -576,7 +536,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                 pass
         home_rate = vat_rate(origin_country, product_category, tx_date=_oss_tx_date)
         home_vat_amount = _vat_amount(sale.amount_ht, home_rate)
-        _cumul_disp, _limit_disp, _sym_disp = _oss_threshold_display(cumulative)
+        _cumul_disp, _limit_disp, _sym_disp = _oss_threshold_display(cumulative, currency, symbol)
         return VatResult(
             sale=sale, scenario=Scenario.DOMESTIC,
             vat_country=origin_country,
@@ -639,33 +599,18 @@ def _run_oss_loop(
     asin_to_category: dict[str, str],
     apply_fr_under_threshold: bool,
     effective_sale_fn=None,
+    lang: str = "fr",
+    currency: str = "EUR",
+    symbol: str = "€"
 ) -> tuple[list[VatResult], OssThresholdSummary]:
-    """Boucle chronologique OSS utilisée par compute_all_with_vies.
-
-    Factorise le reset annuel du cumul OSS, l'éligibilité OSS, le build de la
-    note sous/sur seuil, et la construction de OssThresholdSummary.
-
-    Args:
-        sorted_items       : ventes + avoirs triés chronologiquement.
-        refund_ids         : set d'id() Python des objets avoirs.
-        marketplace_name   : nom de la marketplace (pour compute_vat).
-        asin_to_category   : mapping ASIN → catégorie produit.
-        apply_fr_under_threshold : appliquer TVA FR sous le seuil OSS.
-        effective_sale_fn  : callable(sale, product_category) → Sale modifié.
-                             Utilisé par compute_all_with_vies pour injecter
-                             les reclassifications VIES. None = identité.
-
-    Returns:
-        (results, oss_summary)
-    """
+    """Boucle chronologique OSS."""
     results: list[VatResult] = []
     cumulative_oss_ht = Decimal("0.00")
     current_year = ""
     oss_ht_by_year: dict[str, Decimal] = {}
-    # Résolu UNE SEULE FOIS pour tout le lot (jusqu'à 20k ventes) plutôt que
-    # relu depuis st.session_state à chaque vente dans compute_vat/_note —
-    # voir _resolve_lang().
-    _lang = _resolve_lang()
+    
+    # On utilise les paramètres passés plutôt que _resolve_lang() pour le thread-safety
+    _lang = lang
 
     for sale in sorted_items:
         is_from_refunds = id(sale) in refund_ids
@@ -675,19 +620,13 @@ def _run_oss_loop(
             or asin_to_category.get(product_asin.upper(), "STANDARD")
         )
 
-        # Reset annuel du cumul OSS (art. 59 ter directive 2006/112/CE).
         year = _year_of(sale)
         if year and year != current_year:
             if current_year:
                 oss_ht_by_year[current_year] = cumulative_oss_ht
-                logger.info(
-                    "Changement d'année %s → %s : cumul OSS remis à zéro "
-                    "(était %.2f €).", current_year, year, cumulative_oss_ht
-                )
             current_year = year
             cumulative_oss_ht = oss_ht_by_year.get(year, Decimal("0.00"))
 
-        # Injection des reclassifications VIES si fournie (compute_all_with_vies).
         effective_sale = (
             effective_sale_fn(sale, product_category)
             if effective_sale_fn is not None
@@ -701,7 +640,8 @@ def _run_oss_loop(
             if not is_from_refunds:
                 res = _build_oss_note(
                     res, cumulative_oss_ht, Decimal("10000.00"),
-                    effective_sale, product_category, apply_fr_under_threshold, lang=_lang,
+                    effective_sale, product_category, apply_fr_under_threshold, 
+                    lang=_lang, currency=currency, symbol=symbol
                 )
 
         if not is_from_refunds:
@@ -728,6 +668,9 @@ def compute_all_with_vies(
     apply_fr_under_threshold: bool = False,
     refunds: list[Sale] | None = None,
     vies_progress_callback=None,
+    lang: str = "fr",
+    currency: str = "EUR",
+    symbol: str = "€",
 ) -> tuple[list[VatResult], ViesValidationSummary, OssThresholdSummary]:
     """Calcule la TVA avec validation VIES en gérant le seuil de 10 000 € OSS.
     
@@ -742,6 +685,8 @@ def compute_all_with_vies(
         refunds: liste des remboursements (montants négatifs). S'ils sont fournis,
                  leur montant OSS-éligible est déduit du cumul pour que le seuil
                  affiché reflète le CA OSS net (conformément à l'art. 59 ter directive TVA).
+        lang, currency, symbol: contexte de présentation passé explicitement pour 
+                 éviter les appels à st.session_state dans les threads.
     """
     if asin_to_category is None:
         asin_to_category = {}
@@ -970,6 +915,8 @@ def compute_all_with_vies(
         _vies_state["last_classified_sale_id"] = sale.sale_id
         return effective
 
+    _lang, _curr, _sym = lang, currency, symbol
+
     refund_ids: set[int] = {id(r) for r in (refunds or [])}
     all_items = list(sales) + list(refunds or [])
     all_items_sorted = sorted(all_items, key=_chronological_sort_key)
@@ -978,6 +925,7 @@ def compute_all_with_vies(
         all_items_sorted, refund_ids, marketplace_name,
         asin_to_category, apply_fr_under_threshold,
         effective_sale_fn=_effective_sale_with_vies,
+        lang=_lang, currency=_curr, symbol=_sym
     )
 
     # Mise à jour des montants TVA évités dans les reclassifications

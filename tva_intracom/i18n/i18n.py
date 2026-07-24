@@ -31,13 +31,18 @@ def load_translations(lang: str):
         # En cas d'échec de parsing, on renvoie un dict vide pour éviter le crash complet
         return {}
 
-def get_text(key: str, **kwargs) -> str:
+def get_text(key: str, lang: str | None = None, **kwargs) -> str:
     """Récupère la traduction pour une clé donnée."""
-    # On s'assure d'avoir une langue par défaut si session_state n'est pas encore prêt
-    try:
-        lang = st.session_state.get("language", "fr")
-    except Exception:
-        lang = "fr"
+    if lang is None:
+        try:
+            # On vérifie si on est dans un thread Streamlit avec contexte
+            from streamlit.runtime.scriptrunner import get_script_run_ctx
+            if get_script_run_ctx():
+                lang = st.session_state.get("language", "fr")
+            else:
+                lang = "fr"
+        except Exception:
+            lang = "fr"
         
     translations = load_translations(lang)
     

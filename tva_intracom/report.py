@@ -125,7 +125,7 @@ class ReportSummary:
         return sum(self.net_ht_by_bucket.values(), _ZERO)
 
 
-def _bucket_label(r: "VatResult") -> str:
+def _bucket_label(r: "VatResult", lang: str | None = None) -> str:
     """Classe un VatResult dans un seau HT exhaustif et mutuellement exclusif.
 
     L'ordre des tests reflète l'ordre de priorité utilisé par compute_vat()
@@ -133,11 +133,11 @@ def _bucket_label(r: "VatResult") -> str:
     y sont ajoutés.
     """
     if r.channel == Channel.IOSS:
-        return _("bucket_ioss_vendeur")
+        return _("bucket_ioss_vendeur", lang=lang)
     if r.collector == Collector.AMAZON:
-        return _("bucket_deemed_supplier")
+        return _("bucket_deemed_supplier", lang=lang)
     if r.scenario == Scenario.B2B_REVERSE_CHARGE:
-        return _("bucket_b2b_exempt")
+        return _("bucket_b2b_exempt", lang=lang)
     # Autoliquidation nationale B2B domestique hors FR (engine.py ~L239-257) :
     # vente B2B entre assujettis dans un même pays UE (hors FR) relevant
     # d'un régime national de reverse charge. Distinct de B2B_REVERSE_CHARGE
@@ -146,29 +146,30 @@ def _bucket_label(r: "VatResult") -> str:
     # échapperait aux tests channel FR_DOMESTIC/LOCAL_REGISTRATION plus bas
     # sans ce test explicite.
     if r.scenario == Scenario.DOMESTIC and r.collector == Collector.BUYER:
-        return _("bucket_reverse_charge_nat")
+        return _("bucket_reverse_charge_nat", lang=lang)
     if r.channel == Channel.OSS:
-        return _("bucket_oss")
+        return _("bucket_oss", lang=lang)
     if r.channel == Channel.FR_DOMESTIC:
-        return _("bucket_fr_domestic")
+        return _("bucket_fr_domestic", lang=lang)
     if r.channel == Channel.LOCAL_REGISTRATION:
-        return _("bucket_local_registration")
+        return _("bucket_local_registration", lang=lang)
     if r.scenario == Scenario.EXPORT:
-        return _("bucket_export")
+        return _("bucket_export", lang=lang)
     if r.scenario == Scenario.IMPORT_STANDARD:
-        return _("bucket_import")
-    return _("bucket_other")
+        return _("bucket_import", lang=lang)
+    return _("bucket_other", lang=lang)
 
 
-def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = False) -> None:
+def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = False, lang: str | None = None) -> None:
     """Ventile un VatResult dans le bon canal du summary."""
     ht = r.sale.amount_ht  # déjà négatif pour les remboursements
 
-    bucket = _bucket_label(r)
+    bucket = _bucket_label(r, lang=lang)
     target = summary.refund_ht_by_bucket if is_refund else summary.ht_by_bucket
     target[bucket] = target.get(bucket, _ZERO) + ht
 
     month = (r.sale.transaction_date or "")[:7]  # "YYYY-MM", "" si absent/invalide
+    ... # rest of the function remains same but uses lang if needed
 
     if is_refund:
         summary.refund_total_ht += ht
@@ -229,6 +230,7 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
 def build_report(
         results: List[VatResult],
         refund_results: Optional[List[VatResult]] = None,
+        lang: str | None = None,
 ) -> ReportSummary:
     """Agrege une liste de resultats en une synthese.
 
@@ -237,13 +239,14 @@ def build_report(
         refund_results: VatResult des remboursements (montants négatifs).
             Si fourni, ils sont ventilés dans les champs refund_* et déduits
             des totaux nets.
+        lang: langue pour les labels de seaux (buckets) HT.
     """
     summary = ReportSummary()
     for r in results:
-        _aggregate_result(summary, r, is_refund=False)
+        _aggregate_result(summary, r, is_refund=False, lang=lang)
     if refund_results:
         for r in refund_results:
-            _aggregate_result(summary, r, is_refund=True)
+            _aggregate_result(summary, r, is_refund=True, lang=lang)
     return summary
 
 
