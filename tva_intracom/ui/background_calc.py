@@ -46,6 +46,7 @@ class _JobState:
     progress_text: str = ""
     started_at: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock)
+    rerun_triggered: bool = False
 
 
 def _session_key(job_id: str) -> str:
@@ -121,8 +122,20 @@ def render_job_progress(job_id: str, label: str) -> None:
         return
     with state.lock:
         _done, _progress, _text = state.done, state.progress, state.progress_text
+        _already_triggered = state.rerun_triggered
+        if _done and not _already_triggered:
+            state.rerun_triggered = True
     if _done:
-        st.rerun()
+        # Le rerun complet n'est déclenché qu'une seule fois par job : le
+        # timer run_every de ce fragment est indépendant du thread principal
+        # et peut re-tiquer plusieurs fois avant que le rerun précédent
+        # n'ait eu le temps d'atteindre clear_job() côté script principal.
+        # Sans ce garde-fou, chaque tick relance un st.rerun() complet,
+        # recrée un nouveau placeholder (st.empty()) et abandonne l'ancien
+        # fragment, qui continue de tourner tout seul indéfiniment
+        # ("fragment does not exist anymore" en boucle).
+        if not _already_triggered:
+            st.rerun()
         return
     _elapsed = time.time() - state.started_at
     _suffix = f" ({_elapsed:.0f}s)" if _elapsed >= 3 else ""
