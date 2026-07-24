@@ -239,7 +239,7 @@ def render_declarations(ctx: TabContext) -> None:
     _recap_cfg[_("canal_column_label")] = st.column_config.TextColumn(_("canal_column_label"), width="large")
 
     if _can_export:
-        st.dataframe(_recap_df, use_container_width=True, hide_index=True,
+        st.dataframe(_recap_df, width="stretch", hide_index=True,
                      column_config=_recap_cfg)
     else:
         # Aperçu gratuit restreint :

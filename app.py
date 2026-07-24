@@ -379,7 +379,7 @@ if uploaded_files:
                      _("period_mismatch_col_amount"): float(m["amount_ht"])}
                     for m in all_period_mismatches
                 ]),
-                use_container_width=True, hide_index=True,
+                width="stretch", hide_index=True,
             )
 
     # Résumé des taux de change BCE effectivement utilisés

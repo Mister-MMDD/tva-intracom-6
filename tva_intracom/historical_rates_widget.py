@@ -150,7 +150,7 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
         df = pd.DataFrame(rows)
         st.dataframe(
             df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={
                 "Pays": st.column_config.TextColumn(width="medium"),

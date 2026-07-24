@@ -282,7 +282,8 @@ def _gated_preview_table(
     """
     if can_export:
         config = _smart_money_df(df, existing_config=column_config)
-        st.dataframe(df, use_container_width=True, column_config=config, hide_index=True)
+        # Fix deprecation warning: use_container_width -> width="stretch"
+        st.dataframe(df, width="stretch", column_config=config, hide_index=True)
         return
 
     # 1. Calcul de la limite "en clair" (15% plafonné à 10)
@@ -330,7 +331,21 @@ def _gated_preview_table(
                 config[col] = st.column_config.TextColumn(col)
 
     # 4. Affichage via st.dataframe
-    st.dataframe(df_preview, use_container_width=True, column_config=config, hide_index=True, key=key)
+    # To prevent Arrow serialization errors with mixed types (floats vs "🔒 Option premium"),
+    # we ensure all columns that might contain the lock message are fully converted to strings.
+    for col in df_preview.columns:
+        current_config = config.get(col)
+        is_text_col = current_config is not None and type(current_config).__name__ == "TextColumn"
+        
+        if is_text_col:
+            df_preview[col] = df_preview[col].astype(str)
+        elif any(lock_msg in str(x) for x in df_preview[col] if x is not None):
+            # If the column was supposed to be numeric but now contains the lock emoji,
+            # we MUST force it to TextColumn and string type.
+            config[col] = st.column_config.TextColumn(col)
+            df_preview[col] = df_preview[col].astype(str)
+
+    st.dataframe(df_preview, width="stretch", column_config=config, hide_index=True, key=key)
     st.warning(_("gated_preview_warning", count=n_total - n_full_visible))
 
 
