@@ -129,7 +129,7 @@ def render_telechargements(ctx: TabContext) -> None:
             data=xlsx_bytes,
             file_name=_("dl_main_report_filename", company=nom_entreprise, period=period_label),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary", use_container_width=True,
+            type="primary", width="stretch",
         )
         st.caption(_("dl_main_report_caption"))
 
@@ -167,7 +167,7 @@ def render_telechargements(ctx: TabContext) -> None:
                 oss_xml_bytes = generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
 
             if oss_xml_bytes:
-                _gated_download(_("dl_xml_oss_btn"), data=oss_xml_bytes, file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml", use_container_width=True, type="primary")
+                _gated_download(_("dl_xml_oss_btn"), data=oss_xml_bytes, file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml", width="stretch", type="primary")
 
             # Ligne Excel (Détail)
             def _build_oss_xlsx():
@@ -177,7 +177,7 @@ def render_telechargements(ctx: TabContext) -> None:
                     return f.read()
 
             oss_xlsx_bytes = _cached_artifact("oss_xlsx", _build_oss_xlsx)
-            _gated_download(_("dl_xlsx_oss_btn"), data=oss_xlsx_bytes, file_name=_("dl_xlsx_oss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            _gated_download(_("dl_xlsx_oss_btn"), data=oss_xlsx_bytes, file_name=_("dl_xlsx_oss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
         else:
             st.info(_("no_oss_sales_info"))
 
@@ -198,7 +198,7 @@ def render_telechargements(ctx: TabContext) -> None:
                     period_label=period_label, all_fc_transfers=all_fc_transfers, seller_country="FR",
                 )
             ca3_html = _cached_artifact("ca3_html", _build_ca3_html)
-            _gated_download(_("dl_ca3_html_btn"), data=ca3_html.encode("utf-8"), file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html", use_container_width=True)
+            _gated_download(_("dl_ca3_html_btn"), data=ca3_html.encode("utf-8"), file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html", width="stretch")
         else:
             st.markdown(_("home_country_declaration_header", country=_country_label(home_country)))
             st.caption(_("home_country_declaration_caption"))
@@ -213,7 +213,7 @@ def render_telechargements(ctx: TabContext) -> None:
                 _("dl_local_html_btn", country=_country_label(home_country)),
                 data=_home_html.encode("utf-8"),
                 file_name=_("dl_local_html_filename", country=home_country, company=nom_entreprise, period=period_label),
-                mime="text/html", use_container_width=True,
+                mime="text/html", width="stretch",
             )
 
         st.divider()
@@ -229,7 +229,7 @@ def render_telechargements(ctx: TabContext) -> None:
                 with open(b2b_xlsx_path, "rb") as f:
                     return f.read()
             b2b_xlsx_bytes = _cached_artifact("b2b_xlsx", _build_b2b_xlsx)
-            _gated_download(_("dl_xlsx_b2b_btn"), data=b2b_xlsx_bytes, file_name=_("dl_xlsx_b2b_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            _gated_download(_("dl_xlsx_b2b_btn"), data=b2b_xlsx_bytes, file_name=_("dl_xlsx_b2b_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
         else:
             st.info(_("no_b2b_sales_info"))
 
@@ -315,7 +315,7 @@ def render_telechargements(ctx: TabContext) -> None:
             m3.metric(_("dl_reduced_rate_metric"), meta_sel[4])
             c1, c2 = st.columns(2)
             with c1:
-                _gated_download(_("dl_local_csv_btn", country=_country_label(export_country)), data=_build_local_csv(export_country), file_name=_("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label), mime="text/csv", use_container_width=True)
+                _gated_download(_("dl_local_csv_btn", country=_country_label(export_country)), data=_build_local_csv(export_country), file_name=_("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label), mime="text/csv", width="stretch")
             with c2:
                 if export_country != home_country:
                     _local_html = generate_local_vat_html_report(
@@ -327,7 +327,7 @@ def render_telechargements(ctx: TabContext) -> None:
                         _("dl_local_html_btn", country=_country_label(export_country)),
                         data=_local_html.encode("utf-8"),
                         file_name=_("dl_local_html_filename", country=export_country, company=nom_entreprise, period=period_label),
-                        mime="text/html", use_container_width=True,
+                        mime="text/html", width="stretch",
                     )
 
         st.divider()
@@ -339,4 +339,4 @@ def render_telechargements(ctx: TabContext) -> None:
         def _build_fec_bytes():
             return generate_fec_bytes(results_net, period=period_label, ecriture_date=_fec_ecriture_date, piece_ref=_("dl_fec_piece_ref", period=period_label))
         fec_bytes = _cached_artifact("fec_bytes", _build_fec_bytes)
-        _gated_download(_("dl_fec_btn"), data=fec_bytes, file_name=_("dl_fec_filename", company=nom_entreprise, period=period_label), mime="text/plain", use_container_width=True)
+        _gated_download(_("dl_fec_btn"), data=fec_bytes, file_name=_("dl_fec_filename", company=nom_entreprise, period=period_label), mime="text/plain", width="stretch")

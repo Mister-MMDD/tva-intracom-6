@@ -293,7 +293,7 @@ def render_vies(ctx: TabContext) -> None:
                 fig_f = go.Figure(go.Bar(x=list(by_c.keys()), y=list(by_c.values()),
                     marker_color="#d62728", text=[f"{v:,.2f}€" for v in by_c.values()], textposition="auto"))
                 fig_f.update_layout(title=_("vies_chart_title"), yaxis_title=_("vies_chart_yaxis"), height=280, margin=dict(t=40,b=30))
-                st.plotly_chart(fig_f, use_container_width=True)
+                st.plotly_chart(fig_f, width="stretch")
 
             import io as _io, csv as _csv
             buf = _io.StringIO(); w = _csv.writer(buf, delimiter=";")

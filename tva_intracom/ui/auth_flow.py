@@ -458,7 +458,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             _login_password = st.text_input(_("password_label"), type="password", key="login_password_input")
             _col_signin, _col_signup = st.columns(2)
 
-            if _col_signin.button(_("password_signin_btn"), key="btn_password_signin", use_container_width=True, type="primary"):
+            if _col_signin.button(_("password_signin_btn"), key="btn_password_signin", width="stretch", type="primary"):
                 if _login_email and "@" in _login_email and _login_password:
                     try:
                         _sb_res = tva_sb_auth.sign_in_with_password(_login_email, _login_password)
@@ -469,7 +469,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 else:
                     st.warning(_("invalid_email_warning"))
 
-            if _col_signup.button(_("password_signup_btn"), key="btn_password_signup", use_container_width=True):
+            if _col_signup.button(_("password_signup_btn"), key="btn_password_signup", width="stretch"):
                 if _login_email and "@" in _login_email and _login_password:
                     try:
                         _sb_res = tva_sb_auth.sign_up_with_password(_login_email, _login_password)
@@ -512,7 +512,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.caption(_("legacy_login_methods_caption"))
             if st.button(
                 _("send_magic_link_btn"), key="btn_send_magic_link",
-                use_container_width=True,
+                width="stretch",
             ):
                 if _login_email and "@" in _login_email:
                     try:
@@ -623,12 +623,12 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     # un survol fonctionnel) — st.link_button utilise le
                     # mécanisme de navigation propre à Streamlit, garanti de
                     # fonctionner dans cet environnement.
-                    st.link_button(_(_label_key), _oauth_url, use_container_width=True,
+                    st.link_button(_(_label_key), _oauth_url, width="stretch",
                                     key=f"oauth_btn_{_provider}")
                 except Exception as _oauth_render_err:
                     st.error(f"⛔ {_provider} : {_oauth_render_err}")
                     st.button(_(_label_key), key=f"btn_oauth_disabled_{_provider}", disabled=True,
-                              use_container_width=True)
+                              width="stretch")
 
         st.stop()
 

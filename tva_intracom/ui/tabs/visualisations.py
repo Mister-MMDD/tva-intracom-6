@@ -106,7 +106,7 @@ def render_visualisations(ctx: TabContext) -> None:
             # On place la légende en haut pour éviter la superposition avec la barre d'outils (modebar)
             legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width="stretch")
 
     st.divider()
 
@@ -123,7 +123,7 @@ def render_visualisations(ctx: TabContext) -> None:
                                        hovertemplate=f"%{{label}} : %{{value:,.2f}} {_currency_symbol} (%{{percent}})<extra></extra>"))
             fig_pie.update_layout(height=400, margin=dict(t=20,b=20),
                                   legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
 
     with ch2:
         st.subheader(_("viz_map_subheader"))
@@ -160,7 +160,7 @@ def render_visualisations(ctx: TabContext) -> None:
                         title=dict(font=dict(color="#1f1f1f")),
                     )
                 )
-                st.plotly_chart(fig_map, use_container_width=True)
+                st.plotly_chart(fig_map, width="stretch")
 
     # ── B : Évolution temporelle ──────────────────────────────────────
     st.subheader(_("viz_evolution_subheader"))
@@ -243,7 +243,7 @@ def render_visualisations(ctx: TabContext) -> None:
                 margin=dict(t=40, b=40),
                 hovermode="x unified",
             )
-            st.plotly_chart(fig_time, use_container_width=True)
+            st.plotly_chart(fig_time, width="stretch")
         with _tviz2:
             # ── F : Répartition par scénario ─────────────────────────
             st.markdown(_("viz_scenario_markdown"))
@@ -265,7 +265,7 @@ def render_visualisations(ctx: TabContext) -> None:
             ))
             fig_scen.update_layout(height=360, margin=dict(t=20, b=60),
                                    xaxis_tickangle=-30, yaxis_title=_("viz_nb_transactions"))
-            st.plotly_chart(fig_scen, use_container_width=True)
+            st.plotly_chart(fig_scen, width="stretch")
             st.caption(" · ".join(
                 _("viz_scen_caption", scen=s, n=n, ht=f"{_scen_ht.get(s, 0) * _rate:,.0f}", currency=_currency_symbol)
                 for s, n in _scen_data

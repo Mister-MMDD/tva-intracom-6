@@ -519,7 +519,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         import datetime as _dt
                         _eff_date = _dt.datetime.fromtimestamp(_match["pending_removal_at"]).strftime("%d/%m/%Y")
                         st.warning(_("removal_pending", date=_eff_date))
-                        if st.button(_("cancel_removal_btn"), key=f"btn_cancel_removal_{siren_entreprise}", use_container_width=True):
+                        if st.button(_("cancel_removal_btn"), key=f"btn_cancel_removal_{siren_entreprise}", width="stretch"):
                             tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
                             _invalidate_db_cache(f"sirens_{_current_user.id}")
                             _invalidate_db_cache(f"siren_quota_{_current_user.id}")
@@ -527,7 +527,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     else:
                         if st.button(_("remove_siren_btn"), key=f"btn_remove_entreprise_{siren_entreprise}",
                                      help=_("remove_siren_help"),
-                                     use_container_width=True):
+                                     width="stretch"):
                             # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
                             _eff = tva_billing.request_siren_removal(_current_user.id, siren_entreprise)
                             _invalidate_db_cache(f"sirens_{_current_user.id}")
@@ -570,7 +570,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             _c1.caption(f"{_label} · {_('removal_scheduled_short')}")
                         else:
                             _c1.caption(_label)
-                            if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", use_container_width=True):
+                            if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", width="stretch"):
                                 _eff = tva_billing.request_siren_removal(_current_user.id, _r["siren"])
                                 _invalidate_db_cache(f"sirens_{_current_user.id}")
                                 _invalidate_db_cache(f"siren_quota_{_current_user.id}")
@@ -922,7 +922,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_complet"),
                         mime="application/pdf",
                         type="primary",
-                        use_container_width=True,
+                        width="stretch",
                     )
             except Exception as _e:
                 st.caption(_("cache_unavailable", error=_e))
