@@ -75,7 +75,7 @@ tva-intracom/
 │   │   └── woocommerce.py            Parser WooCommerce
 │   ├── __init__.py
 │   ├── amazon_adapter.py             Passerelle de compatibilité entre les anciens modèles de données et le nouveau package.
-│   ├── amazon_spapi.py             Intégration Amazon Selling Partner API (SP-API) — OAuth 2.0 & Reports.
+│   ├── amazon_spapi.py               Intégration Amazon Selling Partner API (SP-API) — OAuth 2.0 & Reports.
 │   ├── auth.py                       Authentification historique par magic link + jeton de
 │   │                                 session (Postgres/Supabase), envoi d'e-mail via l'API
 │   │                                 Resend. Gère le chiffrement Fernet des PII (Amazon DPP,
@@ -99,7 +99,7 @@ tva-intracom/
 │   ├── fec_export.py                 Export comptable FEC (art. A47 A-1 LPF) : journal des ventes
 │   │                                 agrégé par période/régime/pays/taux, plan comptable générique
 │   │                                 paramétrable (ACCOUNTS), écritures équilibrées débit/crédit
-│   ├── cli.py
+│   ├── cli.py                        Interface en ligne de commande (CLI).
 │   ├── config.py                     Utilitaire de gestion des secrets (variables d'environnement, Streamlit secrets).
 │   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
 │   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
@@ -111,6 +111,7 @@ tva-intracom/
 │   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
 │   ├── report.py                     ReportSummary, build_report, render_report
 │   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
+│   ├── vies_certificate.py           Génération de certificat de validité VIES en PDF (preuve de bonne foi).
 │   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
 │   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
 │   │   ├── __init__.py
@@ -123,10 +124,13 @@ tva-intracom/
 │   │   │                             (liaison de compte, distincte du login Amazon), écran
 │   │   │                             de connexion/déconnexion. Lien magique conservé dans le
 │   │   │                             code mais désactivé côté UI ("en préparation").
+│   │   ├── onboarding.py             Visite guidée de première connexion (st.dialog).
+│   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
 │   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, catalogue produits,
 │   │   │                             abonnements & forfaits Stripe)
 │   │   ├── billing_gate.py           Détection de période, gating crédit PAYG/abonnement/quota
 │   │   │                             SIREN/conformité TVA-IOSS, téléchargements gatés
+│   │   ├── background_calc.py        Exécution des calculs longs en thread séparé avec suivi de progression (st.fragment).
 │   │   └── tabs/                     Un module par onglet de l'app, tous consommant un TabContext
 │   │       ├── __init__.py
 │   │       ├── context.py            TabContext — état partagé construit une fois avant les onglets
@@ -146,6 +150,7 @@ tva-intracom/
 ├── app.py                            Interface Streamlit — orchestrateur (auth, upload, calcul,
 │                                     construction du contexte, appel des modules tva_intracom/ui/)
 ├── conftest.py
+├── generate_dataset.py               Générateur de données de test au format Amazon.
 ├── generer_donnees_10k.py
 ├── generer_donnees_multian.py
 ├── pyproject.toml
@@ -153,10 +158,6 @@ tva-intracom/
 ├── requirements.txt
 └── vercel.json                       Config Vercel (includeFiles vers tva_intracom/billing.py)
 ```
-
-> `amazon_adapter.py`, `cli.py` et `historical_rates_widget.py` sont présents dans le
-> dépôt ; leur rôle exact par rapport au sous-package `parsers/amazon/` n'est pas
-> documenté ici — se référer directement à leur code.
 
 ---
 
@@ -168,6 +169,8 @@ tva-intracom/
 | `config.py` | Utilitaire de gestion des secrets (lwa, stripe, resend, postgres) avec fallback local |
 | `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
+| `security.py` | Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy) — chiffrement Fernet des PII |
+| `vies_certificate.py` | Génération d'un "Certificat de Validité VIES" en PDF (preuve de bonne foi opposable) |
 | `vies_engine.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
 | `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle, convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194), retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires |
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
@@ -176,7 +179,10 @@ tva-intracom/
 | `local_vat_report.py` | Équivalent générique du CA3 pour n'importe quel pays UE hors France (canal `LOCAL_REGISTRATION`, ou `FR_DOMESTIC` quand ce pays est le **pays d'origine** du compte) : `compute_local_vat_lines`, `generate_local_vat_html_report`. Ventilation base/TVA par taux réellement présent dans les données, style visuel harmonisé au CA3, mais **PAS un fac-similé du formulaire officiel** — un avertissement explicite figure dans chaque rapport généré. Codes de case indicatifs pour DE/ES/IT/PL/NL/BE/PT/SE/AT/CZ/RO/HU/IE (`rates.LOCAL_VAT_BOX_CODES`, non vérifiés exhaustivement contre un PDF officiel, contrairement au CA3) |
 | `fec_export.py` | Export comptable au format FEC (journal des ventes agrégé par régime/pays/taux, écritures équilibrées débit/crédit) — pré-remplissage pour import dans un logiciel comptable tiers, alternative légère à l'EDI-TVA (voir Roadmap) |
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
+| `historical_rates_widget.py` | Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués |
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
+| `cli.py` | Interface en ligne de commande (CLI) pour exécuter le moteur hors interface web |
+| `amazon_adapter.py` | Passerelle de compatibilité entre les anciens modèles de données et le nouveau package de parsers |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
 | `auth.py` | Authentification historique par magic link (Postgres/Supabase, désactivée côté UI, voir plus bas), envoi d'e-mail via l'API Resend, chiffrement Fernet du refresh_token Amazon SP-API, stockage serveur des verifiers PKCE OAuth (`tva_oauth_pkce`) |
 | `auth_supabase.py` | Authentification par mot de passe et OAuth social (Google, Microsoft, GitHub, Amazon) via l'API Supabase Auth (GoTrue REST), flux PKCE |
@@ -200,8 +206,11 @@ du script.
 | `ui/theme.py` | `apply_theme()` — configuration de page Streamlit (titre, icône, layout) et injection du CSS de marque |
 | `ui/formatting.py` | Helpers d'affichage réutilisés par plusieurs onglets : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df`, `_gated_preview_table`, `_fec_period_end_date` |
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
+| `ui/onboarding.py` | `maybe_show_sidebar_tour` / `maybe_show_tabs_tour` — Visite guidée de première connexion utilisant `st.dialog` et `st.fragment` |
+| `ui/rerun_utils.py` | `preserve_upload_rerun()` — Gestion fine des reruns pour éviter de perdre le fichier uploadé lors d'interactions sidebar |
 | `ui/sidebar.py` | `SidebarResult` + `render_sidebar()` — tous les accordéons de la barre latérale : **Pays d'origine** (`home_country`, tout premier réglage, voir section dédiée ci-dessous), connexion SP-API, Validation & Devises, Cache VIES, Paramètres du fichier, Catalogue Produits, Entreprise & Paramètres avec gestion des SIREN, Abonnements & forfaits Stripe |
-| `ui/billing_gate.py` | `BillingGate` + `build_billing_gate()` — détection du `period_label`, gating crédit PAYG/abonnement actif, gating quota SIREN, gating conformité (TVA locales/IOSS manquants), **rattachement anti-abus Compte Amazon <-> SIREN**, méthode `gated_download()` utilisée par tous les exports de tous les onglets |
+| `ui/billing_gate.py` | `BillingGate` + `build_billing_gate()` — détection de période, gating crédit PAYG/abonnement actif, gating quota SIREN, gating conformité (TVA locales/IOSS manquants), **rattachement anti-abus Compte Amazon <-> SIREN**, méthode `gated_download()` utilisée par tous les exports de tous les onglets |
+| `ui/background_calc.py` | `start_background_job` / `render_job_progress` — Exécution des calculs longs (VIES/moteur) en thread séparé pour ne pas bloquer l'UI Streamlit |
 | `ui/tabs/context.py` | `TabContext` — dataclass regroupant tout l'état nécessaire aux onglets (résultats moteur, statut billing, paramètres entreprise, données brutes d'import), construite une fois avant l'affichage des onglets |
 | `ui/tabs/declarations.py` | Onglet **💶 Déclarations** — récapitulatif "Ce que vous devez reverser" (CA3, OSS par pays, IOSS, DDP, Fisc local), barre de seuil OSS, Contrôle de Cohérence Comptable |
 | `ui/tabs/detail_ventes.py` | Onglet **📋 Détail ventes** — 4 sous-onglets : Ce que vous devez / Géré par des tiers / Ligne par ligne / Remboursements |

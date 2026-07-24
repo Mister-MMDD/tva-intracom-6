@@ -61,11 +61,12 @@
                 </ul>
             </div>
             <div class="card">
-                <h2>Cœur du Moteur (`tva_intracom/`)</h2>
+                <h2>Cœur du Moteur</h2>
                 <ul style="font-size: 0.9rem;">
                     <li><strong>engine.py</strong> : Moteur de classification fiscale.</li>
                     <li><strong>vies_engine.py</strong> : Validation VIES avec cache PostgreSQL.</li>
-                    <li><strong>ecb_rates.py</strong> : Gestionnaire de devises BCE.</li>
+                    <li><strong>ca3_report.py</strong> : Génération rapports CA3 (Cerfa).</li>
+                    <li><strong>fec_export.py</strong> : Export comptable (Journal des ventes).</li>
                     <li><strong>oss_xml.py</strong> : Générateur XML OSS conforme 2021/965.</li>
                 </ul>
             </div>
@@ -87,94 +88,50 @@ tva-intracom/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                    Pipeline CI (pytest sur push/PR)
+├── data/
 ├── tests/
 ├── tva_intracom/
-│   │
-│   ├── i18n/
-│   │   ├── __init__.py
-│   │   ├── de.toml                   texte pour l'allemand
-│   │   ├── en.toml                   texte pour l'anglais
-│   │   ├── es.toml                   texte pour l'espagnol
-│   │   ├── fr.toml                   texte pour le français
-│   │   ├── i18n.py                   choix de la langue
-│   │   ├── it.toml                   texte pour l'italien
-│   │   ├── pl.toml                   texte pour le polonais
-│   │   ├── pt.toml                   texte pour le portugais
+│   ├── i18n/                         Fichiers de traduction (7 langues)
 │   ├── parsers/
 │   │   ├── amazon/                   Sous-package d'import Amazon (formats 1-5)
-│   │   │   ├── __init__.py
-│   │   │   ├── aggregate.py          Pré-agrégation multi-juridictions format V5
-│   │   │   ├── classify.py           Classification acheteur (B2B/B2C), conversion devise
-│   │   │   ├── constants.py          Constantes, SALE_TYPES, REFUND_TYPES, EU_VAT_PREFIXES
-│   │   │   ├── detect.py             Détection format (1–5) et séparateur CSV
-│   │   │   ├── loader.py             Point d'entrée : load_amazon_report()
-│   │   │   └── parsers.py            Parsers par format (Format1–5Parser)
-│   │   ├── __init__.py
+│   │   ├── aliexpress.py             Parser AliExpress / eBay / Temu
+│   │   ├── mirakl.py                 Parser Mirakl (Fnac, Darty, Leroy Merlin...)
+│   │   ├── shopify.py                Parser Shopify
+│   │   └── woocommerce.py            Parser WooCommerce / PrestaShop
 │   ├── __init__.py
-│   ├── amazon_adapter.py             Passerelle de compatibilité entre les anciens modèles de données et le nouveau package.
-│   ├── amazon_spapi.py               Intégration Amazon Selling Partner API (SP-API) — OAuth 2.0 & Reports.
-│   ├── auth.py                       Authentification magic link + jeton de session
-│   │                                 (Postgres/Supabase), envoi d'e-mail via l'API Resend.
-│   │                                 Gère le chiffrement Fernet des PII (Amazon DPP).
-│   ├── billing.py                    Facturation Stripe (PAYG + Pro + Cabinet, Customer
-│   │                                 Portal, quotas SIREN, grille tarifaire, webhooks,
-│   │                                 quotas d'export en base Postgres/Supabase).
-│   │                                 Gère aussi le rattachement anti-abus Compte Amazon <-> SIREN.
-│   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
-│   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
-│   ├── local_vat_report.py           Équivalent générique du CA3 pour tout pays UE hors France
-│   │                                 (canal LOCAL_REGISTRATION/FR_DOMESTIC) : rapport HTML harmonisé
-│   │                                 visuellement au CA3 mais PAS un fac-similé du formulaire officiel
-│   ├── fec_export.py                 Export comptable FEC (art. A47 A-1 LPF) : journal des ventes
-│   │                                 agrégé par période/régime/pays/taux, plan comptable générique
-│   │                                 paramétrable (ACCOUNTS), écritures équilibrées débit/crédit
-│   ├── cli.py
-│   ├── config.py                     Utilitaire de gestion des secrets (variables d'environnement, Streamlit secrets).
-│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
-│   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
-│   ├── excel_report.py               Export Excel multi-onglets
-│   ├── historical_rates_widget.py    Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués
-│   ├── models.py                     Dataclasses : Sale, VatResult, Scenario, BuyerType…
-│   ├── oss_export.py                 Agrégation OSS partagée, exports Excel + CSV URSSAF
-│   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
-│   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
-│   ├── report.py                     ReportSummary, build_report, render_report
-│   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
-│   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
-│   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
-│   │   ├── __init__.py
-│   │   ├── theme.py                  Configuration de page + CSS de marque (apply_theme())
-│   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
-│   │   │                             _gated_preview_table, _fec_period_end_date…)
-│   │   ├── auth_flow.py              Authentification complète : magic link, cookie de session,
-│   │   │                             callback OAuth Amazon SP-API, écran de connexion/déconnexion
-│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, catalogue produits,
-│   │   │                             abonnements & forfaits Stripe)
-│   │   ├── billing_gate.py           Détection de période, gating crédit PAYG/abonnement/quota
-│   │   │                             SIREN/conformité TVA-IOSS, téléchargements gatés
-│   │   └── tabs/                     Un module par onglet de l'app, tous consommant un TabContext
-│   │       ├── __init__.py
-│   │       ├── context.py            TabContext — état partagé construit une fois avant les onglets
-│   │       ├── declarations.py       Onglet "💶 Déclarations"
-│   │       ├── detail_ventes.py      Onglet "📋 Détail ventes"
-│   │       ├── vies_ui.py            Onglet "🛡️ VIES"
-│   │       ├── audit.py              Onglet "🔬 Audit Amazon"
-│   │       ├── telechargements.py    Onglet "📥 Téléchargements"
-│   │       └── visualisations.py     Onglet "📊 Visualisations"
+│   ├── amazon_adapter.py             Passerelle de compatibilité anciens modèles.
+│   ├── amazon_spapi.py               Intégration Amazon Selling Partner API.
+│   ├── auth.py                       Authentification & sessions (Postgres/Supabase).
+│   ├── auth_supabase.py              Auth par mot de passe & OAuth (Google, Amazon...).
+│   ├── billing.py                    Facturation Stripe (PAYG, Pro, Cabinet).
+│   ├── ca3_report.py                 Génération du rapport CA3 (HTML/Cerfa).
+│   ├── local_vat_report.py           Rapport HTML pour pays UE hors France.
+│   ├── fec_export.py                 Export comptable FEC (Journal des ventes).
+│   ├── cli.py                        Interface en ligne de commande.
+│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque).
+│   ├── engine.py                     Cœur du moteur de classification fiscale.
+│   ├── excel_report.py               Export Excel multi-onglets complet.
+│   ├── models.py                     Modèles de données (Pydantic).
+│   ├── oss_export.py                 Agrégation OSS & Export CSV URSSAF.
+│   ├── oss_xml.py                    Génération XML OSS officiel (UE 2021/965).
+│   ├── rates.py                      Taux TVA historisés & Seuils EMEBI.
+│   ├── security.py                   Sécurité Amazon DPP (Chiffrement Fernet).
+│   ├── vies_certificate.py           Génération de certificat VIES en PDF.
+│   ├── vies_engine.py                Validation VIES avec historique d'audit.
+│   ├── ui/                           Interface Streamlit modulaire
+│   │   ├── auth_flow.py              Flux de connexion & OAuth.
+│   │   ├── onboarding.py             Visite guidée interactive.
+│   │   ├── sidebar.py                Barre latérale (SIREN, SP-API, Billing).
+│   │   ├── billing_gate.py           Gating & téléchargements sécurisés.
+│   │   ├── background_calc.py        Calculs longs en thread séparé.
+│   │   └── tabs/                     Un module par onglet applicatif
 │
-├── vercel_webhook/
-│   └── api/
-│       ├── requirements.txt          Dépendances de la fonction serverless (stripe, psycopg2-binary)
-│       └── stripe_webhook.py         Endpoint webhook Stripe, déployé sur Vercel — charge
-│                                     tva_intracom/billing.py par chemin de fichier (monorepo)
-├── .gitignore
-├── app.py                            Interface Streamlit — orchestrateur (auth, upload, calcul,
-│                                     construction du contexte, appel des modules tva_intracom/ui/)
-├── conftest.py
+├── vercel_webhook/                   Webhook Stripe (Vercel serverless)
+├── app.py                            Orchestrateur Streamlit principal
+├── generate_dataset.py               Générateur de données de test
 ├── pyproject.toml
 ├── README.md
-├── requirements.txt
-└── vercel.json                       Config Vercel (includeFiles vers tva_intracom/billing.py)
+└── requirements.txt
                 </pre>
 
                 <h3>Scénarios modélisés</h3>
@@ -182,28 +139,48 @@ tva-intracom/
                     <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 15px;">
                         <tr class="stripe">
                             <th style="padding: 8px; border: 1px solid #ddd;">Scénario</th>
+                            <th style="padding: 8px; border: 1px solid #ddd;">Situation</th>
                             <th style="padding: 8px; border: 1px solid #ddd;">Règle appliquée</th>
-                            <th style="padding: 8px; border: 1px solid #ddd;">Canal</th>
                         </tr>
                         <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd;">DOMESTIC</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">TVA locale pays</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">CA3 / Local</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>DOMESTIC</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Stock et acheteur dans le même pays UE.</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">TVA locale du pays.</td>
                         </tr>
                         <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd;">OSS_B2C</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">TVA pays destination</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Guichet OSS</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>OSS_B2C</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">B2C transfrontalier intra-UE.</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">TVA du pays de destination (OSS).</td>
                         </tr>
                         <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd;">B2B_REVERSE</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Autoliquidation</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Exonéré</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>B2B_REVERSE</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">B2B intra-UE avec n° TVA valide.</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Exonération (Autoliquidation).</td>
                         </tr>
                         <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd;">DEEMED_SUPPLIER</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Collecté par Amazon</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Exonéré (Tiers)</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>DEEMED_SUPPLIER</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Vendeur hors UE ou import ≤ 150€.</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Collecté par Amazon (Exonéré).</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>EXPORT</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Acheteur hors UE.</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Exonération (Exportation).</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>IMPORT_STD</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Import > 150€ (B2C).</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">TVA importation (Douane).</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>IOSS_DIRECT</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Import ≤ 150€ avec n° IOSS propre.</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Collecté par le vendeur via IOSS.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>IMPORT_DDP</strong></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Import > 150€ (Vendeur importateur).</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">TVA locale pays destination.</td>
                         </tr>
                     </table>
                 </div>
@@ -217,11 +194,12 @@ tva-intracom/
 
                 <h3 style="margin-top: 20px;">Roadmap & Évolutions</h3>
                 <ul style="font-size: 0.9rem;">
+                    <li>✅ Visite guidée de première connexion (Onboarding).</li>
+                    <li>✅ Certificats de validité VIES en PDF (Preuve de bonne foi).</li>
                     <li>✅ Gestion multi-pays d'origine (Home Country).</li>
                     <li>✅ Correction automatique des soldes OSS négatifs.</li>
-                    <li>✅ Export comptable FEC.</li>
+                    <li>✅ Export comptable FEC (Journal des ventes).</li>
                     <li>⏳ Intégration directe EDI-TVA (Dépôt automatique).</li>
-                    <li>⏳ Support des régimes spécifiques hors UE (UK/Suisse).</li>
                 </ul>
             </div>
             <button class="toggle-button">Afficher les spécifications complètes</button>

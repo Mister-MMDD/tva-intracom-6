@@ -331,7 +331,7 @@ local_declarations_home_note = "El país de origen ({country}) se gestiona por s
 home_country_declaration_header = "#### 🏠 Declaración — {country} (país de origen)"
 home_country_declaration_caption = "Informe HTML genérico (no es un facsímil del formulario oficial — ver la advertencia dentro del documento). Para Francia, consulte la sección dedicada a CA3 si pasa a ser su país de origen."
 no_local_sales_info = "ℹ️ No se detectaron ventas de registro local (excluyendo Francia, OSS e IOSS)."
-local_declarations_caption = "Archivos preformateados con códigos de casilla específicos para cada país (Kennzahl, Casilla...)."
+local_declarations_caption = ""
 dl_select_country_label = "Seleccione el país para exportar"
 dl_local_vat_due_metric = "IVA debido — {country}"
 dl_standard_rate_metric = "Tarifa general"
@@ -340,7 +340,7 @@ dl_local_csv_btn = "📥 Descargar Declaración de {country} (.csv)"
 dl_local_csv_filename = "Declaracion IVA {country} - {company} - {period}.csv"
 dl_local_html_btn = "📄 Informe HTML {country}"
 dl_local_html_filename = "Informe IVA {country} - {company} - {period}.html"
-local_vat_html_caption = "El informe HTML utiliza el mismo estilo visual que el CA3 francés pero se mantiene genérico (no es un facsímil del formulario oficial del país — ver la advertencia dentro del informe)."
+local_vat_html_caption = ""
 local_vat_report_title = "Informe de IVA {country} — {company} — {period}"
 local_vat_main_title = "Informe de Control de IVA — {country}"
 local_vat_generic_warning = "⚠️ Este informe es un resumen genérico (base imponible + IVA por tarifa), armonizado visualmente con el CA3 francés, pero NO es un facsímil del formulario oficial de declaración de IVA de este país. Los códigos de casilla que se muestran (si están presentes) son indicativos y no han sido verificados contra un formulario PDF oficial de la forma en que se hizo el CA3. Haga que sea validado por un asesor fiscal local o una firma de contabilidad antes de cualquier presentación real."
@@ -1141,3 +1141,17 @@ onboarding_tabs_step6_body = "La primera le da todas las exportaciones (Excel, X
 
 # ── Cálculo en segundo plano (archivos grandes) ─────────────────────────────
 calc_bg_running_caption = "📊 Archivo grande ({rows} líneas) — el cálculo continúa en segundo plano. Mientras tanto puede seguir usando la barra lateral."
+
+# ── Certificado VIES: selector de alcance ───────────────────────────────────
+vies_certificate_scope_label = "Alcance del certificado"
+vies_certificate_scope_file = "📄 Archivo importado"
+vies_certificate_scope_account = "🗂️ Toda la cuenta (historial completo)"
+vies_certificate_scope_file_hint = "Solo enumera los números de IVA B2B presentes en el archivo actualmente cargado — útil para aislar un cliente concreto en una gestoría que gestiona varias cuentas."
+vies_certificate_scope_account_hint = "Enumera todos los números de IVA B2B verificados alguna vez para esta cuenta, en todas las importaciones."
+vies_certificate_full_history = "Historial completo de la cuenta"
+
+# ── Bloqueo de los campos fiscales (IOSS / números de IVA) ──────────────────
+fiscal_fields_lock_warning = "⚠️ Compruebe atentamente los números siguientes antes de guardar: una vez guardado un IOSS o un número de IVA para este SIREN, ya no podrá modificarse (solo podrá añadir nuevos más adelante — p. ej. un IOSS no indicado al principio, o un número de IVA para un país adicional)."
+fiscal_fields_lock_warning_new = "⚠️ Compruebe atentamente esta información antes de guardar: una vez creado este SIREN, el nombre de la empresa, el SIREN, el IOSS y cada número de IVA introducido ya no podrán modificarse (solo podrá añadir más adelante un IOSS o un número de IVA no indicados aquí)."
+fiscal_fields_all_locked_caption = "🔒 El IOSS y todos los números de IVA de esta lista están guardados y bloqueados."
+fiscal_field_locked_note = "guardado, no modificable"

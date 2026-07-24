@@ -242,7 +242,6 @@ def render_telechargements(ctx: TabContext) -> None:
         if not _local_tax_data:
             st.info(_("no_local_sales_info"))
         else:
-            st.caption(_("local_declarations_caption"))
             _local_countries = sorted({r.vat_country for r in _local_tax_data})
             export_country = st.selectbox(_("dl_select_country_label"), _local_countries, format_func=lambda c: f"{_country_label(c)} ({c})", key="dl_country_select")
 
@@ -304,7 +303,14 @@ def render_telechargements(ctx: TabContext) -> None:
                 country_vat = float(summary.net_local_by_country.get(export_country, 0))
 
             m1, m2, m3 = st.columns(3)
-            m1.metric(_("dl_local_vat_due_metric", country=_country_label(export_country)), _fmt(country_vat))
+            # BUGFIX : ce montant (TVA due pour le pays sélectionné) était
+            # affiché en clair même pour un compte non premium/non débloqué
+            # pour cette période — alors que le même chiffre est masqué dans
+            # l'onglet Déclarations (voir declarations.py, `locked_premium`).
+            # On applique le même masquage ici, par cohérence : la valeur ne
+            # doit être visible qu'une fois l'export réellement débloqué.
+            m1.metric(_("dl_local_vat_due_metric", country=_country_label(export_country)),
+                      _fmt(country_vat) if _can_export else _("locked_premium"))
             m2.metric(_("dl_standard_rate_metric"), meta_sel[3])
             m3.metric(_("dl_reduced_rate_metric"), meta_sel[4])
             c1, c2 = st.columns(2)
@@ -323,7 +329,6 @@ def render_telechargements(ctx: TabContext) -> None:
                         file_name=_("dl_local_html_filename", country=export_country, company=nom_entreprise, period=period_label),
                         mime="text/html", use_container_width=True,
                     )
-            st.caption(_("local_vat_html_caption"))
 
         st.divider()
 

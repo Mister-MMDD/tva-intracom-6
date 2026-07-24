@@ -37,31 +37,57 @@ def render_vies(ctx: TabContext) -> None:
     # elle, peut contenir des vérifications issues d'imports précédents.
     with st.expander(_("vies_certificate_expander"), expanded=False):
         st.caption(_("vies_certificate_caption"))
+
+        _cert_scope = st.radio(
+            _("vies_certificate_scope_label"),
+            options=["file", "account"],
+            format_func=lambda v: _("vies_certificate_scope_file") if v == "file" else _("vies_certificate_scope_account"),
+            key="vies_cert_scope",
+            horizontal=True,
+        )
+        st.caption(_("vies_certificate_scope_account_hint") if _cert_scope == "account" else _("vies_certificate_scope_file_hint"))
+
         if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate"):
             try:
-                from tva_intracom.vies_engine import get_scope_vies_snapshot
+                from tva_intracom.vies_engine import get_scope_vies_snapshot, normalize_full_vat
                 from tva_intracom.vies_certificate import generate_vies_certificate_pdf
 
                 _snapshot = get_scope_vies_snapshot(_vies_scope_id)
+
+                if _cert_scope == "file":
+                    # Périmètre "fichier importé" : utile pour un cabinet
+                    # comptable qui suit plusieurs clients dans le même
+                    # scope — ne garder que les n° de TVA B2B présents dans
+                    # les ventes actuellement chargées, pas tout l'historique
+                    # du compte/cabinet.
+                    _file_vat_ids = set()
+                    for _r in ctx.results:
+                        _bvn = getattr(_r.sale, "buyer_vat_number", None)
+                        if _bvn:
+                            _file_vat_ids.add(normalize_full_vat(_bvn, _r.sale.buyer_country))
+                    _snapshot = [row for row in _snapshot if row["vat_id"] in _file_vat_ids]
+
                 _pdf_bytes = generate_vies_certificate_pdf(
                     _snapshot,
                     company_name=nom_entreprise,
                     siren=siren_entreprise,
                     scope_id=_vies_scope_id,
-                    period_label=period_label,
+                    period_label=period_label if _cert_scope == "file" else _("vies_certificate_full_history"),
                     country_label_fn=_country_label,
                 )
                 st.session_state["_vies_certificate_pdf"] = _pdf_bytes
+                st.session_state["_vies_certificate_scope"] = _cert_scope
                 if not _snapshot:
                     st.info(_("vies_certificate_empty_info"))
             except Exception as _cert_err:
                 st.error(_("vies_certificate_error", error=_cert_err))
 
         if st.session_state.get("_vies_certificate_pdf"):
+            _cert_suffix = "fichier" if st.session_state.get("_vies_certificate_scope") == "file" else "compte"
             _gated_download(
                 _("vies_certificate_dl_btn"),
                 data=st.session_state["_vies_certificate_pdf"],
-                file_name=_("vies_certificate_filename", company=nom_entreprise),
+                file_name=_("vies_certificate_filename", company=f"{nom_entreprise}_{_cert_suffix}"),
                 mime="application/pdf",
                 type="primary",
             )

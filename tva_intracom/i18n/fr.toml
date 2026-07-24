@@ -331,7 +331,7 @@ local_declarations_home_note = "Le pays d'origine ({country}) est traité sépar
 home_country_declaration_header = "#### 🏠 Déclaration — {country} (pays d'origine)"
 home_country_declaration_caption = "Rapport HTML générique (pas un fac-similé du formulaire officiel — voir avertissement dans le document). Pour la France, voir la section CA3 dédiée si ce pays devient votre pays d'origine."
 no_local_sales_info = "ℹ️ Aucune vente en immatriculation locale détectée (hors France, OSS et IOSS)."
-local_declarations_caption = "Fichiers pré-formatés avec les codes cases spécifiques à chaque pays (Kennzahl, Casilla...)."
+local_declarations_caption = ""
 dl_select_country_label = "Sélectionnez le pays à exporter"
 dl_local_vat_due_metric = "TVA due — {country}"
 dl_standard_rate_metric = "Taux standard"
@@ -340,7 +340,7 @@ dl_local_csv_btn = "📥 Télécharger Déclaration {country} (.csv)"
 dl_local_csv_filename = "Déclaration TVA {country} - {company} - {period}.csv"
 dl_local_html_btn = "📄 Rapport HTML {country}"
 dl_local_html_filename = "Rapport TVA {country} - {company} - {period}.html"
-local_vat_html_caption = "Le rapport HTML reprend le même style que le CA3 mais reste générique (pas un fac-similé du formulaire officiel du pays — voir avertissement dans le rapport)."
+local_vat_html_caption = ""
 local_vat_report_title = "Rapport TVA {country} — {company} — {period}"
 local_vat_main_title = "Rapport de Contrôle TVA — {country}"
 local_vat_generic_warning = "⚠️ Ce rapport est un récapitulatif générique (base imposable + TVA par taux), harmonisé visuellement avec le CA3 français, mais ce n'est PAS un fac-similé du formulaire officiel de déclaration TVA de ce pays. Les codes de case affichés (s'ils existent) sont indicatifs et n'ont pas été vérifiés contre un formulaire PDF officiel comme pour le CA3. À faire valider par un fiscaliste ou un cabinet comptable local avant tout dépôt réel."
@@ -1141,3 +1141,17 @@ onboarding_tabs_step6_body = "Le premier vous donne tous les exports (Excel, XML
 
 # ── Calcul en arrière-plan (gros fichiers) ──────────────────────────────────
 calc_bg_running_caption = "📊 Fichier volumineux ({rows} lignes) — le calcul se poursuit en arrière-plan. Vous pouvez continuer à consulter la barre latérale pendant ce temps."
+
+# ── Certificat VIES : choix du périmètre ────────────────────────────────────
+vies_certificate_scope_label = "Périmètre du certificat"
+vies_certificate_scope_file = "📄 Fichier importé"
+vies_certificate_scope_account = "🗂️ Compte entier (historique complet)"
+vies_certificate_scope_file_hint = "Ne liste que les numéros de TVA B2B présents dans le fichier actuellement chargé — utile pour isoler un client précis dans un cabinet suivant plusieurs comptes."
+vies_certificate_scope_account_hint = "Liste tous les numéros de TVA B2B jamais vérifiés sur ce compte, tous imports confondus."
+vies_certificate_full_history = "Historique complet du compte"
+
+# ── Verrouillage des champs fiscaux (IOSS / n° TVA) ─────────────────────────
+fiscal_fields_lock_warning = "⚠️ Vérifiez attentivement les numéros ci-dessous avant d'enregistrer : une fois un IOSS ou un numéro de TVA enregistré pour ce SIREN, il ne pourra plus être modifié (vous pourrez seulement en ajouter de nouveaux — ex. un IOSS non renseigné au départ, ou un numéro de TVA pour un pays supplémentaire)."
+fiscal_fields_lock_warning_new = "⚠️ Vérifiez attentivement ces informations avant d'enregistrer : une fois ce SIREN créé, le nom de l'entreprise, le SIREN, l'IOSS et chaque numéro de TVA saisi ne pourront plus être modifiés (vous pourrez seulement ajouter par la suite un IOSS ou un numéro de TVA non renseignés ici)."
+fiscal_fields_all_locked_caption = "🔒 IOSS et tous les numéros de TVA de cette liste sont enregistrés et verrouillés."
+fiscal_field_locked_note = "enregistré, non modifiable"

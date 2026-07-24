@@ -331,7 +331,7 @@ local_declarations_home_note = "Das Herkunftsland ({country}) wird oben separat 
 home_country_declaration_header = "#### 🏠 Erklärung — {country} (Herkunftsland)"
 home_country_declaration_caption = "Generischer HTML-Bericht (kein offizielles Formular-Faksimile — siehe Warnhinweis im Dokument). Für Frankreich nutzen Sie bitte den dedizierten CA3-Bereich, falls dies Ihr Herkunftsland ist."
 no_local_sales_info = "ℹ️ Keine Verkäufe mit lokaler Registrierung erkannt (außer Frankreich, OSS und IOSS)."
-local_declarations_caption = "Vorformatierte Dateien mit spezifischen Kennzahlen/Feldern für jedes Land (Kennzahl, Box...)."
+local_declarations_caption = ""
 dl_select_country_label = "Land für Export auswählen"
 dl_local_vat_due_metric = "Fällige MwSt — {country}"
 dl_standard_rate_metric = "Regelsteuersatz"
@@ -340,7 +340,7 @@ dl_local_csv_btn = "📥 Erklärung für {country} herunterladen (.csv)"
 dl_local_csv_filename = "MwSt_Erklaerung_{country} - {company} - {period}.csv"
 dl_local_html_btn = "📄 HTML-Bericht {country}"
 dl_local_html_filename = "MwSt_Bericht_{country} - {company} - {period}.html"
-local_vat_html_caption = "Der HTML-Bericht nutzt denselben visuellen Stil wie das französische CA3, bleibt jedoch generisch (kein offizielles Formular-Faksimile des Landes — siehe Warnhinweis im Bericht)."
+local_vat_html_caption = ""
 local_vat_report_title = "MwSt-Bericht {country} — {company} — {period}"
 local_vat_main_title = "MwSt-Kontrollbericht — {country}"
 local_vat_generic_warning = "⚠️ Dieser Bericht ist eine generische Zusammenfassung (Bemessungsgrundlage + MwSt nach Steuersatz), visuell an das französische CA3 angelehnt, aber KEIN Faksimile des offiziellen Steuerformulars dieses Landes. Die angezeigten Feldcodes (falls vorhanden) sind indizierend und wurden nicht wie beim CA3 mit einem offiziellen PDF-Formular abgeglichen. Lassen Sie dies vor einer tatsächlichen Übermittlung von einem lokalen Steuerberater oder einer Wirtschaftsprüfungsgesellschaft validieren."
@@ -1140,3 +1140,17 @@ onboarding_tabs_step6_body = "Der erste bietet alle Exporte (Excel, OSS-XML, CA3
 
 # ── Hintergrundberechnung (große Dateien) ───────────────────────────────────
 calc_bg_running_caption = "📊 Große Datei ({rows} Zeilen) — die Berechnung läuft im Hintergrund weiter. Sie können währenddessen die Seitenleiste weiter nutzen."
+
+# ── VIES-Zertifikat: Bereichsauswahl ─────────────────────────────────────────
+vies_certificate_scope_label = "Umfang des Zertifikats"
+vies_certificate_scope_file = "📄 Importierte Datei"
+vies_certificate_scope_account = "🗂️ Gesamtes Konto (vollständiger Verlauf)"
+vies_certificate_scope_file_hint = "Listet nur die USt-IdNr. der B2B-Kunden auf, die in der aktuell geladenen Datei enthalten sind — nützlich, um einen einzelnen Mandanten in einer Kanzlei mit mehreren Konten herauszufiltern."
+vies_certificate_scope_account_hint = "Listet alle jemals für dieses Konto geprüften B2B-USt-IdNr. auf, über alle Importe hinweg."
+vies_certificate_full_history = "Vollständiger Kontoverlauf"
+
+# ── Sperrung der Steuerfelder (IOSS / USt-IdNr.) ────────────────────────────
+fiscal_fields_lock_warning = "⚠️ Bitte prüfen Sie die untenstehenden Nummern sorgfältig, bevor Sie speichern: Sobald eine IOSS- oder USt-IdNr. für dieses SIREN gespeichert wurde, kann sie nicht mehr geändert werden (Sie können später nur noch neue hinzufügen — z. B. eine noch nicht angegebene IOSS-Nummer oder eine USt-IdNr. für ein weiteres Land)."
+fiscal_fields_lock_warning_new = "⚠️ Bitte prüfen Sie diese Angaben sorgfältig, bevor Sie speichern: Sobald dieses SIREN angelegt ist, können der Firmenname, das SIREN, die IOSS-Nummer und jede eingegebene USt-IdNr. nicht mehr geändert werden (Sie können später nur eine hier nicht angegebene IOSS-Nummer oder USt-IdNr. ergänzen)."
+fiscal_fields_all_locked_caption = "🔒 Die IOSS-Nummer und alle USt-IdNr. dieser Liste sind gespeichert und gesperrt."
+fiscal_field_locked_note = "gespeichert, nicht änderbar"

@@ -331,7 +331,7 @@ local_declarations_home_note = "Kraj macierzysty ({country}) jest obsługiwany o
 home_country_declaration_header = "#### 🏠 Deklaracja — {country} (kraj macierzysty)"
 home_country_declaration_caption = "Ogólny raport HTML (nie jest to kopia oficjalnego formularza — patrz ostrzeżenie wewnątrz dokumentu). Dla Francji dedykowana jest sekcja CA3 powyżej, jeśli stanie się Twoim krajem macierzystym."
 no_local_sales_info = "ℹ Nie wykryto sprzedaży z lokalną rejestracją (z wyłączeniem Francji, OSS i IOSS)."
-local_declarations_caption = "Wstępnie sformatowane pliki ze specyficznymi kodami pól dla każdego kraju (Kennzahl, Casilla...)."
+local_declarations_caption = ""
 dl_select_country_label = "Wybierz kraj do eksportu"
 dl_local_vat_due_metric = "Należny VAT — {country}"
 dl_standard_rate_metric = "Stawka podstawowa"
@@ -340,7 +340,7 @@ dl_local_csv_btn = "📥 Pobierz deklarację dla {country} (.csv)"
 dl_local_csv_filename = "Deklaracja VAT {country} - {company} - {period}.csv"
 dl_local_html_btn = "📄 Raport HTML dla {country}"
 dl_local_html_filename = "Raport VAT {country} - {company} - {period}.html"
-local_vat_html_caption = "Raport HTML używa tego samego stylu wizualnego co francuski CA3, ale pozostaje ogólny (nie jest to dokładna kopia oficjalnego formularza tego kraju — patrz ostrzeżenie w raporcie)."
+local_vat_html_caption = ""
 local_vat_report_title = "Raport VAT {country} — {company} — {period}"
 local_vat_main_title = "Raport kontrolny VAT — {country}"
 local_vat_generic_warning = "⚠️ Ten raport jest ogólnym podsumowaniem (podstawa opodatkowania + VAT według stawek), wizualnie zharmonizowanym z francuskim CA3, ale NIE jest to kopia oficjalnego formularza deklaracji VAT dla tego kraju. Wszelkie pokazane kody pól (jeśli występują) są indykatywne i nie zostały zweryfikowane z oficjalnym formularzem PDF w taki sposób, jak CA3. Przed faktycznym złożeniem należy go zatwierdzić u lokalnego doradcy podatkowego lub firmy księgowej."
@@ -1141,3 +1141,17 @@ onboarding_tabs_step6_body = "Pierwsza zakładka daje wszystkie eksporty (Excel,
 
 # ── Obliczenia w tle (duże pliki) ────────────────────────────────────────────
 calc_bg_running_caption = "📊 Duży plik ({rows} wierszy) — obliczenia trwają w tle. W międzyczasie możesz nadal korzystać z paska bocznego."
+
+# ── Certyfikat VIES: wybór zakresu ───────────────────────────────────────────
+vies_certificate_scope_label = "Zakres certyfikatu"
+vies_certificate_scope_file = "📄 Zaimportowany plik"
+vies_certificate_scope_account = "🗂️ Całe konto (pełna historia)"
+vies_certificate_scope_file_hint = "Wyświetla tylko numery VAT B2B obecne w aktualnie wczytanym pliku — przydatne, aby wyodrębnić jednego klienta w biurze rachunkowym obsługującym wiele kont."
+vies_certificate_scope_account_hint = "Wyświetla wszystkie numery VAT B2B kiedykolwiek zweryfikowane dla tego konta, ze wszystkich importów."
+vies_certificate_full_history = "Pełna historia konta"
+
+# ── Blokada pól podatkowych (IOSS / numery VAT) ─────────────────────────────
+fiscal_fields_lock_warning = "⚠️ Sprawdź uważnie poniższe numery przed zapisaniem: po zapisaniu numeru IOSS lub VAT dla tego SIREN nie będzie można go już zmienić (później będzie można jedynie dodawać nowe — np. nieuzupełniony na początku IOSS lub numer VAT dla dodatkowego kraju)."
+fiscal_fields_lock_warning_new = "⚠️ Sprawdź uważnie te informacje przed zapisaniem: po utworzeniu tego SIREN nazwa firmy, SIREN, IOSS i każdy wprowadzony numer VAT nie będą mogły zostać już zmienione (później będzie można jedynie dodać nieuzupełniony tutaj IOSS lub numer VAT)."
+fiscal_fields_all_locked_caption = "🔒 IOSS i wszystkie numery VAT na tej liście są zapisane i zablokowane."
+fiscal_field_locked_note = "zapisano, nie można zmienić"

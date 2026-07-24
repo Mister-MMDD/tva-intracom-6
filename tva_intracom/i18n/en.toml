@@ -331,7 +331,7 @@ local_declarations_home_note = "The home country ({country}) is handled separate
 home_country_declaration_header = "#### 🏠 Declaration — {country} (home country)"
 home_country_declaration_caption = "Generic HTML report (not a facsimile of the official form — see the warning inside the document). For France, see the dedicated CA3 section if it becomes your home country."
 no_local_sales_info = "ℹ️ No local registration sales detected (excluding France, OSS and IOSS)."
-local_declarations_caption = "Pre-formatted files with specific box codes for each country (Kennzahl, Casilla...)."
+local_declarations_caption = ""
 dl_select_country_label = "Select the country to export"
 dl_local_vat_due_metric = "VAT due — {country}"
 dl_standard_rate_metric = "Standard rate"
@@ -340,7 +340,7 @@ dl_local_csv_btn = "📥 Download {country} Declaration (.csv)"
 dl_local_csv_filename = "VAT Declaration {country} - {company} - {period}.csv"
 dl_local_html_btn = "📄 HTML Report {country}"
 dl_local_html_filename = "VAT Report {country} - {company} - {period}.html"
-local_vat_html_caption = "The HTML report uses the same visual style as the French CA3 but stays generic (not a facsimile of the country's official form — see the warning inside the report)."
+local_vat_html_caption = ""
 local_vat_report_title = "VAT Report {country} — {company} — {period}"
 local_vat_main_title = "VAT Control Report — {country}"
 local_vat_generic_warning = "⚠️ This report is a generic summary (taxable base + VAT by rate), visually harmonized with the French CA3, but it is NOT a facsimile of the official VAT return form for this country. Any box codes shown (if present) are indicative and have not been verified against an official PDF form the way the CA3 was. Have it validated by a local tax advisor or accounting firm before any real filing."
@@ -1141,3 +1141,17 @@ onboarding_tabs_step6_body = "The first gives you all the exports (Excel, OSS XM
 
 # ── Background calculation (large files) ────────────────────────────────────
 calc_bg_running_caption = "📊 Large file ({rows} rows) — the calculation continues in the background. You can keep using the sidebar in the meantime."
+
+# ── VIES certificate: scope selector ────────────────────────────────────────
+vies_certificate_scope_label = "Certificate scope"
+vies_certificate_scope_file = "📄 Imported file"
+vies_certificate_scope_account = "🗂️ Whole account (full history)"
+vies_certificate_scope_file_hint = "Only lists the B2B VAT numbers present in the currently loaded file — useful to isolate one client in an accounting firm tracking several accounts."
+vies_certificate_scope_account_hint = "Lists every B2B VAT number ever checked for this account, across all imports."
+vies_certificate_full_history = "Full account history"
+
+# ── Locking fiscal fields (IOSS / VAT numbers) ──────────────────────────────
+fiscal_fields_lock_warning = "⚠️ Please check the numbers below carefully before saving: once an IOSS or VAT number is saved for this SIREN, it can no longer be changed (you'll only be able to add new ones later — e.g. an IOSS not set yet, or a VAT number for an extra country)."
+fiscal_fields_lock_warning_new = "⚠️ Please check this information carefully before saving: once this SIREN is created, the company name, SIREN, IOSS and every VAT number entered can no longer be changed (you'll only be able to add later an IOSS or a VAT number not entered here)."
+fiscal_fields_all_locked_caption = "🔒 The IOSS and all VAT numbers on this list are saved and locked."
+fiscal_field_locked_note = "saved, cannot be changed"
