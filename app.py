@@ -66,7 +66,6 @@ from tva_intracom.ui.formatting import (
     _pct_col,
     _smart_money_df,
     _gated_preview_table,
-    render_oss_threshold_bar,
 )
 
 # =============================================================================
@@ -556,7 +555,6 @@ if uploaded_files:
         # ALERTES — toujours en haut, conditionnelles
         # =====================================================================
         render_historical_rates_alert(results)
-        render_oss_threshold_bar(oss_summary)
 
         # Immatriculations requises
         # BUGFIX : un stock situé hors UE (US, GB post-Brexit, CH, CN, un
