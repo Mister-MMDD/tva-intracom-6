@@ -747,7 +747,11 @@ def compute_all_with_vies(
         asin_to_category = {}
 
     # IMPORT DIRECT DE TON MODULE VIES
-    from .vies_engine import validate_vat_numbers_parallel, _is_unreliable as _vies_is_unreliable
+    from .vies_engine import (
+        validate_vat_numbers_parallel,
+        _is_unreliable as _vies_is_unreliable,
+        _is_empty_response as _vies_is_empty
+    )
 
     vies_summary = ViesValidationSummary()
 
@@ -818,21 +822,42 @@ def compute_all_with_vies(
                 checked_vats = {}
 
     # Injection des classifications manuelles (overrides utilisateur).
-    # Elles écrasent le résultat VIES pour les numéros non vérifiables (inconclusifs).
-    # get_manual_overrides() renvoie {full_vat: True|False}.
+    # On n'applique l'override QUE si la validation VIES automatique a échoué
+    # (inconclusif, erreur serveur ou réponse vide) ou n'a pas été effectuée.
+    # Si VIES répond avec un résultat net (Valide ou Invalide), il reprend la priorité
+    # et on supprime l'override de la base (nettoyage automatique).
     try:
-        from .vies_engine import get_manual_overrides
+        from .vies_engine import get_manual_overrides, delete_manual_override
         from types import SimpleNamespace as _SN
-        for _fv, _is_valid in get_manual_overrides(scope_id).items():
-            # On surcharge même si le numéro n'était pas dans le batch
-            # (cas où l'override a été posé avant l'upload du fichier)
-            if _fv in checked_vats or _fv in vat_seen:
+        # On récupère tous les overrides, même expirés, pour pouvoir les nettoyer
+        _all_overrides = get_manual_overrides(scope_id, include_expired=True)
+
+        for _fv, _is_valid in _all_overrides.items():
+            _current_res = checked_vats.get(_fv)
+            # Un résultat est considéré comme un "échec de vérification" si :
+            # 1. Il est absent (non testé ou erreur fatale)
+            # 2. Il est marqué comme non fiable (erreur transitoire/timeout)
+            # 3. Il est "vide" (VIES répond False sans nom/adresse et sans erreur explicite)
+            _is_failed = (
+                _current_res is None
+                or _vies_is_unreliable(_current_res)
+                or _vies_is_empty(_current_res)
+            )
+
+            if _fv in vat_seen and _is_failed:
                 checked_vats[_fv] = _SN(
                     valid=_is_valid,
                     error=None,
-                    name="[Classification manuelle]",
+                    name="[Classification manualle]",
                     address="",
                 )
+            elif _fv in checked_vats and not _is_failed:
+                # VIES a réussi (concluant), on nettoie l'override devenu inutile
+                try:
+                    delete_manual_override(scope_id, _fv)
+                    logger.info("Override VIES [%s] : nettoyage auto car VIES est désormais concluant.", _fv)
+                except Exception:
+                    pass
     except Exception as exc_overrides:
         logger.warning(
             "Impossible de charger les overrides manuels VIES (%s). "
