@@ -208,7 +208,11 @@ LOCAL_VAT_BOX_CODES: Dict[str, Tuple[List[str], Dict]] = {
     "IE": (["Box", "Description", "Base (EUR)", "TVA (EUR)", "Count"], {"23": ("T1", "23%"), "9": ("T1", "9%"), "0": ("E1", "0%")}),
 }
 
-EU_COUNTRIES: Set[str] = set(COUNTRY_NAMES.keys())
+EU_COUNTRIES: Set[str] = {
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
+    "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
+    "SI", "ES", "SE", "MC", "XI",
+}
 
 # ---------------------------------------------------------------------------
 # Territoires exclus du territoire fiscal de l'UE (TVA)
