@@ -655,10 +655,15 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             
             # 3. Suppression du cookie (asynchrone côté client)
             try:
+                # On écrase la valeur et on expire le cookie immédiatement
+                cookie_manager.set("tva_session_token", "LOGGED_OUT", expires_at=datetime.now() - timedelta(days=1))
                 cookie_manager.delete("tva_session_token")
             except Exception:
                 pass
 
+            # Temps de pause crucial pour que le composant JS ait le temps
+            # d'envoyer l'ordre au navigateur avant le rerun.
+            time.sleep(0.5)
             st.query_params.clear()
             st.rerun()
 

@@ -1012,8 +1012,8 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                         st.session_state["auth_user"] = None
                         st.session_state["manual_logout"] = True
                         st.success(_("account_deleted_success"))
-                        time.sleep(2)
-                        preserve_upload_rerun()
+                        time.sleep(0.5)
+                        st.rerun()
                     except Exception as _del_err:
                         st.error(f"Erreur lors de la suppression : {_del_err}")
 
