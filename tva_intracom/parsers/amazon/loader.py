@@ -431,6 +431,7 @@ def load_amazon_report(
             encoding = "cp1252"
             logger.info("Encodage UTF-8 échoué, bascule sur cp1252 pour %s", path.name)
 
+
     with path.open(encoding=encoding, errors="replace", newline="") as handle:
         first_line = handle.readline()
         # Si la ligne est vide après lecture, le séparateur sera mal détecté
