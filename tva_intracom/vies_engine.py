@@ -65,8 +65,29 @@ VIES_REST_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-n
 DEFAULT_TIMEOUT = 10
 
 # TTL du cache : durée en jours avant qu'un numéro soit revalidé auprès de VIES.
-# Valeur par défaut : 90 jours. Modifiable via set_cache_ttl().
-CACHE_TTL_DAYS: int = 90
+# Valeur par défaut : 90 jours, utilisée pour le cache global mutualisé (non
+# scopé, partagé entre tous les comptes) et comme fallback pour tout scope
+# n'ayant jamais appelé set_cache_ttl().
+#
+# IMPORTANT (isolation multi-tenant) : le TTL est configurable PAR SCOPE, pas
+# globalement. set_cache_ttl() ne doit jamais modifier une variable partagée
+# par tous les process/sessions Streamlit — sur Streamlit Cloud plusieurs
+# comptes peuvent partager le même process Python, et un TTL global mutable
+# permettrait à un utilisateur de modifier le comportement de cache VIES de
+# tous les autres. _SCOPE_TTL_DAYS stocke donc le TTL par scope_id ; le cache
+# global mutualisé (vies_global_cache), lui, n'est jamais scopé et utilise
+# toujours DEFAULT_CACHE_TTL_DAYS, non modifiable depuis l'UI.
+DEFAULT_CACHE_TTL_DAYS: int = 90
+_SCOPE_TTL_DAYS: dict[str, int] = {}
+
+
+def _get_ttl_days(scope_id: Optional[str] = None) -> int:
+    """TTL effectif (en jours) pour ce scope, ou le défaut global si le
+    scope n'a jamais personnalisé sa valeur (ou si scope_id est None, pour
+    le cache global mutualisé qui n'est délibérément pas personnalisable)."""
+    if scope_id is None:
+        return DEFAULT_CACHE_TTL_DAYS
+    return _SCOPE_TTL_DAYS.get(scope_id, DEFAULT_CACHE_TTL_DAYS)
 
 # Retry backoff pour erreurs temporaires VIES (serveur UE instable)
 _RETRY_MAX_ATTEMPTS = 3
@@ -152,22 +173,31 @@ class ViesResult:
 # Helpers TTL / dates
 # ---------------------------------------------------------------------------
 
-def set_cache_ttl(days: int) -> None:
-    """Modifie le TTL du cache VIES (en jours). Appel optionnel depuis app.py."""
-    global CACHE_TTL_DAYS
-    CACHE_TTL_DAYS = max(1, int(days))
-    logger.info("Cache VIES : TTL mis à jour à %d jours.", CACHE_TTL_DAYS)
+def set_cache_ttl(scope_id: str, days: int) -> None:
+    """Modifie le TTL du cache VIES (en jours) pour CE scope uniquement.
+
+    N'affecte jamais les autres comptes/domaines ni le cache global
+    mutualisé : le TTL est conservé dans un dict en mémoire indexé par
+    scope_id, jamais dans une variable partagée par tout le process.
+    """
+    _SCOPE_TTL_DAYS[scope_id] = max(1, int(days))
+    logger.info("Cache VIES [%s] : TTL mis à jour à %d jours.", scope_id, _SCOPE_TTL_DAYS[scope_id])
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _is_expired(checked_at) -> bool:
-    """Retourne True si l'entrée dépasse le TTL configuré.
+def _is_expired(checked_at, scope_id: Optional[str] = None) -> bool:
+    """Retourne True si l'entrée dépasse le TTL configuré pour ce scope.
 
     Accepte un datetime (valeur normale renvoyée par psycopg2 pour une
     colonne TIMESTAMPTZ) ou, par prudence, une chaîne ISO.
+
+    scope_id doit être fourni pour toute entrée appartenant à un cache
+    scopé (vies_scope_cache, vies_manual_overrides) ; le laisser à None
+    revient à utiliser DEFAULT_CACHE_TTL_DAYS, réservé au cache global
+    mutualisé (vies_global_cache) qui n'est pas personnalisable.
     """
     if checked_at is None:
         return True
@@ -178,7 +208,7 @@ def _is_expired(checked_at) -> bool:
             return True
     if checked_at.tzinfo is None:
         checked_at = checked_at.replace(tzinfo=timezone.utc)
-    return _now_utc() - checked_at > timedelta(days=CACHE_TTL_DAYS)
+    return _now_utc() - checked_at > timedelta(days=_get_ttl_days(scope_id))
 
 
 def _parse_flexible_date(s: str) -> datetime:
@@ -343,7 +373,7 @@ def _db_get_scope(scope_id: str, vat_id: str) -> tuple[Optional[ViesResult], boo
     if row is None:
         return None, False
     result = _row_to_result(row[:6])
-    return result, not _is_expired(row[6])
+    return result, not _is_expired(row[6], scope_id)
 
 
 def _db_get_global(vat_id: str) -> tuple[Optional[ViesResult], bool]:
@@ -428,7 +458,7 @@ def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[Vi
     out: dict[str, tuple[ViesResult, bool]] = {}
     for row in rows:
         vat_id, checked_at = row[0], row[7]
-        out[vat_id] = (_row_to_result(row[1:7]), not _is_expired(checked_at))
+        out[vat_id] = (_row_to_result(row[1:7]), not _is_expired(checked_at, scope_id))
     return out
 
 
@@ -581,7 +611,7 @@ def _db_delete_expired_scope(scope_id: str) -> int:
     """Purge les entrées expirées ET les erreurs transitoires du scope
     courant. N'affecte jamais le cache global (mutualisé, purgé
     indépendamment par purge_expired_global_cache())."""
-    cutoff = _now_utc() - timedelta(days=CACHE_TTL_DAYS)
+    cutoff = _now_utc() - timedelta(days=_get_ttl_days(scope_id))
     # Rétention historique : Amazon DPP exige la suppression des PII.
     # On garde 365 jours pour raisons fiscales, mais on purge le reste.
     history_cutoff = _now_utc() - timedelta(days=365)
@@ -769,7 +799,7 @@ def get_scope_vies_snapshot(scope_id: str) -> list[dict]:
     for vat_id, valid, country_code, vat_number, checked_at in cache_rows:
         _bounds = history_bounds.get(vat_id, {})
         _override = overrides.get(vat_id)
-        _is_manual = _override is not None and not _is_expired(_override[1])
+        _is_manual = _override is not None and not _is_expired(_override[1], scope_id)
         _final_valid = _override[0] if _is_manual else bool(valid)
         snapshot.append({
             "vat_id": vat_id,
@@ -787,7 +817,7 @@ def get_scope_vies_snapshot(scope_id: str) -> list[dict]:
     # on les inclut quand même, la piste d'audit doit rester complète.
     _known_vat_ids = {row["vat_id"] for row in snapshot}
     for full_vat, (is_valid, set_at) in overrides.items():
-        if full_vat in _known_vat_ids or _is_expired(set_at):
+        if full_vat in _known_vat_ids or _is_expired(set_at, scope_id):
             continue
         _bounds = history_bounds.get(full_vat, {})
         snapshot.append({
@@ -831,7 +861,7 @@ def purge_malformed_entries() -> int:
 def purge_expired_global_cache() -> int:
     """Purge administrative du cache global mutualisé (pas exposée dans
     l'UI Streamlit standard — appel manuel/CLI si besoin)."""
-    cutoff = _now_utc() - timedelta(days=CACHE_TTL_DAYS)
+    cutoff = _now_utc() - timedelta(days=DEFAULT_CACHE_TTL_DAYS)
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM vies_global_cache WHERE checked_at < %s", (cutoff,))
         deleted = cur.rowcount
@@ -843,7 +873,7 @@ def get_cache_stats(scope_id: str) -> dict:
     """Statistiques pour l'affichage app.py : compteurs du scope courant
     + taille du cache global mutualisé (lecture seule, jamais modifié par
     les actions du scope)."""
-    cutoff = _now_utc() - timedelta(days=CACHE_TTL_DAYS)
+    cutoff = _now_utc() - timedelta(days=_get_ttl_days(scope_id))
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT COUNT(*),
@@ -876,7 +906,7 @@ def get_cache_stats(scope_id: str) -> dict:
         "fresh": total - expired,
         "oldest_check": oldest.isoformat() if oldest else None,
         "newest_check": newest.isoformat() if newest else None,
-        "ttl_days": CACHE_TTL_DAYS,
+        "ttl_days": _get_ttl_days(scope_id),
         "manual_total": manual_total,
         "manual_valid": manual_valid,
         "manual_invalid": manual_total - manual_valid,
@@ -1100,7 +1130,7 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
         return global_cached
 
     if cached is not None and not is_fresh:
-        logger.info("Cache VIES [%s] : %s expiré (TTL=%dj), revalidation.", scope_id, _mask_vat(norm), CACHE_TTL_DAYS)
+        logger.info("Cache VIES [%s] : %s expiré (TTL=%dj), revalidation.", scope_id, _mask_vat(norm), _get_ttl_days(scope_id))
 
     # 3) API VIES
     try:
@@ -1364,7 +1394,7 @@ def get_manual_overrides(scope_id: str, include_expired: bool = False) -> dict[s
     Args:
         scope_id: portée du compte/domaine appelant.
         include_expired: si False (par défaut), exclut les overrides dont
-            `set_at` dépasse CACHE_TTL_DAYS — même condition d'âge que
+            `set_at` dépasse le TTL du scope (cf. _get_ttl_days) — même condition d'âge que
             l'expiration du cache VIES classique. Passer True pour
             l'affichage en UI (liste des overrides, y compris expirés, pour
             pouvoir les revalider ou les supprimer).
@@ -1385,10 +1415,10 @@ def get_manual_overrides(scope_id: str, include_expired: bool = False) -> dict[s
         return {r[0]: bool(r[1]) for r in rows}
     result: dict[str, bool] = {}
     for full_vat, is_valid, set_at in rows:
-        if _is_expired(set_at):
+        if _is_expired(set_at, scope_id):
             logger.info(
                 "Override manuel VIES [%s] expiré (> %d j), ignoré au calcul : %s.",
-                scope_id, CACHE_TTL_DAYS, full_vat,
+                scope_id, _get_ttl_days(scope_id), full_vat,
             )
             continue
         result[full_vat] = bool(is_valid)

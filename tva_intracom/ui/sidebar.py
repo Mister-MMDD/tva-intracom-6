@@ -263,6 +263,43 @@ def _edit_siren_form_fragment(
                 st.error(_("update_error", error=_reg_err))
 
 
+# Taille max acceptée pour un catalogue produits uploadé (Mo). Sans cette
+# garde, un fichier très volumineux lu via pd.read_csv(engine='python')
+# pouvait épuiser la mémoire du process Streamlit (partagé entre sessions
+# sur Streamlit Cloud) — DoS involontaire ou malveillant.
+_MAX_CATALOG_MB = 20
+
+
+@st.cache_data(show_spinner=False)
+def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
+    """Parse un catalogue ASIN → catégorie fiscale depuis son contenu brut.
+
+    Mis en cache par contenu (`file_bytes` fait partie de la clé de hash de
+    `st.cache_data`) : tant que l'utilisateur ne change pas de fichier, ce
+    parsing ne s'exécute qu'une seule fois, au lieu d'être refait à chaque
+    rerun Streamlit (changement de widget, etc.).
+    """
+    import io
+    buf = io.BytesIO(file_bytes)
+    if filename.endswith(".tsv"):
+        df_cat = pd.read_csv(buf, sep="\t")
+    else:
+        # CSV/TXT : on tente de détecter le séparateur (comportement
+        # simplifié par rapport au chargeur principal de fichiers de ventes).
+        df_cat = pd.read_csv(buf, sep=None, engine="python")
+    df_cat.columns = [c.strip().upper() for c in df_cat.columns]
+    asin_col = next((c for c in df_cat.columns if "ASIN" in c), None)
+    cat_col = next((c for c in df_cat.columns if "PRODUCT-TAX-CODE" in c or "TAX-CODE" in c), None)
+    if not cat_col:
+        cat_col = next((c for c in df_cat.columns if any(k in c for k in ["TAX", "GROUP", "CODE", "TYPE"])), None)
+    if asin_col and cat_col:
+        return {
+            str(a).strip().upper(): str(c).strip().upper()
+            for a, c in zip(df_cat[asin_col], df_cat[cat_col]) if pd.notna(a) and pd.notna(c)
+        }
+    return {}
+
+
 def render_sidebar(auth_ctx) -> SidebarResult:
     """Affiche la sidebar complète et retourne les paramètres résolus.
 
@@ -363,34 +400,60 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             st.caption(_("fiscal_period_caption"))
 
             # ── Affichage de la période auto-détectée (depuis session_state) ──
+            # Le tri + la détection de bornes ne coûtent rien sur un petit
+            # fichier mais deviennent sensibles sur de gros volumes (100k+
+            # lignes) — sans compter que ce bloc s'exécute à CHAQUE rerun de
+            # la sidebar (changement de n'importe quel widget), pas
+            # uniquement après un nouveau traitement de fichier. On met donc
+            # le résultat en cache dans session_state, invalidé uniquement
+            # quand `_sidebar_results` change réellement (nouvel objet et/ou
+            # nouvelle taille — un même objet muté en place n'est pas prévu
+            # par ce pipeline, donc cette clé suffit).
             _sidebar_results = st.session_state.get("_results", [])
             if _sidebar_results:
-                _sd = sorted(
-                    r.sale.transaction_date for r in _sidebar_results
-                    if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
-                )
-                if _sd:
-                    from datetime import datetime as _dt2
-                    _sd_min = _dt2.fromisoformat(_sd[0][:10])
-                    _sd_max = _dt2.fromisoformat(_sd[-1][:10])
-                    _sy, _sm = _sd_min.year, _sd_min.month
-                    _ey, _em = _sd_max.year, _sd_max.month
-                    if _sy != _ey:
-                        _detected = f"{_sy}-{_ey}"
-                    elif _sm == _em:
-                        _detected = f"{_sy}-{_sm:02d}"
-                    elif _sm == 1 and _em == 12:
-                        _detected = str(_sy)
-                    elif _sm == 1 and _em == 6:
-                        _detected = f"{_sy}-S1"
-                    elif _sm == 7 and _em == 12:
-                        _detected = f"{_sy}-S2"
-                    else:
-                        _qmin = (_sm - 1) // 3 + 1
-                        _qmax = (_em - 1) // 3 + 1
-                        _detected = f"{_sy}-Q{_qmin}" if _qmin == _qmax else f"{_sy}-Q{_qmin}_Q{_qmax}"
+                _period_cache_key = (id(_sidebar_results), len(_sidebar_results))
+                _period_cache = st.session_state.get("_period_detect_cache")
+                if _period_cache and _period_cache.get("key") == _period_cache_key:
+                    _detected = _period_cache["detected"]
+                    _start = _period_cache["start"]
+                    _end = _period_cache["end"]
+                else:
+                    _detected = None
+                    _start = _end = None
+                    _sd = sorted(
+                        r.sale.transaction_date for r in _sidebar_results
+                        if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
+                    )
+                    if _sd:
+                        from datetime import datetime as _dt2
+                        _sd_min = _dt2.fromisoformat(_sd[0][:10])
+                        _sd_max = _dt2.fromisoformat(_sd[-1][:10])
+                        _sy, _sm = _sd_min.year, _sd_min.month
+                        _ey, _em = _sd_max.year, _sd_max.month
+                        if _sy != _ey:
+                            _detected = f"{_sy}-{_ey}"
+                        elif _sm == _em:
+                            _detected = f"{_sy}-{_sm:02d}"
+                        elif _sm == 1 and _em == 12:
+                            _detected = str(_sy)
+                        elif _sm == 1 and _em == 6:
+                            _detected = f"{_sy}-S1"
+                        elif _sm == 7 and _em == 12:
+                            _detected = f"{_sy}-S2"
+                        else:
+                            _qmin = (_sm - 1) // 3 + 1
+                            _qmax = (_em - 1) // 3 + 1
+                            _detected = f"{_sy}-Q{_qmin}" if _qmin == _qmax else f"{_sy}-Q{_qmin}_Q{_qmax}"
+                        _start, _end = _sd[0][:10], _sd[-1][:10]
+                    st.session_state["_period_detect_cache"] = {
+                        "key": _period_cache_key,
+                        "detected": _detected,
+                        "start": _start,
+                        "end": _end,
+                    }
+                if _detected:
                     st.markdown(
-                        _("fiscal_period_detected", period=_detected, start=_sd[0][:10], end=_sd[-1][:10]),
+                        _("fiscal_period_detected", period=_detected, start=_start, end=_end),
                         unsafe_allow_html=True,
                     )
             elif not _sidebar_results:
@@ -843,25 +906,16 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                             help=_("catalog_help"))
             asin_to_category = {}
             if catalog_file is not None:
-                try:
-                    if catalog_file.name.endswith(".csv") or catalog_file.name.endswith(".tsv") or catalog_file.name.endswith(".txt"):
-                        if catalog_file.name.endswith(".csv") or catalog_file.name.endswith(".txt"):
-                            # On tente de détecter le séparateur pour CSV/TXT
-                            # (comportement simplifié par rapport au chargeur principal)
-                            df_cat = pd.read_csv(catalog_file, sep=None, engine='python')
-                        else:
-                            df_cat = pd.read_csv(catalog_file, sep="\t")
-                    df_cat.columns = [c.strip().upper() for c in df_cat.columns]
-                    asin_col = next((c for c in df_cat.columns if "ASIN" in c), None)
-                    cat_col  = next((c for c in df_cat.columns if "PRODUCT-TAX-CODE" in c or "TAX-CODE" in c), None)
-                    if not cat_col:
-                        cat_col = next((c for c in df_cat.columns if any(k in c for k in ["TAX","GROUP","CODE","TYPE"])), None)
-                    if asin_col and cat_col:
-                        asin_to_category = {str(a).strip().upper(): str(c).strip().upper()
-                                            for a, c in zip(df_cat[asin_col], df_cat[cat_col]) if pd.notna(a) and pd.notna(c)}
-                        st.success(_("catalog_success", count=len(asin_to_category)))
-                except Exception as e:
-                    st.error(_("catalog_error", error=e))
+                _size_mb = catalog_file.size / (1024 * 1024)
+                if _size_mb > _MAX_CATALOG_MB:
+                    st.error(_("catalog_too_large", size_mb=_size_mb, max_mb=_MAX_CATALOG_MB))
+                else:
+                    try:
+                        asin_to_category = _parse_catalog_bytes(catalog_file.getvalue(), catalog_file.name)
+                        if asin_to_category:
+                            st.success(_("catalog_success", count=len(asin_to_category)))
+                    except Exception as e:
+                        st.error(_("catalog_error", error=e))
 
         # ── Cache VIES ────────────────────────────────────────────────────────────
         with st.expander(_("cache_vies_header"), expanded=False):
@@ -871,7 +925,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                       value=_cs["ttl_days"], step=7,
                                       help=_("ttl_cache_help"))
                 if _ttl_days != _cs["ttl_days"]:
-                    set_cache_ttl(_ttl_days)
+                    set_cache_ttl(_vies_scope_id, _ttl_days)
                     preserve_upload_rerun()
                 _c1, _c2, _c3 = st.columns(3)
                 _c1.metric(_("total"), _cs["total"])

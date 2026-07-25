@@ -532,6 +532,7 @@ catalog_upload = "Import Amazon catalog"
 catalog_help = "ASIN + PRODUCT-TAX-CODE columns for reduced rates."
 catalog_success = "📈 {count} ASINs mapped."
 catalog_error = "Catalog error: {error}"
+catalog_too_large = "Catalog file too large ({size_mb:.1f} MB, max {max_mb} MB)."
 amazon_config_err = "Configuration error: {error}"
 
 # Sidebar - Company
