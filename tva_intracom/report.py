@@ -46,6 +46,7 @@ class ReportSummary:
     # calculé séparément via oss_by_country / refund_oss_by_country ci-dessus.
     oss_by_country_month: Dict[str, Dict[str, Decimal]] = field(default_factory=dict)
     local_by_country_month: Dict[str, Dict[str, Decimal]] = field(default_factory=dict)
+    fr_domestic_by_month: Dict[str, Decimal] = field(default_factory=dict)
 
     # Cas 4 : pays ou le stock reside et qui imposent une immatriculation locale.
     stock_countries_requiring_registration: Set[str] = field(default_factory=set)
@@ -176,6 +177,8 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
         summary.refund_count += 1
         if r.channel == Channel.FR_DOMESTIC:
             summary.refund_fr_domestic_vat += r.vat_amount
+            if month:
+                summary.fr_domestic_by_month[month] = summary.fr_domestic_by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.OSS:
             summary.refund_oss_by_country[r.vat_country] = (
                     summary.refund_oss_by_country.get(r.vat_country, _ZERO) + r.vat_amount
@@ -201,6 +204,8 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
 
         if r.channel == Channel.FR_DOMESTIC:
             summary.fr_domestic_vat += r.vat_amount
+            if month:
+                summary.fr_domestic_by_month[month] = summary.fr_domestic_by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.OSS:
             summary.oss_by_country[r.vat_country] = (
                     summary.oss_by_country.get(r.vat_country, _ZERO) + r.vat_amount

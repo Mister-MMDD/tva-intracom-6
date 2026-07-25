@@ -1328,21 +1328,39 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
 
 
 
-def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None) -> None:
+def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None, seller_country: str = "FR") -> None:
     """Onglet TVA locale par pays (immatriculation locale hors OSS) : mois par
     mois (net) puis Brut / Remboursements / Net (total période) et statut."""
     ws.title = _("xl_tab_local")
     countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
+    # Le pays d'origine est toujours considéré comme immatriculé
+    countries_with_vat.add(seller_country.upper())
 
     ws.cell(row=1, column=1, value=_("xl_local_title")).font = _TITLE_FONT
     ws.row_dimensions[1].height = 25
 
     _z = Decimal("0.00")
-    local = summary.local_by_country or {}
-    refund_local = getattr(summary, "refund_local_by_country", {}) or {}
+    local = dict(summary.local_by_country or {})
+    refund_local = dict(getattr(summary, "refund_local_by_country", {}) or {})
+
+    # Ajouter le pays d'origine s'il y a de la TVA domestique
+    if summary.fr_domestic_vat or summary.refund_fr_domestic_vat:
+        sc = seller_country.upper()
+        local[sc] = local.get(sc, _z) + summary.fr_domestic_vat
+        refund_local[sc] = refund_local.get(sc, _z) + summary.refund_fr_domestic_vat
+
     all_countries = sorted(set(local) | set(refund_local))
     unregistered = [c for c in all_countries if c not in countries_with_vat]
-    by_country_month = getattr(summary, "local_by_country_month", {}) or {}
+    
+    by_country_month = dict(getattr(summary, "local_by_country_month", {}) or {})
+    # Injecter les données mensuelles du pays d'origine
+    if getattr(summary, "fr_domestic_by_month", None):
+        sc = seller_country.upper()
+        existing = by_country_month.get(sc, {})
+        for m, val in summary.fr_domestic_by_month.items():
+            existing[m] = existing.get(m, _z) + val
+        by_country_month[sc] = existing
+
     months = sorted({m for per_country in by_country_month.values() for m in per_country})
 
     header_row = 4
@@ -1570,9 +1588,10 @@ def export_xlsx(
         _write_oss_tab(ws_oss, summary)
 
     # 7. Onglet TVA locale par pays
-    if summary.local_by_country or getattr(summary, "refund_local_by_country", None):
+    if (summary.local_by_country or getattr(summary, "refund_local_by_country", None) or
+            summary.fr_domestic_vat or summary.refund_fr_domestic_vat):
         ws_local = wb.create_sheet()
-        _write_local_tab(ws_local, summary, countries_with_vat)
+        _write_local_tab(ws_local, summary, countries_with_vat, seller_country=seller_country)
 
     # 8. Onglet Audit Ecarts Amazon
     ws_audit = wb.create_sheet("Audit Ecarts Amazon")
