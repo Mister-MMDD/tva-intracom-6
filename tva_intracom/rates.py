@@ -40,7 +40,15 @@ COUNTRY_NAMES: Dict[str, str] = {
     "MT": "Malte",       "NL": "Pays-Bas",   "PL": "Pologne",
     "PT": "Portugal",    "RO": "Roumanie",   "SK": "Slovaquie",
     "SI": "Slovénie",    "ES": "Espagne",    "SE": "Suède",
-    "MC": "Monaco",     "XI": "Irlande du Nord",
+    "MC": "Monaco",      "XI": "Irlande du Nord",
+    # Hors-UE fréquents
+    "CH": "Suisse",      "GB": "Royaume-Uni", "US": "États-Unis",
+    "CA": "Canada",      "AU": "Australie",   "JP": "Japon",
+    "CN": "Chine",       "AE": "Émirats Arabes Unis", "NO": "Norvège",
+    "TR": "Turquie",     "IL": "Israël",      "MA": "Maroc",
+    "BR": "Brésil",      "MX": "Mexique",     "SG": "Singapour",
+    "IN": "Inde",        "HK": "Hong Kong",
+    "XX": "Territoire d'exception (Export)",
 }
 
 # ---------------------------------------------------------------------------
@@ -54,6 +62,11 @@ COUNTRY_CURRENCIES: Dict[str, str] = {
     "LV": "EUR", "LT": "EUR", "LU": "EUR", "MT": "EUR", "NL": "EUR",
     "PL": "PLN", "PT": "EUR", "RO": "RON", "SK": "EUR", "SI": "EUR",
     "ES": "EUR", "SE": "SEK", "MC": "EUR", "XI": "GBP",
+    # Hors-UE
+    "CH": "CHF", "GB": "GBP", "US": "USD", "CA": "CAD", "AU": "AUD",
+    "JP": "JPY", "CN": "CNY", "AE": "AED", "NO": "NOK", "TR": "TRY",
+    "IL": "ILS", "MA": "MAD", "BR": "BRL", "MX": "MXN", "SG": "SGD",
+    "IN": "INR", "HK": "HKD",
 }
 
 CURRENCY_SYMBOLS: Dict[str, str] = {
@@ -66,6 +79,22 @@ CURRENCY_SYMBOLS: Dict[str, str] = {
     "DKK": "kr.",
     "GBP": "£",
     "BGN": "лв",
+    "CHF": "CHF",
+    "USD": "$",
+    "CAD": "$",
+    "AUD": "$",
+    "JPY": "¥",
+    "CNY": "¥",
+    "NOK": "kr",
+    "TRY": "₺",
+    "ILS": "₪",
+    "BRL": "R$",
+    "INR": "₹",
+    "AED": "د.إ",
+    "MAD": "DH",
+    "MXN": "$",
+    "SGD": "$",
+    "HKD": "$",
 }
 
 # Contre-valeurs nationales FIXES du seuil OSS de 10 000 EUR (Art. 59 quater
@@ -111,6 +140,11 @@ COUNTRY_ISO3: Dict[str, str] = {
     "LV": "LVA", "LT": "LTU", "LU": "LUX", "MT": "MLT", "NL": "NLD",
     "PL": "POL", "PT": "PRT", "RO": "ROU", "SK": "SVK", "SI": "SVN",
     "ES": "ESP", "SE": "SWE", "MC": "MCO", "XI": "NIR",
+    # Hors-UE
+    "CH": "CHE", "GB": "GBR", "US": "USA", "CA": "CAN", "AU": "AUS",
+    "JP": "JPN", "CN": "CHN", "AE": "ARE", "NO": "NOR", "TR": "TUR",
+    "IL": "ISR", "MA": "MAR", "BR": "BRA", "MX": "MEX", "SG": "SGP",
+    "IN": "IND", "HK": "HKG",
 }
 
 # Métadonnées fiscales locales par pays.

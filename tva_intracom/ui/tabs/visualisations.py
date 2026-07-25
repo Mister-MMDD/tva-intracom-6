@@ -18,6 +18,71 @@ from tva_intracom.ui.formatting import _country_label, _fmt, _get_conversion_rat
 from tva_intracom.ui.tabs.context import TabContext
 
 
+@st.cache_data(show_spinner=False)
+def _aggregate_viz_raw(_results: list, _refund_results: list, calc_key) -> dict:
+    """Agrégats bruts (EUR, clés fixes non traduites) pour l'évolution
+    mensuelle et la répartition par scénario de l'onglet Visualisations.
+
+    Mis en cache par `calc_key` (même clé que le calcul moteur, voir
+    context.py / app.py) : le cache n'est invalidé QUE quand les résultats
+    sous-jacents changent réellement, pas à chaque rerun Streamlit déclenché
+    par un widget local (sélecteur de devise, changement de langue, autre
+    onglet, etc.). Les arguments `_results`/`_refund_results` sont préfixés
+    d'un underscore pour indiquer à st.cache_data de ne PAS tenter de les
+    hacher (potentiellement coûteux/impossible sur des objets métier) ;
+    seule `calc_key` sert de clé de cache.
+
+    Important : ne jamais mettre en cache ici de libellés traduits (_())
+    ni de montants déjà convertis en devise d'affichage (* _rate) -- ces
+    deux éléments peuvent changer sans que `calc_key` change, ce qui
+    rendrait le résultat caché obsolète de façon silencieuse. La ventilation
+    TVA/pays (viz_data_by_country) n'a pas besoin de ce cache : elle vient
+    de `summary.net_oss_by_country`/`net_local_by_country`, déjà des
+    agrégats précalculés par le moteur, pas de `results` brut.
+    """
+    sales_rows = []
+    scen_counts: dict[str, int] = {}
+    scen_ht: dict[str, float] = {}
+    # Un seul passage sur `results` : construit à la fois les lignes pour
+    # l'agrégation mensuelle des ventes ET les compteurs par scénario
+    # (auparavant deux boucles séparées).
+    for r in _results:
+        scen = r.scenario.value
+        ht = float(r.sale.amount_ht)
+        scen_counts[scen] = scen_counts.get(scen, 0) + 1
+        scen_ht[scen] = scen_ht.get(scen, 0.0) + ht
+        d = r.sale.transaction_date
+        if d and len(d) >= 7 and ht > 0:
+            sales_rows.append((d[:7], ht, float(r.vat_amount)))
+
+    refund_rows = [
+        (r.sale.transaction_date[:7], float(r.sale.amount_ht), float(r.vat_amount))
+        for r in _refund_results
+        if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
+    ]
+
+    sales_df = (pd.DataFrame(sales_rows, columns=["ym", "ht", "vat"])
+                  .groupby("ym")[["ht", "vat"]].sum()) if sales_rows else pd.DataFrame(columns=["ht", "vat"])
+    refunds_df = (pd.DataFrame(refund_rows, columns=["ym", "ht", "vat"])
+                    .groupby("ym")[["ht", "vat"]].sum()) if refund_rows else pd.DataFrame(columns=["ht", "vat"])
+
+    all_months = sorted(set(sales_df.index) | set(refunds_df.index))
+    monthly_df = pd.DataFrame(index=all_months)
+    monthly_df["CA HT"] = sales_df["ht"].reindex(all_months).fillna(0.0)
+    monthly_df["TVA due"] = sales_df["vat"].reindex(all_months).fillna(0.0)
+    monthly_df["Remb. HT"] = refunds_df["ht"].reindex(all_months).fillna(0.0)
+    monthly_df["TVA remb."] = refunds_df["vat"].reindex(all_months).fillna(0.0)
+
+    scen_data = sorted(scen_counts.items(), key=lambda x: -x[1])
+
+    return {
+        "monthly_df": monthly_df,
+        "months": all_months,
+        "scen_data": scen_data,
+        "scen_ht": scen_ht,
+    }
+
+
 def render_visualisations(ctx: TabContext) -> None:
     """Rendu complet de l'onglet Visualisations."""
     results = ctx.results
@@ -165,31 +230,14 @@ def render_visualisations(ctx: TabContext) -> None:
     # ── B : Évolution temporelle ──────────────────────────────────────
     st.subheader(_("viz_evolution_subheader"))
 
-    def _monthly_agg(rows, only_positive_ht: bool) -> pd.DataFrame:
-        """Agrège HT/TVA par mois (YYYY-MM) via pandas plutôt qu'en boucle
-        Python ligne à ligne — même filtrage que l'ancienne version
-        (date de transaction présente et sur >= 7 caractères ; pour les
-        ventes uniquement, `amount_ht > 0`, les remboursements n'ont pas
-        ce filtre car leurs montants sont déjà négatifs par nature)."""
-        data = [
-            (r.sale.transaction_date[:7], float(r.sale.amount_ht), float(r.vat_amount))
-            for r in rows
-            if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
-               and (not only_positive_ht or r.sale.amount_ht > 0)
-        ]
-        if not data:
-            return pd.DataFrame(columns=["ht", "vat"])
-        return pd.DataFrame(data, columns=["ym", "ht", "vat"]).groupby("ym")[["ht", "vat"]].sum()
-
-    _sales_m = _monthly_agg(results, only_positive_ht=True)
-    _refunds_m = _monthly_agg(refund_results or [], only_positive_ht=False)
-
-    _all_months = sorted(set(_sales_m.index) | set(_refunds_m.index))
-    _monthly_df = pd.DataFrame(index=_all_months)
-    _monthly_df["CA HT"] = _sales_m["ht"].reindex(_all_months).fillna(0.0)
-    _monthly_df["TVA due"] = _sales_m["vat"].reindex(_all_months).fillna(0.0)
-    _monthly_df["Remb. HT"] = _refunds_m["ht"].reindex(_all_months).fillna(0.0)
-    _monthly_df["TVA remb."] = _refunds_m["vat"].reindex(_all_months).fillna(0.0)
+    # Agrégation mensuelle + scénarios : un seul passage sur `results`,
+    # mis en cache par ctx.calc_key (voir _aggregate_viz_raw) pour ne pas
+    # tout recalculer à chaque rerun Streamlit (changement de devise,
+    # interaction sur un autre widget, etc.) quand les résultats sous-
+    # jacents n'ont pas changé.
+    _agg = _aggregate_viz_raw(results, refund_results or [], ctx.calc_key)
+    _monthly_df = _agg["monthly_df"]
+    _all_months = _agg["months"]
 
     if len(_monthly_df) >= 2:
         _months_sorted = _all_months
@@ -247,13 +295,8 @@ def render_visualisations(ctx: TabContext) -> None:
         with _tviz2:
             # ── F : Répartition par scénario ─────────────────────────
             st.markdown(_("viz_scenario_markdown"))
-            _scen_counts: dict = {}
-            _scen_ht: dict = {}
-            for r in results:
-                _sc = r.scenario.value
-                _scen_counts[_sc] = _scen_counts.get(_sc, 0) + 1
-                _scen_ht[_sc] = _scen_ht.get(_sc, 0.0) + float(r.sale.amount_ht)
-            _scen_data = sorted(_scen_counts.items(), key=lambda x: -x[1])
+            _scen_data = _agg["scen_data"]
+            _scen_ht = _agg["scen_ht"]
             fig_scen = go.Figure()
             fig_scen.add_trace(go.Bar(
                 name=_("viz_nb_transactions"),

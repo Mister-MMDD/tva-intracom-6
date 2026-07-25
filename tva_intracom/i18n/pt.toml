@@ -364,6 +364,7 @@ dl_fec_filename = "Exportacao Contabilistica FEC - {company} - {period}.txt"
 dl_fec_piece_ref = "Importacao Amazon {period}"
 
 # Visualisations tab strings
+viz_generation_graphs = "Gerando gráficos…"
 viz_vat_by_country_subheader = "IVA devido por país (Líquido)"
 viz_locked_geography_info = "🔒 Detalhe por país bloqueado. Desbloqueie o período para visualizar a distribuição geográfica."
 viz_france_ca3 = "França (CA3)"

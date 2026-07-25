@@ -689,18 +689,35 @@ def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
     n_cell.font = Font(italic=True, size=8, color="C00000", name="Arial")
 
 
-def build_oss_excel(results: List[VatResult], output_path: str | Path, period: str = "") -> Path:
+def _fmt_dec(value: Optional[Decimal]) -> str:
+    """Formate un Decimal pour le CSV FR (virgule décimale), en tolérant
+    None/valeurs déjà quantizées sans planter sur un `.replace()` appelé sur
+    autre chose qu'une string bien formée."""
+    if value is None:
+        value = _ZERO
+    return f"{value:.2f}".replace(".", ",")
+
+
+def build_oss_excel(
+    results: List[VatResult],
+    output_path: str | Path,
+    period: str = "",
+    data: "OssExportData | None" = None,
+) -> Path:
     """Génère le fichier Excel multi-onglets OSS uniquement.
 
     Args:
         results: liste de VatResult issus du moteur.
         output_path: chemin de sortie du fichier .xlsx.
         period: libellé de la période (ex: "2024-T1", "Mars 2024").
+        data: OssExportData déjà agrégé (évite un recalcul si l'appelant l'a
+              déjà — voir build_oss_export). Si omis, agrège `results` ici.
 
     Returns:
         Path du fichier généré.
     """
-    data = _aggregate(results, period=period)
+    if data is None:
+        data = _aggregate(results, period=period)
     data.period = period
 
     wb = Workbook()
@@ -715,10 +732,16 @@ def build_oss_excel(results: List[VatResult], output_path: str | Path, period: s
     return output_path
 
 
-def build_b2b_excel(results: List[VatResult], output_path: str | Path, period: str = "") -> Path:
+def build_b2b_excel(
+    results: List[VatResult],
+    output_path: str | Path,
+    period: str = "",
+    data: "OssExportData | None" = None,
+) -> Path:
     """Génère le fichier Excel pour les livraisons B2B (État récapitulatif)."""
-    data = _aggregate(results, period=period)
-    
+    if data is None:
+        data = _aggregate(results, period=period)
+
     wb = Workbook()
     wb.remove(wb.active)
     _build_b2b_recap(wb, data, period)
@@ -728,9 +751,19 @@ def build_b2b_excel(results: List[VatResult], output_path: str | Path, period: s
     return output_path
 
 
-def build_oss_csv(results: List[VatResult], period: str = "") -> tuple[bytes, bytes]:
-    """Génère les deux CSV : OSS URSSAF et B2B récapitulatif."""
-    data = _aggregate(results, period=period)
+def build_oss_csv(
+    results: List[VatResult],
+    period: str = "",
+    data: "OssExportData | None" = None,
+) -> tuple[bytes, bytes]:
+    """Génère les deux CSV : OSS URSSAF et B2B récapitulatif.
+
+    Args:
+        data: OssExportData déjà agrégé (voir build_oss_export) ; si omis,
+              agrège `results` ici (utilisable en standalone).
+    """
+    if data is None:
+        data = _aggregate(results, period=period)
 
     # --- CSV OSS URSSAF ---
     oss_buf = io.StringIO()
@@ -742,17 +775,17 @@ def build_oss_csv(results: List[VatResult], period: str = "") -> tuple[bytes, by
         oss_writer.writerow([
             line.country,
             line.country_name,
-            str(line.vat_rate).replace(".", ","),
-            str(line.base_ht).replace(".", ","),
-            str(line.vat_amount).replace(".", ","),
+            _fmt_dec(line.vat_rate),
+            _fmt_dec(line.base_ht),
+            _fmt_dec(line.vat_amount),
             line.nb_transactions,
         ])
     oss_writer.writerow([])
     oss_writer.writerow([
         _("TOTAL"), "",
         "",
-        str(data.total_oss_ht).replace(".", ","),
-        str(data.total_oss_vat).replace(".", ","),
+        _fmt_dec(data.total_oss_ht),
+        _fmt_dec(data.total_oss_vat),
         sum(l.nb_transactions for l in data.oss_by_country),
     ])
 
@@ -769,10 +802,10 @@ def build_oss_csv(results: List[VatResult], period: str = "") -> tuple[bytes, by
             line.buyer_vat_number or "",
             line.buyer_country,
             line.country_name,
-            str(line.amount_ht).replace(".", ","),
+            _fmt_dec(line.amount_ht),
         ])
     b2b_writer.writerow([])
-    b2b_writer.writerow([_("TOTAL"), "", "", "", "", str(data.total_b2b_ht).replace(".", ",")])
+    b2b_writer.writerow([_("TOTAL"), "", "", "", "", _fmt_dec(data.total_b2b_ht)])
 
     # UTF-8 BOM pour compatibilité Excel
     oss_bytes = ("\ufeff" + oss_buf.getvalue()).encode("utf-8")
@@ -787,11 +820,16 @@ def build_oss_export(
 ) -> tuple[Path, bytes, bytes]:
     """Point d'entrée principal : génère Excel + les deux CSV.
 
+    N'agrège `results` qu'une seule fois (au lieu de deux : une fois pour
+    l'Excel, une fois pour le CSV) et réutilise le même OssExportData pour
+    les deux exports.
+
     Returns:
         Tuple (xlsx_path, oss_csv_bytes, b2b_csv_bytes).
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    xlsx_path = build_oss_excel(results, output_dir / "etat_recapitulatif_oss.xlsx", period)
-    oss_csv, b2b_csv = build_oss_csv(results, period)
+    data = _aggregate(results, period=period)
+    xlsx_path = build_oss_excel(results, output_dir / "etat_recapitulatif_oss.xlsx", period, data=data)
+    oss_csv, b2b_csv = build_oss_csv(results, period, data=data)
     return xlsx_path, oss_csv, b2b_csv

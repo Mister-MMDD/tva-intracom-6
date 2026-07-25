@@ -6,24 +6,38 @@ les taux de reference quotidiens sans cle API.
 Endpoint : https://data-api.ecb.europa.eu/service/data/EXR/D.{CCY}.EUR.SP00.A
 
 Optimisations :
-  - Cache deux niveaux : mémoire (dict) + disque (JSON ~/.cache/tva_intracom/)
+  - Cache deux niveaux : mémoire (dict, par process) + table Postgres globale
+    `ecb_rate_cache` (même base Supabase que auth.py / billing.py / vies_engine.py),
+    partagée entre toutes les instances Streamlit Cloud et persistante entre
+    redéploiements. Contrairement au cache VIES, il n'y a pas de scope par
+    compte : un taux BCE (devise, date) est une donnée de marché publique,
+    identique pour tout le monde — une seule table plate suffit, sans aucune
+    donnée personnelle.
   - prefetch_rates() : pré-charge en parallèle toutes les devises/dates d'un
     fichier en un seul appel avant le traitement ligne par ligne.
+  - Le module reste utilisable sans base configurée (SUPABASE_DB_URL absent,
+    tests, environnement local) : dans ce cas on retombe silencieusement sur
+    le cache mémoire seul (pas de persistance inter-instances, mais aucun
+    plantage).
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import pathlib
 import re
 import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
+
+import psycopg2
+import psycopg2.pool
+
+from .config import get_secret
 
 logger = logging.getLogger(__name__)
 
@@ -41,51 +55,141 @@ SUPPORTED_CURRENCIES = {
 _CENT = Decimal("0.01")
 
 # ------------------------------------------------------------------
-# Cache deux niveaux
+# Cache deux niveaux : mémoire (process) + Postgres global (persistant)
 # ------------------------------------------------------------------
-_CACHE_DIR  = pathlib.Path.home() / ".cache" / "tva_intracom"
-_CACHE_FILE = _CACHE_DIR / "ecb_rates.json"
-
-_rate_cache: dict[str, Decimal] = {}   # clé : "CCY|YYYY-MM-DD"
-_unsaved_count: int = 0                # nouvelles entrées non encore écrites sur disque
-_SAVE_BATCH_SIZE: int = 10             # écriture disque toutes les N nouvelles entrées
-# Verrou unique protégeant à la fois _rate_cache, _unsaved_count et _save_disk_cache().
-# Nécessaire car prefetch_rates() utilise ThreadPoolExecutor : plusieurs threads
-# écrivent dans _rate_cache simultanément, et _save_disk_cache() lit le dict entier.
+_rate_cache: dict[str, Decimal] = {}   # clé : "CCY|YYYY-MM-DD" (L1, par process)
+# Verrou unique protégeant _rate_cache. Nécessaire car prefetch_rates() utilise
+# ThreadPoolExecutor : plusieurs threads écrivent dans _rate_cache simultanément.
 _cache_lock = threading.Lock()
+
+# Durée de conservation des taux en base avant purge (cf. discussion : pas de
+# nécessité fonctionnelle — un taux BCE d'une date donnée ne change jamais —
+# mais un plafond simple évite un stockage qui grandit indéfiniment. ~1 an de
+# marge par rapport à 365 j pour ne pas re-fetcher inutilement en tout début
+# de période fiscale.
+_RETENTION_DAYS = 400
+
+_pool: Optional["psycopg2.pool.ThreadedConnectionPool"] = None
+_pool_lock = threading.Lock()
+# Sticky : évite de retenter une connexion Postgres à chaque appel si
+# SUPABASE_DB_URL n'est pas configuré (tests, dev local) ou si la base est
+# injoignable. Le cache BCE est un pur confort de performance/coût réseau,
+# jamais une dépendance dure — on dégrade silencieusement vers "mémoire seule".
+_db_unavailable = False
 
 
 def _cache_key(currency: str, d: date) -> str:
     return f"{currency.upper()}|{d.isoformat()}"
 
 
-def _load_disk_cache() -> None:
-    if not _CACHE_FILE.exists():
+def _get_pool() -> Optional["psycopg2.pool.ThreadedConnectionPool"]:
+    global _pool, _db_unavailable
+    if _db_unavailable:
+        return None
+    if _pool is not None:
+        return _pool
+    with _pool_lock:
+        if _pool is not None:
+            return _pool
+        if _db_unavailable:
+            return None
+        dsn = get_secret("SUPABASE_DB_URL")
+        if not dsn:
+            logger.debug(
+                "SUPABASE_DB_URL non défini — cache BCE en mémoire uniquement "
+                "(pas de persistance inter-instances/redéploiements)."
+            )
+            _db_unavailable = True
+            return None
+        try:
+            pool = psycopg2.pool.ThreadedConnectionPool(1, 5, dsn, sslmode="require")
+            _init_schema(pool)
+        except Exception as exc:
+            logger.warning(
+                "Cache BCE : connexion Postgres indisponible (%s) — repli "
+                "mémoire uniquement pour cette session.", exc,
+            )
+            _db_unavailable = True
+            return None
+        _pool = pool
+        return _pool
+
+
+def _init_schema(pool: "psycopg2.pool.ThreadedConnectionPool") -> None:
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ecb_rate_cache (
+                    currency   TEXT NOT NULL,
+                    rate_date  DATE NOT NULL,
+                    rate       NUMERIC NOT NULL,
+                    fetched_at TIMESTAMPTZ NOT NULL,
+                    PRIMARY KEY (currency, rate_date)
+                )
+            """)
+            # Table globale, pas de scope_id : un taux BCE est une donnée de
+            # marché publique identique pour tous les comptes — inutile de la
+            # dupliquer par utilisateur comme vies_scope_cache.
+            cur.execute("""
+                DELETE FROM ecb_rate_cache
+                 WHERE rate_date < %s
+            """, (date.today() - timedelta(days=_RETENTION_DAYS),))
+    finally:
+        pool.putconn(conn)
+
+
+def _db_get_rate(currency: str, target_date: date) -> Optional[Decimal]:
+    pool = _get_pool()
+    if pool is None:
+        return None
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT rate FROM ecb_rate_cache WHERE currency = %s AND rate_date = %s",
+                (currency, target_date),
+            )
+            row = cur.fetchone()
+            return Decimal(str(row[0])) if row else None
+    except Exception as exc:
+        logger.warning("Cache BCE : lecture Postgres échouée pour %s/%s : %s", currency, target_date, exc)
+        return None
+    finally:
+        pool.putconn(conn)
+
+
+def _db_upsert_rate(currency: str, target_date: date, rate: Decimal) -> None:
+    _db_upsert_batch([(currency, target_date, rate)])
+
+
+def _db_upsert_batch(entries: list[tuple[str, date, Decimal]]) -> None:
+    """Enregistre plusieurs (devise, date, taux) en une seule transaction.
+
+    Utilisé par prefetch_rates() pour éviter un aller-retour réseau par taux
+    sur un fichier multi-devises/multi-années.
+    """
+    if not entries:
         return
+    pool = _get_pool()
+    if pool is None:
+        return
+    now = datetime.now(timezone.utc)
+    conn = pool.getconn()
     try:
-        raw = json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
-        with _cache_lock:
-            for k, v in raw.items():
-                _rate_cache[k] = Decimal(v)
-        logger.debug("Cache BCE chargé : %d entrées depuis %s", len(_rate_cache), _CACHE_FILE)
+        with conn, conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO ecb_rate_cache (currency, rate_date, rate, fetched_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (currency, rate_date) DO NOTHING
+                """,
+                [(ccy, d, rate, now) for ccy, d, rate in entries],
+            )
     except Exception as exc:
-        logger.warning("Cache BCE disque illisible, ignoré : %s", exc)
-
-
-def _save_disk_cache() -> None:
-    # Snapshot sous lock pour éviter une corruption si un thread écrit dans
-    # _rate_cache pendant la sérialisation JSON.
-    try:
-        with _cache_lock:
-            snapshot = dict(_rate_cache)
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        data = {k: str(v) for k, v in snapshot.items()}
-        _CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    except Exception as exc:
-        logger.warning("Impossible d'écrire le cache BCE : %s", exc)
-
-
-_load_disk_cache()
+        logger.warning("Cache BCE : écriture Postgres échouée (%d entrées) : %s", len(entries), exc)
+    finally:
+        pool.putconn(conn)
 
 
 # ------------------------------------------------------------------
@@ -230,14 +334,12 @@ def _fetch_ecb_batch(
 def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     """Retourne le taux EUR/{currency} (unités de devise pour 1 EUR).
 
-    Vérifie le cache mémoire en premier, interroge l'API BCE si absent.
-    La persistance disque est batché : écriture toutes les _SAVE_BATCH_SIZE
-    nouvelles entrées (et toujours en fin de prefetch_rates). Évite des
-    centaines d'écritures disque sur un gros fichier Amazon.
-    Thread-safe : _rate_cache et _unsaved_count protégés par _cache_lock.
+    Ordre de résolution : cache mémoire (L1, ce process) -> cache Postgres
+    global (L2, partagé entre toutes les instances Streamlit Cloud et
+    persistant entre redéploiements) -> API BCE en dernier recours.
+    Thread-safe : _rate_cache protégé par _cache_lock. Le L2 est optionnel :
+    s'il n'est pas configuré/joignable, on saute directement à l'API BCE.
     """
-    global _unsaved_count
-
     currency = currency.upper()
     if currency == "EUR":
         return Decimal("1")
@@ -248,18 +350,19 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
         if key in _rate_cache:
             return _rate_cache[key]
 
+    db_rate = _db_get_rate(currency, target_date)
+    if db_rate is not None:
+        with _cache_lock:
+            _rate_cache[key] = db_rate
+        return db_rate
+
     # Requête HTTP hors du lock pour ne pas bloquer les autres threads.
     rate = _fetch_ecb_rate(currency, target_date)
 
     if rate is not None:
         with _cache_lock:
             _rate_cache[key] = rate
-            _unsaved_count += 1
-            do_save = _unsaved_count >= _SAVE_BATCH_SIZE
-            if do_save:
-                _unsaved_count = 0
-        if do_save:
-            _save_disk_cache()
+        _db_upsert_rate(currency, target_date, rate)
 
     return rate
 
@@ -311,7 +414,8 @@ def prefetch_rates(
 
     loaded = 0
     total = len(to_fetch)
-    
+    to_persist: list[tuple[str, date, Decimal]] = []
+
     # On remplit le cache pour les dates demandées en utilisant les résultats du batch
     # avec la règle du "dernier taux connu" (carry forward) pour les weekends/jours fériés.
     for i, (ccy, target_date) in enumerate(to_fetch, start=1):
@@ -330,6 +434,7 @@ def prefetch_rates(
             key = _cache_key(ccy, target_date)
             with _cache_lock:
                 _rate_cache[key] = rate
+            to_persist.append((ccy, target_date, rate))
             loaded += 1
         
         if progress_callback:
@@ -338,8 +443,9 @@ def prefetch_rates(
             except Exception:
                 pass
 
-    if loaded:
-        _save_disk_cache()
+    # Une seule transaction Postgres pour tout le lot, au lieu d'une écriture
+    # disque par tranche de _SAVE_BATCH_SIZE comme avant.
+    _db_upsert_batch(to_persist)
     logger.info("Prefetch BCE terminé : %d/%d taux mis en cache via batch.", loaded, total)
 
 
@@ -487,22 +593,54 @@ def get_rates_for_dates(
     return {d.isoformat(): get_rate(currency, d) for d in unique_dates}
 
 
-def clear_cache(disk: bool = True) -> None:
-    """Vide le cache mémoire et optionnellement le disque."""
+def clear_cache(persistent: bool = True) -> None:
+    """Vide le cache mémoire (L1) et, par défaut, le cache Postgres global (L2).
+
+    `persistent` conserve le nom de paramètre historique en gardant le même
+    ordre d'appel (`clear_cache()` vide tout par défaut) pour ne pas casser
+    les appelants existants (tests, CLI) ; il pilote maintenant la purge de
+    la table `ecb_rate_cache` plutôt que d'un fichier disque.
+    Si aucune base n'est configurée/joignable, la purge Postgres est un
+    no-op silencieux (le cache mémoire est tout de même vidé).
+    """
     _rate_cache.clear()
-    if disk and _CACHE_FILE.exists():
-        try:
-            _CACHE_FILE.unlink()
-        except Exception as exc:
-            logger.warning("Impossible de supprimer le cache disque : %s", exc)
+    if not persistent:
+        return
+    pool = _get_pool()
+    if pool is None:
+        return
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ecb_rate_cache")
+    except Exception as exc:
+        logger.warning("Impossible de vider le cache BCE Postgres : %s", exc)
+    finally:
+        pool.putconn(conn)
 
 
 def cache_info() -> dict:
     """Infos sur l'état du cache (utile pour debug/UI)."""
-    return {
-        "entries": len(_rate_cache),
-        "disk_file": str(_CACHE_FILE),
-        "disk_exists": _CACHE_FILE.exists(),
-        "disk_size_kb": round(_CACHE_FILE.stat().st_size / 1024, 1) if _CACHE_FILE.exists() else 0,
-        "currencies": sorted({k.split("|")[0] for k in _rate_cache}),
+    info: dict = {
+        "memory_entries": len(_rate_cache),
+        "memory_currencies": sorted({k.split("|")[0] for k in _rate_cache}),
+        "db_configured": not _db_unavailable or _pool is not None,
+        "db_entries": None,
+        "db_oldest_date": None,
+        "db_retention_days": _RETENTION_DAYS,
     }
+    pool = _get_pool()
+    if pool is None:
+        return info
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*), MIN(rate_date) FROM ecb_rate_cache")
+            count, oldest = cur.fetchone()
+            info["db_entries"] = count
+            info["db_oldest_date"] = oldest.isoformat() if oldest else None
+    except Exception as exc:
+        logger.warning("Cache BCE : lecture des stats Postgres échouée : %s", exc)
+    finally:
+        pool.putconn(conn)
+    return info

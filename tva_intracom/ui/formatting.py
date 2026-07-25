@@ -297,22 +297,26 @@ def _gated_preview_table(
     # On crée un aperçu léger
     df_preview = df.head(n_visible).copy()
     
+    # PERFORMANCE : On formate les nombres en strings AVANT de masquer, 
+    # pour garder un bel affichage (espaces, €) dans les lignes visibles.
+    for col in df_preview.columns:
+        if any(k in col.lower() for k in ["montant", "tva", "ttc", "ht", "total"]):
+            df_preview[col] = df_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
+        else:
+            df_preview[col] = df_preview[col].astype(str)
+
     lock_msg = "🔒 " + _("gated_locked")
     safe_cols = ["Date", "Pays", "Dest", "ID", "Transaction", "Type", "Stock"]
     
-    # Masquage uniquement sur l'échantillon
+    # Masquage sur l'échantillon
     for col in df_preview.columns:
-        col_lower = col.lower()
-        if col not in safe_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht"]):
-            df_preview[col] = df_preview[col].astype(str)
+        if col not in safe_cols:
             df_preview.iloc[min_rows:, df_preview.columns.get_loc(col)] = lock_msg
 
-    config = _smart_money_df(df_preview, existing_config=column_config)
-    
-    # On force en TextColumn les colonnes masquées pour éviter les erreurs de type
-    for col in df_preview.columns:
-        if df_preview[col].dtype == object:
-            config[col] = st.column_config.TextColumn(col)
+    # Pour un aperçu masqué, on utilise TextColumn partout car les types sont mixtes
+    config = {col: st.column_config.TextColumn(col) for col in df_preview.columns}
+    if column_config:
+        config.update(column_config)
 
     st.dataframe(df_preview, width="stretch", column_config=config, hide_index=True, key=key)
     

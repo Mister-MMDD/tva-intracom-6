@@ -365,6 +365,7 @@ dl_fec_filename = "Buchhaltungsexport_FEC - {company} - {period}.txt"
 dl_fec_piece_ref = "Amazon_Import_{period}"
 
 # Visualisations tab strings
+viz_generation_graphs = "Diagramme werden erstellt…"
 viz_vat_by_country_subheader = "Fällige MwSt nach Land (Netto)"
 viz_locked_geography_info = "🔒 Länderaufteilung gesperrt. Schalten Sie den Zeitraum frei, um die geografische Verteilung zu sehen."
 viz_france_ca3 = "Frankreich (CA3)"

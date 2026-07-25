@@ -82,18 +82,28 @@ def _set_header(ws, row: int, headers: List[str], fill=_BLUE_HEADER_FILL) -> Non
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
 
-def _auto_width(ws) -> None:
-    """Ajuste la largeur des colonnes au contenu réel.
+_AUTO_WIDTH_SAMPLE_ROWS = 150  # au-delà, échantillon suffisant pour estimer la largeur
 
-    Bornée à ws.max_column / ws.max_row pour éviter d'itérer sur les milliers
-    de cellules vides qu'openpyxl peut générer hors de la plage de données
-    (comportement constaté sur des onglets > 10 000 lignes).
+
+def _auto_width(ws) -> None:
+    """Ajuste la largeur des colonnes en s'appuyant sur un échantillon des
+    lignes plutôt que sur la totalité de la plage.
+
+    Avant : parcourait chaque cellule de chaque ligne (borné à ws.max_column /
+    ws.max_row, mais ça reste 150 000 itérations sur un onglet 15 col × 10 000
+    lignes remplies). Les montants ont une largeur quasi constante d'une ligne
+    à l'autre (ex. "1 234,56 EUR"), donc les mesurer sur toutes les lignes
+    n'apporte rien de plus qu'un échantillon des _AUTO_WIDTH_SAMPLE_ROWS
+    premières lignes de données — on garde en revanche l'en-tête (ligne 1)
+    dans l'échantillon car c'est souvent la valeur la plus longue d'une
+    colonne texte (libellés).
     """
     max_col = ws.max_column or 1
     max_row = ws.max_row or 1
+    sample_max_row = min(max_row, _AUTO_WIDTH_SAMPLE_ROWS)
     col_widths: dict[str, int] = {}
 
-    for row in ws.iter_rows(min_row=1, max_row=max_row, max_col=max_col):
+    for row in ws.iter_rows(min_row=1, max_row=sample_max_row, max_col=max_col):
         for cell in row:
             if cell.value is None:
                 continue

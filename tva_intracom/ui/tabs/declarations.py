@@ -243,32 +243,33 @@ def render_declarations(ctx: TabContext) -> None:
                      column_config=_recap_cfg)
     else:
         # Aperçu gratuit restreint :
-        # - Lignes Total : CA visible, TVA verrouillée.
-        # - Lignes Pays : tout verrouillé.
+        # On utilise le même formateur que detail_ventes pour avoir un bel affichage
+        # même si les lignes sont partiellement masquées.
         _recap_preview = _recap_df.copy()
         tva_cols = [_("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")]
         ca_cols = [_("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net")]
 
-        # On s'assure que les colonnes sont de type object pour accepter les strings de verrouillage
+        # Formattage manuel avant conversion texte pour garder les espaces et €
         for col in tva_cols + ca_cols:
             if col in _recap_preview.columns:
-                _recap_preview[col] = _recap_preview[col].astype(object)
-
-        # Masquage conditionnel
+                _recap_preview[col] = _recap_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
+        
+        # Masquage
+        lock_msg = "🔒 " + _("locked_premium")
         for idx, row in _recap_preview.iterrows():
             if row[_("type_column_label")] == _("type_total"):
-                # Ligne Total : on masque seulement la TVA
                 for col in tva_cols:
                     if col in _recap_preview.columns:
-                        _recap_preview.at[idx, col] = _("locked_premium")
+                        _recap_preview.at[idx, col] = lock_msg
             else:
-                # Ligne Pays : on masque tout (CA et TVA)
                 for col in tva_cols + ca_cols:
                     if col in _recap_preview.columns:
-                        _recap_preview.at[idx, col] = _("locked_premium")
+                        _recap_preview.at[idx, col] = lock_msg
 
-        # Affichage (on retire la colonne Type pour l'aperçu comme avant)
-        st.table(_recap_preview.drop(columns=[_("type_column_label")]))
+        # Affichage propre via dataframe (TextColumn)
+        _prev_df = _recap_preview.drop(columns=[_("type_column_label")])
+        _prev_cfg = {c: st.column_config.TextColumn(c) for c in _prev_df.columns}
+        st.dataframe(_prev_df, width="stretch", hide_index=True, column_config=_prev_cfg)
         st.caption(_("locked_preview_caption"))
 
     if summary.refund_count:
