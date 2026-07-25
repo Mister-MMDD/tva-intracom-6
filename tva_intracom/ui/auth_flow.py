@@ -105,7 +105,6 @@ def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
         "tva_session_token",
         _token,
         expires_at=_expires,
-        key="tva_set_cookie",
     )
     # Nettoyage immédiat pour éviter les boucles au refresh
     st.query_params.clear()
@@ -127,7 +126,7 @@ def ensure_cookie_manager() -> "stx.CookieManager":
         if "tva_session_token" not in st.context.cookies and 0 <= _attempts < 3:
             st.session_state["_cookie_sync_attempts"] = _attempts + 1
             # On demande une lecture au composant (provoquera un rerun une fois reçu)
-            cookie_manager.get_all(key=f"sync_{_attempts}")
+            cookie_manager.get_all()
             time.sleep(0.15)
             st.rerun()
         elif _attempts >= 3:
@@ -169,7 +168,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
     if _cookie_token:
         _cookie_token = str(_cookie_token).strip('"')
 
-    if _cookie_token and _cookie_token != "LOGGED_OUT" and st.session_state.get("auth_user") is None:
+    if _cookie_token and _cookie_token != "LOGGED_OUT" and st.session_state.get("auth_user") is None and not st.session_state.get("manual_logout"):
         _restored_user = tva_auth.get_user_by_session_token(_cookie_token)
         if _restored_user is not None:
             st.session_state["auth_user"] = _restored_user
@@ -656,7 +655,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             
             # 3. Suppression du cookie (asynchrone côté client)
             try:
-                cookie_manager.delete("tva_session_token", key=f"logout_del_{int(time.time())}")
+                cookie_manager.delete("tva_session_token")
             except Exception:
                 pass
 
