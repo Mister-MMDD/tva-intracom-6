@@ -180,7 +180,7 @@ tva-intracom/
 | `fec_export.py` | Export comptable au format FEC (journal des ventes agrégé par régime/pays/taux, écritures équilibrées débit/crédit) — pré-remplissage pour import dans un logiciel comptable tiers, alternative légère à l'EDI-TVA (voir Roadmap) |
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
 | `historical_rates_widget.py` | Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués |
-| `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne |
+| `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne, et agrégation mensuelle nette par pays (oss_by_country_month, local_by_country_month) |
 | `cli.py` | Interface en ligne de commande (CLI) pour exécuter le moteur hors interface web |
 | `amazon_adapter.py` | Passerelle de compatibilité entre les anciens modèles de données et le nouveau package de parsers |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
@@ -208,7 +208,7 @@ du script.
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
 | `ui/onboarding.py` | `maybe_show_sidebar_tour` / `maybe_show_tabs_tour` — Visite guidée de première connexion utilisant `st.dialog` et `st.fragment` |
 | `ui/rerun_utils.py` | `preserve_upload_rerun()` — Gestion fine des reruns pour éviter de perdre le fichier uploadé lors d'interactions sidebar |
-| `ui/sidebar.py` | `SidebarResult` + `render_sidebar()` — tous les accordéons de la barre latérale : **Pays d'origine** (`home_country`, tout premier réglage, voir section dédiée ci-dessous), connexion SP-API, Validation & Devises, Cache VIES, Paramètres du fichier, Catalogue Produits, Entreprise & Paramètres avec gestion des SIREN, Abonnements & forfaits Stripe |
+| `ui/sidebar.py` | `SidebarResult` + `render_sidebar()` — tous les accordéons de la barre latérale : **Pays d'origine** (`home_country`, tout premier réglage, voir section dédiée ci-dessous), connexion SP-API, Validation & Devises, Cache VIES, Paramètres du fichier, Catalogue Produits, Entreprise & Paramètres avec gestion des SIREN, Abonnements & forfaits Stripe, et génération de **Certificat VIES (PDF)** basé sur un snapshot |
 | `ui/billing_gate.py` | `BillingGate` + `build_billing_gate()` — détection de période, gating crédit PAYG/abonnement actif, gating quota SIREN, gating conformité (TVA locales/IOSS manquants), **rattachement anti-abus Compte Amazon <-> SIREN**, méthode `gated_download()` utilisée par tous les exports de tous les onglets |
 | `ui/background_calc.py` | `start_background_job` / `render_job_progress` — Exécution des calculs longs (VIES/moteur) en thread séparé pour ne pas bloquer l'UI Streamlit |
 | `ui/tabs/context.py` | `TabContext` — dataclass regroupant tout l'état nécessaire aux onglets (résultats moteur, statut billing, paramètres entreprise, données brutes d'import), construite une fois avant l'affichage des onglets |
@@ -216,7 +216,7 @@ du script.
 | `ui/tabs/detail_ventes.py` | Onglet **📋 Détail ventes** — 4 sous-onglets : Ce que vous devez / Géré par des tiers / Ligne par ligne / Remboursements |
 | `ui/tabs/vies.py` | Onglet **🛡️ VIES** — KPIs de validation, classification manuelle des numéros non vérifiés (`st.fragment`), overrides persistés, reclassifications B2B→B2C |
 | `ui/tabs/audit.py` | Onglet **🔬 Audit Amazon** — écarts TVA Amazon par catégorie (taux, VIES, UK, autoliquidation art.194, TVA manquante), mouvements de stock FBA |
-| `ui/tabs/telechargements.py` | Onglet **📥 Téléchargements** — génération de tous les exports (Excel complet, XML/Excel/CSV OSS, déclaration du **pays d'origine** en premier — CA3 HTML si FR, rapport HTML générique sinon —, déclarations locales HTML/CSV pour tous les autres pays (dont la France si elle n'est pas le pays d'origine), B2B, FEC) |
+| `ui/tabs/telechargements.py` | Onglet **📥 Téléchargements** — génération de tous les exports (Excel complet avec détail mensuel, XML/Excel/CSV OSS, déclaration du **pays d'origine** en premier — CA3 HTML si FR, rapport HTML générique sinon —, déclarations locales HTML/CSV pour tous les autres pays (dont la France si elle n'est pas le pays d'origine), B2B, FEC) |
 | `ui/tabs/visualisations.py` | Onglet **📊 Visualisations** — TVA due par pays, répartition Vous/Amazon/Douane, carte Europe, évolution mensuelle, répartition par scénario |
 
 **Dépendance intentionnelle entre onglets** : `ui/tabs/declarations.py`
@@ -266,8 +266,9 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
   (domestique / OSS / immatriculation locale), jamais à la devise de calcul.
   Pour l'affichage (page de synthèse Excel, KPIs et tableaux Streamlit,
   graphiques de l'onglet Visualisations), les montants EUR sont convertis à la
-  volée vers la devise locale du pays d'origine (`rates.COUNTRY_CURRENCIES`),
-  au taux BCE du jour de génération (`ecb_rates.convert_to_currency`,
+  volée vers la **devise d'affichage choisie** (réglable dans la sidebar, par
+  défaut celle du pays d'origine via `rates.COUNTRY_CURRENCIES`), au taux BCE du
+  jour de génération (`ecb_rates.convert_to_currency`,
   `ui/formatting.py::_get_conversion_rate`, mis en cache en session pour éviter
   un appel BCE par cellule affichée). En cas d'indisponibilité du taux BCE,
   repli silencieux sur le montant EUR plutôt que de faire échouer l'affichage.
@@ -579,8 +580,8 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 | 1 | **Récapitulatif** | Synthèse TVA par canal et **Audit d'intégrité technique** (Nombre de lignes, CA HT Net, Signature numérique Hash ID) |
 | 2 | **Détail ventes** | Ligne par ligne avec scénario, taux, canal, note |
 | 3 | **Détail remboursements** | Avoirs avec même structure |
-| 4 | **OSS par pays** | Agrégation par pays de destination + taux |
-| 5 | **TVA locale par pays** | Immatriculations locales (stocks FBA hors FR) |
+| 4 | **OSS par pays** | Agrégation par pays de destination + taux, avec **détail mensuel net** |
+| 5 | **TVA locale par pays** | Immatriculations locales (stocks FBA hors FR) avec **détail mensuel net** |
 | 6 | **Audit Écarts Amazon** | Ventes où la TVA calculée diffère de celle collectée par Amazon |
 | 7 | **Historique VIES** | Toutes les vérifications VIES horodatées (piste d'audit) |
 | 8 | **Analyse AIC FBA** | AIC estimées par flux (art. 17 Dir. 2006/112/CE), TVA AIC à autodéclarer |
@@ -693,9 +694,9 @@ Python ≥ 3.10 requis.
 pip install -e ".[dev]"
 ```
 
-Dépendances principales : `streamlit`, `openpyxl`, `pandas`, `plotly`, `psycopg2-binary`
+Dépendances principales : `streamlit`, `openpyxl`, `pandas`, `polars` (parsing haute performance), `plotly`, `psycopg2-binary`
 (base Postgres/Supabase pour l'auth et la facturation), `stripe` (paiements),
-`requests` (appels à l'API Resend pour l'envoi des liens de connexion).
+`requests` (appels à l'API Resend), `reportlab` (génération PDF).
 
 ### Interface Streamlit
 
@@ -786,11 +787,12 @@ conversion BCE.
 ## Optimisations de performance & UX (Mises à jour récentes)
 
 ### Performance & Réactivité
-- **Optimisation Streamlit (`@st.fragment`)** : Utilisation intensive de fragments dans les onglets "Détail ventes" et "Téléchargements" pour isoler le rendu et éviter les reruns complets du script lors d'interactions locales (pagination, filtres de vue).
+- **Optimisation Streamlit (`@st.fragment`)** : Utilisation intensive de fragments dans les onglets "Détail ventes", "Téléchargements" et dans les formulaires SIREN de la **sidebar** pour isoler le rendu et éviter les reruns complets du script lors d'interactions locales.
 - **Mise en cache intelligente (TTL & Keys)** :
   - **Sidebar** : Cache TTL (20s) sur les appels coûteux (Amazon credentials, listes SIREN, quotas, abonnements Stripe, grille tarifaire) avec invalidation explicite immédiate après chaque mutation (ajout/suppression SIREN).
   - **Sidebar — détection de période fiscale** : Le tri des dates de transaction et le calcul des bornes (mois/trimestre/semestre/année détecté) sont mis en cache dans `session_state` (`_period_detect_cache`), invalidés uniquement quand le jeu de résultats change réellement (nouvel objet et nouvelle taille). Auparavant recalculés à chaque rerun de la sidebar, y compris pour un simple changement de widget sans rapport — coûteux sur les gros volumes (100k+ lignes).
   - **Sidebar — catalogue produits (ASIN)** : Le parsing du CSV/TSV de catalogue est extrait dans une fonction dédiée décorée `@st.cache_data`, indexée sur le contenu binaire du fichier : un même catalogue n'est plus re-parsé à chaque interaction. Une garde de taille (`_MAX_CATALOG_MB`, 20 Mo) rejette les fichiers surdimensionnés avant lecture, pour éviter un épuisement mémoire (DoS) sur le process Streamlit partagé entre sessions.
+  - **Excel — Ajustement colonnes (`_auto_width`)** : Optimisation par échantillonnage (150 premières lignes) pour estimer la largeur des colonnes, au lieu de scanner l'intégralité du fichier — gain de temps radical sur les exports de 10k+ lignes.
   - **Billing** : Réutilisation du cache SIREN/Abonnement déjà peuplé par la sidebar, éliminant les requêtes SQL dupliquées lors de la construction du tunnel de paiement.
   - **Téléchargements** : Mise en cache des 5 exports indépendants (Excel principal, OSS Excel, CA3/HTML local, B2B Excel, FEC) via une clé de téléchargement dédiée (`_dl_cache_key`).
 - **Stabilisation du calcul** : Introduction de `calc_key` dans le `TabContext` (transmis depuis `app.py`) pour garantir la cohérence des résultats entre onglets et éviter les recalculs intempestifs.
@@ -801,6 +803,7 @@ conversion BCE.
 
 ### Correctifs & Expérience Utilisateur
 - **Persistance de l'upload** : Correction d'un bug où le changement de langue supprimait les fichiers chargés (stabilisation de l'identité du widget `st.file_uploader` via une clé explicite `main_file_uploader` indépendante du label traduit).
+- **Certificat VIES** : Ajout d'une option de génération de certificat PDF global directement dans la sidebar, basée sur un snapshot complet du scope.
 - **Rendu des onglets** : Correction d'un blocage d'affichage lors du changement de pays d'origine (suppression d'un `st.rerun()` forcé qui interrompait le script avant le rendu).
 - **Lisibilité des données** :
   - Colonnes "Note" et "Référence légale" élargies par défaut (`width="large"`) pour éviter la troncature des explications fiscales.
