@@ -188,28 +188,36 @@ class BillingGate:
 
             _url = self.get_payg_checkout_url()
             if _url:
+                # BUGFIX : un <a> HTML brut (unsafe_allow_html) ne sort pas de
+                # l'iframe Streamlit Cloud au clic (survol OK, clic sans effet
+                # — même incident que les boutons OAuth, cf. auth_flow.py).
+                # st.link_button utilise le mécanisme de navigation propre à
+                # Streamlit et fonctionne de façon fiable en local et en cloud.
+                # Le style violet est repris via la même astuce CSS que pour
+                # les boutons OAuth : cibler .st-key-{key} a[data-testid^="stBaseLinkButton"].
+                _btn_key = f"paywall_btn_{self.period_label}_{file_name}"
                 st.markdown(
                     f"""
-                    <a href="{_url}" target="_top" style="text-decoration: none;">
-                        <div style="
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            gap: 8px;
-                            background-color: #7F77DD;
-                            color: #FFFFFF;
-                            border-radius: 8px;
-                            padding: 10px 16px;
-                            font-size: 14px;
-                            font-weight: 500;
-                            cursor: pointer;
-                            width: 100%;
-                        ">
-                            🔓 {label} — {self.unlock_label_suffix}
-                        </div>
-                    </a>
+                    <style>
+                    .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] {{
+                        background-color: #7F77DD !important;
+                        color: #FFFFFF !important;
+                        border: none !important;
+                        width: 100%;
+                    }}
+                    .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] p {{
+                        color: #FFFFFF !important;
+                        font-weight: 500 !important;
+                    }}
+                    </style>
                     """,
                     unsafe_allow_html=True,
+                )
+                st.link_button(
+                    f"🔓 {label} — {self.unlock_label_suffix}",
+                    _url,
+                    width="stretch",
+                    key=_btn_key,
                 )
                 st.caption(_("unlock_export_footer"))
             else:

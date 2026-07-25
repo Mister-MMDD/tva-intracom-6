@@ -121,6 +121,16 @@ elif _current_user.language != _sess_lang:
 from tva_intracom.ui.sidebar import render_sidebar
 from tva_intracom.ui.onboarding import maybe_show_sidebar_tour, maybe_show_tabs_tour
 
+# BUGFIX : la sidebar (rendue ci-dessous) affiche `_period_label` tel qu'il
+# était à LA FIN DU RUN PRÉCÉDENT (upload/retrait de fichier/calcul n'ont pas
+# encore eu lieu à ce stade). On mémorise cette valeur "affichée" pour pouvoir
+# la comparer, en toute fin de run, à la valeur réellement à jour — et ne
+# forcer qu'UN SEUL rerun de synchro si elles diffèrent (voir plus bas). Sans
+# ça, un simple changement d'onglet Streamlit (qui ne déclenche aucun rerun
+# Python) laissait la sidebar bloquée indéfiniment sur l'ancien état, tout
+# comme un retrait de fichier sans interaction serveur ultérieure.
+_period_label_shown_by_sidebar = st.session_state.get("_period_label", "")
+
 _sb = render_sidebar(_auth_ctx)
 maybe_show_sidebar_tour(_current_user)
 file_format = _sb.file_format
@@ -778,6 +788,17 @@ if uploaded_files:
         with tab_dl: render_telechargements(_tab_ctx)
         with tab_viz: render_visualisations(_tab_ctx)
 
+        # BUGFIX : la sidebar a été dessinée en tout début de run avec
+        # `_period_label_shown_by_sidebar` (voir plus haut), potentiellement
+        # obsolète. À ce stade, tout le contenu principal (KPIs, onglets) est
+        # déjà rendu — un rerun ici ne fait donc plus disparaître les onglets
+        # (contrairement à l'ancien correctif, retiré, qui rerun-ait AVANT
+        # leur rendu). On ne le déclenche qu'UNE fois, seulement si la valeur
+        # a réellement changé, pour éviter toute boucle : au run suivant,
+        # `_period_label_shown_by_sidebar` capturera la valeur déjà à jour.
+        if st.session_state.get("_period_label", "") != _period_label_shown_by_sidebar:
+            preserve_upload_rerun()
+
     except Exception as exc:
         st.error(_("processing_error", error=exc))
         raise
@@ -786,6 +807,12 @@ if uploaded_files:
 
 else:
     st.session_state.pop("_period_label", None)
+    # BUGFIX (même logique qu'au-dessus) : après un vrai retrait de fichier,
+    # la sidebar avait déjà affiché l'ancienne période détectée avant que ce
+    # pop() n'ait lieu. Sans resynchronisation, elle restait affichée
+    # indéfiniment tant qu'aucune autre interaction serveur ne survenait.
+    if _period_label_shown_by_sidebar:
+        preserve_upload_rerun()
     st.markdown("---")
     col_a, col_b = st.columns([2,1])
     with col_a:
