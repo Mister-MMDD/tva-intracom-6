@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable, List, Optional, Set, Tuple
@@ -23,6 +24,7 @@ from ...rates import COUNTRY_CURRENCIES
 from .aggregate import preaggregate_v5
 from .classify import (
     BuyerClassification,
+    CurrencyResult,
     apply_vat_exception,
     classify_buyer,
     convert_amazon_vat,
@@ -222,8 +224,7 @@ def _process_rows(
         _tx_date_valid = False
         if tx_date_str:
             try:
-                from datetime import date as _d_check
-                _d_check.fromisoformat(tx_date_str[:10])
+                date.fromisoformat(tx_date_str[:10])
                 _tx_date_valid = True
             except ValueError:
                 pass
@@ -317,13 +318,13 @@ def _process_rows(
                 f"Ligne {line_no} : conversion {currency}→{target_currency} impossible ({exc}). "
                 "Montant gardé en devise originale."
             )
-            fx = type("_FX", (), {
-                "amount_ht": amount_ht,
-                "original_currency": currency,
-                "original_amount": amount_ht,
-                "exchange_rate": Decimal("1"),
-                "exchange_rate_source": target_currency.lower(),
-            })()
+            fx = CurrencyResult(
+                amount_ht=amount_ht,
+                original_currency=currency,
+                original_amount=amount_ht,
+                exchange_rate=Decimal("1"),
+                exchange_rate_source=target_currency.lower(),
+            )
 
         # --- TVA Amazon ---
         amazon_vat_raw = parser.amazon_vat(row)
@@ -554,8 +555,7 @@ def load_amazon_report(
     # Optimisation : on scanne les dates une fois pour faire une requête groupée (batch).
     # On utilise un set pour éviter de passer des millions de doublons à prefetch_rates.
     if convert_currencies and rows_to_process:
-        from datetime import date as _dt
-        to_prefetch_set: Set[Tuple[str, _dt]] = set()
+        to_prefetch_set: Set[Tuple[str, date]] = set()
         for _, row in rows_to_process:
             c = parser.currency(row)
             if c and c.upper() != "EUR":
@@ -563,7 +563,7 @@ def load_amazon_report(
                 if d_str:
                     try:
                         # On ne garde que la date YYYY-MM-DD pour le set
-                        to_prefetch_set.add((c.upper(), _dt.fromisoformat(d_str[:10])))
+                        to_prefetch_set.add((c.upper(), date.fromisoformat(d_str[:10])))
                     except (ValueError, TypeError):
                         pass
 
