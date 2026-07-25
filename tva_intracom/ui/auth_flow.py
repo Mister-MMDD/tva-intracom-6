@@ -642,8 +642,15 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             try:
                 _current_token = st.context.cookies.get("tva_session_token")
             except Exception:
-                _current_token = cookie_manager.get("tva_session_token")
+                _current_token = None
+            if not _current_token:
+                try:
+                    _current_token = cookie_manager.get("tva_session_token")
+                except Exception:
+                    _current_token = None
             if _current_token:
+                _current_token = str(_current_token).strip('"')
+            if _current_token and _current_token != "LOGGED_OUT":
                 try:
                     tva_auth.delete_session_token(_current_token)
                 except Exception:
