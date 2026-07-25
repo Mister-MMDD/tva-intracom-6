@@ -48,6 +48,12 @@ COUNTRY_NAMES: Dict[str, str] = {
     "TR": "Turquie",     "IL": "Israël",      "MA": "Maroc",
     "BR": "Brésil",      "MX": "Mexique",     "SG": "Singapour",
     "IN": "Inde",        "HK": "Hong Kong",
+    "KR": "Corée du Sud", "NZ": "Nouvelle-Zélande", "ZA": "Afrique du Sud",
+    "TH": "Thaïlande",   "VN": "Vietnam",    "ID": "Indonésie",
+    "MY": "Malaisie",    "PH": "Philippines", "SA": "Arabie Saoudite",
+    "QA": "Qatar",       "KW": "Koweït",     "TW": "Taïwan",
+    "UA": "Ukraine",     "IS": "Islande",    "EG": "Égypte",
+    "RU": "Russie",
     "XX": "Territoire d'exception (Export)",
 }
 
@@ -67,6 +73,10 @@ COUNTRY_CURRENCIES: Dict[str, str] = {
     "JP": "JPY", "CN": "CNY", "AE": "AED", "NO": "NOK", "TR": "TRY",
     "IL": "ILS", "MA": "MAD", "BR": "BRL", "MX": "MXN", "SG": "SGD",
     "IN": "INR", "HK": "HKD",
+    "KR": "KRW", "NZ": "NZD", "ZA": "ZAR", "TH": "THB", "VN": "VND",
+    "ID": "IDR", "MY": "MYR", "PH": "PHP", "SA": "SAR", "QA": "QAR",
+    "KW": "KWD", "TW": "TWD", "UA": "UAH", "IS": "ISK", "EG": "EGP",
+    "RU": "RUB",
 }
 
 CURRENCY_SYMBOLS: Dict[str, str] = {
@@ -95,6 +105,22 @@ CURRENCY_SYMBOLS: Dict[str, str] = {
     "MXN": "$",
     "SGD": "$",
     "HKD": "$",
+    "KRW": "₩",
+    "NZD": "$",
+    "ZAR": "R",
+    "THB": "฿",
+    "VND": "₫",
+    "IDR": "Rp",
+    "MYR": "RM",
+    "PHP": "₱",
+    "SAR": "ر.س",
+    "QAR": "ر.ق",
+    "KWD": "د.ك",
+    "TWD": "NT$",
+    "UAH": "₴",
+    "ISK": "kr",
+    "EGP": "E£",
+    "RUB": "₽",
 }
 
 # Contre-valeurs nationales FIXES du seuil OSS de 10 000 EUR (Art. 59 quater
@@ -145,6 +171,10 @@ COUNTRY_ISO3: Dict[str, str] = {
     "JP": "JPN", "CN": "CHN", "AE": "ARE", "NO": "NOR", "TR": "TUR",
     "IL": "ISR", "MA": "MAR", "BR": "BRA", "MX": "MEX", "SG": "SGP",
     "IN": "IND", "HK": "HKG",
+    "KR": "KOR", "NZ": "NZL", "ZA": "ZAF", "TH": "THA", "VN": "VNM",
+    "ID": "IDN", "MY": "MYS", "PH": "PHL", "SA": "SAU", "QA": "QAT",
+    "KW": "KWT", "TW": "TWN", "UA": "UKR", "IS": "ISL", "EG": "EGY",
+    "RU": "RUS",
 }
 
 # Métadonnées fiscales locales par pays.
