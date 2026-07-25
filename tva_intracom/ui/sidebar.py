@@ -839,17 +839,18 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         # ── Catalogue Produits ────────────────────────────────────────────────────
         with st.expander(_("catalog_header"), expanded=False):
             catalog_file = st.file_uploader(_("catalog_upload"),
-                                            type=["csv","tsv","txt","xlsx"],
+                                            type=["csv","tsv","txt"],
                                             help=_("catalog_help"))
             asin_to_category = {}
             if catalog_file is not None:
                 try:
-                    if catalog_file.name.endswith(".xlsx"):
-                        df_cat = pd.read_excel(catalog_file)
-                    elif catalog_file.name.endswith(".csv"):
-                        df_cat = pd.read_csv(catalog_file)
-                    else:
-                        df_cat = pd.read_csv(catalog_file, sep="\t")
+                    if catalog_file.name.endswith(".csv") or catalog_file.name.endswith(".tsv") or catalog_file.name.endswith(".txt"):
+                        if catalog_file.name.endswith(".csv") or catalog_file.name.endswith(".txt"):
+                            # On tente de détecter le séparateur pour CSV/TXT
+                            # (comportement simplifié par rapport au chargeur principal)
+                            df_cat = pd.read_csv(catalog_file, sep=None, engine='python')
+                        else:
+                            df_cat = pd.read_csv(catalog_file, sep="\t")
                     df_cat.columns = [c.strip().upper() for c in df_cat.columns]
                     asin_col = next((c for c in df_cat.columns if "ASIN" in c), None)
                     cat_col  = next((c for c in df_cat.columns if "PRODUCT-TAX-CODE" in c or "TAX-CODE" in c), None)

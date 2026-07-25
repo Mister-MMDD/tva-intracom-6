@@ -48,6 +48,26 @@ def _countries_with_sales(results: List[VatResult]) -> dict[str, list[date]]:
     return out
 
 
+def _sale_dates_by_country_category(
+    results: List[VatResult],
+) -> dict[tuple[str, str], list[date]]:
+    """Retourne {(pays_destination, catégorie): [dates de transaction]}.
+
+    Sert à ne retenir, pour l'affichage des changements de taux, que les
+    combinaisons pays/catégorie réellement présentes dans le fichier importé.
+    Sans catalogue Amazon importé, `product_category` vaut "STANDARD" pour
+    toutes les ventes — les périodes historiques sur des catégories réduites
+    (FOOD, SUPER_REDUCED...) ne doivent donc pas être affichées dans ce cas.
+    """
+    out: dict[tuple[str, str], list[date]] = {}
+    for r in results:
+        d = _parse_date(r.sale.transaction_date)
+        if d:
+            cat = (r.sale.product_category or "STANDARD").upper()
+            out.setdefault((r.sale.buyer_country, cat), []).append(d)
+    return out
+
+
 def render_historical_rates_alert(results: List[VatResult]) -> None:
     """Affiche l'encart taux historiques si et seulement si des ventes sont
     concernées par un changement de taux dans la période couverte par le fichier.
@@ -58,6 +78,7 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
         return
 
     countries_dates = _countries_with_sales(results)
+    dates_by_country_category = _sale_dates_by_country_category(results)
 
     # Candidats bruts : pays présents dans les données ET ayant au moins une
     # entrée d'historique, TOUTES catégories confondues (STANDARD, FOOD,
@@ -75,17 +96,29 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
     if not candidate_countries:
         return  # Rien à afficher — aucun pays concerné dans ce fichier
 
-    # Construire le tableau : une ligne par changement de taux détecté
-    rows = []
+    # Construire le tableau : une ligne par changement de taux détecté.
+    # On ne retient une période que si des ventes existent réellement dans
+    # SA catégorie (dates_by_country_category) — pas seulement dans le pays.
+    # Sans catalogue Amazon importé, toutes les ventes sont "STANDARD" : les
+    # périodes réduites (FOOD, SUPER_REDUCED...) ne doivent alors jamais
+    # apparaître, même si le pays a des ventes sur la plage concernée.
+    # On déduplique aussi par clé (Pays, Du, Au, Taux) : deux catégories
+    # distinctes peuvent partager exactement la même plage/taux (ex. ES
+    # FOOD et SUPER_REDUCED), ce qui produirait sinon des lignes identiques.
+    rows_by_key: dict[tuple[str, str, str, str], dict] = {}
     countries_in_rows: set[str] = set()
     for country in sorted(candidate_countries):
-        sale_dates = countries_dates[country]
-        min_date = min(sale_dates)
-        max_date = max(sale_dates)
         periods = rate_periods_for_country(country)
         country_name = COUNTRY_NAMES.get(country, country)
 
         for period in periods:
+            sale_dates = dates_by_country_category.get((country, period.category))
+            if not sale_dates:
+                continue  # Aucune vente de cette catégorie précise dans le fichier
+
+            min_date = min(sale_dates)
+            max_date = max(sale_dates)
+
             # N'afficher la période que si elle chevauche la plage du fichier
             period_end = period.date_to or date(2099, 12, 31)
             if period_end < min_date or period.date_from > max_date:
@@ -96,18 +129,34 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
                 if period.date_to
                 else "aujourd'hui"
             )
-            rows.append({
-                "Pays": f"{country_name} ({country})",
-                "Du": period.date_from.strftime("%d/%m/%Y"),
-                "Au": date_to_str,
-                "Taux appliqué": f"{period.rate}%",
-                "Ventes concernées": sum(
-                    1 for d in sale_dates
-                    if period.date_from <= d <= (period.date_to or date(2099, 12, 31))
-                ),
-            })
+            matching_sales = sum(
+                1 for d in sale_dates
+                if period.date_from <= d <= (period.date_to or date(2099, 12, 31))
+            )
+            if matching_sales == 0:
+                continue
+
+            key = (
+                f"{country_name} ({country})",
+                period.date_from.strftime("%d/%m/%Y"),
+                date_to_str,
+                f"{period.rate}%",
+            )
+            if key in rows_by_key:
+                # Même pays/plage/taux qu'une autre catégorie déjà ajoutée :
+                # on fusionne le compte de ventes plutôt que dupliquer la ligne.
+                rows_by_key[key]["Ventes concernées"] += matching_sales
+            else:
+                rows_by_key[key] = {
+                    "Pays": key[0],
+                    "Du": key[1],
+                    "Au": key[2],
+                    "Taux appliqué": key[3],
+                    "Ventes concernées": matching_sales,
+                }
             countries_in_rows.add(country)
 
+    rows = list(rows_by_key.values())
     if not rows:
         return
 

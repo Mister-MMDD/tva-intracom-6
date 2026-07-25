@@ -487,6 +487,38 @@ def load_amazon_report(
                 ]
 
         headers = set(raw_rows[0].keys()) if raw_rows else set()
+
+        # --- Détection d'un CSV fusionné en une seule colonne ---
+        # Cas classique : le fichier Amazon (colonnes séparées par des
+        # virgules, chaque champ entre guillemets) a été ouvert puis
+        # ré-enregistré dans Excel avec un séparateur de liste régional
+        # différent (ex: ";" en locale FR). Excel ne reconnaît alors pas la
+        # virgule comme délimiteur, traite toute la ligne d'en-tête comme un
+        # unique champ texte, et le ré-enregistrement en CSV le réécrit tel
+        # quel entre guillemets (avec les guillemets internes doublés).
+        # Sans ce garde-fou, `detect_format()` ne reconnaît aucun format
+        # attendu sur ce header unique et retombe silencieusement sur le
+        # format 1, qui ignore alors 100% des lignes (aucune colonne connue).
+        # On préfère ici un échec explicite et actionnable pour l'utilisateur.
+        if len(headers) == 1:
+            _only_header = next(iter(headers))
+            if "," in _only_header or len(_only_header) > 60:
+                raise ValueError(
+                    "Le fichier ne contient qu'une seule colonne après lecture "
+                    f"(en-tête brut détecté : {_only_header[:120]!r}"
+                    f"{'…' if len(_only_header) > 120 else ''}). "
+                    "C'est le signe qu'il a été ré-enregistré depuis Excel avec "
+                    "un séparateur de liste incompatible : Excel n'a pas reconnu "
+                    "la virgule comme délimiteur et a fusionné toutes les "
+                    "colonnes en une seule. Réimporte le fichier original tel "
+                    "que téléchargé depuis Amazon, sans l'ouvrir ni le "
+                    "ré-enregistrer dans Excel. Si un passage par Excel est "
+                    "indispensable, vérifie que le séparateur de liste "
+                    "(Options Excel → Options avancées → Séparateurs) est bien "
+                    "la virgule, ou utilise Données → Convertir en colonnes "
+                    "avec le bon délimiteur avant de sauvegarder."
+                )
+
         fmt = detect_format(headers)
         result.detected_format = fmt
         parser = PARSERS[fmt]

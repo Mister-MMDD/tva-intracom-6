@@ -163,7 +163,7 @@ st.session_state["currency_symbol"] = currency_symbol
 # =============================================================================
 uploaded_files = st.file_uploader(
     _("upload_label"),
-    type=["csv","tsv","txt","xlsx","xls"],
+    type=["csv","tsv","txt"],
     accept_multiple_files=True,
     help=_("upload_help"),
     # Clé stable et indépendante de la langue : sans elle, l'identité du

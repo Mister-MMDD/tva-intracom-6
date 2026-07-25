@@ -21,7 +21,7 @@ HEADERS = [
     "SHIP_CHARGE_AMT_VAT_INCL", "PROMO_SHIP_CHARGE_AMT_VAT_INCL", "TOTAL_SHIP_CHARGE_AMT_VAT_INCL",
     "GIFT_WRAP_AMT_VAT_INCL", "PROMO_GIFT_WRAP_AMT_VAT_INCL", "TOTAL_GIFT_WRAP_AMT_VAT_INCL",
     "TOTAL_ACTIVITY_VALUE_AMT_VAT_INCL",
-    "CURRENCY",
+    "TRANSACTION_CURRENCY_CODE",
     "EXPORT_DETAILED_STATUS", "EXCHANGE_RATE", "EXCHANGE_RATE_DATE", "DEFLATED_PRICE_OF_ITEMS_AMT_VAT_EXCL",
     "DEFLATED_PRICE_OF_ITEMS_VAT_AMT", "DEFLATED_TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL", "DEFLATED_TOTAL_ACTIVITY_VALUE_VAT_AMT",
     "TAX_COLLECTION_RESPONSIBILITY", "EXCLUSION_REASON_CODE",
@@ -107,7 +107,7 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=100000):
             
             tax_rate = Decimal("0.20")
             price_incl = Decimal(random.randint(20, 150))
-            currency = "EUR"
+            TRANSACTION_CURRENCY_CODE = "EUR"
             
             if case == "DOMESTIC_B2C":
                 src_country = random.choice(EU_COUNTRIES)
@@ -156,7 +156,7 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=100000):
                 dest_country = random.choice(NON_EU_COUNTRIES)
                 tax_rate = Decimal("0.00")
                 tax_scheme = "REGULAR"
-                currency = "GBP" if dest_country == "GB" else "USD"
+                TRANSACTION_CURRENCY_CODE = "GBP" if dest_country == "GB" else "USD"
                 
             elif case == "IMPORT_STANDARD":
                 src_country = random.choice(NON_EU_COUNTRIES)
@@ -171,7 +171,7 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=100000):
                 dest_country = "JP"
                 tax_rate = Decimal("0.00")
                 tax_scheme = "REGULAR"
-                currency = "JPY"
+                TRANSACTION_CURRENCY_CODE = "JPY"
                 buyer_type = "Country"
                 
             elif case == "SPECIAL_TERRITORY_ORIGIN":
@@ -238,7 +238,7 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=100000):
                 "0.0", "0.0", "0.0",
                 "0.0", "0.0", "0.0",
                 str(price_incl),
-                currency,
+                TRANSACTION_CURRENCY_CODE,
                 "", "", "", "", "", "", "",
                 tax_responsibility, "",
                 f"INV-{i:07d}", date_iso, "https://sellercentral.amazon.fr/mock-invoice",

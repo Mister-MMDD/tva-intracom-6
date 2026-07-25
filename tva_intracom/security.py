@@ -44,10 +44,18 @@ def decrypt_data(encrypted_data: str) -> str:
     if not encrypted_data:
         return encrypted_data
     
+    # Heuristique : les jetons Fernet (cryptography) commencent par 'gAAAA'.
+    # Si la donnée ne commence pas par ce préfixe, c'est probablement du texte
+    # en clair (ex: migration depuis une version précédente sans chiffrement).
+    # On le retourne tel quel pour éviter de bloquer l'application.
+    if not encrypted_data.startswith("gAAAA"):
+        return encrypted_data
+    
     f = _get_fernet()
     try:
         return f.decrypt(encrypted_data.encode()).decode()
     except Exception as e:
         logger.error(f"Decryption failed: {str(e)}")
-        # On ne retourne plus la donnée brute ici pour éviter toute fuite de PII
+        # On ne retourne plus la donnée brute ici si elle semble chiffrée 
+        # mais que la clé est mauvaise, pour éviter toute fuite de PII.
         raise ValueError("Failed to decrypt sensitive data. Check encryption key compatibility.") from e

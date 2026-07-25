@@ -487,7 +487,7 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 - **Performance extrême** : utilisation de **Polars** (moteur Rust ultra-rapide) pour le parsing des fichiers CSV volumineux, avec repli automatique sur Pandas et `csv.DictReader`.
 - **Détection intelligente d'encodage** : bascule automatique entre **UTF-8** et **Windows-1252** (cp1252) pour garantir la lecture correcte des exports Excel/CSV sans corruption des caractères spéciaux.
 - Détection automatique du format et du séparateur (tab / `;` / `,`).
-- Support des fichiers jusqu'à **100 Mo**.
+- Support des fichiers jusqu'à **150 Mo**.
 - Filtrage des placeholders Amazon (`FRINV…`, `ITINV…`) et des NIF fiscaux nationaux
   (codice fiscale IT, NIF ES, NIP PL…) — ces derniers ne sont pas interrogeables VIES.
 - Détection des territoires d'exception TVA via code postal de destination
