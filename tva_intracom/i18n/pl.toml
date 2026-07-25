@@ -187,6 +187,8 @@ period_mismatch_col_shipment = "Data wysyłki"
 period_mismatch_col_amount = "Kwota (bez VAT)"
 
 # FX & Calculation
+calc_progress_bce = "Pobieranie kursów walut (EBC)..."
+calc_progress_bce_count = "⏳ EBC: pobrano {done} / {total} kursów"
 bce_rates_title = "💱 Użyte kursy wymiany EBC ({count})"
 bce_source_official = "Oficjalny EBC"
 bce_source_fallback = "Awaryjny"
