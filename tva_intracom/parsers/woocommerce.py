@@ -182,15 +182,15 @@ def parse(
         rows = list(reader)
         if convert_currencies:
             from datetime import date as date_type
-            to_prefetch = []
+            to_prefetch_set = set()
             for row in rows:
                 c = (row.get(currency_col) or "EUR").strip().upper() if currency_col else "EUR"
                 if c != "EUR":
                     d_str = (row.get(date_col) or "").strip() if date_col else ""
                     d_obj = _parse_date(d_str) or date_type.today()
-                    to_prefetch.append((c, d_obj))
-            if to_prefetch:
-                prefetch_rates(to_prefetch)
+                    to_prefetch_set.add((c, d_obj))
+            if to_prefetch_set:
+                prefetch_rates(list(to_prefetch_set))
 
         for line_no, row in enumerate(rows, start=2):
             result.total_rows += 1

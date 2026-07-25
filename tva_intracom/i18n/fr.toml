@@ -187,6 +187,8 @@ period_mismatch_col_shipment = "Date Expédition"
 period_mismatch_col_amount = "Montant HT"
 
 # Change & Calcul
+calc_progress_bce = "Téléchargement des taux de change (BCE)..."
+calc_progress_bce_count = "⏳ BCE : {done} / {total} taux récupérés"
 bce_rates_title = "💱 Taux de change BCE utilisés ({count})"
 bce_source_official = "BCE officiel"
 bce_source_fallback = "Fallback"

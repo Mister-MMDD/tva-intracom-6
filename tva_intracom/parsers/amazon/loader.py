@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, List, Optional, Set
+from typing import Callable, List, Optional, Set, Tuple
 
 from ...models import BuyerType, Sale
 from ...vies_engine import _normalize_vat_id as normalize_vat
@@ -405,7 +405,9 @@ def load_amazon_report(
     encoding: Optional[str] = None,
     convert_currencies: bool = False,
     asin_to_category: Optional[dict[str, str]] = None,
-    progress_callback: Optional[Callable[[int, int], None]] = None,
+    progress_callback: Optional[Callable[[int, int, Optional[str]], None]] = None,
+    bce_label: Optional[str] = None,
+    bce_wait_label: Optional[str] = None,
 ) -> AmazonImportResult:
     """Charge un fichier Amazon VAT Transactions Report (formats 1 à 5).
 
@@ -548,22 +550,40 @@ def load_amazon_report(
             rows_to_process = list(enumerate(raw_rows, start=2))
 
     # --- Warm-up du cache des taux de change (BCE) ---
-    # Optimisation pour les fichiers multi-années : on scanne les dates une fois
-    # pour faire une requête groupée (batch) vers l'API BCE avant de commencer.
+    # Optimisation : on scanne les dates une fois pour faire une requête groupée (batch).
+    # On utilise un set pour éviter de passer des millions de doublons à prefetch_rates.
     if convert_currencies and rows_to_process:
         from datetime import date as _dt
-        to_prefetch = []
+        to_prefetch_set: Set[Tuple[str, _dt]] = set()
         for _, row in rows_to_process:
             c = parser.currency(row)
             if c and c.upper() != "EUR":
                 d_str = parser.tx_date(row)
                 if d_str:
                     try:
-                        to_prefetch.append((c, _dt.fromisoformat(d_str[:10])))
+                        # On ne garde que la date YYYY-MM-DD pour le set
+                        to_prefetch_set.add((c.upper(), _dt.fromisoformat(d_str[:10])))
                     except (ValueError, TypeError):
                         pass
-        if to_prefetch:
-            prefetch_rates(to_prefetch, progress_callback=None)
+
+        if to_prefetch_set:
+            to_prefetch = list(to_prefetch_set)
+            
+            # Si le callback supporte un argument 'label', on peut lui passer 
+            # une indication qu'on est en phase BCE.
+            def _bce_cb(done: int, total: int):
+                if progress_callback:
+                    lbl = None
+                    if done == 0 and bce_wait_label:
+                        lbl = bce_wait_label
+                    elif bce_label:
+                        try:
+                            lbl = bce_label.format(done=done, total=total)
+                        except (KeyError, ValueError):
+                            lbl = bce_label
+                    progress_callback(done, total, lbl)
+
+            prefetch_rates(to_prefetch, progress_callback=_bce_cb)
 
     # Traitement principal (hors contexte fichier : fichier fermé proprement)
     # BUGFIX CRITIQUE : la devise de calcul interne du moteur fiscal DOIT

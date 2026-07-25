@@ -36,6 +36,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.pool
+import psycopg2.extras
 
 from .config import get_secret
 
@@ -62,12 +63,11 @@ _rate_cache: dict[str, Decimal] = {}   # clé : "CCY|YYYY-MM-DD" (L1, par proces
 # ThreadPoolExecutor : plusieurs threads écrivent dans _rate_cache simultanément.
 _cache_lock = threading.Lock()
 
-# Durée de conservation des taux en base avant purge (cf. discussion : pas de
-# nécessité fonctionnelle — un taux BCE d'une date donnée ne change jamais —
-# mais un plafond simple évite un stockage qui grandit indéfiniment. ~1 an de
-# marge par rapport à 365 j pour ne pas re-fetcher inutilement en tout début
-# de période fiscale.
-_RETENTION_DAYS = 400
+# Durée de conservation des taux en base avant purge.
+# On garde 10 ans par défaut car un taux de change historique ne change jamais 
+# et prend très peu de place. Évite de re-télécharger des années de données 
+# lors de retraitements de fichiers anciens.
+_RETENTION_DAYS = 3650
 
 _pool: Optional["psycopg2.pool.ThreadedConnectionPool"] = None
 _pool_lock = threading.Lock()
@@ -139,6 +139,46 @@ def _init_schema(pool: "psycopg2.pool.ThreadedConnectionPool") -> None:
         pool.putconn(conn)
 
 
+def _db_get_rates_batch(currency_dates: list[tuple[str, date]]) -> dict[tuple[str, date], Decimal]:
+    """Récupère plusieurs taux depuis la base de données en une seule requête.
+    
+    Optimisé pour prefetch_rates() afin d'éviter N requêtes SQL individuelles.
+    """
+    if not currency_dates:
+        return {}
+    pool = _get_pool()
+    if pool is None:
+        return {}
+    
+    # On filtre par devises et par plage de dates globale pour rester simple et performant
+    currencies = list(set(c.upper() for c, d in currency_dates))
+    min_date = min(d for c, d in currency_dates)
+    max_date = max(d for c, d in currency_dates)
+    
+    conn = pool.getconn()
+    try:
+        results = {}
+        with conn, conn.cursor() as cur:
+            # On utilise ANY pour les devises
+            cur.execute(
+                """
+                SELECT currency, rate_date, rate 
+                FROM ecb_rate_cache 
+                WHERE currency = ANY(%s) AND rate_date >= %s AND rate_date <= %s
+                """,
+                (currencies, min_date, max_date),
+            )
+            for ccy, d, rate in cur.fetchall():
+                # On ne garde que ce qui a été demandé (la requête par plage peut ramener plus)
+                results[(ccy.upper(), d)] = Decimal(str(rate))
+        return results
+    except Exception as exc:
+        logger.warning("Cache BCE : lecture batch Postgres échouée : %s", exc)
+        return {}
+    finally:
+        pool.putconn(conn)
+
+
 def _db_get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     pool = _get_pool()
     if pool is None:
@@ -166,8 +206,8 @@ def _db_upsert_rate(currency: str, target_date: date, rate: Decimal) -> None:
 def _db_upsert_batch(entries: list[tuple[str, date, Decimal]]) -> None:
     """Enregistre plusieurs (devise, date, taux) en une seule transaction.
 
-    Utilisé par prefetch_rates() pour éviter un aller-retour réseau par taux
-    sur un fichier multi-devises/multi-années.
+    Utilisé par prefetch_rates() pour éviter un aller-retour réseau par taux.
+    Utilise execute_values pour des performances optimales sur les gros lots.
     """
     if not entries:
         return
@@ -178,10 +218,11 @@ def _db_upsert_batch(entries: list[tuple[str, date, Decimal]]) -> None:
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
-            cur.executemany(
+            psycopg2.extras.execute_values(
+                cur,
                 """
                 INSERT INTO ecb_rate_cache (currency, rate_date, rate, fetched_at)
-                VALUES (%s, %s, %s, %s)
+                VALUES %s
                 ON CONFLICT (currency, rate_date) DO NOTHING
                 """,
                 [(ccy, d, rate, now) for ccy, d, rate in entries],
@@ -374,8 +415,10 @@ def prefetch_rates(
 ) -> None:
     """Pré-charge les taux BCE pour une liste de (devise, date).
 
-    Optimisé : utilise des requêtes par lots (batch) pour minimiser les appels
-    réseau, particulièrement efficace sur les fichiers multi-années.
+    Optimisé : 
+      1. Vérifie le cache mémoire (L1).
+      2. Vérifie la base de données en lot (L2).
+      3. Utilise des requêtes par lots (batch) vers l'API BCE pour le reste.
 
     Args:
         currency_dates: liste de tuples (devise, date).
@@ -383,7 +426,7 @@ def prefetch_rates(
         progress_callback: optionnel, callable(done: int, total: int).
     """
     _FIXED_RATE_CURRENCIES = {"EUR", "HRK"}
-    to_fetch: list[tuple[str, date]] = []
+    requested: list[tuple[str, date]] = []
     seen: set[tuple[str, date]] = set()
 
     for currency, d in currency_dates:
@@ -392,28 +435,66 @@ def prefetch_rates(
             continue
         key = _cache_key(currency, d)
         if key not in _rate_cache and (currency, d) not in seen:
-            to_fetch.append((currency, d))
+            requested.append((currency, d))
             seen.add((currency, d))
 
-    if not to_fetch:
-        logger.debug("Prefetch BCE : tous les taux déjà en cache.")
+    if not requested:
+        logger.debug("Prefetch BCE : tous les taux déjà en cache mémoire.")
+        if progress_callback:
+            progress_callback(len(currency_dates), len(currency_dates))
         return
 
+    total_requested = len(requested)
+    
+    # 1. Vérification du cache de la base de données (L2) en lot
+    db_hits = _db_get_rates_batch(requested)
+    if db_hits:
+        loaded_from_db = 0
+        for (ccy, d), rate in db_hits.items():
+            key = _cache_key(ccy, d)
+            with _cache_lock:
+                _rate_cache[key] = rate
+            loaded_from_db += 1
+        
+        # On ne garde que ce qui n'est toujours pas trouvé
+        to_fetch = [pair for pair in requested if (pair[0].upper(), pair[1]) not in db_hits]
+        
+        logger.info(
+            "Prefetch BCE : %d/%d taux récupérés depuis la DB.", 
+            loaded_from_db, total_requested
+        )
+    else:
+        to_fetch = requested
+
+    if not to_fetch:
+        logger.info("Prefetch BCE terminé : tout était déjà en cache (mémoire ou DB).")
+        if progress_callback:
+            progress_callback(total_requested, total_requested)
+        return
+
+    # 2. Chargement via API BCE pour le reliquat
     # Groupement par devises pour déterminer la période globale
     currencies = sorted({c for c, d in to_fetch})
     all_dates = [d for c, d in to_fetch]
     min_date = min(all_dates)
     max_date = max(all_dates)
 
+    total = len(to_fetch)
     logger.info(
-        "Prefetch BCE : Chargement batch pour %d devises sur la période %s à %s",
-        len(currencies), min_date, max_date
+        "Prefetch BCE : Chargement batch API pour %d devises sur la période %s à %s (%d taux manquants)",
+        len(currencies), min_date, max_date, total
     )
+
+    # On signale le début du téléchargement
+    if progress_callback:
+        try:
+            progress_callback(0, total)
+        except Exception:
+            pass
 
     batch_results = _fetch_ecb_batch(currencies, min_date, max_date)
 
     loaded = 0
-    total = len(to_fetch)
     to_persist: list[tuple[str, date, Decimal]] = []
 
     # On remplit le cache pour les dates demandées en utilisant les résultats du batch
@@ -437,16 +518,20 @@ def prefetch_rates(
             to_persist.append((ccy, target_date, rate))
             loaded += 1
         
-        if progress_callback:
+        # Optimisation : on ne rapporte le progrès que périodiquement pour éviter de saturer l'UI
+        if progress_callback and (i % 200 == 0 or i == total):
             try:
+                # On rapporte le progrès par rapport à to_fetch, mais on pourrait
+                # aussi rapporter par rapport à total_requested.
                 progress_callback(i, total)
             except Exception:
                 pass
 
-    # Une seule transaction Postgres pour tout le lot, au lieu d'une écriture
-    # disque par tranche de _SAVE_BATCH_SIZE comme avant.
-    _db_upsert_batch(to_persist)
-    logger.info("Prefetch BCE terminé : %d/%d taux mis en cache via batch.", loaded, total)
+    # Une seule transaction Postgres pour tout le lot
+    if to_persist:
+        _db_upsert_batch(to_persist)
+        
+    logger.info("Prefetch BCE terminé : %d/%d taux mis en cache via API batch.", loaded, total)
 
 
 def convert_to_eur(

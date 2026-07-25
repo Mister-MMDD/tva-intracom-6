@@ -8,6 +8,7 @@ import tempfile, re
 import logging
 import time
 import os
+from typing import Optional, List, Set, Dict, Tuple, Union, Callable
 from decimal import Decimal
 import plotly.express as px
 import plotly.graph_objects as go
@@ -294,18 +295,25 @@ if uploaded_files:
                     )
                     _progress_bar = parse_progress_ph.progress(0.0, text=_progress_label)
 
-                    def _on_parse_progress(processed: int, total: int, _fname=uploaded_file.name) -> None:
-                        pct = processed / total if total else 1.0
-                        _suffix = f" ({_('fx_conv_suffix')})" if convert_fx else ""
-                        _progress_bar.progress(
-                            min(pct, 1.0),
-                            text=_("analysis_progress_count", name=_fname, processed=f"{processed:,}".replace(",", " "), total=f"{total:,}".replace(",", " "), suffix=_suffix),
-                        )
+                    def _on_parse_progress(processed: int, total: int, label: Optional[str] = None, _fname=uploaded_file.name) -> None:
+                        if label:
+                            text = label
+                            # On utilise le pourcentage fourni par processed/total si pertinent, 
+                            # ou on laisse à la valeur actuelle si on est dans une phase de pre-calcul.
+                            pct = processed / total if total else 0.0
+                        else:
+                            pct = processed / total if total else 1.0
+                            _suffix = f" ({_('fx_conv_suffix')})" if convert_fx else ""
+                            text = _("analysis_progress_count", name=_fname, processed=f"{processed:,}".replace(",", " "), total=f"{total:,}".replace(",", " "), suffix=_suffix)
+                        
+                        _progress_bar.progress(min(pct, 1.0), text=text)
 
                     parse_result = parser_amazon.load_amazon_report(
                         tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx,
                         asin_to_category=asin_to_category,
                         progress_callback=_on_parse_progress,
+                        bce_label=_("calc_progress_bce_count"),
+                        bce_wait_label=_("calc_progress_bce"),
                     )
                     parse_progress_ph.empty()
                 elif "Mirakl" in file_format:
