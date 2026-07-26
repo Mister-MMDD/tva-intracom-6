@@ -51,8 +51,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AmazonImportResult:
-    sales: List[object]           # List[Sale]
-    refunds: List[object]         # List[Sale]
+    sales: List[Sale]
+    refunds: List[Sale]
     fc_transfers: List[dict]
     stock_countries: Set[str]
     skipped_rows: int = 0
@@ -400,39 +400,30 @@ def _process_rows(
 # Point d'entrée public
 # ---------------------------------------------------------------------------
 
-def load_amazon_report(
-    path: "Path | str",
-    seller_country: str = "FR",
-    encoding: Optional[str] = None,
-    convert_currencies: bool = False,
-    asin_to_category: Optional[dict[str, str]] = None,
-    progress_callback: Optional[Callable[[int, int, Optional[str]], None]] = None,
-    bce_label: Optional[str] = None,
-    bce_wait_label: Optional[str] = None,
-) -> AmazonImportResult:
-    """Charge un fichier Amazon VAT Transactions Report (formats 1 à 5).
+def _read_and_prepare_rows(
+    path: Path,
+    encoding: str,
+    result: AmazonImportResult,
+) -> tuple[list, int, object]:
+    """Lit le fichier, détecte le format et prépare les lignes à traiter.
 
-    La détection du format et de l'encodage est automatique.
-    Si l'encodage n'est pas fourni, on tente UTF-8 puis Windows-1252 (cp1252).
+    Isolé dans sa propre fonction pour que `raw_rows` (les lignes brutes,
+    potentiellement volumineuses) sorte de scope et devienne récupérable par
+    le GC dès le retour de cette fonction, plutôt que de rester référencé
+    jusqu'à la fin de `load_amazon_report`.
+
+    Gain réel variable selon le format :
+      - Format 5 : `preaggregate_v5` construit de NOUVEAUX dicts agrégés,
+        donc `raw_rows` (lignes non agrégées) devient vraiment mort ici —
+        gain mémoire concret sur gros fichiers.
+      - Formats 1-4 : `rows_to_process` est `list(enumerate(raw_rows, ...))`,
+        qui référence les MÊMES dicts que `raw_rows` (pas de copie). Seul le
+        conteneur `raw_rows` lui-même est libéré ; les dicts restent vivants
+        via `rows_to_process`. Gain marginal dans ce cas, mais sans risque.
+
+    Returns:
+        (rows_to_process, fmt, parser)
     """
-    path = Path(path)
-    result = AmazonImportResult(
-        sales=[], refunds=[], fc_transfers=[], stock_countries=set()
-    )
-
-    # --- Détection intelligente de l'encodage ---
-    if encoding is None:
-        try:
-            # On tente de lire une petite portion en UTF-8 strict
-            with path.open(encoding="utf-8") as f:
-                f.read(4096)
-            encoding = "utf-8"
-        except UnicodeDecodeError:
-            # Fallback sur l'encodage Windows européen standard
-            encoding = "cp1252"
-            logger.info("Encodage UTF-8 échoué, bascule sur cp1252 pour %s", path.name)
-
-
     with path.open(encoding=encoding, errors="replace", newline="") as handle:
         first_line = handle.readline()
         # Si la ligne est vide après lecture, le séparateur sera mal détecté
@@ -550,6 +541,46 @@ def load_amazon_report(
             parser._multi_asin_orders = multi_asin_orders  # type: ignore[attr-defined]
         else:
             rows_to_process = list(enumerate(raw_rows, start=2))
+
+    return rows_to_process, fmt, parser
+
+
+def load_amazon_report(
+    path: "Path | str",
+    seller_country: str = "FR",
+    encoding: Optional[str] = None,
+    convert_currencies: bool = False,
+    asin_to_category: Optional[dict[str, str]] = None,
+    progress_callback: Optional[Callable[[int, int, Optional[str]], None]] = None,
+    bce_label: Optional[str] = None,
+    bce_wait_label: Optional[str] = None,
+) -> AmazonImportResult:
+    """Charge un fichier Amazon VAT Transactions Report (formats 1 à 5).
+
+    La détection du format et de l'encodage est automatique.
+    Si l'encodage n'est pas fourni, on tente UTF-8 puis Windows-1252 (cp1252).
+    """
+    path = Path(path)
+    result = AmazonImportResult(
+        sales=[], refunds=[], fc_transfers=[], stock_countries=set()
+    )
+
+    # --- Détection intelligente de l'encodage ---
+    if encoding is None:
+        try:
+            # On tente de lire une petite portion en UTF-8 strict
+            with path.open(encoding="utf-8") as f:
+                f.read(4096)
+            encoding = "utf-8"
+        except UnicodeDecodeError:
+            # Fallback sur l'encodage Windows européen standard
+            encoding = "cp1252"
+            logger.info("Encodage UTF-8 échoué, bascule sur cp1252 pour %s", path.name)
+
+    # raw_rows vit et meurt à l'intérieur de _read_and_prepare_rows : seule
+    # la structure rows_to_process (souvent plus légère, cf. docstring de la
+    # fonction) survit jusqu'ici.
+    rows_to_process, fmt, parser = _read_and_prepare_rows(path, encoding, result)
 
     # --- Warm-up du cache des taux de change (BCE) ---
     # Optimisation : on scanne les dates une fois pour faire une requête groupée (batch).
