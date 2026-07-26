@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import tempfile, re
+import gzip
 import logging
 import time
 import os
@@ -194,23 +195,38 @@ uploaded_files = st.file_uploader(
 # signifie un vrai retrait du fichier par l'utilisateur, et tout l'état
 # dérivé (résultats calculés, période détectée, tableaux) doit être purgé
 # pour ne pas rester affiché après suppression.
+# Les octets bruts mis en cache (pour survivre à un rerun interne, voir
+# rerun_utils.py) sont gardés compressés (gzip) plutôt qu'en clair : sur des
+# rapports Amazon/Mirakl/Shopify réels (texte, colonnes très répétitives —
+# codes pays, ASIN, dates), le ratio mesuré est de l'ordre de 6-6.5x
+# (~15% de la taille d'origine), pour un coût CPU de l'ordre de quelques
+# secondes même au pire cas (fichier de 150 Mo, la limite `maxUploadSize`).
+# La décompression n'a lieu que dans `getvalue()`, c'est-à-dire seulement
+# quand un re-parsing est réellement déclenché (changement d'encodage, de
+# devise, de catalogue ASIN...) — jamais à chaque rerun. La taille d'origine
+# (`size`) est gardée à côté du blob compressé pour que la clé de
+# déduplication/cache (name, size) reste identique à celle d'un nouvel
+# upload, sans avoir à décompresser juste pour connaître la taille.
 class _CachedUploadedFile:
-    __slots__ = ("name", "size", "_data")
-    def __init__(self, name: str, data: bytes) -> None:
+    __slots__ = ("name", "size", "_compressed")
+    def __init__(self, name: str, compressed: bytes, size: int) -> None:
         self.name = name
-        self.size = len(data)
-        self._data = data
+        self.size = size
+        self._compressed = compressed
     def getvalue(self) -> bytes:
-        return self._data
+        return gzip.decompress(self._compressed)
 
 _preserve_upload_this_run = consume_preserve_flag()
 
 if uploaded_files:
-    st.session_state["_last_uploaded_files_bytes"] = {f.name: f.getvalue() for f in uploaded_files}
+    st.session_state["_last_uploaded_files_bytes"] = {
+        f.name: (gzip.compress(f.getvalue(), compresslevel=6), f.size)
+        for f in uploaded_files
+    }
 elif _preserve_upload_this_run and st.session_state.get("_last_uploaded_files_bytes"):
     uploaded_files = [
-        _CachedUploadedFile(_name, _data)
-        for _name, _data in st.session_state["_last_uploaded_files_bytes"].items()
+        _CachedUploadedFile(_name, _compressed, _size)
+        for _name, (_compressed, _size) in st.session_state["_last_uploaded_files_bytes"].items()
     ]
 else:
     # Vrai retrait de fichier (ou aucun fichier n'a jamais été chargé) :

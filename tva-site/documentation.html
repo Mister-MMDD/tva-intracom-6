@@ -57,6 +57,7 @@
                 <ul>
                     <li><strong>VIES (EU)</strong> : Validation des numéros de TVA en temps réel.</li>
                     <li><strong>BCE (SDW)</strong> : Récupération quotidienne des taux de change officiels.</li>
+                    <li><strong>Polars / Pandas</strong> : Parsing haute performance des gros volumes de données (Amazon).</li>
                     <li><strong>DGFIP / Schémas XSD</strong> : Validation des fichiers XML OSS.</li>
                 </ul>
             </div>
@@ -93,11 +94,7 @@ tva-intracom/
 ├── tva_intracom/
 │   ├── i18n/                         Fichiers de traduction (7 langues)
 │   ├── parsers/
-│   │   ├── amazon/                   Sous-package d'import Amazon (formats 1-5)
-│   │   ├── aliexpress.py             Parser AliExpress / eBay / Temu
-│   │   ├── mirakl.py                 Parser Mirakl (Fnac, Darty, Leroy Merlin...)
-│   │   ├── shopify.py                Parser Shopify
-│   │   └── woocommerce.py            Parser WooCommerce / PrestaShop
+│   │   └── amazon/                   Sous-package d'import Amazon (formats 1-5)
 │   ├── __init__.py
 │   ├── amazon_adapter.py             Passerelle de compatibilité anciens modèles.
 │   ├── amazon_spapi.py               Intégration Amazon Selling Partner API.
@@ -106,6 +103,7 @@ tva-intracom/
 │   ├── billing.py                    Facturation Stripe (PAYG, Pro, Cabinet).
 │   ├── ca3_report.py                 Génération du rapport CA3 (HTML/Cerfa).
 │   ├── local_vat_report.py           Rapport HTML pour pays UE hors France.
+│   ├── historical_rates_widget.py    Alerte & tableau des changements de taux TVA.
 │   ├── fec_export.py                 Export comptable FEC (Journal des ventes).
 │   ├── cli.py                        Interface en ligne de commande.
 │   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque).
