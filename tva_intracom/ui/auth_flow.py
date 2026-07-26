@@ -656,9 +656,18 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 except Exception:
                     pass
             
-            # 2. Nettoyage session locale
-            st.session_state["auth_user"] = None
+            # 2. Nettoyage agressif de la session locale pour libérer la RAM
+            # On ne garde que manual_logout pour éviter la reconnexion auto par cookie.
+            # Tout le reste (résultats de calculs, octets de fichiers, cache) est supprimé.
+            for key in list(st.session_state.keys()):
+                if key != "manual_logout":
+                    del st.session_state[key]
+            
             st.session_state["manual_logout"] = True
+
+            # Force le ramasse-miettes (Garbage Collector)
+            import gc
+            gc.collect()
             
             # 3. Suppression du cookie (asynchrone côté client)
             try:

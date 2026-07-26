@@ -9,6 +9,7 @@ import gzip
 import logging
 import time
 import os
+import gc
 from typing import Optional, List, Set, Dict, Tuple, Union, Callable
 from decimal import Decimal
 import plotly.express as px
@@ -233,12 +234,20 @@ else:
     # on purge tout l'état dérivé pour que les tableaux, la période
     # auto-détectée, etc. disparaissent immédiatement plutôt que de rester
     # affichés avec les anciennes données.
-    for _stale_key in (
-        "_last_uploaded_files_bytes", "_results", "_refund_results", "_summary",
-        "_calc_key", "_vies_summary", "_oss_summary", "_parse_cache_key",
-        "_parse_cache_data", "_period_label", "_period_sync_key",
-    ):
-        st.session_state.pop(_stale_key, None)
+    # On nettoie également les jobs en arrière-plan et les caches de session.
+    for _stale_key in list(st.session_state.keys()):
+        if _stale_key in (
+            "_last_uploaded_files_bytes", "_results", "_refund_results", "_summary",
+            "_calc_key", "_vies_summary", "_oss_summary", "_parse_cache_key",
+            "_parse_cache_data", "_period_label", "_period_sync_key",
+            "_period_detect_cache", "_vies_certificate_pdf_sidebar"
+        ) or _stale_key.startswith("_bgjob_") \
+          or _stale_key.startswith("_stripe_checkout_url::") \
+          or _stale_key.startswith("_dl_artifact_"):
+            st.session_state.pop(_stale_key, None)
+    
+    # Force le nettoyage de la mémoire après suppression de gros objets
+    gc.collect()
 
 if uploaded_files:
     from tva_intracom.parsers import ParseResult
@@ -472,7 +481,7 @@ if uploaded_files:
         # courants, aucun risque de régression sur le chemin le plus
         # emprunté).
         _BIG_FILE_ROW_THRESHOLD = 20_000
-        _is_big_file = len(sales) > _BIG_FILE_ROW_THRESHOLD
+        _is_big_file = total_rows_sum > _BIG_FILE_ROW_THRESHOLD
 
         vies_summary = None
         if st.session_state.get("_calc_key") != _cache_key:
@@ -514,7 +523,7 @@ if uploaded_files:
                 _job_id = "calc_" + str(abs(hash(_cache_key)))
                 start_background_job(_job_id, _run_full_calc)
                 with calc_progress_ph.container():
-                    st.caption(_("calc_bg_running_caption", rows=f"{len(sales):,}".replace(",", " ")))
+                    st.caption(_("calc_bg_running_caption", rows=f"{total_rows_sum:,}".replace(",", " ")))
                     render_job_progress(_job_id, label=_("calc_progress_vies"))
                 _job_state = get_job_state(_job_id)
                 with _job_state.lock:
