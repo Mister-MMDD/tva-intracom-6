@@ -137,6 +137,134 @@ def _wcell(ws, value, font=None, fill=None, alignment=None, number_format=None):
     return cell
 
 
+class _SequentialSheetWriter:
+    """Enveloppe transparente autour d'une feuille `write_only` pour contourner
+    une limitation d'openpyxl (vérifiée empiriquement, 3.1.5) : les largeurs de
+    colonnes (`column_dimensions[...].width`) et les hauteurs de lignes
+    (`row_dimensions[...].height`) ne sont prises en compte à la sauvegarde que
+    si elles sont définies AVANT le premier `ws.append()` concerné — sinon
+    silencieusement ignorées. Or notre code, comme la quasi-totalité du code
+    openpyxl "normal", les définit systématiquement juste APRÈS l'append
+    correspondant.
+
+    Stratégie : on retarde d'une ligne l'écriture réelle (on ne sait si une
+    hauteur va être posée pour la ligne qu'on vient de "append" qu'au moment
+    de l'appel suivant), et pour la largeur des colonnes — qui doit être
+    fixée avant TOUT append — on bufferise les `_AUTO_WIDTH_SAMPLE_ROWS`
+    premières lignes (même échantillon que `_ColumnWidthTracker`), on
+    applique les largeurs calculées, puis on relâche ces lignes avant de
+    repasser en flux direct (retardé d'une ligne) pour le reste.
+
+    Aucun des ~100 points d'écriture existants (`ws.append(...)` puis
+    `ws.row_dimensions[i].height = ...`) n'a besoin d'être modifié : ce
+    wrapper se substitue simplement à l'objet `ws` passé aux fonctions
+    `_write_*_tab`.
+    """
+
+    def __init__(self, ws) -> None:
+        object.__setattr__(self, "_ws", ws)
+        object.__setattr__(self, "_tracker", _ColumnWidthTracker())
+        object.__setattr__(self, "_buffer", [])       # [[row_num, cells, height], ...] avant fixation des largeurs
+        object.__setattr__(self, "_pending", None)    # [row_num, cells, height] en attente (mode direct)
+        object.__setattr__(self, "_widths_set", False)
+        object.__setattr__(self, "_row_counter", 0)
+
+    # -- Passthrough vers la vraie feuille pour tout le reste de l'API --
+    def __getattr__(self, name):
+        return getattr(self._ws, name)
+
+    def __setattr__(self, name, value):
+        if name in ("_ws", "_tracker", "_buffer", "_pending", "_widths_set", "_row_counter"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._ws, name, value)  # ex. ws.title = "..."
+
+    @property
+    def row_dimensions(self):
+        return _RowDimProxy(self)
+
+    def append(self, row_cells) -> None:
+        self._row_counter += 1
+        row_num = self._row_counter
+        entry = [row_num, row_cells, None]
+        if not self._widths_set:
+            values = [getattr(c, "value", c) for c in row_cells]
+            self._tracker.observe_row(values)
+            self._buffer.append(entry)
+            if len(self._buffer) > _AUTO_WIDTH_SAMPLE_ROWS + 1:
+                # Le vidage se produit ICI, avant que l'appelant n'ait pu fixer
+                # la hauteur de cette toute dernière ligne (ws.row_dimensions[i].height
+                # est toujours posé juste APRÈS l'append correspondant) : on la
+                # garde donc en attente plutôt que de l'émettre tout de suite,
+                # sans quoi sa hauteur serait perdue.
+                self._flush_sample(keep_last_pending=True)
+        else:
+            self._flush_pending()
+            self._pending = entry
+
+    def _emit(self, row_num: int, row_cells, height) -> None:
+        if height is not None:
+            self._ws.row_dimensions[row_num].height = height
+        self._ws.append(row_cells)
+
+    def _flush_pending(self) -> None:
+        if self._pending is not None:
+            self._emit(*self._pending)
+            self._pending = None
+
+    def _flush_sample(self, keep_last_pending: bool = False) -> None:
+        self._tracker.apply(self._ws)
+        self._widths_set = True
+        last = self._buffer.pop() if (keep_last_pending and self._buffer) else None
+        for row_num, row_cells, height in self._buffer:
+            self._emit(row_num, row_cells, height)
+        self._buffer = []
+        if last is not None:
+            self._pending = last
+
+    def set_row_height(self, row_num: int, height) -> None:
+        if not self._widths_set and row_num <= len(self._buffer) and self._buffer[row_num - 1][0] == row_num:
+            self._buffer[row_num - 1][2] = height
+            return
+        if self._pending is not None and self._pending[0] == row_num:
+            self._pending[2] = height
+            return
+        # Ne devrait pas arriver avec notre pattern d'écriture (hauteur toujours
+        # posée juste après l'append de la même ligne) ; on l'ignore par sécurité
+        # plutôt que de lever une exception qui casserait un export entier.
+
+    def finalize(self) -> None:
+        """À appeler après la fin d'écriture d'une feuille (voir export_xlsx).
+        `keep_last_pending=False` ici : contrairement au vidage déclenché par
+        un débordement de l'échantillon (voir append), l'appelant a fini
+        d'écrire la feuille, donc toutes les hauteurs — y compris celle de la
+        toute dernière ligne — ont déjà été fixées à ce stade."""
+        if not self._widths_set:
+            self._flush_sample(keep_last_pending=False)
+        self._flush_pending()
+
+
+class _RowDimProxy:
+    __slots__ = ("_writer",)
+    def __init__(self, writer) -> None:
+        self._writer = writer
+    def __getitem__(self, row_num: int):
+        return _RowDimEntry(self._writer, row_num)
+
+
+class _RowDimEntry:
+    __slots__ = ("_writer", "_row_num")
+    def __init__(self, writer, row_num: int) -> None:
+        self._writer = writer
+        self._row_num = row_num
+    @property
+    def height(self):
+        return None
+    @height.setter
+    def height(self, value) -> None:
+        self._writer.set_row_height(self._row_num, value)
+
+
 def _write_recap(
         ws,
         summary: ReportSummary,
@@ -1670,8 +1798,9 @@ def export_xlsx(
     wb = Workbook(write_only=True)
 
     # 1. Page de synthèse
-    ws_recap = wb.create_sheet()
+    ws_recap = _SequentialSheetWriter(wb.create_sheet())
     _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country)
+    ws_recap.finalize()
 
     # 2. Séparation ventes / remboursements
     # Si refund_results est passé explicitement par app.py (cas normal), on fait
@@ -1702,55 +1831,66 @@ def export_xlsx(
         refunds_results_to_write = refunds_from_results
 
     # 4. Onglet Détail Ventes
-    ws_sales = wb.create_sheet()
+    ws_sales = _SequentialSheetWriter(wb.create_sheet())
     _write_details_tab(ws_sales, "Detail ventes", sales_results, is_refund_tab=False)
+    ws_sales.finalize()
 
     # 5. Onglet Détail Remboursements
-    ws_refunds = wb.create_sheet()
+    ws_refunds = _SequentialSheetWriter(wb.create_sheet())
     _write_details_tab(ws_refunds, "Detail remboursements", refunds_results_to_write, is_refund_tab=True)
+    ws_refunds.finalize()
 
     # 6. Onglet OSS détaillé par pays
     if summary.oss_by_country or getattr(summary, "refund_oss_by_country", None):
-        ws_oss = wb.create_sheet()
+        ws_oss = _SequentialSheetWriter(wb.create_sheet())
         _write_oss_tab(ws_oss, summary)
+        ws_oss.finalize()
 
     # 7. Onglet TVA locale par pays
     if (summary.local_by_country or getattr(summary, "refund_local_by_country", None) or
             summary.fr_domestic_vat or summary.refund_fr_domestic_vat):
-        ws_local = wb.create_sheet()
+        ws_local = _SequentialSheetWriter(wb.create_sheet())
         _write_local_tab(ws_local, summary, countries_with_vat, seller_country=seller_country)
+        ws_local.finalize()
 
     # 8. Onglet Audit Ecarts Amazon
-    ws_audit = wb.create_sheet("Audit Ecarts Amazon")
+    ws_audit = _SequentialSheetWriter(wb.create_sheet("Audit Ecarts Amazon"))
     _write_audit_tab(ws_audit, results, vies_affected_sale_ids, vies_summary=vies_summary)
+    ws_audit.finalize()
 
     # 8bis. Onglet Historique VIES (piste d'audit — preuve de bonne foi)
-    ws_vies_hist = wb.create_sheet("Historique VIES")
+    ws_vies_hist = _SequentialSheetWriter(wb.create_sheet("Historique VIES"))
     _write_vies_history_tab(ws_vies_hist, results + (refund_results or []), scope_id)
+    ws_vies_hist.finalize()
 
     # 9. Onglet Analyse AIC FBA (synthèse fiscale des transferts)
-    ws_aic = wb.create_sheet("Analyse AIC FBA")
+    ws_aic = _SequentialSheetWriter(wb.create_sheet("Analyse AIC FBA"))
     _write_fba_aic_tab(ws_aic, all_fc_transfers or [], results, countries_with_vat)
+    ws_aic.finalize()
 
     # 10. Onglet Transferts FBA Détail (liste brute)
-    ws_fba = wb.create_sheet("Transferts FBA Détail")
+    ws_fba = _SequentialSheetWriter(wb.create_sheet("Transferts FBA Détail"))
     _write_fba_transfers_tab(ws_fba, all_fc_transfers or [])
+    ws_fba.finalize()
 
     # 11. Onglet Intrastat / DEB (aide au remplissage)
-    ws_intrastat = wb.create_sheet("Intrastat (EMEBI)")
+    ws_intrastat = _SequentialSheetWriter(wb.create_sheet("Intrastat (EMEBI)"))
     _write_intrastat_tab(ws_intrastat, all_fc_transfers or [], results, seller_country=seller_country)
+    ws_intrastat.finalize()
 
     # 11bis. Onglet INVOICE / CREDIT_NOTE (écritures Amazon hors ventes)
     if invoice_credit_notes:
-        ws_inv_cn = wb.create_sheet()
+        ws_inv_cn = _SequentialSheetWriter(wb.create_sheet())
         _write_invoice_creditnote_tab(ws_inv_cn, invoice_credit_notes)
+        ws_inv_cn.finalize()
 
     # 12. Onglet Calendrier fiscal (échéances déduites des données)
-    ws_cal = wb.create_sheet("Calendrier Fiscal")
+    ws_cal = _SequentialSheetWriter(wb.create_sheet("Calendrier Fiscal"))
     _write_calendar_tab(
         ws_cal, results, all_fc_transfers or [],
         period=period, seller_country=seller_country,
                          )
+    ws_cal.finalize()
 
     # 13. Sauvegarde sur disque
     p = Path(output_path)
