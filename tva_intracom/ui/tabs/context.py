@@ -52,6 +52,7 @@ class TabContext:
     all_sales: list
     platform_name: str
     home_country: str = "FR"
+    target_currency: str = "EUR"
 
     # Cross-onglet : rempli par render_declarations(), lu par
     # render_telechargements() — voir docstring du module.

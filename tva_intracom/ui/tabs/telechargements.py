@@ -81,6 +81,7 @@ def render_telechargements(ctx: TabContext) -> None:
     _dl_cache_key = (
         ctx.calc_key, nom_entreprise, siren_entreprise, tva_fr,
         tuple(sorted(local_vat_numbers.items())) if local_vat_numbers else None,
+        ctx.target_currency,
     )
 
     def _cached_artifact(name: str, builder):
@@ -113,6 +114,7 @@ def render_telechargements(ctx: TabContext) -> None:
                                             vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
                                             countries_with_vat=countries_with_vat,
                                             period=period_label, seller_country=home_country,
+                                            display_currency=ctx.target_currency,
                                             invoice_credit_notes=all_invoice_credit_notes)
                 with open(xlsx_path, "rb") as f:
                     return f.read()

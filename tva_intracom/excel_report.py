@@ -15,7 +15,7 @@ from openpyxl.utils import get_column_letter
 
 from .models import VatResult
 from .report import ReportSummary, build_report
-from .i18n import _
+from .i18n import _ as i18n_
 from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
 from . import ecb_rates
 
@@ -93,7 +93,7 @@ class _ColumnWidthTracker:
 
     __slots__ = ("_widths", "_rows_seen")
 
-    def __init__(self) -> None:
+    def __init_i18n_(self) -> None:
         self._widths: dict[int, int] = {}
         self._rows_seen = 0
 
@@ -161,21 +161,21 @@ class _SequentialSheetWriter:
     `_write_*_tab`.
     """
 
-    def __init__(self, ws) -> None:
-        object.__setattr__(self, "_ws", ws)
-        object.__setattr__(self, "_tracker", _ColumnWidthTracker())
-        object.__setattr__(self, "_buffer", [])       # [[row_num, cells, height], ...] avant fixation des largeurs
-        object.__setattr__(self, "_pending", None)    # [row_num, cells, height] en attente (mode direct)
-        object.__setattr__(self, "_widths_set", False)
-        object.__setattr__(self, "_row_counter", 0)
+    def __init_i18n_(self, ws) -> None:
+        object.__setattr_i18n_(self, "_ws", ws)
+        object.__setattr_i18n_(self, "_tracker", _ColumnWidthTracker())
+        object.__setattr_i18n_(self, "_buffer", [])       # [[row_num, cells, height], ...] avant fixation des largeurs
+        object.__setattr_i18n_(self, "_pending", None)    # [row_num, cells, height] en attente (mode direct)
+        object.__setattr_i18n_(self, "_widths_set", False)
+        object.__setattr_i18n_(self, "_row_counter", 0)
 
     # -- Passthrough vers la vraie feuille pour tout le reste de l'API --
-    def __getattr__(self, name):
+    def __getattr_i18n_(self, name):
         return getattr(self._ws, name)
 
-    def __setattr__(self, name, value):
+    def __setattr_i18n_(self, name, value):
         if name in ("_ws", "_tracker", "_buffer", "_pending", "_widths_set", "_row_counter"):
-            object.__setattr__(self, name, value)
+            object.__setattr_i18n_(self, name, value)
         else:
             setattr(self._ws, name, value)  # ex. ws.title = "..."
 
@@ -246,15 +246,15 @@ class _SequentialSheetWriter:
 
 class _RowDimProxy:
     __slots__ = ("_writer",)
-    def __init__(self, writer) -> None:
+    def __init_i18n_(self, writer) -> None:
         self._writer = writer
-    def __getitem__(self, row_num: int):
+    def __getitem_i18n_(self, row_num: int):
         return _RowDimEntry(self._writer, row_num)
 
 
 class _RowDimEntry:
     __slots__ = ("_writer", "_row_num")
-    def __init__(self, writer, row_num: int) -> None:
+    def __init_i18n_(self, writer, row_num: int) -> None:
         self._writer = writer
         self._row_num = row_num
     @property
@@ -270,17 +270,20 @@ def _write_recap(
         summary: ReportSummary,
         hash_totals: dict | None = None,
         seller_country: str = "FR",
+        display_currency: str | None = None,
 ) -> None:
-    ws.title = _("xl_tab_recap")
+    ws.title = i18n_("xl_tab_recap")
     _width_tracker = _ColumnWidthTracker()
 
-    ws.append([_wcell(ws, _("xl_recap_title"), font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_recap_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
 
-    # Devise locale du pays d'origine du compte (home_country) : les montants
-    # calculés en EUR par le moteur fiscal sont convertis pour affichage, au
-    # taux BCE du jour de génération du rapport (voir _to_home_currency).
-    _currency = _home_currency(seller_country)
+    # Devise d'affichage choisie par l'utilisateur (display_currency),
+    # retombant sur la devise locale du pays d'origine (home_country) si non
+    # fournie : les montants calculés en EUR par le moteur fiscal sont
+    # convertis pour affichage, au taux BCE du jour de génération du rapport
+    # (voir _to_home_currency).
+    _currency = display_currency or _home_currency(seller_country)
     _conv_date = _date.today()
     _fmt_home = _currency_format(_currency)
 
@@ -288,14 +291,14 @@ def _write_recap(
         return _to_home_currency(amount, _currency, _conv_date)
 
     if _currency != "EUR":
-        ws.append([_wcell(ws, _("xl_recap_currency_note", currency=_currency, date=_conv_date.isoformat()),
+        ws.append([_wcell(ws, i18n_("xl_recap_currency_note", currency=_currency, date=_conv_date.isoformat()),
                            font=Font(italic=True, size=9, color="7f7f7f"))])
         ws.row_dimensions[2].height = 16
     else:
         ws.append([])
 
     # Entêtes de la grille de synthèse
-    headers = [_("xl_recap_col_indicator"), _("xl_recap_col_gross"), _("xl_recap_col_refunds"), _("xl_recap_col_net")]
+    headers = [i18n_("xl_recap_col_indicator"), i18n_("xl_recap_col_gross"), i18n_("xl_recap_col_refunds"), i18n_("xl_recap_col_net")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
@@ -316,20 +319,20 @@ def _write_recap(
     # compte n'est pas rattaché à la France (home_country ≠ FR) — voir
     # README section "Pays d'origine du compte".
     if (seller_country or "FR").upper() == "FR":
-        _home_label = _("xl_indicator_vat_fr")
+        _home_label = i18n_("xl_indicator_vat_fr")
     else:
-        _home_label = _("xl_indicator_vat_home_generic", country=_get_country_name(seller_country))
+        _home_label = i18n_("xl_indicator_vat_home_generic", country=_get_country_name(seller_country))
 
     # [Libellé, Montant Brut (positif), Remboursements (négatif ou 0)]
     data_structure = [
-        (_("xl_indicator_ca_ht"),          summary.total_ht,          ref_tot_ht),
+        (i18n_("xl_indicator_ca_ht"),          summary.total_ht,          ref_tot_ht),
         (_home_label,                      summary.fr_domestic_vat,   ref_fr),
-        (_("xl_indicator_vat_oss"),        oss_brut,                  ref_oss),
-        (_("xl_indicator_vat_amazon"),     summary.amazon_vat,        ref_amz),
-        (_("xl_indicator_vat_local"),      local_brut,                ref_local),
-        (_("xl_indicator_vat_import"),     summary.import_vat,        _z),
-        (_("xl_indicator_b2b_exempt"),     summary.reverse_charge_ht, _z),
-        (_("xl_indicator_export_exempt"),   summary.export_ht,         _z),
+        (i18n_("xl_indicator_vat_oss"),        oss_brut,                  ref_oss),
+        (i18n_("xl_indicator_vat_amazon"),     summary.amazon_vat,        ref_amz),
+        (i18n_("xl_indicator_vat_local"),      local_brut,                ref_local),
+        (i18n_("xl_indicator_vat_import"),     summary.import_vat,        _z),
+        (i18n_("xl_indicator_b2b_exempt"),     summary.reverse_charge_ht, _z),
+        (i18n_("xl_indicator_export_exempt"),   summary.export_ht,         _z),
     ]
 
     current_row = 4
@@ -369,7 +372,7 @@ def _write_recap(
     _total_refund_formula = f"=C{_row_ca3}+C{_row_oss}+C{_row_local}"
 
     ws.append([
-        _wcell(ws, _("xl_recap_total_remit"), font=_BOLD_FONT),
+        _wcell(ws, i18n_("xl_recap_total_remit"), font=_BOLD_FONT),
         _wcell(ws, _total_brut_formula, number_format=_fmt_home, font=_BOLD_FONT),
         _wcell(ws, _total_refund_formula, number_format=_fmt_home, font=_BOLD_FONT),
         _wcell(ws, f"=B{current_row}+C{current_row}", number_format=_fmt_home, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL),
@@ -385,15 +388,15 @@ def _write_recap(
     ws.append([])
     ws.append([])
     current_row += 3
-    ws.append([_wcell(ws, _("xl_audit_integrity_title"), font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_audit_integrity_title"), font=_TITLE_FONT)])
     ws.row_dimensions[current_row].height = 22
     current_row += 1
-    ws.append([_wcell(ws, _("xl_audit_integrity_help"))])
+    ws.append([_wcell(ws, i18n_("xl_audit_integrity_help"))])
     ws.append([])
     current_row += 2
 
     _bucket_header_row = current_row
-    _headers_bucket = [_("xl_audit_col_channel"), _("xl_audit_col_control")]
+    _headers_bucket = [i18n_("xl_audit_col_channel"), i18n_("xl_audit_col_control")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers_bucket])
@@ -418,20 +421,20 @@ def _write_recap(
     ws.append([])
     current_row += 1
     ws.append([
-        _wcell(ws, _("xl_audit_total_ht"), font=_BOLD_FONT),
+        _wcell(ws, i18n_("xl_audit_total_ht"), font=_BOLD_FONT),
         _wcell(ws, f"=SUM(B{_bucket_first_data_row}:B{_bucket_last_data_row})", number_format=_fmt_home, font=_BOLD_FONT),
     ])
 
     current_row += 1
     _declared_net_ht = float(_conv(summary.total_ht + summary.refund_total_ht))
     ws.append([
-        _wcell(ws, _("xl_audit_declared_net_ht")),
+        _wcell(ws, i18n_("xl_audit_declared_net_ht")),
         _wcell(ws, _declared_net_ht, number_format=_fmt_home),
     ])
 
     current_row += 1
     ws.append([
-        _wcell(ws, _("xl_audit_reconciliation_gap"), font=_BOLD_FONT),
+        _wcell(ws, i18n_("xl_audit_reconciliation_gap"), font=_BOLD_FONT),
         _wcell(ws, f"=B{current_row - 1}-B{current_row - 2}", number_format=_fmt_home, font=_BOLD_FONT),
     ])
 
@@ -441,27 +444,33 @@ def _write_recap(
         ws.append([])
         current_row += 2
         ws.append([
-            _wcell(ws, _("xl_audit_total_rows")),
+            _wcell(ws, i18n_("xl_audit_total_rows")),
             _wcell(ws, hash_totals.get("count", 0), font=Font(name="Courier New")),
         ])
 
         current_row += 1
         ws.append([
-            _wcell(ws, _("xl_audit_file_signature")),
+            _wcell(ws, i18n_("xl_audit_file_signature")),
             _wcell(ws, hash_totals.get("id_hash", 0), font=Font(name="Courier New", bold=True)),
         ])
 
     _width_tracker.apply(ws)
 
 
-def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bool = False) -> None:
+def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bool = False, display_currency: str = "EUR") -> None:
     ws.title = tab_title
 
+    _fmt_curr = _currency_format(display_currency)
+    _conv_date = _date.today()
+
+    def _conv(amount: Decimal) -> float:
+        return float(_to_home_currency(amount, display_currency, _conv_date))
+
     headers = [
-        _("xl_col_tx_id"), _("xl_col_date"), _("xl_col_from"), _("xl_col_to"), _("xl_col_buyer_type"),
-        _("xl_col_amount_ht"), _("xl_col_scenario"), _("xl_col_vat_country"), _("xl_col_vat_rate"), _("xl_col_vat_amount"),
-        _("xl_col_vat_amazon"), _("xl_col_vat_gap"),
-        _("xl_col_collector"), _("xl_col_channel"), _("xl_col_note")
+        i18n_("xl_col_tx_id"), i18n_("xl_col_date"), i18n_("xl_col_from"), i18n_("xl_col_to"), i18n_("xl_col_buyer_type"),
+        i18n_("xl_col_amount_ht"), i18n_("xl_col_scenario"), i18n_("xl_col_vat_country"), i18n_("xl_col_vat_rate"), i18n_("xl_col_vat_amount"),
+        i18n_("xl_col_vat_amazon"), i18n_("xl_col_vat_gap"),
+        i18n_("xl_col_collector"), i18n_("xl_col_channel"), i18n_("xl_col_note")
     ]
 
     header_fill = _ORANGE_HEADER_FILL if is_refund_tab else _BLUE_HEADER_FILL
@@ -499,12 +508,12 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
             channel = "N/A"
             note = "Remboursement (source brute)"
 
-        _amount_ht = float(sale.amount_ht)
+        _amount_ht = _conv(sale.amount_ht)
         # Pays de taxe : disponible sur VatResult, "-" uniquement en mode degrade (Sale brut)
         _vat_country = getattr(r, "vat_country", "-") if hasattr(r, "vat_country") else "-"
         _vat_rate_f = float(vat_rate)
-        _vat_amount_f = float(vat_amount)
-        _amz_vat = float(getattr(sale, "amazon_vat_amount", Decimal("0")))
+        _vat_amount_f = _conv(vat_amount)
+        _amz_vat = _conv(getattr(sale, "amazon_vat_amount", Decimal("0")))
         _ecart = round(_amz_vat - _vat_amount_f, 2)
 
         _row_values = [
@@ -531,14 +540,14 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
             _wcell(ws, _row_values[2]),
             _wcell(ws, _row_values[3]),
             _wcell(ws, _row_values[4]),
-            _wcell(ws, _row_values[5], number_format=_EUR_FORMAT),
+            _wcell(ws, _row_values[5], number_format=_fmt_curr),
             _wcell(ws, _row_values[6]),
             _wcell(ws, _row_values[7]),
             _wcell(ws, _row_values[8], number_format=_PCT_FORMAT),
-            _wcell(ws, _row_values[9], number_format=_EUR_FORMAT),
-            _wcell(ws, _row_values[10], number_format=_EUR_FORMAT),
+            _wcell(ws, _row_values[9], number_format=_fmt_curr),
+            _wcell(ws, _row_values[10], number_format=_fmt_curr),
             # Colorier en rouge si ecart significatif (> 0.05 EUR)
-            _wcell(ws, _row_values[11], number_format=_EUR_FORMAT,
+            _wcell(ws, _row_values[11], number_format=_fmt_curr,
                    fill=_alert_fill if abs(_ecart) > 0.05 else None),
             _wcell(ws, _row_values[12]),
             _wcell(ws, _row_values[13]),
@@ -551,7 +560,7 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
     _width_tracker.apply(ws)
 
 
-def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None) -> None:
+def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None, display_currency: str = "EUR") -> None:
     """Onglet Audit — deux sections :
 
     1. Réconciliation agrégée : sous-totaux par (nature, pays destination) avec
@@ -559,6 +568,11 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     2. Détail ligne par ligne : chaque vente avec écart > 0.05 € (ou flux GB).
     """
     from collections import defaultdict
+
+    _fmt_curr = _currency_format(display_currency)
+    _conv_date = _date.today()
+    def _conv(amount: Decimal) -> float:
+        return float(_to_home_currency(amount, display_currency, _conv_date))
 
     vies_affected_sale_ids = vies_affected_sale_ids or set()
     domestic_rc_sale_ids: set[str] = set()
@@ -574,20 +588,20 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         tva_amazon = float(getattr(r.sale, "amazon_vat_amount", Decimal("0")))
         tva_moteur = float(r.vat_amount)
         if dep == "GB" or arr == "GB":
-            return _("xl_audit_nature_gb")
+            return i18n_("xl_audit_nature_gb")
         if (str(r.sale.sale_id), str(r.sale.amount_ht)) in vies_affected_sale_ids and tva_amazon == 0:
-            return _("xl_audit_nature_vies")
+            return i18n_("xl_audit_nature_vies")
         if sid in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):
-            return _("xl_audit_nature_art194")
-        return _("xl_audit_nature_taux")
+            return i18n_("xl_audit_nature_art194")
+        return i18n_("xl_audit_nature_taux")
 
     # ── Section 1 : Réconciliation agrégée ──────────────────────────────
-    ws.title = _("xl_tab_audit")
+    ws.title = i18n_("xl_tab_audit")
     _width_tracker = _ColumnWidthTracker()
 
-    ws.append([_wcell(ws, _("xl_audit_agg_title"), font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_audit_agg_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 24
-    ws.append([_wcell(ws, _("xl_audit_agg_help"), font=Font(italic=True, size=9, color="595959"))])
+    ws.append([_wcell(ws, i18n_("xl_audit_agg_help"), font=Font(italic=True, size=9, color="595959"))])
     ws.row_dimensions[2].height = 18
     ws.append([])
     ws.row_dimensions[3].height = 8
@@ -614,10 +628,10 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
             detail_rows.append((r, nat, dep, arr, tva_amz, tva_mot, ecart))
 
     _headers_1 = [
-        _("xl_audit_col_nature"), _("xl_audit_col_dest"),
-        _("xl_audit_col_count"), _("xl_audit_col_ca_ht"),
-        _("xl_audit_col_vat_amz"), _("xl_audit_col_vat_mot"),
-        _("xl_audit_col_gap_abs"), _("xl_audit_col_gap_pct"), _("xl_audit_col_risk"),
+        i18n_("xl_audit_col_nature"), i18n_("xl_audit_col_dest"),
+        i18n_("xl_audit_col_count"), i18n_("xl_audit_col_ca_ht"),
+        i18n_("xl_audit_col_vat_amz"), i18n_("xl_audit_col_vat_mot"),
+        i18n_("xl_audit_col_gap_abs"), i18n_("xl_audit_col_gap_pct"), i18n_("xl_audit_col_risk"),
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -629,9 +643,9 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     for (nat, arr), d in sorted(agg.items()):
         ecart_abs = d["amz"] - d["mot"]
         pct = (ecart_abs / d["mot"] * 100) if d["mot"] != 0 else Decimal("0")
-        risque = (_("xl_risk_high") if abs(float(pct)) > 10
-                  else _("xl_risk_medium") if abs(float(pct)) > 3
-        else _("xl_risk_low"))
+        risque = (i18n_("xl_risk_high") if abs(float(pct)) > 10
+                  else i18n_("xl_risk_medium") if abs(float(pct)) > 3
+        else i18n_("xl_risk_low"))
         _dest_label = f"{_get_country_name(arr)} ({arr})"
         _ht_f, _amz_f, _mot_f, _ecart_f, _pct_f = (
             float(d["ht"]), float(d["amz"]), float(d["mot"]), float(ecart_abs), float(_round(pct))
@@ -639,11 +653,11 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         _vals1 = [nat, _dest_label, d["n"], _ht_f, _amz_f, _mot_f, _ecart_f, _pct_f, risque]
         ws.append([
             _wcell(ws, nat), _wcell(ws, _dest_label), _wcell(ws, d["n"]),
-            _wcell(ws, _ht_f, number_format=_EUR_FORMAT),
-            _wcell(ws, _amz_f, number_format=_EUR_FORMAT),
-            _wcell(ws, _mot_f, number_format=_EUR_FORMAT),
-            _wcell(ws, _ecart_f, number_format=_EUR_FORMAT,
-                   font=Font(bold=True, color="C00000" if abs(_ecart_f) > 1 else "000000")),
+            _wcell(ws, _conv(d["ht"]), number_format=_fmt_curr),
+            _wcell(ws, _conv(d["amz"]), number_format=_fmt_curr),
+            _wcell(ws, _conv(d["mot"]), number_format=_fmt_curr),
+            _wcell(ws, _conv(ecart_abs), number_format=_fmt_curr,
+                   font=Font(bold=True, color="C00000" if abs(float(ecart_abs)) > 1 else "000000")),
             _wcell(ws, _pct_f, number_format='0.0"%"'),
             _wcell(ws, risque),
         ])
@@ -652,20 +666,20 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         row += 1
 
     if row == 5:
-        ws.append([_wcell(ws, _("xl_no_gap_detected"), font=Font(italic=True))])
+        ws.append([_wcell(ws, i18n_("xl_no_gap_detected"), font=Font(italic=True))])
         row = 6
 
     # ── Section 2 : Détail ligne par ligne ──────────────────────────────
     row += 2
     ws.append([])
     ws.append([])
-    ws.append([_wcell(ws, _("xl_audit_detail_title"), font=Font(bold=True, size=11, color="1F497D"))])
+    ws.append([_wcell(ws, i18n_("xl_audit_detail_title"), font=Font(bold=True, size=11, color="1F497D"))])
     ws.row_dimensions[row].height = 20
     row += 1
     _headers_2 = [
-        _("xl_detail_col_sale_id"), _("xl_detail_col_nature"), _("xl_detail_col_flow"),
-        _("xl_detail_col_scenario"), _("xl_detail_col_ht"),
-        _("xl_detail_col_vat_amz"), _("xl_detail_col_vat_mot"), _("xl_detail_col_gap"),
+        i18n_("xl_detail_col_sale_id"), i18n_("xl_detail_col_nature"), i18n_("xl_detail_col_flow"),
+        i18n_("xl_detail_col_scenario"), i18n_("xl_detail_col_ht"),
+        i18n_("xl_detail_col_vat_amz"), i18n_("xl_detail_col_vat_mot"), i18n_("xl_detail_col_gap"),
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -676,26 +690,23 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
 
     for r, nat, dep, arr, tva_amz, tva_mot, ecart in detail_rows:
         _flow = f"{dep}→{arr}"
-        _ht_f, _amz_f, _mot_f, _ecart_f = (
-            float(r.sale.amount_ht), float(tva_amz), float(tva_mot), float(ecart)
-        )
         _vals2 = [
             str(getattr(r.sale, "display_id", "") or r.sale.sale_id), nat, _flow,
-            str(r.scenario.value), _ht_f, _amz_f, _mot_f, _ecart_f,
+            str(r.scenario.value), float(r.sale.amount_ht), float(tva_amz), float(tva_mot), float(ecart),
         ]
         ws.append([
             _wcell(ws, _vals2[0]), _wcell(ws, nat), _wcell(ws, _flow), _wcell(ws, _vals2[3]),
-            _wcell(ws, _ht_f, number_format=_EUR_FORMAT),
-            _wcell(ws, _amz_f, number_format=_EUR_FORMAT),
-            _wcell(ws, _mot_f, number_format=_EUR_FORMAT),
-            _wcell(ws, _ecart_f, number_format=_EUR_FORMAT),
+            _wcell(ws, _conv(r.sale.amount_ht), number_format=_fmt_curr),
+            _wcell(ws, _conv(tva_amz), number_format=_fmt_curr),
+            _wcell(ws, _conv(tva_mot), number_format=_fmt_curr),
+            _wcell(ws, _conv(ecart), number_format=_fmt_curr),
         ])
         ws.row_dimensions[row].height = 18
         _width_tracker.observe_row(_vals2)
         row += 1
 
     if not detail_rows:
-        ws.append([_wcell(ws, _("xl_no_line_gap"), font=Font(italic=True))])
+        ws.append([_wcell(ws, i18n_("xl_no_line_gap"), font=Font(italic=True))])
 
     _width_tracker.apply(ws)
 
@@ -704,11 +715,11 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
     """Onglet Historique VIES : piste d'audit de chaque vérification effectuée."""
     from .vies_engine import get_vies_history_bulk
 
-    ws.title = _("xl_tab_vies")
+    ws.title = i18n_("xl_tab_vies")
     _width_tracker = _ColumnWidthTracker()
     _headers = [
-        _("xl_vies_col_vat"), _("xl_vies_col_checked_at"), _("xl_vies_col_status"),
-        _("xl_vies_col_country"), _("xl_vies_col_name"), _("xl_vies_col_error")
+        i18n_("xl_vies_col_vat"), i18n_("xl_vies_col_checked_at"), i18n_("xl_vies_col_status"),
+        i18n_("xl_vies_col_country"), i18n_("xl_vies_col_name"), i18n_("xl_vies_col_error")
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -730,7 +741,7 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
         if not history:
             continue
         for entry in history:
-            _status = _("xl_vies_status_valid") if entry["valid"] else _("xl_vies_status_invalid")
+            _status = i18n_("xl_vies_status_valid") if entry["valid"] else i18n_("xl_vies_status_invalid")
             _vals = [vat, entry["checked_at"], _status, entry["country_code"], entry["name"], entry["error"]]
             ws.append([_wcell(ws, v) for v in _vals])
             ws.row_dimensions[row].height = 16
@@ -738,7 +749,7 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
             row += 1
 
     if row == 2:
-        ws.append([_wcell(ws, _("xl_vies_no_history"))])
+        ws.append([_wcell(ws, i18n_("xl_vies_no_history"))])
     _width_tracker.apply(ws)
 
 
@@ -747,29 +758,35 @@ def _write_intrastat_tab(
         all_fc_transfers: list,
         results: list,
         seller_country: str = "FR",
+        display_currency: str = "EUR",
 ) -> None:
     """Onglet Intrastat / EMEBI (statistique) — aide au remplissage de la déclaration."""
     from .rates import intrastat_emebi_threshold_for_year
 
-    ws.title = _("xl_tab_intrastat")
+    ws.title = i18n_("xl_tab_intrastat")
     GREEN_FILL = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
     _width_tracker = _ColumnWidthTracker()
 
-    ws.append([_wcell(ws, _("xl_intrastat_title"), font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_intrastat_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
+
+    _fmt_curr = _currency_format(display_currency)
+    _conv_date = _date.today()
+    def _conv(amount: Decimal) -> float:
+        return float(_to_home_currency(amount, display_currency, _conv_date))
 
     # Année de référence pour le seuil : année en cours au moment de la génération.
     _current_year = _date.today().year
     _seuil_annee_ref, _seuil_confirme = intrastat_emebi_threshold_for_year(_current_year)
     _seuil_warning = (
         "" if _seuil_confirme else
-        _("xl_intrastat_unconfirmed_warning", year=_current_year)
+        i18n_("xl_intrastat_unconfirmed_warning", year=_current_year)
     )
 
     # Note légale. Fusion de cellules (colonnes 1-13) abandonnée : incompatible
     # avec le mode write_only. Le texte déborde naturellement sur les cellules
     # vides adjacentes — rendu visuel quasi identique pour un texte d'une ligne.
-    _note_text = _("xl_intrastat_note", seller_country=seller_country, year=_current_year, threshold=_seuil_annee_ref, warning=_seuil_warning)
+    _note_text = i18n_("xl_intrastat_note", seller_country=seller_country, year=_current_year, threshold=_seuil_annee_ref, warning=_seuil_warning)
     ws.append([_wcell(ws, _note_text, font=Font(italic=True, size=10, color="C00000"))])
     ws.row_dimensions[2].height = 30
     ws.append([])
@@ -804,11 +821,11 @@ def _write_intrastat_tab(
 
     current_row = 4
     if seuil_par_annee:
-        ws.append([_wcell(ws, _("xl_intrastat_seuil_title"), font=Font(bold=True, size=11, color="C00000"))])
+        ws.append([_wcell(ws, i18n_("xl_intrastat_seuil_title"), font=Font(bold=True, size=11, color="C00000"))])
         current_row += 1
         _headers_seuil = [
-            _("xl_intrastat_col_year"), _("xl_intrastat_col_sens"), _("xl_intrastat_col_cumul"),
-            _("xl_intrastat_col_threshold"), _("xl_intrastat_col_pct"), _("xl_intrastat_col_status"),
+            i18n_("xl_intrastat_col_year"), i18n_("xl_intrastat_col_sens"), i18n_("xl_intrastat_col_cumul"),
+            i18n_("xl_intrastat_col_threshold"), i18n_("xl_intrastat_col_pct"), i18n_("xl_intrastat_col_status"),
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE,
                            fill=PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"),
@@ -823,20 +840,20 @@ def _write_intrastat_tab(
             except ValueError:
                 seuil_annee, confirme = _seuil_annee_ref, _seuil_confirme
             any_unconfirmed = any_unconfirmed or not confirme
-            for sens_label, key_sens in [(_("xl_intrastat_introductions"), "intro"), (_("xl_intrastat_dispatches"), "expe")]:
+            for sens_label, key_sens in [(i18n_("xl_intrastat_introductions"), "intro"), (i18n_("xl_intrastat_dispatches"), "expe")]:
                 cumul = seuil_par_annee[annee][key_sens]
                 pct = float(cumul / seuil_annee * 100) if seuil_annee else 0.0
-                statut = (_("xl_intrastat_status_exceeded") if pct >= 100
-                          else _("xl_intrastat_status_near") if pct >= 80
-                else _("xl_intrastat_status_ok"))
+                statut = (i18n_("xl_intrastat_status_exceeded") if pct >= 100
+                          else i18n_("xl_intrastat_status_near") if pct >= 80
+                else i18n_("xl_intrastat_status_ok"))
                 if not confirme:
-                    statut += _("xl_intrastat_status_unconfirmed")
+                    statut += i18n_("xl_intrastat_status_unconfirmed")
                 _pct_r = round(pct, 1)
                 _vals_seuil = [annee, sens_label, float(cumul), float(seuil_annee), _pct_r, statut]
                 ws.append([
                     _wcell(ws, annee), _wcell(ws, sens_label),
-                    _wcell(ws, float(cumul), number_format=_EUR_FORMAT),
-                    _wcell(ws, float(seuil_annee), number_format=_EUR_FORMAT),
+                    _wcell(ws, _conv(cumul), number_format=_fmt_curr),
+                    _wcell(ws, _conv(seuil_annee), number_format=_fmt_curr),
                     _wcell(ws, _pct_r, number_format='0.0"%"',
                            font=Font(bold=True, color="C00000" if pct >= 100 else ("ED7D31" if pct >= 80 else "375623"))),
                     _wcell(ws, statut),
@@ -844,11 +861,11 @@ def _write_intrastat_tab(
                 ws.row_dimensions[current_row].height = 18
                 _width_tracker.observe_row(_vals_seuil)
                 current_row += 1
-        ws.append([_wcell(ws, _("xl_intrastat_footer", unconfirmed=(_("xl_intrastat_unconfirmed_footer") if any_unconfirmed else "")),
+        ws.append([_wcell(ws, i18n_("xl_intrastat_footer", unconfirmed=(i18n_("xl_intrastat_unconfirmed_footer") if any_unconfirmed else "")),
                            font=Font(italic=True, size=9, color="7f7f7f"))])
         current_row += 2
     else:
-        ws.append([_wcell(ws, _("xl_intrastat_no_transfer"), font=Font(italic=True))])
+        ws.append([_wcell(ws, i18n_("xl_intrastat_no_transfer"), font=Font(italic=True))])
         current_row += 2
 
     # ── Détail introductions / expéditions (UE → seller_country) ────────
@@ -856,14 +873,14 @@ def _write_intrastat_tab(
         ("xl_intrastat_intro_label", True),
         ("xl_intrastat_expe_label", False),
     ]:
-        ws.append([_wcell(ws, _(flow_label_key, country=seller_country), font=Font(bold=True, size=11, color="375623"))])
+        ws.append([_wcell(ws, i18n_(flow_label_key, country=seller_country), font=Font(bold=True, size=11, color="375623"))])
         current_row += 1
         _headers_flux = [
-            _("xl_intrastat_col_period"), _("xl_intrastat_col_origin"), _("xl_intrastat_col_dest_cc"),
-            _("xl_intrastat_col_flow_code"), _("xl_intrastat_col_nature_tx"),
-            _("xl_intrastat_col_asin"), _("xl_intrastat_col_desc"),
-            _("xl_intrastat_col_cn8"), _("xl_intrastat_col_qty"), _("xl_intrastat_col_mass"),
-            _("xl_intrastat_col_val_stat"), _("xl_intrastat_col_delivery"), _("xl_intrastat_col_remark"),
+            i18n_("xl_intrastat_col_period"), i18n_("xl_intrastat_col_origin"), i18n_("xl_intrastat_col_dest_cc"),
+            i18n_("xl_intrastat_col_flow_code"), i18n_("xl_intrastat_col_nature_tx"),
+            i18n_("xl_intrastat_col_asin"), i18n_("xl_intrastat_col_desc"),
+            i18n_("xl_intrastat_col_cn8"), i18n_("xl_intrastat_col_qty"), i18n_("xl_intrastat_col_mass"),
+            i18n_("xl_intrastat_col_val_stat"), i18n_("xl_intrastat_col_delivery"), i18n_("xl_intrastat_col_remark"),
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=GREEN_FILL,
                            alignment=Alignment(horizontal="center", vertical="center"))
@@ -873,7 +890,7 @@ def _write_intrastat_tab(
         current_row += 1
 
         rows_written = 0
-        sens = _("Intro") if is_intro else _("Expé")
+        sens = i18n_("Intro") if is_intro else i18n_("Expé")
         for (dep, arr, asin, mois), data in sorted(flux.items()):
             if is_intro and arr != seller_country:
                 continue
@@ -887,8 +904,8 @@ def _write_intrastat_tab(
 
             _vals_flux = [
                 mois, f"{_get_country_name(dep)} ({dep})", f"{_get_country_name(arr)} ({arr})", sens,
-                _("xl_intrastat_transfer_desc"), asin, desc, _("xl_intrastat_to_complete"), qty,
-                _("xl_intrastat_to_complete"), float(valeur), "DAP / DDP", _("xl_intrastat_estimated_val_remark"),
+                i18n_("xl_intrastat_transfer_desc"), asin, desc, i18n_("xl_intrastat_to_complete"), qty,
+                i18n_("xl_intrastat_to_complete"), float(valeur), "DAP / DDP", i18n_("xl_intrastat_estimated_val_remark"),
             ]
             ws.append([
                 _wcell(ws, _vals_flux[0]), _wcell(ws, _vals_flux[1]), _wcell(ws, _vals_flux[2]),
@@ -903,7 +920,7 @@ def _write_intrastat_tab(
             rows_written += 1
 
         if rows_written == 0:
-            ws.append([_wcell(ws, _("xl_intrastat_no_flow_detected", sens=sens))])
+            ws.append([_wcell(ws, i18n_("xl_intrastat_no_flow_detected", sens=sens))])
             current_row += 1
         current_row += 2
 
@@ -944,7 +961,7 @@ def _write_calendar_tab(
         seller_country: str = "FR",
 ) -> None:
     """Onglet Calendrier Fiscal — prochaines échéances déduites des données traitées."""
-    ws.title = _("xl_tab_calendar")
+    ws.title = i18n_("xl_tab_calendar")
     PURPLE_FILL = PatternFill(start_color="6B3FA0", end_color="6B3FA0", fill_type="solid")
     GREEN_FILL  = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
     ORANGE_FILL = _ORANGE_HEADER_FILL
@@ -952,18 +969,18 @@ def _write_calendar_tab(
     today       = _date.today()
 
     _width_tracker = _ColumnWidthTracker()
-    ws.append([_wcell(ws, _("xl_cal_title"), font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_cal_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
-    ws.append([_wcell(ws, _("xl_cal_meta", date=today.isoformat(), country=seller_country, period=(period or _("xl_cal_unspecified"))),
+    ws.append([_wcell(ws, i18n_("xl_cal_meta", date=today.isoformat(), country=seller_country, period=(period or i18n_("xl_cal_unspecified"))),
                        font=Font(italic=True, size=10, color="595959"))])
     ws.row_dimensions[2].height = 20
     ws.append([])
     ws.row_dimensions[3].height = 8
 
     _headers = [
-        _("xl_cal_col_channel"), _("xl_cal_col_obligation"), _("xl_cal_col_ref_period"),
-        _("xl_cal_col_deadline"), _("xl_cal_col_remaining"), _("xl_cal_col_status"),
-        _("xl_cal_col_portal"), _("xl_cal_col_legal"),
+        i18n_("xl_cal_col_channel"), i18n_("xl_cal_col_obligation"), i18n_("xl_cal_col_ref_period"),
+        i18n_("xl_cal_col_deadline"), i18n_("xl_cal_col_remaining"), i18n_("xl_cal_col_status"),
+        i18n_("xl_cal_col_portal"), i18n_("xl_cal_col_legal"),
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=PURPLE_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -976,7 +993,7 @@ def _write_calendar_tab(
     def _write_row(canal, obligation, periode_ref, deadline, portail, base_legale, fill):
         nonlocal row
         jours = (deadline - today).days
-        statut = _("xl_cal_status_upcoming") if jours > 7 else (_("xl_cal_status_urgent") if jours >= 0 else _("xl_cal_status_overdue"))
+        statut = i18n_("xl_cal_status_upcoming") if jours > 7 else (i18n_("xl_cal_status_urgent") if jours >= 0 else i18n_("xl_cal_status_overdue"))
         _vals = [canal, obligation, periode_ref, deadline.isoformat(), jours, statut, portail, base_legale]
         ws.append([
             _wcell(ws, canal, fill=fill, font=Font(bold=True, color="FFFFFF")),
@@ -1031,7 +1048,7 @@ def _write_calendar_tab(
         deadline    = _deadline_oss(last_q_day)
         _write_row(
             "OSS",
-            _("xl_cal_oss_task"),
+            i18n_("xl_cal_oss_task"),
             f"T{q} {yr}",
             deadline,
             "guichet-entreprises.fr / portail OSS DGFIP",
@@ -1056,19 +1073,19 @@ def _write_calendar_tab(
         deadline = _date(next_yr, next_mo, 24)
         if (seller_country or "FR").upper() == "FR":
             _canal_label = "CA3 / TVA FR"
-            _task_label = _("xl_cal_ca3_task")
+            _task_label = i18n_("xl_cal_ca3_task")
         else:
             _canal_label = f"TVA {seller_country}"
-            _task_label = _("xl_cal_home_task", country=seller_country)
+            _task_label = i18n_("xl_cal_home_task", country=seller_country)
         _write_row(
             _canal_label,
             _task_label,
             f"{yr}-{mo:02d}",
             deadline,
             "impots.gouv.fr (espace professionnel) → Déclarer → TVA" if (seller_country or "FR").upper() == "FR"
-            else _("xl_cal_local_portal_generic"),
+            else i18n_("xl_cal_local_portal_generic"),
             "Art. 287 CGI — régime normal mensuel" if (seller_country or "FR").upper() == "FR"
-            else _("xl_cal_local_legal_generic"),
+            else i18n_("xl_cal_local_legal_generic"),
             ORANGE_FILL,
         )
 
@@ -1099,7 +1116,7 @@ def _write_calendar_tab(
                 d_limit += timedelta(days=1)
         _write_row(
             "EMEBI (Intrastat)",
-            _("Enquête statistique EMEBI {country} (introductions + expéditions, sous réserve de seuil — voir onglet dédié)", country=seller_country),
+            i18n_("Enquête statistique EMEBI {country} (introductions + expéditions, sous réserve de seuil — voir onglet dédié)", country=seller_country),
             f"{yr}-{mo:02d}",
             d_limit,
             "pro.douane.gouv.fr → EMEBI/Intrastat",
@@ -1123,8 +1140,8 @@ def _write_calendar_tab(
         next_yr = yr if mo < 12 else yr + 1
         deadline = _date(next_yr, next_mo, 24)
         _write_row(
-            _("xl_cal_esl_task"),
-            _("xl_cal_esl_desc"),
+            i18n_("xl_cal_esl_task"),
+            i18n_("xl_cal_esl_desc"),
             f"{yr}-{mo:02d}",
             deadline,
             "impots.gouv.fr → DES (Déclaration Européenne de Services) / ESL",
@@ -1133,7 +1150,7 @@ def _write_calendar_tab(
         )
 
     if row == 5:
-        ws.append([_wcell(ws, _("xl_cal_no_deadline"), font=Font(italic=True))])
+        ws.append([_wcell(ws, i18n_("xl_cal_no_deadline"), font=Font(italic=True))])
 
     _width_tracker.apply(ws)
 
@@ -1199,11 +1216,11 @@ def _build_asin_avg_price(results: list) -> dict[str, Decimal]:
 
 def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
     """Onglet Mouvements Stock FBA — détail de chaque transfert."""
-    ws.title = _("xl_tab_fba")
+    ws.title = i18n_("xl_tab_fba")
     _width_tracker = _ColumnWidthTracker()
     _headers = [
-        _("xl_fba_col_tx_id"), _("xl_fba_col_date"), _("xl_fba_col_asin"), _("xl_fba_col_desc"),
-        _("xl_fba_col_qty"), _("xl_fba_col_dep"), _("xl_fba_col_arr"), _("xl_fba_col_type"),
+        i18n_("xl_fba_col_tx_id"), i18n_("xl_fba_col_date"), i18n_("xl_fba_col_asin"), i18n_("xl_fba_col_desc"),
+        i18n_("xl_fba_col_qty"), i18n_("xl_fba_col_dep"), i18n_("xl_fba_col_arr"), i18n_("xl_fba_col_type"),
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -1212,7 +1229,7 @@ def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
     _width_tracker.observe_row(_headers)
 
     if not all_fc_transfers:
-        ws.append([_wcell(ws, _("xl_fba_none"))])
+        ws.append([_wcell(ws, i18n_("xl_fba_none"))])
         _width_tracker.apply(ws)
         return
 
@@ -1232,6 +1249,7 @@ def _write_fba_aic_tab(
         all_fc_transfers: list,
         results: list,
         countries_with_vat: list[str] | None = None,
+        display_currency: str = "EUR",
 ) -> None:
     """Onglet Analyse AIC (Acquisitions Intracommunautaires assimilées).
 
@@ -1254,6 +1272,11 @@ def _write_fba_aic_tab(
     ws.title = "Analyse AIC FBA"
     countries_with_vat = [c.upper() for c in (countries_with_vat or [])]
     _width_tracker = _ColumnWidthTracker()
+
+    _fmt_curr = _currency_format(display_currency)
+    _conv_date = _date.today()
+    def _conv(amount: Decimal) -> float:
+        return float(_to_home_currency(amount, display_currency, _conv_date))
 
     # --- Prix moyen HT par ASIN depuis les ventes ---
     asin_avg = _build_asin_avg_price(results)
@@ -1313,9 +1336,9 @@ def _write_fba_aic_tab(
         _headers_detail = [
             "Départ", "Arrivée",
             "ASIN", "Désignation",
-            "Qté transférée", "Prix vente moy. HT (€)",
-            "Base AIC estimée (€)", "Taux TVA arrivée (%)",
-            "TVA AIC estimée (€)", "Statut",
+            "Qté transférée", f"Prix vente moy. HT ({display_currency})",
+            f"Base AIC estimée ({display_currency})", "Taux TVA arrivée (%)",
+            f"TVA AIC estimée ({display_currency})", "Statut",
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                            alignment=Alignment(horizontal="center", vertical="center"))
@@ -1352,10 +1375,10 @@ def _write_fba_aic_tab(
             ws.append([
                 _wcell(ws, _dep_lbl), _wcell(ws, _arr_lbl), _wcell(ws, asin), _wcell(ws, _desc80),
                 _wcell(ws, qty),
-                _wcell(ws, _avg_f, number_format=_EUR_FORMAT),
-                _wcell(ws, _base_f, number_format=_EUR_FORMAT),
-                _wcell(ws, _taux_f, number_format=_PCT_FORMAT),
-                _wcell(ws, _tva_f, number_format=_EUR_FORMAT, font=_BOLD_FONT),
+                _wcell(ws, _conv(avg_price), number_format=_fmt_curr),
+                _wcell(ws, _conv(base_aic), number_format=_fmt_curr),
+                _wcell(ws, float(taux_arr), number_format=_PCT_FORMAT),
+                _wcell(ws, _conv(tva_aic), number_format=_fmt_curr, font=_BOLD_FONT),
                 _wcell(ws, statut),
             ])
             ws.row_dimensions[current_row].height = 18
@@ -1368,7 +1391,7 @@ def _write_fba_aic_tab(
         current_row += 1
         _headers_sub = [
             "Flux (Départ → Arrivée)", "Nb transferts", "Nb ASIN",
-            "Base AIC totale estimée (€)", "TVA AIC totale estimée (€)",
+            f"Base AIC totale estimée ({display_currency})", f"TVA AIC totale estimée ({display_currency})",
             "Référence légale", "Action requise",
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
@@ -1390,8 +1413,8 @@ def _write_fba_aic_tab(
             _vals_sub = [_flow_lbl, nb_t, nb_a, _base_f, _tva_f, ref, action]
             ws.append([
                 _wcell(ws, _flow_lbl), _wcell(ws, nb_t), _wcell(ws, nb_a),
-                _wcell(ws, _base_f, number_format=_EUR_FORMAT, font=_BOLD_FONT),
-                _wcell(ws, _tva_f, number_format=_EUR_FORMAT, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL),
+                _wcell(ws, _conv(base), number_format=_fmt_curr, font=_BOLD_FONT),
+                _wcell(ws, _conv(tva), number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL),
                 _wcell(ws, ref), _wcell(ws, action),
             ])
             ws.row_dimensions[current_row].height = 20
@@ -1469,14 +1492,17 @@ def _write_section_group_row(ws, month_start_col: int, n_months: int, total_star
     if n_months:
         first, last = month_start_col, month_start_col + n_months - 1
         for col in range(first, last + 1):
-            c = _wcell(ws, _("xl_monthly_section_label") if col == first else None,
+            # On utilise i18n_ (aliasé ci-dessous) pour éviter le shadowing par _ dans les boucles
+            from .i18n import _ as i18n_
+            c = _wcell(ws, i18n_("xl_monthly_section_label") if col == first else None,
                        font=_HEADER_FONT_WHITE, fill=fill,
                        alignment=Alignment(horizontal="center", vertical="center"))
             row_cells[col - 1] = c
 
     first, last = total_start_col, total_start_col + n_total_cols - 1
     for col in range(first, last + 1):
-        c = _wcell(ws, _("xl_period_section_label") if col == first else None,
+        from .i18n import _ as i18n_
+        c = _wcell(ws, i18n_("xl_period_section_label") if col == first else None,
                    font=_HEADER_FONT_WHITE, fill=fill,
                    alignment=Alignment(horizontal="center", vertical="center"))
         row_cells[col - 1] = c
@@ -1484,15 +1510,26 @@ def _write_section_group_row(ws, month_start_col: int, n_months: int, total_star
     return row_cells
 
 
-def _write_oss_tab(ws, summary: ReportSummary) -> None:
+def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") -> None:
     """Onglet OSS détaillé : mois par mois (net) puis Brut / Remboursements / Net
     (total période) par pays de destination."""
-    ws.title = _("xl_tab_oss")
+    ws.title = i18n_("xl_tab_oss")
     _width_tracker = _ColumnWidthTracker()
 
-    ws.append([_wcell(ws, _("xl_oss_title"), font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_oss_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
-    ws.append([])  # ligne 2 volontairement vide (comportement d'origine)
+
+    _fmt_curr = _currency_format(display_currency)
+    _conv_date = _date.today()
+    def _conv(amount: Decimal) -> float:
+        return float(_to_home_currency(amount, display_currency, _conv_date))
+
+    if display_currency != "EUR":
+        ws.append([_wcell(ws, i18n_("xl_recap_currency_note", currency=display_currency, date=_conv_date.isoformat()),
+                           font=Font(italic=True, size=9, color="7f7f7f"))])
+        ws.row_dimensions[2].height = 16
+    else:
+        ws.append([])  # ligne 2 volontairement vide (comportement d'origine)
 
     _z = Decimal("0.00")
     all_countries = sorted(
@@ -1510,9 +1547,9 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
     ws.append(_group_cells)
     ws.row_dimensions[3].height = 18
 
-    headers = [_("xl_oss_col_country"), _("xl_oss_col_code")]
+    headers = [i18n_("xl_oss_col_country"), i18n_("xl_oss_col_code")]
     headers += [_month_label(m) for m in months]
-    headers += [_("xl_oss_col_vat_gross"), _("xl_oss_col_vat_refunds"), _("xl_oss_col_vat_net")]
+    headers += [i18n_("xl_oss_col_vat_gross"), i18n_("xl_oss_col_vat_refunds"), i18n_("xl_oss_col_vat_net")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
@@ -1532,15 +1569,15 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
         _vals = [_get_country_name(country), country]
         _row_cells = [_wcell(ws, _get_country_name(country)), _wcell(ws, country)]
         for m in months:
-            v = float(month_values.get(m, _z))
+            v = _conv(month_values.get(m, _z))
             _vals.append(v)
-            _row_cells.append(_wcell(ws, v, number_format=_EUR_FORMAT))
+            _row_cells.append(_wcell(ws, v, number_format=_fmt_curr))
 
-        _vals += [float(brut), float(refund), f"={letter_brut}{row}+{letter_ref}{row}"]
-        _row_cells.append(_wcell(ws, float(brut), number_format=_EUR_FORMAT))
-        _row_cells.append(_wcell(ws, float(refund), number_format=_EUR_FORMAT))
+        _vals += [_conv(brut), _conv(refund), f"={letter_brut}{row}+{letter_ref}{row}"]
+        _row_cells.append(_wcell(ws, _conv(brut), number_format=_fmt_curr))
+        _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
-                                  number_format=_EUR_FORMAT, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
+                                  number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
 
         ws.append(_row_cells)
         ws.row_dimensions[row].height = 18
@@ -1552,19 +1589,19 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
     letter_brut, letter_ref, letter_net = get_column_letter(col_brut), get_column_letter(col_ref), get_column_letter(col_net)
     ws.append([])
     row += 1
-    _total_row_cells = [_wcell(ws, _("xl_oss_total"), font=_BOLD_FONT)]
+    _total_row_cells = [_wcell(ws, i18n_("xl_oss_total"), font=_BOLD_FONT)]
     _total_row_cells.append(_wcell(ws, None))  # colonne "Code", vide
     for i in range(len(months)):
         col = month_start_col + i
         letter = get_column_letter(col)
         _total_row_cells.append(_wcell(ws, f"=SUM({letter}{header_row+1}:{letter}{row-2})",
-                                        number_format=_EUR_FORMAT, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
+                                        number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
     for formula in [
         f"=SUM({letter_brut}{header_row+1}:{letter_brut}{row-2})",
         f"=SUM({letter_ref}{header_row+1}:{letter_ref}{row-2})",
         f"={letter_brut}{row}+{letter_ref}{row}",
     ]:
-        _total_row_cells.append(_wcell(ws, formula, number_format=_EUR_FORMAT, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
+        _total_row_cells.append(_wcell(ws, formula, number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
     ws.append(_total_row_cells)
     ws.row_dimensions[row].height = 20
 
@@ -1574,18 +1611,29 @@ def _write_oss_tab(ws, summary: ReportSummary) -> None:
 
 
 
-def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None, seller_country: str = "FR") -> None:
+def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None, seller_country: str = "FR", display_currency: str = "EUR") -> None:
     """Onglet TVA locale par pays (immatriculation locale hors OSS) : mois par
     mois (net) puis Brut / Remboursements / Net (total période) et statut."""
-    ws.title = _("xl_tab_local")
+    ws.title = i18n_("xl_tab_local")
     countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
     # Le pays d'origine est toujours considéré comme immatriculé
     countries_with_vat.add(seller_country.upper())
 
-    ws.append([_wcell(ws, _("xl_local_title"), font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_local_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
     _width_tracker = _ColumnWidthTracker()
 
+    _fmt_curr = _currency_format(display_currency)
+    _conv_date = _date.today()
+    def _conv(amount: Decimal) -> float:
+        return float(_to_home_currency(amount, display_currency, _conv_date))
+
+    if display_currency != "EUR":
+        ws.append([_wcell(ws, i18n_("xl_recap_currency_note", currency=display_currency, date=_conv_date.isoformat()),
+                           font=Font(italic=True, size=9, color="7f7f7f"))])
+        ws.row_dimensions[2].height = 16
+    else:
+        ws.append([])
     _z = Decimal("0.00")
     local = dict(summary.local_by_country or {})
     refund_local = dict(getattr(summary, "refund_local_by_country", {}) or {})
@@ -1612,7 +1660,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     header_row = 4
     if unregistered:
-        ws.append([_wcell(ws, _("xl_local_unregistered_warning", countries=", ".join(unregistered)),
+        ws.append([_wcell(ws, i18n_("xl_local_unregistered_warning", countries=", ".join(unregistered)),
                            font=_ALERT_FONT, fill=_ALERT_FILL)])
         ws.row_dimensions[2].height = 18
     else:
@@ -1628,9 +1676,9 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     ws.append(_group_cells)
     ws.row_dimensions[header_row - 1].height = 18
 
-    headers = [_("xl_local_col_country"), _("xl_local_col_code")]
+    headers = [i18n_("xl_local_col_country"), i18n_("xl_local_col_code")]
     headers += [_month_label(m) for m in months]
-    headers += [_("xl_local_col_vat_due"), _("xl_local_col_vat_refunds"), _("xl_local_col_vat_net"), _("xl_local_col_status")]
+    headers += [i18n_("xl_local_col_vat_due"), i18n_("xl_local_col_vat_refunds"), i18n_("xl_local_col_vat_net"), i18n_("xl_local_col_status")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
@@ -1647,19 +1695,19 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         _vals = [_get_country_name(country), country]
         _row_cells = [_wcell(ws, _get_country_name(country)), _wcell(ws, country)]
         for m in months:
-            v = float(month_values.get(m, _z))
+            v = _conv(month_values.get(m, _z))
             _vals.append(v)
-            _row_cells.append(_wcell(ws, v, number_format=_EUR_FORMAT))
+            _row_cells.append(_wcell(ws, v, number_format=_fmt_curr))
 
-        _row_cells.append(_wcell(ws, float(brut), number_format=_EUR_FORMAT))
-        _row_cells.append(_wcell(ws, float(refund), number_format=_EUR_FORMAT))
+        _row_cells.append(_wcell(ws, _conv(brut), number_format=_fmt_curr))
+        _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
-                                  number_format=_EUR_FORMAT, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
-        _status_val = _("xl_local_status_registered") if is_registered else _("xl_local_status_unconfirmed")
+                                  number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
+        _status_val = i18n_("xl_local_status_registered") if is_registered else i18n_("xl_local_status_unconfirmed")
         _row_cells.append(_wcell(ws, _status_val,
                                   font=_ALERT_FONT if not is_registered else None,
                                   fill=_ALERT_FILL if not is_registered else None))
-        _vals += [float(brut), float(refund), _status_val]
+        _vals += [_conv(brut), _conv(refund), _status_val]
 
         ws.append(_row_cells)
         ws.row_dimensions[row].height = 18
@@ -1669,18 +1717,18 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     # Total
     ws.append([])
     row += 1
-    _total_cells = [_wcell(ws, _("xl_local_total"), font=_BOLD_FONT), _wcell(ws, None)]
+    _total_cells = [_wcell(ws, i18n_("xl_local_total"), font=_BOLD_FONT), _wcell(ws, None)]
     for i in range(len(months)):
         col = month_start_col + i
         letter = get_column_letter(col)
         _total_cells.append(_wcell(ws, f"=SUM({letter}{header_row+1}:{letter}{row-2})",
-                                    number_format=_EUR_FORMAT, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
+                                    number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
     for formula in [
         f"=SUM({letter_brut}{header_row+1}:{letter_brut}{row-2})",
         f"=SUM({letter_ref}{header_row+1}:{letter_ref}{row-2})",
         f"={letter_brut}{row}+{letter_ref}{row}",
     ]:
-        _total_cells.append(_wcell(ws, formula, number_format=_EUR_FORMAT, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
+        _total_cells.append(_wcell(ws, formula, number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
     _total_cells.append(_wcell(ws, None))  # colonne Statut, vide sur la ligne de total
     ws.append(_total_cells)
     ws.row_dimensions[row].height = 20
@@ -1690,16 +1738,16 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
 def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
     """Onglet INVOICE / CREDIT_NOTE."""
-    ws.title = _("xl_tab_invoice_cn")
+    ws.title = i18n_("xl_tab_invoice_cn")
     _width_tracker = _ColumnWidthTracker()
 
-    ws.append([_wcell(ws, _("xl_inv_cn_title"), font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_inv_cn_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
-    ws.append([_wcell(ws, _("xl_inv_cn_help"))])
+    ws.append([_wcell(ws, i18n_("xl_inv_cn_help"))])
     ws.row_dimensions[2].height = 18
     ws.append([])
 
-    headers = [_("xl_inv_cn_col_type"), _("xl_inv_cn_col_date"), _("xl_inv_cn_col_market"), _("xl_inv_cn_col_program"), _("xl_inv_cn_col_ref"), _("xl_inv_cn_col_ht"), _("xl_inv_cn_col_vat"), _("xl_inv_cn_col_currency")]
+    headers = [i18n_("xl_inv_cn_col_type"), i18n_("xl_inv_cn_col_date"), i18n_("xl_inv_cn_col_market"), i18n_("xl_inv_cn_col_program"), i18n_("xl_inv_cn_col_ref"), i18n_("xl_inv_cn_col_ht"), i18n_("xl_inv_cn_col_vat"), i18n_("xl_inv_cn_col_currency")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                        alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
@@ -1707,7 +1755,7 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
     _width_tracker.observe_row(headers)
 
     if not invoice_credit_notes:
-        ws.append([_wcell(ws, _("xl_inv_cn_none"))])
+        ws.append([_wcell(ws, i18n_("xl_inv_cn_none"))])
         _width_tracker.apply(ws)
         return
 
@@ -1738,7 +1786,7 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
     ws.append([])
     row += 1
     ws.append([
-        _wcell(ws, _("xl_total"), font=_BOLD_FONT), _wcell(ws, None), _wcell(ws, None), _wcell(ws, None), _wcell(ws, None),
+        _wcell(ws, i18n_("xl_total"), font=_BOLD_FONT), _wcell(ws, None), _wcell(ws, None), _wcell(ws, None), _wcell(ws, None),
         _wcell(ws, float(_round(total_ht)), number_format=_EUR_FORMAT, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL),
         _wcell(ws, float(_round(total_vat)), number_format=_EUR_FORMAT, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL),
         _wcell(ws, None),
@@ -1760,6 +1808,7 @@ def export_xlsx(
         countries_with_vat: list[str] | None = None,
         period: str = "",
         seller_country: str = "FR",
+        display_currency: str | None = None,
         invoice_credit_notes: list | None = None,
 ) -> Path:
     """Genere le fichier Excel complet avec tous les onglets.
@@ -1768,6 +1817,8 @@ def export_xlsx(
         scope_id: portée de cache VIES du compte appelant (voir
                   vies.resolve_scope_id) — transmise à l'onglet Historique
                   VIES pour n'afficher que les vérifications de ce compte.
+        display_currency: devise d'affichage choisie pour le rapport (ex: PLN).
+                          Si None, utilise la devise du pays d'origine.
     """
 
     if summary is None:
@@ -1799,7 +1850,7 @@ def export_xlsx(
 
     # 1. Page de synthèse
     ws_recap = _SequentialSheetWriter(wb.create_sheet())
-    _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country)
+    _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country, display_currency=display_currency)
     ws_recap.finalize()
 
     # 2. Séparation ventes / remboursements
@@ -1830,32 +1881,34 @@ def export_xlsx(
     else:
         refunds_results_to_write = refunds_from_results
 
+    _currency = display_currency or _home_currency(seller_country)
+
     # 4. Onglet Détail Ventes
     ws_sales = _SequentialSheetWriter(wb.create_sheet())
-    _write_details_tab(ws_sales, "Detail ventes", sales_results, is_refund_tab=False)
+    _write_details_tab(ws_sales, "Detail ventes", sales_results, is_refund_tab=False, display_currency=_currency)
     ws_sales.finalize()
 
     # 5. Onglet Détail Remboursements
     ws_refunds = _SequentialSheetWriter(wb.create_sheet())
-    _write_details_tab(ws_refunds, "Detail remboursements", refunds_results_to_write, is_refund_tab=True)
+    _write_details_tab(ws_refunds, "Detail remboursements", refunds_results_to_write, is_refund_tab=True, display_currency=_currency)
     ws_refunds.finalize()
 
     # 6. Onglet OSS détaillé par pays
     if summary.oss_by_country or getattr(summary, "refund_oss_by_country", None):
         ws_oss = _SequentialSheetWriter(wb.create_sheet())
-        _write_oss_tab(ws_oss, summary)
+        _write_oss_tab(ws_oss, summary, display_currency=_currency)
         ws_oss.finalize()
 
     # 7. Onglet TVA locale par pays
     if (summary.local_by_country or getattr(summary, "refund_local_by_country", None) or
             summary.fr_domestic_vat or summary.refund_fr_domestic_vat):
         ws_local = _SequentialSheetWriter(wb.create_sheet())
-        _write_local_tab(ws_local, summary, countries_with_vat, seller_country=seller_country)
+        _write_local_tab(ws_local, summary, countries_with_vat, seller_country=seller_country, display_currency=_currency)
         ws_local.finalize()
 
     # 8. Onglet Audit Ecarts Amazon
     ws_audit = _SequentialSheetWriter(wb.create_sheet("Audit Ecarts Amazon"))
-    _write_audit_tab(ws_audit, results, vies_affected_sale_ids, vies_summary=vies_summary)
+    _write_audit_tab(ws_audit, results, vies_affected_sale_ids, vies_summary=vies_summary, display_currency=_currency)
     ws_audit.finalize()
 
     # 8bis. Onglet Historique VIES (piste d'audit — preuve de bonne foi)
@@ -1865,7 +1918,7 @@ def export_xlsx(
 
     # 9. Onglet Analyse AIC FBA (synthèse fiscale des transferts)
     ws_aic = _SequentialSheetWriter(wb.create_sheet("Analyse AIC FBA"))
-    _write_fba_aic_tab(ws_aic, all_fc_transfers or [], results, countries_with_vat)
+    _write_fba_aic_tab(ws_aic, all_fc_transfers or [], results, countries_with_vat, display_currency=_currency)
     ws_aic.finalize()
 
     # 10. Onglet Transferts FBA Détail (liste brute)
@@ -1875,7 +1928,7 @@ def export_xlsx(
 
     # 11. Onglet Intrastat / DEB (aide au remplissage)
     ws_intrastat = _SequentialSheetWriter(wb.create_sheet("Intrastat (EMEBI)"))
-    _write_intrastat_tab(ws_intrastat, all_fc_transfers or [], results, seller_country=seller_country)
+    _write_intrastat_tab(ws_intrastat, all_fc_transfers or [], results, seller_country=seller_country, display_currency=_currency)
     ws_intrastat.finalize()
 
     # 11bis. Onglet INVOICE / CREDIT_NOTE (écritures Amazon hors ventes)

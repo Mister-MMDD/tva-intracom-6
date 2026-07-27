@@ -468,6 +468,7 @@ if uploaded_files:
             tuple(sorted(countries_with_vat)),
             apply_fr_under_threshold,
             home_country,
+            target_currency,
             _vies_retry_nonce,
         )
 
@@ -806,6 +807,7 @@ if uploaded_files:
             all_sales=all_sales,
             platform_name=platform_name,
             home_country=home_country,
+            target_currency=target_currency,
             calc_key=_cache_key,
         )
 
