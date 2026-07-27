@@ -84,7 +84,7 @@ def render_telechargements(ctx: TabContext) -> None:
         ctx.target_currency,
     )
 
-    # ── Génération paresseuse (à la demande) des exports coûteux ───────────
+    # ── Génération conditionnelle des exports coûteux ───────────────────────
     # BUGFIX (perf) : auparavant, TOUS les exports (Excel principal, OSS
     # XML+Excel, CA3/local HTML, B2B, FEC) étaient construits en RAM à CHAQUE
     # calcul, y compris pour les comptes gratuits/non débloqués qui ne
@@ -95,11 +95,18 @@ def render_telechargements(ctx: TabContext) -> None:
     #
     # Nouveau comportement :
     #   - compte non débloqué (`_can_export=False`) : on ne construit RIEN,
-    #     `_lazy_artifact` retourne toujours None immédiatement.
-    #   - compte débloqué : rien n'est construit tant que l'utilisateur n'a
-    #     pas cliqué sur "Générer ce rapport" pour CET artefact précis (le
-    #     cache `_dl_cache_key` évite ensuite de reconstruire tant que le
-    #     calcul TVA / l'identité de l'entreprise ne changent pas réellement).
+    #     `_lazy_artifact` retourne toujours None immédiatement — l'alerte
+    #     de blocage / le paywall Stripe s'affiche directement, comme avant.
+    #   - compte débloqué : construction automatique (comme avant le patch),
+    #     mais mise en cache via `_dl_cache_key` pour ne pas reconstruire à
+    #     chaque rerun tant que le calcul TVA / l'identité de l'entreprise ne
+    #     changent pas réellement.
+    # (Un essai précédent ajoutait un bouton "Générer" explicite par artefact
+    # pour différer la construction jusqu'au clic — abandonné : l'alerte de
+    # blocage apparaissait après le clic au lieu d'avant, le bouton cassait
+    # visuellement l'alignement avec les barres de téléchargement colorées,
+    # et deux rapports au même libellé de bouton (OSS XML / OSS Excel)
+    # devenaient indiscernables avant génération.)
     def _lazy_artifact(name: str, builder, spinner_label: str | None = None):
         if not _can_export:
             return None
@@ -107,12 +114,10 @@ def render_telechargements(ctx: TabContext) -> None:
         _cached = st.session_state.get(_skey)
         if _cached is not None and _cached[0] == _dl_cache_key:
             return _cached[1]
-        if st.button(_("dl_generate_btn"), key=f"_gen_btn_{name}"):
-            with st.spinner(spinner_label or _("dl_generating_generic")):
-                _value = builder()
-            st.session_state[_skey] = (_dl_cache_key, _value)
-            return _value
-        return None
+        with st.spinner(spinner_label or _("dl_generating_generic")):
+            _value = builder()
+        st.session_state[_skey] = (_dl_cache_key, _value)
+        return _value
 
     # period_label, _can_export, _gated_download et _get_payg_checkout_url
     # sont tous calculés/définis plus haut (avant les onglets) — voir bloc

@@ -665,9 +665,12 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             
             st.session_state["manual_logout"] = True
 
-            # Force le ramasse-miettes (Garbage Collector)
-            import gc
-            gc.collect()
+            # Force le ramasse-miettes ET la restitution de la mémoire à
+            # l'OS (gc.collect() seul ne suffit pas : glibc garde les
+            # pages libérées dans ses arènes plutôt que de les rendre au
+            # système, cf. tva_intracom/mem_utils.py)
+            from tva_intracom.mem_utils import release_memory
+            release_memory()
             
             # 3. Suppression du cookie (asynchrone côté client)
             try:

@@ -247,7 +247,10 @@ else:
             st.session_state.pop(_stale_key, None)
     
     # Force le nettoyage de la mémoire après suppression de gros objets
-    gc.collect()
+    # (gc.collect() seul ne suffit pas : glibc ne rend pas les pages à
+    # l'OS de lui-même, cf. tva_intracom/mem_utils.py)
+    from tva_intracom.mem_utils import release_memory
+    release_memory()
 
 if uploaded_files:
     from tva_intracom.parsers import ParseResult
