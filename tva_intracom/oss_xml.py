@@ -282,12 +282,14 @@ def generate_oss_xml(
         supply_from = ET.SubElement(details, "SupplyFromMemberState")
         ET.SubElement(supply_from, "MemberStateOfSupply").text = departure_country
 
-        # Ajout du numéro de TVA local si différent du pays d'identification (ex: FR)
-        # Conformément aux spécifications UE (balise MemberStateOfSupplyVatNumber).
-        if local_vat_numbers and departure_country in local_vat_numbers:
-            local_num = local_vat_numbers[departure_country]
-            if local_num and local_num.strip():
-                ET.SubElement(supply_from, "MemberStateOfSupplyVatNumber").text = local_num.strip()
+        # Ajout du numéro de TVA local pour ce pays de départ (MANDATOIRE selon XSD).
+        # On utilise le numéro local si fourni, sinon le numéro principal (seller_vat).
+        # On évite d'omettre la balise car cela invalide le XML auprès de la DGFIP/UE.
+        local_num = (local_vat_numbers or {}).get(departure_country)
+        if not local_num or not local_num.strip():
+            local_num = seller_vat
+
+        ET.SubElement(supply_from, "MemberStateOfSupplyVatNumber").text = local_num.strip()
 
         # Niveau 2 : pays de DESTINATION / consommation
         for arrival_country, rates in sorted(destinations.items()):
