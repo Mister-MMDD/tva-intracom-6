@@ -93,7 +93,7 @@ class _ColumnWidthTracker:
 
     __slots__ = ("_widths", "_rows_seen")
 
-    def __init_i18n_(self) -> None:
+    def __init__(self) -> None:
         self._widths: dict[int, int] = {}
         self._rows_seen = 0
 
@@ -161,21 +161,21 @@ class _SequentialSheetWriter:
     `_write_*_tab`.
     """
 
-    def __init_i18n_(self, ws) -> None:
-        object.__setattr_i18n_(self, "_ws", ws)
-        object.__setattr_i18n_(self, "_tracker", _ColumnWidthTracker())
-        object.__setattr_i18n_(self, "_buffer", [])       # [[row_num, cells, height], ...] avant fixation des largeurs
-        object.__setattr_i18n_(self, "_pending", None)    # [row_num, cells, height] en attente (mode direct)
-        object.__setattr_i18n_(self, "_widths_set", False)
-        object.__setattr_i18n_(self, "_row_counter", 0)
+    def __init__(self, ws) -> None:
+        object.__setattr__(self, "_ws", ws)
+        object.__setattr__(self, "_tracker", _ColumnWidthTracker())
+        object.__setattr__(self, "_buffer", [])       # [[row_num, cells, height], ...] avant fixation des largeurs
+        object.__setattr__(self, "_pending", None)    # [row_num, cells, height] en attente (mode direct)
+        object.__setattr__(self, "_widths_set", False)
+        object.__setattr__(self, "_row_counter", 0)
 
     # -- Passthrough vers la vraie feuille pour tout le reste de l'API --
-    def __getattr_i18n_(self, name):
+    def __getattr__(self, name):
         return getattr(self._ws, name)
 
-    def __setattr_i18n_(self, name, value):
+    def __setattr__(self, name, value):
         if name in ("_ws", "_tracker", "_buffer", "_pending", "_widths_set", "_row_counter"):
-            object.__setattr_i18n_(self, name, value)
+            object.__setattr__(self, name, value)
         else:
             setattr(self._ws, name, value)  # ex. ws.title = "..."
 
@@ -246,15 +246,15 @@ class _SequentialSheetWriter:
 
 class _RowDimProxy:
     __slots__ = ("_writer",)
-    def __init_i18n_(self, writer) -> None:
+    def __init__(self, writer) -> None:
         self._writer = writer
-    def __getitem_i18n_(self, row_num: int):
+    def __getitem__(self, row_num: int):
         return _RowDimEntry(self._writer, row_num)
 
 
 class _RowDimEntry:
     __slots__ = ("_writer", "_row_num")
-    def __init_i18n_(self, writer, row_num: int) -> None:
+    def __init__(self, writer, row_num: int) -> None:
         self._writer = writer
         self._row_num = row_num
     @property
