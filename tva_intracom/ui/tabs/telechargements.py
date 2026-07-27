@@ -145,10 +145,10 @@ def render_telechargements(ctx: TabContext) -> None:
             # ── Détection en amont des soldes OSS négatifs ──────────
             _oss_agg_preview = aggregate_oss_results(results_net, period=period_label)
             _negative_buckets = find_oss_negative_buckets(_oss_agg_preview)
-            _confirm_corrections = False
+            _confirm_corrections = st.session_state.get("confirm_oss_corrections", False)
+
             if _negative_buckets:
                 _suggestions = preview_negative_bucket_suggestions(results_net, period_label)
-                _all_resolved = bool(_suggestions) and all(s.fully_resolved for s in _suggestions)
                 _any_matched = any(s.matched for s in _suggestions)
                 if _any_matched:
                     with st.expander(_("dl_oss_negative_expander"), expanded=True):
@@ -161,10 +161,14 @@ def render_telechargements(ctx: TabContext) -> None:
                                 st.markdown(_("dl_oss_negative_unmatched", label=_lbl, count=s.unmatched_count, ht=f"{float(s.unmatched_ht):,.2f}"))
                         _confirm_corrections = st.checkbox(_("dl_oss_confirm_corrections"), key="confirm_oss_corrections")
 
-            try:
-                oss_xml_bytes = generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
-            except ValueError:
-                oss_xml_bytes = generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
+            def _build_oss_xml():
+                try:
+                    return generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
+                except ValueError:
+                    return generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
+
+            # On inclut _confirm_corrections dans la clé de cache car le XML change selon cette option
+            oss_xml_bytes = _cached_artifact(f"oss_xml_{_confirm_corrections}", _build_oss_xml)
 
             if oss_xml_bytes:
                 _gated_download(_("dl_xml_oss_btn"), data=oss_xml_bytes, file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml", width="stretch", type="primary")

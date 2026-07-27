@@ -398,7 +398,11 @@ def build_billing_gate(
         can_export = False
 
     try:
-        payg_price = tva_billing.get_pricing_grid(current_user.id).get("payg")
+        _grid = _cached_db_read(
+            f"pricing_grid_{current_user.id}",
+            lambda: tva_billing.get_pricing_grid(current_user.id),
+        )
+        payg_price = _grid.get("payg")
     except Exception:
         payg_price = None
 

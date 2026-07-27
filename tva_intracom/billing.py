@@ -23,6 +23,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.pool
+import streamlit as st
 
 try:
     import stripe  # type: ignore
@@ -274,6 +275,7 @@ class SubscriptionStatus:
     siren_quantity: Optional[int] = None
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_subscription_status(user_id: str) -> SubscriptionStatus:
     def _fn(conn, cur):
         cur.execute(
@@ -614,6 +616,7 @@ def _stripe_customer_has_paid_before(customer_id: str) -> bool:
         return False
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
     """Liste les codes promotionnels actifs configurés côté Stripe (Dashboard),
     avec leurs conditions d'utilisation, sans jamais les recopier en dur ici.
@@ -756,6 +759,7 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
     return results
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def get_pricing_grid(user_id: Optional[str] = None) -> dict:
     """Récupère la grille tarifaire réelle depuis l'API Stripe (source de
     vérité — jamais recopiée en dur ici, pour ne jamais diverger de ce qui
