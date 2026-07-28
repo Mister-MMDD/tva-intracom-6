@@ -20,6 +20,10 @@ from __future__ import annotations
 
 import ctypes
 import gc
+import logging
+import streamlit as st
+
+logger = logging.getLogger(__name__)
 
 _libc = None
 _libc_load_attempted = False
@@ -44,10 +48,38 @@ def release_memory() -> None:
     (fichiers uploadés, résultats de calcul, DataFrames...) : à la
     déconnexion (logout) et lors du retrait de fichiers uploadés.
     """
+    # 1. Vide les caches globaux Streamlit (souvent la source des plateaux RSS)
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+
+    # 2. Vide les caches de traduction (LRU cache)
+    try:
+        from .i18n.i18n import load_translations
+        load_translations.cache_clear()
+    except Exception:
+        pass
+
+    # 3. Force le ramasse-miettes (plusieurs fois pour les cycles)
     gc.collect()
+    gc.collect()
+
+    # 4. Rend la mémoire à l'OS
     libc = _get_libc()
     if libc is not None:
+        # Cas A : jemalloc (via LD_PRELOAD) — on purge les arènes
         try:
-            libc.malloc_trim(0)
+            # arenas.dirty_decay_ms = 0 -> purge immédiate des pages sales
+            # arenas.muzzy_decay_ms = 0 -> purge immédiate des pages "muzzy" (tièdes)
+            val = ctypes.c_ssize_t(0)
+            libc.mallctl(b"arenas.dirty_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
+            libc.mallctl(b"arenas.muzzy_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
+            logger.info("Mémoire : Purge jemalloc effectuée.")
         except Exception:
-            pass
+            # Cas B : glibc standard
+            try:
+                libc.malloc_trim(0)
+                logger.info("Mémoire : malloc_trim(0) effectué.")
+            except Exception:
+                pass

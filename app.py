@@ -235,20 +235,18 @@ else:
     # auto-détectée, etc. disparaissent immédiatement plutôt que de rester
     # affichés avec les anciennes données.
     # On nettoie également les jobs en arrière-plan et les caches de session.
+    _WHITELIST = {
+        "language", "auth_user", "manual_logout", "_cookie_sync_attempts",
+        "_prefs_synced_user", "tva_cookie_manager", "main_file_uploader",
+        "language_selector_ui", "home_country_select", "display_currency_select",
+        "target_currency", "currency_symbol", "display_currency_choice",
+        "confirm_delete_account", "_malformed_vies_purged",
+    }
     for _stale_key in list(st.session_state.keys()):
-        if _stale_key in (
-            "_last_uploaded_files_bytes", "_results", "_refund_results", "_summary",
-            "_calc_key", "_vies_summary", "_oss_summary", "_parse_cache_key",
-            "_parse_cache_data", "_period_label", "_period_sync_key",
-            "_period_detect_cache", "_vies_certificate_pdf_sidebar"
-        ) or _stale_key.startswith("_bgjob_") \
-          or _stale_key.startswith("_stripe_checkout_url::") \
-          or _stale_key.startswith("_dl_artifact_"):
+        if _stale_key not in _WHITELIST:
             st.session_state.pop(_stale_key, None)
     
     # Force le nettoyage de la mémoire après suppression de gros objets
-    # (gc.collect() seul ne suffit pas : glibc ne rend pas les pages à
-    # l'OS de lui-même, cf. tva_intracom/mem_utils.py)
     from tva_intracom.mem_utils import release_memory
     release_memory()
 

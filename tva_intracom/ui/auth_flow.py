@@ -657,18 +657,16 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                     pass
             
             # 2. Nettoyage agressif de la session locale pour libérer la RAM
-            # On ne garde que manual_logout pour éviter la reconnexion auto par cookie.
-            # Tout le reste (résultats de calculs, octets de fichiers, cache) est supprimé.
+            # On ne garde que le strict minimum pour éviter les fuites.
+            _LOGOUT_WHITELIST = {"manual_logout", "language"}
             for key in list(st.session_state.keys()):
-                if key != "manual_logout":
+                if key not in _LOGOUT_WHITELIST:
                     del st.session_state[key]
             
             st.session_state["manual_logout"] = True
 
             # Force le ramasse-miettes ET la restitution de la mémoire à
-            # l'OS (gc.collect() seul ne suffit pas : glibc garde les
-            # pages libérées dans ses arènes plutôt que de les rendre au
-            # système, cf. tva_intracom/mem_utils.py)
+            # l'OS (st.cache_data.clear() + gc.collect() + jemalloc purge)
             from tva_intracom.mem_utils import release_memory
             release_memory()
             
