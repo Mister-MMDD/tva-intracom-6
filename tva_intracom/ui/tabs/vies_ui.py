@@ -16,6 +16,63 @@ from tva_intracom.ui.formatting import _country_label, _gated_preview_table, _sm
 from tva_intracom.ui.tabs.context import TabContext
 
 
+@st.fragment
+def render_manual_vies_classification() -> None:
+    """Isole la classification manuelle en fragment pour ne pas rerun toute l'app."""
+    ctx: TabContext = st.session_state["_tab_ctx"]
+    vies_summary = ctx.vies_summary
+    _vies_scope_id = ctx.vies_scope_id
+
+    _details = getattr(vies_summary, "inconclusive_vat_details", None)
+    if _details:
+        _inc_entries = [{"vat": d["vat"], "country": d.get("country", d["vat"][:2]),
+            "sale_ids": (d.get("display_ids") or d.get("sale_ids", []))} for d in _details]
+    else:
+        _inc_entries = [{"vat": v, "country": v[:2], "sale_ids": []}
+            for v in vies_summary.inconclusive_vats]
+    _overrides: dict = st.session_state.get("_vies_manual_overrides", {})
+
+    with st.expander(_("vies_manual_class_title"), expanded=True):
+        st.caption(_("vies_manual_class_caption"))
+        _changed = False
+        for _entry in _inc_entries:
+            _vat = _entry["vat"]; _country = _entry["country"]; _sale_ids = _entry["sale_ids"]
+            _label = f"**{_vat}** ({_country})"
+            if _sale_ids:
+                _label += f" — vente(s) : {', '.join(_sale_ids[:3])}"
+                if len(_sale_ids) > 3: _label += f" +{len(_sale_ids)-3}"
+            _current = _overrides.get(_vat, _("vies_manual_class_not_classified"))
+            _col_label, _col_sel, _col_badge = st.columns([3, 2, 1])
+            _col_label.markdown(_label)
+            _choice = _col_sel.selectbox(_("vies_manual_class_status"),
+                options=[_("vies_manual_class_not_classified"), _("manual_valid"), _("manual_invalid")],
+                index=[_("vies_manual_class_not_classified"), _("manual_valid"), _("manual_invalid")].index(_current),
+                key=f"vies_override_{_vat}", label_visibility="collapsed")
+            _col_badge.markdown("🆕" if _choice != _current else "")
+            if _choice != _current:
+                _overrides[_vat] = _choice; _changed = True
+        if _changed:
+            st.session_state["_vies_manual_overrides"] = _overrides
+            st.rerun(scope="fragment")
+
+        _pending = {v: c for v, c in _overrides.items() if c != _("vies_manual_class_not_classified")}
+        st.caption(_("vies_manual_class_nums_classified", count=len(_pending), total=len(_inc_entries)))
+        _col_apply, _col_reset = st.columns([2, 1])
+        with _col_apply:
+            if _pending and st.button(_("vies_manual_class_apply_btn"), type="primary"):
+                from tva_intracom.vies_engine import set_manual_override as _smo_apply
+                for _vat_key, _choice_val in _pending.items():
+                    _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == _("manual_valid")))
+                st.session_state.pop("_vies_manual_overrides", None)
+                st.session_state.pop("_calc_key", None)
+                st.success(_("vies_manual_class_success"))
+                st.rerun()
+        with _col_reset:
+            if st.button(_("vies_manual_class_reset_btn")):
+                st.session_state.pop("_vies_manual_overrides", None)
+                st.rerun()
+
+
 def render_vies(ctx: TabContext) -> None:
     """Rendu complet de l'onglet VIES."""
     _can_export = ctx.can_export
@@ -121,57 +178,6 @@ def render_vies(ctx: TabContext) -> None:
                         st.success(_("vies_test_ok", name=test_res.name))
                     else:
                         st.error(_("vies_test_fail", valid=test_res.valid, error=test_res.error))
-
-            @st.fragment
-            def render_manual_vies_classification():
-                _details = getattr(vies_summary, "inconclusive_vat_details", None)
-                if _details:
-                    _inc_entries = [{"vat": d["vat"], "country": d.get("country", d["vat"][:2]),
-                        "sale_ids": (d.get("display_ids") or d.get("sale_ids", []))} for d in _details]
-                else:
-                    _inc_entries = [{"vat": v, "country": v[:2], "sale_ids": []}
-                        for v in vies_summary.inconclusive_vats]
-                _overrides: dict = st.session_state.get("_vies_manual_overrides", {})
-
-                with st.expander(_("vies_manual_class_title"), expanded=True):
-                    st.caption(_("vies_manual_class_caption"))
-                    _changed = False
-                    for _entry in _inc_entries:
-                        _vat = _entry["vat"]; _country = _entry["country"]; _sale_ids = _entry["sale_ids"]
-                        _label = f"**{_vat}** ({_country})"
-                        if _sale_ids:
-                            _label += f" — vente(s) : {', '.join(_sale_ids[:3])}"
-                            if len(_sale_ids) > 3: _label += f" +{len(_sale_ids)-3}"
-                        _current = _overrides.get(_vat, _("vies_manual_class_not_classified"))
-                        _col_label, _col_sel, _col_badge = st.columns([3, 2, 1])
-                        _col_label.markdown(_label)
-                        _choice = _col_sel.selectbox(_("vies_manual_class_status"),
-                            options=[_("vies_manual_class_not_classified"), _("manual_valid"), _("manual_invalid")],
-                            index=[_("vies_manual_class_not_classified"), _("manual_valid"), _("manual_invalid")].index(_current),
-                            key=f"vies_override_{_vat}", label_visibility="collapsed")
-                        _col_badge.markdown("🆕" if _choice != _current else "")
-                        if _choice != _current:
-                            _overrides[_vat] = _choice; _changed = True
-                    if _changed:
-                        st.session_state["_vies_manual_overrides"] = _overrides
-                        st.rerun(scope="fragment")
-
-                    _pending = {v: c for v, c in _overrides.items() if c != _("vies_manual_class_not_classified")}
-                    st.caption(_("vies_manual_class_nums_classified", count=len(_pending), total=len(_inc_entries)))
-                    _col_apply, _col_reset = st.columns([2, 1])
-                    with _col_apply:
-                        if _pending and st.button(_("vies_manual_class_apply_btn"), type="primary"):
-                            from tva_intracom.vies_engine import set_manual_override as _smo_apply
-                            for _vat_key, _choice_val in _pending.items():
-                                _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == _("manual_valid")))
-                            st.session_state.pop("_vies_manual_overrides", None)
-                            st.session_state.pop("_calc_key", None)
-                            st.success(_("vies_manual_class_success"))
-                            st.rerun()
-                    with _col_reset:
-                        if st.button(_("vies_manual_class_reset_btn")):
-                            st.session_state.pop("_vies_manual_overrides", None)
-                            st.rerun()
 
             render_manual_vies_classification()
 

@@ -26,19 +26,31 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 _libc = None
-_libc_load_attempted = False
+_jemalloc = None
+_load_attempted = False
 
 
-def _get_libc():
-    """Charge libc une seule fois (paresseux, silencieux si indisponible)."""
-    global _libc, _libc_load_attempted
-    if not _libc_load_attempted:
-        _libc_load_attempted = True
+def _get_libs():
+    """Charge les bibliothèques système (paresseux)."""
+    global _libc, _jemalloc, _load_attempted
+    if not _load_attempted:
+        _load_attempted = True
+        # 1. Tente de charger jemalloc (le chemin Railway/Nixpacks)
+        for path in ["libjemalloc.so.2", "/usr/lib/x86_64-linux-gnu/libjemalloc.so.2"]:
+            try:
+                _jemalloc = ctypes.CDLL(path)
+                logger.info(f"Mémoire : jemalloc chargé depuis {path}")
+                break
+            except OSError:
+                continue
+        
+        # 2. Tente de charger libc standard
         try:
             _libc = ctypes.CDLL("libc.so.6")
         except OSError:
             _libc = None
-    return _libc
+            
+    return _libc, _jemalloc
 
 
 def release_memory() -> None:
@@ -48,38 +60,49 @@ def release_memory() -> None:
     (fichiers uploadés, résultats de calcul, DataFrames...) : à la
     déconnexion (logout) et lors du retrait de fichiers uploadés.
     """
-    # 1. Vide les caches globaux Streamlit (souvent la source des plateaux RSS)
+    # 1. Vide les caches globaux Streamlit (TRÈS IMPORTANT)
+    # Les agrégats de graphiques (@st.cache_data) peuvent peser plusieurs dizaines de Mo.
     try:
         st.cache_data.clear()
+        logger.info("Mémoire : st.cache_data vidé.")
     except Exception:
         pass
 
-    # 2. Vide les caches de traduction (LRU cache)
+    # 2. Vide les caches de traduction
     try:
         from .i18n.i18n import load_translations
         load_translations.cache_clear()
     except Exception:
         pass
 
-    # 3. Force le ramasse-miettes (plusieurs fois pour les cycles)
+    # 3. Force le ramasse-miettes (plusieurs passes pour les cycles)
     gc.collect()
     gc.collect()
 
     # 4. Rend la mémoire à l'OS
-    libc = _get_libc()
-    if libc is not None:
-        # Cas A : jemalloc (via LD_PRELOAD) — on purge les arènes
+    libc, jemalloc = _get_libs()
+    
+    # Cas A : jemalloc (prioritaire si détecté)
+    if jemalloc is not None:
         try:
             # arenas.dirty_decay_ms = 0 -> purge immédiate des pages sales
             # arenas.muzzy_decay_ms = 0 -> purge immédiate des pages "muzzy" (tièdes)
             val = ctypes.c_ssize_t(0)
-            libc.mallctl(b"arenas.dirty_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
-            libc.mallctl(b"arenas.muzzy_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
-            logger.info("Mémoire : Purge jemalloc effectuée.")
-        except Exception:
-            # Cas B : glibc standard
+            jemalloc.mallctl(b"arenas.dirty_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
+            jemalloc.mallctl(b"arenas.muzzy_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
+            # Force également un "thread.tcache.flush" pour libérer les caches locaux aux threads
             try:
-                libc.malloc_trim(0)
-                logger.info("Mémoire : malloc_trim(0) effectué.")
+                jemalloc.mallctl(b"thread.tcache.flush", None, None, None, 0)
             except Exception:
                 pass
+            logger.info("Mémoire : Purge jemalloc effectuée.")
+        except Exception as e:
+            logger.warning(f"Mémoire : Échec purge mallctl jemalloc : {e}")
+
+    # Cas B : glibc standard (ou fallback)
+    if libc is not None:
+        try:
+            libc.malloc_trim(0)
+            logger.info("Mémoire : malloc_trim(0) effectué.")
+        except Exception:
+            pass
