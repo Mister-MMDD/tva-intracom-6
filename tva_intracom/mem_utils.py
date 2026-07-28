@@ -12,9 +12,9 @@ redescend pas, même si plus aucun objet Python volumineux n'existe.
 `release_memory()` fait donc deux choses :
 1. `gc.collect()` — libère les objets Python (comme avant).
 2. `ctypes` -> `malloc_trim(0)` — force glibc à rendre à l'OS les pages
-   libres en haut de tas (fonctionne sur Linux/glibc uniquement, ce qui
-   est le cas sur Streamlit Cloud et Railway ; no-op silencieux ailleurs,
-   par exemple sur macOS en local, où libc.so.6 n'existe pas).
+   libres en haut de tas. 
+   Note : En production, nous utilisons jemalloc (via LD_PRELOAD) qui 
+   gère cela de manière beaucoup plus efficace que glibc.
 """
 from __future__ import annotations
 
