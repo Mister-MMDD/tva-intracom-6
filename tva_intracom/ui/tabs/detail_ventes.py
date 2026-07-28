@@ -32,7 +32,7 @@ def _orig_currency_cols(r, target_currency: str) -> tuple[str, object]:
 
 
 @st.fragment
-def render_detail_ventes(ctx: TabContext) -> None:
+def render_detail_ventes() -> None:
     """Rendu complet de l'onglet Détail ventes.
 
     Décoré en `@st.fragment` : un changement de widget à l'intérieur de cet
@@ -42,7 +42,22 @@ def render_detail_ventes(ctx: TabContext) -> None:
     gros volumes (5-20k lignes) où le reste de l'app (5 graphiques Plotly,
     appels VIES, etc.) n'a aucune raison de se recalculer juste parce qu'on
     veut voir 500 lignes au lieu de 250.
+
+    IMPORTANT (mémoire) : `ctx` n'est PLUS reçu en paramètre. Streamlit
+    retient, au niveau de la session interne (indépendamment de
+    `st.session_state`), les arguments du dernier appel d'une fonction
+    `@st.fragment` -- nécessaire pour pouvoir rejouer CE fragment seul sur
+    interaction locale. Si `ctx` (qui porte `results`/`all_sales`, donc
+    potentiellement des milliers d'objets `Sale`/`VatResult`) était passé
+    en argument, Streamlit le gardait vivant indéfiniment, MÊME après un
+    `st.session_state.clear()` au logout -- c'était la cause de la fuite
+    mémoire observée (RAM qui ne redescendait jamais). En lisant `ctx`
+    depuis `st.session_state["_tab_ctx"]` À L'INTÉRIEUR du corps de la
+    fonction, Streamlit ne retient plus, pour ce fragment, qu'un appel
+    sans argument lourd : la seule référence vivante à `ctx` est celle de
+    `st.session_state`, qui est bien libérée au logout.
     """
+    ctx: TabContext = st.session_state["_tab_ctx"]
     results = ctx.results
     refund_results = ctx.refund_results
     _can_export = ctx.can_export

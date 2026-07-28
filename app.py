@@ -814,16 +814,27 @@ if uploaded_files:
             calc_key=_cache_key,
         )
 
+        # Stocké dans session_state (et non plus seulement passé en argument)
+        # pour render_detail_ventes()/render_audit()/render_telechargements()
+        # -- ces trois onglets sont décorés `@st.fragment`, et Streamlit
+        # retient sinon les arguments du dernier appel d'un fragment au
+        # niveau de la session interne, INDÉPENDAMMENT de session_state :
+        # passer directement `_tab_ctx` (qui porte all_sales/results, donc
+        # potentiellement des milliers d'objets Sale/VatResult) les gardait
+        # vivants même après un `st.session_state.clear()` au logout.
+        # Voir la docstring de render_detail_ventes() pour le détail complet.
+        st.session_state["_tab_ctx"] = _tab_ctx
+
         # Visite guidée des onglets : uniquement au tout premier import réussi
         # pour ce compte (voir tva_intracom/ui/onboarding.py) — `results`
         # n'existe à ce stade que si le calcul a abouti sans lever d'exception.
         maybe_show_tabs_tour(_current_user)
 
         with tab_decl: render_declarations(_tab_ctx)
-        with tab_detail: render_detail_ventes(_tab_ctx)
+        with tab_detail: render_detail_ventes()
         with tab_vies: render_vies(_tab_ctx)
-        with tab_audit: render_audit(_tab_ctx)
-        with tab_dl: render_telechargements(_tab_ctx)
+        with tab_audit: render_audit()
+        with tab_dl: render_telechargements()
         with tab_viz: render_visualisations(_tab_ctx)
 
         # BUGFIX : la sidebar a été dessinée en tout début de run avec

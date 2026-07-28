@@ -17,13 +17,21 @@ from tva_intracom.ui.tabs.context import TabContext
 
 
 @st.fragment
-def render_audit(ctx: TabContext) -> None:
+def render_audit() -> None:
     """Rendu complet de l'onglet Audit Amazon.
 
     Décoré en `@st.fragment` (comme `detail_ventes.py`) : une interaction
     locale à cet onglet (filtre, changement de sous-onglet) ne redéclenche
     plus le rerun de toute l'app.
+
+    IMPORTANT (mémoire) : `ctx` n'est plus reçu en paramètre mais lu depuis
+    `st.session_state["_tab_ctx"]` -- voir la docstring de
+    `render_detail_ventes` (detail_ventes.py) pour l'explication complète :
+    Streamlit retenait sinon `ctx` (et donc `all_sales`/`results`) au niveau
+    interne du fragment, indépendamment de `session_state`, ce qui causait
+    une fuite mémoire survivant au logout.
     """
+    ctx: TabContext = st.session_state["_tab_ctx"]
     results = ctx.results
     _can_export = ctx.can_export
     _gated_download = ctx.gated_download
