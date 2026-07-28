@@ -90,6 +90,16 @@ def release_memory() -> None:
             val = ctypes.c_ssize_t(0)
             jemalloc.mallctl(b"arenas.dirty_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
             jemalloc.mallctl(b"arenas.muzzy_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
+            
+            # Flush complet de l'allocateur
+            # arenas.purge forcera la libération de toutes les pages inutilisées
+            try:
+                # -1 signifie "tous les arenas"
+                all_arenas = ctypes.c_uint(0xFFFFFFFF)
+                jemalloc.mallctl(b"arena.4294967295.purge", None, None, None, 0)
+            except Exception:
+                pass
+
             # Force également un "thread.tcache.flush" pour libérer les caches locaux aux threads
             try:
                 jemalloc.mallctl(b"thread.tcache.flush", None, None, None, 0)
