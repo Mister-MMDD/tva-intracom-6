@@ -121,7 +121,7 @@ def render_telechargements() -> None:
         _cached = st.session_state.get(_skey)
         if _cached is not None and _cached[0] == _dl_cache_key:
             return _cached[1]
-        if st.button(_("dl_generate_btn"), key=f"_gen_btn_{name}"):
+        if st.button(_("dl_generate_btn"), key=f"_gen_btn_{name}", width="stretch", type="primary"):
             with st.spinner(spinner_label or _("dl_generating_generic")):
                 _value = builder()
             st.session_state[_skey] = (_dl_cache_key, _value)

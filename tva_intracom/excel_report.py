@@ -101,6 +101,8 @@ class _ColumnWidthTracker:
         self._rows_seen += 1
         if self._rows_seen > _AUTO_WIDTH_SAMPLE_ROWS + 1:  # +1 pour l'en-tête
             return
+        if len(values) <= 1:  # Likely a title or note that shouldn't define column width
+            return
         for col_idx, value in enumerate(values, 1):
             if value is None:
                 continue
