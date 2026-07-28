@@ -17,6 +17,7 @@ sidebar.py + section debug à supprimer, cf. commentaires "TEMPORAIRE").
 from __future__ import annotations
 
 import gc
+import sys
 from collections import Counter
 from typing import Optional
 
@@ -44,7 +45,7 @@ def _object_type_counts() -> Counter:
     return counts
 
 
-def find_referrer_chain(type_name: str, max_instances: int = 3, max_depth: int = 4) -> list[list[str]]:
+def find_referrer_chain(type_name: str, max_instances: int = 3, max_depth: int = 15) -> list[list[str]]:
     """Pour quelques instances survivantes du type `type_name` (ex: "Sale"),
     remonte la chaîne de référents via `gc.get_referrers` et renvoie, pour
     chacune, la liste des TYPES rencontrés en remontant (jamais le contenu
@@ -52,44 +53,92 @@ def find_referrer_chain(type_name: str, max_instances: int = 3, max_depth: int =
     métier, par précaution RGPD puisque `Sale` peut porter des données
     d'entreprise clientes).
 
-    Lecture du résultat : le dernier élément de chaque chaîne est
-    généralement le conteneur "racine" qui explique pourquoi l'objet
-    n'a jamais été libéré (un module, un dict au niveau module, une
-    closure de thread, un cache Streamlit interne, etc.).
+    Contrairement à une v1 naïve qui suivait juste "le premier référent
+    trouvé", celle-ci :
+    - explore TOUS les référents à chaque niveau (pas un seul choisi au
+      hasard), pour ne pas suivre une mauvaise branche et perdre la vraie
+      racine (fréquent avec des structures imbriquées liste-de-listes) ;
+    - détecte les cycles (id() déjà vu) pour éviter une boucle infinie
+      list <- list <- list <- ... qui ne terminait jamais avec l'ancienne
+      version (max_depth atteint sans conclusion) ;
+    - s'arrête dès qu'un référent "racine" reconnaissable est atteint :
+      frame (nom de fonction), module, ou objet dont le refcount/contexte
+      suggère un cache/état long-vivant (dict avec clé "__name__", classe
+      Streamlit interne type SessionState/ScriptRunContext/ThreadPoolExecutor).
+
+    Lecture du résultat : chaque ligne du "chemin" est
+      "TypeDuRéférent (id=...) [+N autres référents à ce niveau]"
+    Le nombre de référents supplémentaires à un niveau donné est un indice :
+    s'il y en a beaucoup, l'objet est référencé depuis plusieurs endroits
+    (ex: plusieurs caches) et pas juste un chemin linéaire.
     """
     gc.collect()
     instances = [o for o in gc.get_objects() if type(o).__name__ == type_name][:max_instances]
+    _this_frame_code = sys._getframe().f_code
+
+    ROOT_HINTS = {"frame", "module", "ThreadPoolExecutor", "_WorkItem", "SimpleQueue",
+                  "ScriptRunContext", "SessionState", "Thread"}
 
     chains: list[list[str]] = []
     for inst in instances:
-        chain: list[str] = [type_name]
+        path: list[str] = [f"{type_name} (id={id(inst)})"]
         current = inst
-        seen_ids = {id(inst)}
-        for _ in range(max_depth):
+        visited_ids = {id(inst), id(instances)}
+        for _depth in range(max_depth):
             referrers = [
                 r for r in gc.get_referrers(current)
-                # on ignore les frames/listes locales de cette fonction elle-même
-                if r is not instances and id(r) not in seen_ids
+                if id(r) not in visited_ids
+                and not (type(r).__name__ == "frame" and r.f_code is _this_frame_code)
             ]
             if not referrers:
-                chain.append("(plus de référent trouvé -- racine atteinte)")
+                path.append("(racine atteinte : plus aucun référent)")
                 break
-            ref = referrers[0]
-            seen_ids.add(id(ref))
-            ref_type = type(ref).__name__
-            # Pour un dict/list/frame, on ajoute un indice utile (nom de
-            # variable si dispo pour une frame) sans jamais dumper le
-            # contenu d'un Sale/VatResult.
-            if ref_type == "frame":
-                chain.append(f"frame (fonction: {ref.f_code.co_name})")
-                break  # une frame de fonction est une racine suffisante
-            if ref_type == "module":
-                chain.append(f"module ({getattr(ref, '__name__', '?')})")
+
+            ref_type_counts: dict[str, int] = {}
+            for r in referrers:
+                ref_type_counts[type(r).__name__] = ref_type_counts.get(type(r).__name__, 0) + 1
+
+            # on choisit comme "prochain saut" le référent dont le type
+            # correspond le plus probablement à une vraie racine, sinon le
+            # premier de la liste
+            chosen = referrers[0]
+            for r in referrers:
+                if type(r).__name__ in ROOT_HINTS:
+                    chosen = r
+                    break
+
+            chosen_type = type(chosen).__name__
+            extra = len(referrers) - 1
+            _len_info = ""
+            try:
+                _len_info = f", len={len(chosen)}"
+            except TypeError:
+                pass
+            label = f"{chosen_type} (id={id(chosen)}{_len_info})" + (f" [+{extra} autre(s) référent(s) à ce niveau: {dict(ref_type_counts)}]" if extra else "")
+
+            if chosen_type == "frame":
+                label = f"frame (fonction: {chosen.f_code.co_name}, fichier: {chosen.f_code.co_filename.split('/')[-1]})"
+                path.append(label)
                 break
-            chain.append(ref_type)
-            current = ref
-        chains.append(chain)
+            if chosen_type == "module":
+                label = f"module ({getattr(chosen, '__name__', '?')})"
+                path.append(label)
+                break
+
+            if id(chosen) in visited_ids:
+                path.append(f"(cycle détecté sur {chosen_type}, id={id(chosen)} déjà visité -- arrêt)")
+                break
+
+            path.append(label)
+            visited_ids.add(id(chosen))
+            current = chosen
+        else:
+            path.append(f"(profondeur max {max_depth} atteinte sans racine claire)")
+        chains.append(path)
     return chains
+
+
+
 
 
 
