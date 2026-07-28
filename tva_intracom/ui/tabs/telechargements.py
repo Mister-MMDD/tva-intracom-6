@@ -121,11 +121,25 @@ def render_telechargements() -> None:
         _cached = st.session_state.get(_skey)
         if _cached is not None and _cached[0] == _dl_cache_key:
             return _cached[1]
-        if st.button(_(label, **label_kwargs), key=f"_gen_btn_{name}", width="stretch", type="primary"):
+        # NOTE (aspect visuel) : `type="secondary"` (défaut) reprend le style
+        # sombre/texte clair des boutons de téléchargement (`st.download_button`,
+        # jugé plus lisible en thème sombre que `type="primary"`, trop clair).
+        if st.button(_(label, **label_kwargs), key=f"_gen_btn_{name}", width="stretch", type="secondary"):
             with st.spinner(spinner_label or _("dl_generating_generic")):
                 _value = builder()
             st.session_state[_skey] = (_dl_cache_key, _value)
-            return _value
+            # BUGFIX (bouton "Générer" qui ne disparaît pas toujours) :
+            # `st.button()` a déjà été rendu à l'écran AVANT qu'on sache ici
+            # qu'il a été cliqué. Sans rerun, ce même passage de script
+            # affiche donc à la fois le bouton "Générer" (déjà dessiné) ET,
+            # juste en dessous, le bouton de téléchargement nouvellement
+            # disponible — le bouton "Générer" ne disparaissait qu'au
+            # prochain rerun (autre interaction). On force ici un rerun
+            # immédiat, cantonné à ce fragment (`scope="fragment"`, sans
+            # impact sur le reste de la page), pour que ce même passage
+            # relise le cache et n'affiche plus que le bouton de
+            # téléchargement dès ce clic.
+            st.rerun(scope="fragment")
         return None
 
     # period_label, _can_export, _gated_download et _get_payg_checkout_url

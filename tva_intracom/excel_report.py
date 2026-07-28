@@ -1666,11 +1666,21 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     months = sorted({m for per_country in by_country_month.values() for m in per_country})
 
-    header_row = 4
+    # BUGFIX (#VALEUR! en colonne "TVA Nette") : cet onglet insère UNE ligne
+    # de plus que l'onglet OSS avant les en-têtes (l'avertissement "pays non
+    # immatriculé" OU une ligne vide de remplacement, voir juste en-dessous),
+    # ce qui décale la ligne d'en-têtes réelle à la ligne 5 (et non 4 comme
+    # dans _write_oss_tab, qui n'a pas cette ligne supplémentaire). `header_row`
+    # restait à 4 alors que la ligne physique des en-têtes est 5 : chaque
+    # formule `=E{row}+F{row}` référençait donc la ligne du DESSUS (en-tête ou
+    # pays précédent) au lieu de sa propre ligne, d'où des totaux décalés
+    # d'une ligne et un #VALEUR! sur la dernière ligne (qui se retrouvait à
+    # additionner la ligne "TOTAL LOCAL", du texte).
+    header_row = 5
     if unregistered:
         ws.append([_wcell(ws, i18n_("xl_local_unregistered_warning", countries=", ".join(unregistered)),
                            font=_ALERT_FONT, fill=_ALERT_FILL)])
-        ws.row_dimensions[2].height = 18
+        ws.row_dimensions[3].height = 18
     else:
         ws.append([])
 
@@ -1680,7 +1690,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     col_brut, col_ref, col_net, col_status = total_start_col, total_start_col + 1, total_start_col + 2, total_start_col + 3
     letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
 
-    _group_cells = _write_section_group_row(ws, month_start_col, len(months), total_start_col, 3, fill=_ORANGE_HEADER_FILL)
+    _group_cells = _write_section_group_row(ws, month_start_col, len(months), total_start_col, header_row - 1, fill=_ORANGE_HEADER_FILL)
     ws.append(_group_cells)
     ws.row_dimensions[header_row - 1].height = 18
 
@@ -1866,6 +1876,15 @@ def export_xlsx(
     # plus être relue (pas de wb.active, pas de ws.cell(row=,col=), pas de
     # merge_cells) : chaque fonction _write_*_tab a été adaptée en conséquence.
     wb = Workbook(write_only=True)
+    # openpyxl n'écrit jamais de valeur mise en cache pour les cellules-formule
+    # (seulement la chaîne "=..."). Excel les recalcule normalement à
+    # l'ouverture, mais dans certains cas (Mode protégé après téléchargement,
+    # aperçu par certains lecteurs tiers) le classeur peut s'afficher sans
+    # recalcul tant que l'utilisateur n'a pas quitté ce mode. `fullCalcOnLoad`
+    # force Excel à recalculer TOUT le classeur dès l'ouverture (dès que
+    # l'édition/le calcul est autorisé), plutôt que d'attendre une modification
+    # manuelle d'une cellule pour déclencher le calcul.
+    wb.calculation.fullCalcOnLoad = True
 
     # 1. Page de synthèse
     ws_recap = _SequentialSheetWriter(wb.create_sheet())
