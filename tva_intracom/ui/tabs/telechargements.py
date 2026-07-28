@@ -84,40 +84,47 @@ def render_telechargements(ctx: TabContext) -> None:
         ctx.target_currency,
     )
 
-    # ── Génération conditionnelle des exports coûteux ───────────────────────
+    # ── Génération à la demande des exports coûteux ─────────────────────────
     # BUGFIX (perf) : auparavant, TOUS les exports (Excel principal, OSS
     # XML+Excel, CA3/local HTML, B2B, FEC) étaient construits en RAM à CHAQUE
     # calcul, y compris pour les comptes gratuits/non débloqués qui ne
     # peuvent de toute façon rien télécharger depuis cet onglet (seul le
     # certificat VIES, géré séparément dans vies_ui.py, leur est accessible).
-    # `_gated_download` ne fait que masquer le bouton a posteriori — les
-    # bytes déjà construits étaient donc jetés sans jamais avoir servi.
     #
-    # Nouveau comportement :
-    #   - compte non débloqué (`_can_export=False`) : on ne construit RIEN,
-    #     `_lazy_artifact` retourne toujours None immédiatement — l'alerte
-    #     de blocage / le paywall Stripe s'affiche directement, comme avant.
-    #   - compte débloqué : construction automatique (comme avant le patch),
-    #     mais mise en cache via `_dl_cache_key` pour ne pas reconstruire à
-    #     chaque rerun tant que le calcul TVA / l'identité de l'entreprise ne
-    #     changent pas réellement.
-    # (Un essai précédent ajoutait un bouton "Générer" explicite par artefact
-    # pour différer la construction jusqu'au clic — abandonné : l'alerte de
-    # blocage apparaissait après le clic au lieu d'avant, le bouton cassait
-    # visuellement l'alignement avec les barres de téléchargement colorées,
-    # et deux rapports au même libellé de bouton (OSS XML / OSS Excel)
-    # devenaient indiscernables avant génération.)
-    def _lazy_artifact(name: str, builder, spinner_label: str | None = None):
+    # Historique des itérations sur ce point (pour éviter de refaire les
+    # mêmes erreurs) :
+    #   1. Auto-génération à l'ouverture de l'onglet pour les comptes
+    #      débloqués : mais st.tabs() exécute le corps de TOUS les onglets à
+    #      chaque rerun (upload, calcul...), qu'ils soient affichés ou non —
+    #      donc ça revenait exactement au problème initial pour les comptes
+    #      payants.
+    #   2. Bouton "Générer" générique unique réutilisé sur les 7 rapports :
+    #      alerte de blocage affichée APRÈS le clic au lieu d'avant, bouton
+    #      visuellement disgracieux à côté des barres de téléchargement
+    #      colorées, et les 2 boutons OSS (XML / Excel) étaient identiques
+    #      donc indiscernables avant génération.
+    #
+    # Solution retenue : un bouton "Générer" par rapport, avec un libellé
+    # DISTINCT reprenant le nom du rapport (ex. "⚙️ Générer le XML OSS" vs
+    # "⚙️ Générer l'état récapitulatif OSS"), en style secondaire (gris,
+    # discret) et pleine largeur pour s'aligner visuellement avec la barre
+    # de téléchargement colorée qui apparaîtra juste en dessous une fois le
+    # fichier prêt. Le compte non débloqué ne voit jamais ce bouton : dans
+    # ce cas `_lazy_artifact` retourne None immédiatement et seule l'alerte
+    # de blocage / le paywall Stripe s'affiche, comme avant.
+    def _lazy_artifact(name: str, builder, generate_label: str, spinner_label: str | None = None):
         if not _can_export:
             return None
         _skey = f"_dl_artifact_{name}"
         _cached = st.session_state.get(_skey)
         if _cached is not None and _cached[0] == _dl_cache_key:
             return _cached[1]
-        with st.spinner(spinner_label or _("dl_generating_generic")):
-            _value = builder()
-        st.session_state[_skey] = (_dl_cache_key, _value)
-        return _value
+        if st.button(generate_label, key=f"_gen_btn_{name}", type="secondary", width="stretch"):
+            with st.spinner(spinner_label or _("dl_generating_generic")):
+                _value = builder()
+            st.session_state[_skey] = (_dl_cache_key, _value)
+            return _value
+        return None
 
     # period_label, _can_export, _gated_download et _get_payg_checkout_url
     # sont tous calculés/définis plus haut (avant les onglets) — voir bloc
@@ -149,7 +156,7 @@ def render_telechargements(ctx: TabContext) -> None:
 
         # 1. Rapport principal — pleine largeur, bouton primaire
         st.markdown(_("dl_audit_header"))
-        xlsx_bytes = _lazy_artifact("main_xlsx", _build_main_xlsx, spinner_label=_("dl_generation_excel"))
+        xlsx_bytes = _lazy_artifact("main_xlsx", _build_main_xlsx, _("dl_generate_main_btn"), spinner_label=_("dl_generation_excel"))
         if not _can_export:
             # Paywall Stripe — data=b"" n'est jamais lu par gated_download
             # dans cette branche (voir billing_gate.py), et le fichier n'a
@@ -210,7 +217,7 @@ def render_telechargements(ctx: TabContext) -> None:
                     return generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
 
             # On inclut _confirm_corrections dans la clé de cache car le XML change selon cette option
-            oss_xml_bytes = _lazy_artifact(f"oss_xml_{_confirm_corrections}", _build_oss_xml)
+            oss_xml_bytes = _lazy_artifact(f"oss_xml_{_confirm_corrections}", _build_oss_xml, _("dl_generate_oss_xml_btn"))
 
             if not _can_export:
                 _gated_download(_("dl_xml_oss_btn"), data=b"", file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml", width="stretch", type="primary")
@@ -224,7 +231,7 @@ def render_telechargements(ctx: TabContext) -> None:
                 with open(oss_xlsx_path, "rb") as f:
                     return f.read()
 
-            oss_xlsx_bytes = _lazy_artifact("oss_xlsx", _build_oss_xlsx)
+            oss_xlsx_bytes = _lazy_artifact("oss_xlsx", _build_oss_xlsx, _("dl_generate_oss_xlsx_btn"))
             if not _can_export:
                 _gated_download(_("dl_xlsx_oss_btn"), data=b"", file_name=_("dl_xlsx_oss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
             elif oss_xlsx_bytes is not None:
@@ -248,7 +255,7 @@ def render_telechargements(ctx: TabContext) -> None:
                     results=results, refund_results=refund_results, company_name=nom_entreprise, siren=siren_entreprise,
                     period_label=period_label, all_fc_transfers=all_fc_transfers, seller_country="FR",
                 ).encode("utf-8")
-            ca3_html_bytes = _lazy_artifact("ca3_html", _build_ca3_html)
+            ca3_html_bytes = _lazy_artifact("ca3_html", _build_ca3_html, _("dl_generate_ca3_btn"))
             if not _can_export:
                 _gated_download(_("dl_ca3_html_btn"), data=b"", file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html", width="stretch")
             elif ca3_html_bytes is not None:
@@ -262,7 +269,7 @@ def render_telechargements(ctx: TabContext) -> None:
                     company_name=nom_entreprise, siren=siren_entreprise,
                     period_label=period_label, seller_country=home_country,
                 ).encode("utf-8")
-            _home_html_bytes = _lazy_artifact("home_html", _build_home_html)
+            _home_html_bytes = _lazy_artifact("home_html", _build_home_html, _("dl_generate_home_html_btn", country=_country_label(home_country)))
             _home_filename = _("dl_local_html_filename", country=home_country, company=nom_entreprise, period=period_label)
             _home_label = _("dl_local_html_btn", country=_country_label(home_country))
             if not _can_export:
@@ -282,7 +289,7 @@ def render_telechargements(ctx: TabContext) -> None:
                     b2b_xlsx_path = build_b2b_excel(results_net, b2b_tmp2.name, period=period_label)
                 with open(b2b_xlsx_path, "rb") as f:
                     return f.read()
-            b2b_xlsx_bytes = _lazy_artifact("b2b_xlsx", _build_b2b_xlsx)
+            b2b_xlsx_bytes = _lazy_artifact("b2b_xlsx", _build_b2b_xlsx, _("dl_generate_b2b_btn"))
             _b2b_filename = _("dl_xlsx_b2b_filename", company=nom_entreprise, period=period_label)
             if not _can_export:
                 _gated_download(_("dl_xlsx_b2b_btn"), data=b"", file_name=_b2b_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
@@ -378,7 +385,12 @@ def render_telechargements(ctx: TabContext) -> None:
                 if not _can_export:
                     _gated_download(_local_csv_label, data=b"", file_name=_local_csv_filename, mime="text/csv", width="stretch")
                 else:
-                    _gated_download(_local_csv_label, data=_build_local_csv(export_country), file_name=_local_csv_filename, mime="text/csv", width="stretch")
+                    _local_csv_bytes = _lazy_artifact(
+                        f"local_csv_{export_country}", lambda: _build_local_csv(export_country),
+                        _("dl_generate_local_csv_btn", country=_country_label(export_country)),
+                    )
+                    if _local_csv_bytes is not None:
+                        _gated_download(_local_csv_label, data=_local_csv_bytes, file_name=_local_csv_filename, mime="text/csv", width="stretch")
             with c2:
                 if export_country != home_country:
                     _local_html_filename = _("dl_local_html_filename", country=export_country, company=nom_entreprise, period=period_label)
@@ -386,12 +398,18 @@ def render_telechargements(ctx: TabContext) -> None:
                     if not _can_export:
                         _gated_download(_local_html_label, data=b"", file_name=_local_html_filename, mime="text/html", width="stretch")
                     else:
-                        _local_html = generate_local_vat_html_report(
-                            results=results, refund_results=refund_results, vat_country=export_country,
-                            company_name=nom_entreprise, siren=siren_entreprise,
-                            period_label=period_label, seller_country=home_country,
+                        def _build_local_html_bytes():
+                            return generate_local_vat_html_report(
+                                results=results, refund_results=refund_results, vat_country=export_country,
+                                company_name=nom_entreprise, siren=siren_entreprise,
+                                period_label=period_label, seller_country=home_country,
+                            ).encode("utf-8")
+                        _local_html_bytes = _lazy_artifact(
+                            f"local_html_{export_country}", _build_local_html_bytes,
+                            _("dl_generate_local_html_btn", country=_country_label(export_country)),
                         )
-                        _gated_download(_local_html_label, data=_local_html.encode("utf-8"), file_name=_local_html_filename, mime="text/html", width="stretch")
+                        if _local_html_bytes is not None:
+                            _gated_download(_local_html_label, data=_local_html_bytes, file_name=_local_html_filename, mime="text/html", width="stretch")
 
         st.divider()
 
@@ -401,7 +419,7 @@ def render_telechargements(ctx: TabContext) -> None:
         _fec_ecriture_date = _fec_period_end_date(period_label)
         def _build_fec_bytes():
             return generate_fec_bytes(results_net, period=period_label, ecriture_date=_fec_ecriture_date, piece_ref=_("dl_fec_piece_ref", period=period_label))
-        fec_bytes = _lazy_artifact("fec_bytes", _build_fec_bytes)
+        fec_bytes = _lazy_artifact("fec_bytes", _build_fec_bytes, _("dl_generate_fec_btn"))
         _fec_filename = _("dl_fec_filename", company=nom_entreprise, period=period_label)
         if not _can_export:
             _gated_download(_("dl_fec_btn"), data=b"", file_name=_fec_filename, mime="text/plain", width="stretch")
