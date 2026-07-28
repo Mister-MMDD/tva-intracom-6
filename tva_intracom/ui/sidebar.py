@@ -321,6 +321,32 @@ def render_sidebar(auth_ctx) -> SidebarResult:
     with st.sidebar:
         st.header(_("options_header"))
 
+        # ── TEMPORAIRE : diagnostic mémoire (à retirer une fois le leak
+        # identifié) ─────────────────────────────────────────────────────
+        # But : voir précisément quels types d'objets Python s'accumulent
+        # entre deux clics (avant upload / après upload / après logout /
+        # après reconnexion+upload), au niveau du PROCESS entier -- pas
+        # juste de la session. C'est volontairement indépendant de
+        # session_state (cf. tva_intracom/memdebug.py) pour survivre au
+        # logout et permettre de comparer avant/après.
+        with st.sidebar.expander("🔍 Diagnostic mémoire (debug)", expanded=False):
+            if st.button("Prendre une mesure", key="_memdebug_snapshot_btn"):
+                from tva_intracom.memdebug import snapshot_and_diff
+                _diag = snapshot_and_diff(top_n=20)
+                if _diag["rss_mb"] is not None:
+                    st.write(f"**RSS actuelle : {_diag['rss_mb']:.1f} Mo**")
+                if _diag["rss_delta_mb"] is not None:
+                    st.write(f"Delta depuis la mesure précédente : {_diag['rss_delta_mb']:+.1f} Mo")
+                if _diag["top_growth"]:
+                    st.write("**Types d'objets en plus forte croissance depuis la mesure précédente :**")
+                    for _type_name, _delta in _diag["top_growth"]:
+                        if _delta > 0:
+                            st.write(f"- `{_type_name}` : +{_delta}")
+                st.write("**Types d'objets les plus nombreux (absolu) :**")
+                for _type_name, _count in _diag["top_counts"]:
+                    st.write(f"- `{_type_name}` : {_count}")
+        # ── FIN TEMPORAIRE ───────────────────────────────────────────────
+
         # ── Pays d'origine (établissement du vendeur) ──────────────────
         # Réglage GLOBAL au compte (pas par SIREN) — conditionne la
         # classification domestique/locale du moteur fiscal (engine.py,
