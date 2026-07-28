@@ -18,7 +18,7 @@ from tva_intracom.ui.formatting import _country_label, _fmt, _get_conversion_rat
 from tva_intracom.ui.tabs.context import TabContext
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _aggregate_viz_raw(_results: list, _refund_results: list, calc_key) -> dict:
     """Agrégats bruts (EUR, clés fixes non traduites) pour l'évolution
     mensuelle et la répartition par scénario de l'onglet Visualisations.
@@ -31,6 +31,16 @@ def _aggregate_viz_raw(_results: list, _refund_results: list, calc_key) -> dict:
     d'un underscore pour indiquer à st.cache_data de ne PAS tenter de les
     hacher (potentiellement coûteux/impossible sur des objets métier) ;
     seule `calc_key` sert de clé de cache.
+
+    IMPORTANT (mémoire) : `st.cache_data` est un cache GLOBAL au process,
+    partagé par toutes les sessions Streamlit -- il n'est PAS vidé par le
+    nettoyage de `st.session_state` (ni au logout, ni au retrait d'un
+    fichier). Sans borne, chaque nouveau `calc_key` (= chaque nouveau jeu
+    de données testé, par n'importe quel utilisateur) créait une entrée
+    permanente, jamais évincée avant un redémarrage du process : c'était
+    la vraie cause de la RAM qui ne redescendait jamais sur Railway,
+    malgré le nettoyage de session_state. `ttl=1800` (30 min) +
+    `max_entries=20` (éviction LRU) bornent la taille du cache.
 
     Important : ne jamais mettre en cache ici de libellés traduits (_())
     ni de montants déjà convertis en devise d'affichage (* _rate) -- ces

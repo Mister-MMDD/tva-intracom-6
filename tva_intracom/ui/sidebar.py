@@ -270,7 +270,7 @@ def _edit_siren_form_fragment(
 _MAX_CATALOG_MB = 20
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
     """Parse un catalogue ASIN → catégorie fiscale depuis son contenu brut.
 
@@ -278,6 +278,12 @@ def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
     `st.cache_data`) : tant que l'utilisateur ne change pas de fichier, ce
     parsing ne s'exécute qu'une seule fois, au lieu d'être refait à chaque
     rerun Streamlit (changement de widget, etc.).
+
+    IMPORTANT (mémoire) : ce cache est GLOBAL au process (partagé entre
+    toutes les sessions), donc jamais purgé par le logout ni par le retrait
+    d'un fichier en session_state. Sans borne, un nouveau catalogue uploadé
+    par n'importe quel utilisateur créait une entrée permanente. `ttl=1800`
+    + `max_entries=20` évitent la croissance illimitée.
     """
     import io
     buf = io.BytesIO(file_bytes)
