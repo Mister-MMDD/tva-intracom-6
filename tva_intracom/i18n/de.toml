@@ -224,7 +224,6 @@ tab_sales_detail = "📑 Verkaufsdetails"
 tab_vies = "🔍 MIAS"
 tab_amazon_audit = "🕵️ {platform}-Audit"
 tab_downloads = "📥 Downloads"
-dl_generate_btn = "⚙️ Bericht generieren"
 tab_visualizations = "📈 Visualisierungen"
 
 # Sales Detail Sub-tabs

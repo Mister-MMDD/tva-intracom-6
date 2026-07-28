@@ -32,6 +32,10 @@ _CSS = """
     --brand-blue: #38bdf8;
 }
 
+[data-theme="dark"] button[kind="primary"], .stApp[data-theme="dark"] button[kind="primary"] {
+    color: #0e1117 !important;
+}
+
 .block-container {
     padding-top: 2rem;
     padding-bottom: 3rem;

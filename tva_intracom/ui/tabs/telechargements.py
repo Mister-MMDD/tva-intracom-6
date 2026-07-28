@@ -114,14 +114,14 @@ def render_telechargements() -> None:
     #     pas cliqué sur "Générer ce rapport" pour CET artefact précis (le
     #     cache `_dl_cache_key` évite ensuite de reconstruire tant que le
     #     calcul TVA / l'identité de l'entreprise ne changent pas réellement).
-    def _lazy_artifact(name: str, builder, spinner_label: str | None = None):
+    def _lazy_artifact(name: str, builder, label: str = "dl_generate_btn", spinner_label: str | None = None, **label_kwargs):
         if not _can_export:
             return None
         _skey = f"_dl_artifact_{name}"
         _cached = st.session_state.get(_skey)
         if _cached is not None and _cached[0] == _dl_cache_key:
             return _cached[1]
-        if st.button(_("dl_generate_btn"), key=f"_gen_btn_{name}", width="stretch", type="primary"):
+        if st.button(_(label, **label_kwargs), key=f"_gen_btn_{name}", width="stretch", type="primary"):
             with st.spinner(spinner_label or _("dl_generating_generic")):
                 _value = builder()
             st.session_state[_skey] = (_dl_cache_key, _value)
@@ -158,7 +158,7 @@ def render_telechargements() -> None:
 
         # 1. Rapport principal — pleine largeur, bouton primaire
         st.markdown(_("dl_audit_header"))
-        xlsx_bytes = _lazy_artifact("main_xlsx", _build_main_xlsx, spinner_label=_("dl_generation_excel"))
+        xlsx_bytes = _lazy_artifact("main_xlsx", _build_main_xlsx, label="dl_generate_main_btn", spinner_label=_("dl_generation_excel"))
         if not _can_export:
             # Paywall Stripe — data=b"" n'est jamais lu par gated_download
             # dans cette branche (voir billing_gate.py), et le fichier n'a
@@ -219,7 +219,7 @@ def render_telechargements() -> None:
                     return generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
 
             # On inclut _confirm_corrections dans la clé de cache car le XML change selon cette option
-            oss_xml_bytes = _lazy_artifact(f"oss_xml_{_confirm_corrections}", _build_oss_xml)
+            oss_xml_bytes = _lazy_artifact(f"oss_xml_{_confirm_corrections}", _build_oss_xml, label="dl_generate_oss_xml_btn")
 
             if not _can_export:
                 _gated_download(_("dl_xml_oss_btn"), data=b"", file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml", width="stretch", type="primary")
@@ -233,7 +233,7 @@ def render_telechargements() -> None:
                 with open(oss_xlsx_path, "rb") as f:
                     return f.read()
 
-            oss_xlsx_bytes = _lazy_artifact("oss_xlsx", _build_oss_xlsx)
+            oss_xlsx_bytes = _lazy_artifact("oss_xlsx", _build_oss_xlsx, label="dl_generate_oss_xlsx_btn")
             if not _can_export:
                 _gated_download(_("dl_xlsx_oss_btn"), data=b"", file_name=_("dl_xlsx_oss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
             elif oss_xlsx_bytes is not None:
@@ -257,7 +257,7 @@ def render_telechargements() -> None:
                     results=results, refund_results=refund_results, company_name=nom_entreprise, siren=siren_entreprise,
                     period_label=period_label, all_fc_transfers=all_fc_transfers, seller_country="FR",
                 ).encode("utf-8")
-            ca3_html_bytes = _lazy_artifact("ca3_html", _build_ca3_html)
+            ca3_html_bytes = _lazy_artifact("ca3_html", _build_ca3_html, label="dl_generate_ca3_btn")
             if not _can_export:
                 _gated_download(_("dl_ca3_html_btn"), data=b"", file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html", width="stretch")
             elif ca3_html_bytes is not None:
@@ -271,7 +271,7 @@ def render_telechargements() -> None:
                     company_name=nom_entreprise, siren=siren_entreprise,
                     period_label=period_label, seller_country=home_country,
                 ).encode("utf-8")
-            _home_html_bytes = _lazy_artifact("home_html", _build_home_html)
+            _home_html_bytes = _lazy_artifact("home_html", _build_home_html, label="dl_generate_home_html_btn", country=_country_label(home_country))
             _home_filename = _("dl_local_html_filename", country=home_country, company=nom_entreprise, period=period_label)
             _home_label = _("dl_local_html_btn", country=_country_label(home_country))
             if not _can_export:
@@ -291,7 +291,7 @@ def render_telechargements() -> None:
                     b2b_xlsx_path = build_b2b_excel(results_net, b2b_tmp2.name, period=period_label)
                 with open(b2b_xlsx_path, "rb") as f:
                     return f.read()
-            b2b_xlsx_bytes = _lazy_artifact("b2b_xlsx", _build_b2b_xlsx)
+            b2b_xlsx_bytes = _lazy_artifact("b2b_xlsx", _build_b2b_xlsx, label="dl_generate_b2b_btn")
             _b2b_filename = _("dl_xlsx_b2b_filename", company=nom_entreprise, period=period_label)
             if not _can_export:
                 _gated_download(_("dl_xlsx_b2b_btn"), data=b"", file_name=_b2b_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
@@ -410,7 +410,7 @@ def render_telechargements() -> None:
         _fec_ecriture_date = _fec_period_end_date(period_label)
         def _build_fec_bytes():
             return generate_fec_bytes(results_net, period=period_label, ecriture_date=_fec_ecriture_date, piece_ref=_("dl_fec_piece_ref", period=period_label))
-        fec_bytes = _lazy_artifact("fec_bytes", _build_fec_bytes)
+        fec_bytes = _lazy_artifact("fec_bytes", _build_fec_bytes, label="dl_generate_fec_btn")
         _fec_filename = _("dl_fec_filename", company=nom_entreprise, period=period_label)
         if not _can_export:
             _gated_download(_("dl_fec_btn"), data=b"", file_name=_fec_filename, mime="text/plain", width="stretch")
