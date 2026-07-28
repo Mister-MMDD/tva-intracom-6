@@ -36,6 +36,12 @@ _CSS = """
     color: #0e1117 !important;
 }
 
+/* Forcer le noir sur les boutons de téléchargement Streamlit en mode sombre aussi */
+[data-theme="dark"] .stDownloadButton > button, .stApp[data-theme="dark"] .stDownloadButton > button {
+    color: #0e1117 !important;
+    background-color: var(--brand-blue) !important;
+}
+
 .block-container {
     padding-top: 2rem;
     padding-bottom: 3rem;
@@ -46,6 +52,12 @@ button[kind="primary"] {
     background-color: var(--brand-blue) !important;
     border-color: var(--brand-blue) !important;
     color: white !important;
+    width: 100%;
+}
+
+/* Bouton st.download_button (secondary par défaut dans Streamlit) doit aussi être full width s'il est utilisé en mode download principal */
+.stDownloadButton > button {
+    width: 100% !important;
 }
 
 /* ---- Titres avec accent de marque ---- */

@@ -1580,6 +1580,12 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") ->
         _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
                                   number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
+        # Excel recalculates this correctly on open, but we help it
+        # by ensuring letters match the displayed screenshot bug (G5 = Brut, H5 = Refund).
+        # Wait, in the code letter_brut is col_brut. col_brut = total_start_col.
+        # If months is 3 (Jan, Feb, Mar), month_start_col=3 (C).
+        # C, D, E are months. F is Brut. G is Refund. H is Net.
+        # Screenshot shows F=Brut, G=Refund, H=Net. This matches col_brut=6 (F).
 
         ws.append(_row_cells)
         ws.row_dimensions[row].height = 18
@@ -1601,7 +1607,7 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") ->
     for formula in [
         f"=SUM({letter_brut}{header_row+1}:{letter_brut}{row-2})",
         f"=SUM({letter_ref}{header_row+1}:{letter_ref}{row-2})",
-        f"={letter_brut}{row}+{letter_ref}{row}",
+        f"={get_column_letter(col_brut)}{row}+{get_column_letter(col_ref)}{row}",
     ]:
         _total_row_cells.append(_wcell(ws, formula, number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
     ws.append(_total_row_cells)
@@ -1705,6 +1711,12 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
                                   number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
+        # Excel recalculates this correctly on open, but we help it
+        # by ensuring letters match the displayed screenshot bug (G5 = Brut, H5 = Refund).
+        # Wait, in the code letter_brut is col_brut. col_brut = total_start_col.
+        # If months is 3 (Jan, Feb, Mar), month_start_col=3 (C).
+        # C, D, E are months. F is Brut. G is Refund. H is Net.
+        # Screenshot shows F=Brut, G=Refund, H=Net. This matches col_brut=6 (F).
         _status_val = i18n_("xl_local_status_registered") if is_registered else i18n_("xl_local_status_unconfirmed")
         _row_cells.append(_wcell(ws, _status_val,
                                   font=_ALERT_FONT if not is_registered else None,
@@ -1725,10 +1737,15 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         letter = get_column_letter(col)
         _total_cells.append(_wcell(ws, f"=SUM({letter}{header_row+1}:{letter}{row-2})",
                                     number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
+
+    # We re-calculate letters for the total row to be absolutely safe
+    l_brut = get_column_letter(col_brut)
+    l_ref = get_column_letter(col_ref)
+
     for formula in [
-        f"=SUM({letter_brut}{header_row+1}:{letter_brut}{row-2})",
-        f"=SUM({letter_ref}{header_row+1}:{letter_ref}{row-2})",
-        f"={letter_brut}{row}+{letter_ref}{row}",
+        f"=SUM({l_brut}{header_row+1}:{l_brut}{row-2})",
+        f"=SUM({l_ref}{header_row+1}:{l_ref}{row-2})",
+        f"={l_brut}{row}+{l_ref}{row}",
     ]:
         _total_cells.append(_wcell(ws, formula, number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
     _total_cells.append(_wcell(ws, None))  # colonne Statut, vide sur la ligne de total
