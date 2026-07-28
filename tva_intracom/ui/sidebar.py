@@ -345,6 +345,17 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 st.write("**Types d'objets les plus nombreux (absolu) :**")
                 for _type_name, _count in _diag["top_counts"]:
                     st.write(f"- `{_type_name}` : {_count}")
+
+            st.divider()
+            st.caption("À utiliser APRÈS un logout/reconnexion, pour voir qui retient encore les Sale/VatResult.")
+            _trace_type = st.text_input("Type à tracer", value="Sale", key="_memdebug_trace_type")
+            if st.button("Tracer les référents", key="_memdebug_trace_btn"):
+                from tva_intracom.memdebug import find_referrer_chain
+                _chains = find_referrer_chain(_trace_type, max_instances=3, max_depth=5)
+                if not _chains:
+                    st.write(f"Aucune instance de `{_trace_type}` trouvée actuellement.")
+                for _i, _chain in enumerate(_chains):
+                    st.write(f"Instance {_i+1} : " + " ← ".join(_chain))
         # ── FIN TEMPORAIRE ───────────────────────────────────────────────
 
         # ── Pays d'origine (établissement du vendeur) ──────────────────

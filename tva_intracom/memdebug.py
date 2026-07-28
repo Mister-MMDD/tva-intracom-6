@@ -44,8 +44,55 @@ def _object_type_counts() -> Counter:
     return counts
 
 
-# État partagé au niveau du process (volontairement PAS dans
-# session_state : on veut comparer entre sessions différentes).
+def find_referrer_chain(type_name: str, max_instances: int = 3, max_depth: int = 4) -> list[list[str]]:
+    """Pour quelques instances survivantes du type `type_name` (ex: "Sale"),
+    remonte la chaîne de référents via `gc.get_referrers` et renvoie, pour
+    chacune, la liste des TYPES rencontrés en remontant (jamais le contenu
+    réel des objets -- on ne veut voir "qui retient quoi", pas les données
+    métier, par précaution RGPD puisque `Sale` peut porter des données
+    d'entreprise clientes).
+
+    Lecture du résultat : le dernier élément de chaque chaîne est
+    généralement le conteneur "racine" qui explique pourquoi l'objet
+    n'a jamais été libéré (un module, un dict au niveau module, une
+    closure de thread, un cache Streamlit interne, etc.).
+    """
+    gc.collect()
+    instances = [o for o in gc.get_objects() if type(o).__name__ == type_name][:max_instances]
+
+    chains: list[list[str]] = []
+    for inst in instances:
+        chain: list[str] = [type_name]
+        current = inst
+        seen_ids = {id(inst)}
+        for _ in range(max_depth):
+            referrers = [
+                r for r in gc.get_referrers(current)
+                # on ignore les frames/listes locales de cette fonction elle-même
+                if r is not instances and id(r) not in seen_ids
+            ]
+            if not referrers:
+                chain.append("(plus de référent trouvé -- racine atteinte)")
+                break
+            ref = referrers[0]
+            seen_ids.add(id(ref))
+            ref_type = type(ref).__name__
+            # Pour un dict/list/frame, on ajoute un indice utile (nom de
+            # variable si dispo pour une frame) sans jamais dumper le
+            # contenu d'un Sale/VatResult.
+            if ref_type == "frame":
+                chain.append(f"frame (fonction: {ref.f_code.co_name})")
+                break  # une frame de fonction est une racine suffisante
+            if ref_type == "module":
+                chain.append(f"module ({getattr(ref, '__name__', '?')})")
+                break
+            chain.append(ref_type)
+            current = ref
+        chains.append(chain)
+    return chains
+
+
+
 _last_snapshot: Optional[Counter] = None
 _last_rss: Optional[float] = None
 
