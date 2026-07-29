@@ -180,7 +180,7 @@ tva-intracom/
 | `security.py` | Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy) — chiffrement Fernet des PII avec protection **Fail-Safe** contre l'exposition accidentelle en clair. |
 | `vies_certificate.py` | Génération d'un "Certificat de Validité VIES" en PDF (preuve de bonne foi opposable) |
 | `vies_engine.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
-| `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + disque JSON), prefetch parallèle, convert_to_eur_for_oss (taux de clôture de période — Règl. UE 2020/194), retry exponentiel (3 tentatives, 1s/2s/4s) sur erreurs réseau/HTTP transitoires |
+| `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + Postgres), prefetch parallèle, `convert_to_currency_for_oss` (taux de clôture de période — Règl. UE 2020/194, art. 5 bis), calcul automatique de la date de clôture par transaction pour les périodes multiples (semestres, années), retry exponentiel |
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
 | `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965) avec multi-validation XSD (DGFIP/UE) |
 | `ca3_report.py` | Génération du rapport CA3 (HTML uniquement — pas d'export EDI-TVA, voir Roadmap) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
@@ -482,15 +482,21 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 
 - API BCE SDW (`data-api.ecb.europa.eu`) sans clé, fenêtre ±7 jours pour les
   weekends/jours fériés.
-- Cache deux niveaux : mémoire (`dict`) + disque (`~/.cache/tva_intracom/ecb_rates.json`).
-- Écriture disque batché (toutes les 10 nouvelles entrées) pour éviter les I/O
-  répétés sur les gros fichiers.
+- Cache deux niveaux : mémoire (`dict`) + base de données Postgres (Supabase)
+  partagée et persistante.
 - **Warm-up du cache (Batch)** : Scanne les dates du fichier au démarrage et effectue
   une requête groupée vers l'API BCE pour toutes les devises concernées. Cette stratégie
   optimise radicalement le chargement pour les fichiers couvrant plusieurs années.
-- **`convert_to_eur_for_oss()`** : taux BCE du **dernier jour de la période déclarée**
-  (Règlement UE 2020/194, art. 5 bis) pour les ventes OSS en devise étrangère — au
-  lieu du taux du jour de la vente. La CA3 conserve le taux du jour de l'opération.
+- **Compliance OSS (Règl. UE 2020/194, art. 5 bis)** : Utilisation du taux BCE du
+  **dernier jour de la période de déclaration** pour les ventes OSS.
+  - **Intelligence multi-période** : Si le fichier couvre plusieurs trimestres
+    (ex: `2026-S1`), le moteur calcule automatiquement la date de clôture propre au
+    trimestre de *chaque* transaction.
+  - **Gestion des taux futurs** : Si la période n'est pas encore terminée (ex: analyse
+    le 15 mars pour le Q1), l'outil bascule automatiquement sur le taux du jour
+    de la vente à titre d'estimation, avec un avertissement explicite dans l'UI.
+- **Affichage transparent** : Expandeur dédié listant chaque paire (Devise, Date de clôture)
+  réellement utilisée dans le calcul, garantissant une piste d'audit claire.
 - HRK (kuna croate) : taux fixe irrévocable 1 EUR = 7,53450 HRK depuis le 01/01/2023
   (Règl. UE 2022/1540).
 
@@ -797,6 +803,9 @@ conversion BCE.
 ## Optimisations de performance & UX (Mises à jour récentes)
 
 ### Performance & Réactivité
+- **Gestion de l'inactivité & Optimisation RAM (Auto-Sleep)** : Implémentation d'un détecteur d'inactivité côté client (JavaScript). Après 30 minutes sans mouvement de souris ou touche clavier, l'application bascule automatiquement en mode **"Veille"** (`?sleep=1`).
+  - **Purge Proactive** : En mode veille, toutes les données lourdes (fichiers uploadés, résultats de calcul) sont supprimées du `st.session_state` et l'exécution est interrompue (`st.stop()`). Cela permet de libérer instantanément la mémoire vive et d'autoriser l'hébergeur à mettre le conteneur en sommeil profond (Idle) si aucun autre utilisateur n'est actif.
+  - **Réactivation Transparente** : Un bouton "Réactiver" permet de relancer l'app. Grâce au système de cookies persistant, l'utilisateur retrouve sa session sans avoir à se reconnecter.
 - **Optimisation Streamlit (`@st.fragment`)** : Utilisation intensive de fragments dans les onglets "Détail ventes", "Téléchargements" et dans les formulaires SIREN de la **sidebar** pour isoler le rendu et éviter les reruns complets du script lors d'interactions locales.
 - **Mise en cache intelligente (TTL & Keys)** :
   - **Sidebar** : Cache TTL (20s) sur les appels coûteux (Amazon credentials, listes SIREN, quotas, abonnements Stripe, grille tarifaire) avec invalidation explicite immédiate après chaque mutation (ajout/suppression SIREN).

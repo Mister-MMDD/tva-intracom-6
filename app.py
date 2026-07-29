@@ -88,8 +88,7 @@ if st.query_params.get("sleep") == "1":
     st.stop()
 
 # Détecteur d'inactivité en JS (Redirige vers ?sleep=1 après 30 min sans mouvement)
-import streamlit.components.v1 as components
-components.html(f"""
+st.iframe(f"""
     <script>
         var timeout;
         function resetTimer() {{

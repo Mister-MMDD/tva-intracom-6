@@ -45,6 +45,7 @@
             <li>Vérifier la validité des numéros TVA B2B via l'onglet <strong>VIES</strong>.</li>
             <li>S'assurer que le <strong>Pays de Siège</strong> est correctement configuré.</li>
             <li>Vérifier les alertes de <strong>Stock FBA</strong> pour les immatriculations locales.</li>
+            <li>Vérifier les <strong>taux de change BCE</strong> de clôture pour l'OSS (Règl. 2020/194).</li>
             <li>Réconcilier le <strong>CA HT Net</strong> avec votre comptabilité via l'export FEC.</li>
             <li>Télécharger et conserver le <strong>Rapport Principal Excel</strong> pour chaque période.</li>
         </ul>
@@ -93,16 +94,43 @@ tva-intracom/
 ├── tests/
 ├── tva_intracom/
 │   ├── i18n/                         Fichiers de traduction (7 langues)
-│   ├── parsers/                      Package multi-plateformes (Amazon, Mirakl, Shopify...)
-│   ├── ui/                           Interface Streamlit modulaire (tabs, auth, billing)
-│   ├── mem_utils.py                  Optimisation mémoire (internage, RAM stats)
-│   ├── vies_engine.py                Validation VIES avec historique d'audit
-│   └── ...                           Moteur fiscal et générateurs de rapports
-├── tva-site/                         Site vitrine (HTML statique template-basé)
+│   ├── parsers/
+│   │   └── amazon/                   Sous-package d'import Amazon (formats 1-5)
+│   ├── __init__.py
+│   ├── amazon_adapter.py             Passerelle de compatibilité anciens modèles.
+│   ├── amazon_spapi.py               Intégration Amazon Selling Partner API.
+│   ├── auth.py                       Authentification & sessions (Postgres/Supabase).
+│   ├── auth_supabase.py              Auth par mot de passe & OAuth (Google, Amazon...).
+│   ├── billing.py                    Facturation Stripe (PAYG, Pro, Cabinet).
+│   ├── ca3_report.py                 Génération du rapport CA3 (HTML/Cerfa).
+│   ├── local_vat_report.py           Rapport HTML pour pays UE hors France.
+│   ├── historical_rates_widget.py    Alerte & tableau des changements de taux TVA.
+│   ├── fec_export.py                 Export comptable FEC (Journal des ventes).
+│   ├── cli.py                        Interface en ligne de commande.
+│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque).
+│   ├── engine.py                     Cœur du moteur de classification fiscale.
+│   ├── excel_report.py               Export Excel multi-onglets complet.
+│   ├── models.py                     Modèles de données (Pydantic).
+│   ├── oss_export.py                 Agrégation OSS & Export CSV URSSAF.
+│   ├── oss_xml.py                    Génération XML OSS officiel (UE 2021/965).
+│   ├── rates.py                      Taux TVA historisés & Seuils EMEBI.
+│   ├── security.py                   Sécurité Amazon DPP (Chiffrement Fernet).
+│   ├── vies_certificate.py           Génération de certificat VIES en PDF.
+│   ├── vies_engine.py                Validation VIES avec historique d'audit.
+│   ├── ui/                           Interface Streamlit modulaire
+│   │   ├── auth_flow.py              Flux de connexion & OAuth.
+│   │   ├── onboarding.py             Visite guidée interactive.
+│   │   ├── sidebar.py                Barre latérale (SIREN, SP-API, Billing).
+│   │   ├── billing_gate.py           Gating & téléchargements sécurisés.
+│   │   ├── background_calc.py        Calculs longs en thread séparé.
+│   │   └── tabs/                     Un module par onglet applicatif
+│
 ├── vercel_webhook/                   Webhook Stripe (Vercel serverless)
 ├── app.py                            Orchestrateur Streamlit principal
-├── pyproject.toml                    Configuration du package
-└── README.md                         Documentation technique maître
+├── generate_dataset.py               Générateur de données de test
+├── pyproject.toml
+├── README.md
+└── requirements.txt
                 </pre>
 
                 <h3>Scénarios modélisés</h3>
@@ -167,6 +195,7 @@ tva-intracom/
                 <ul style="font-size: 0.9rem;">
                     <li>✅ Certificats de validité VIES en PDF (Preuve de bonne foi).</li>
                     <li>✅ Gestion multi-pays d'origine (Home Country).</li>
+                    <li>✅ Taux BCE de clôture OSS automatisés (Règl. UE 2020/194).</li>
                     <li>✅ Correction automatique des soldes OSS négatifs.</li>
                     <li>✅ Optimisation RAM High-Load (Internage, Lazy Loading).</li>
                     <li>✅ Export comptable FEC (Journal des ventes).</li>

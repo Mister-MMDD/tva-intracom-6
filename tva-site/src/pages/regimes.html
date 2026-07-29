@@ -101,6 +101,7 @@
     <h2>OSS_B2C – Vente B2C transfrontalière (Guichet unique OSS)</h2>
     <p><strong>Situation :</strong> stock UE, acheteur dans un autre pays UE, B2C.</p>
     <p><strong>Règle :</strong> dès que le chiffre d'affaires cumulé des ventes transfrontalières dépasse 10 000 €/an, TVA du pays de destination du consommateur, déclarée via le guichet unique OSS.</p>
+    <p><strong>Conversion Devise (Compliance) :</strong> Pour les ventes en devise étrangère, le moteur applique le taux de change publié par la BCE le <strong>dernier jour de la période de déclaration</strong> (Règl. UE 2020/194, art. 5 bis), et non le taux du jour de la vente.</p>
     <p><strong>Traitement moteur :</strong> suivi dynamique du seuil, agrégation OSS par pays, génération du XML OSS officiel + export Excel.</p>
     <p><strong>Cas particulier B2B reclassifié :</strong> une vente B2B cross-border dont le numéro de TVA acheteur est invalide sur VIES et pour laquelle aucun régime domestique concurrent ne s'applique dans le pays de destination est automatiquement reclassifiée B2C et suit ce régime (Art. 33 Directive TVA).</p>
 </div>

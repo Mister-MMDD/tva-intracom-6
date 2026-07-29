@@ -33,7 +33,6 @@ from typing import Any
 
 import extra_streamlit_components as stx
 import streamlit as st
-import streamlit.components.v1 as components
 
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
@@ -372,7 +371,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
     # ── Conversion du fragment URL (#) en paramètres (?) ─────────────────
     if st.session_state.get("auth_user") is None:
-        components.html(
+        st.iframe(
             """
             <script>
             var hash = window.parent.location.hash || window.location.hash;
