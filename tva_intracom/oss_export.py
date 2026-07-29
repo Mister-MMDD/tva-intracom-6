@@ -25,8 +25,10 @@ from pathlib import Path
 from typing import List, Optional
 
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.cell_range import CellRange
 
 from .models import Scenario, VatResult
 from .i18n import _
@@ -478,56 +480,95 @@ def _aggregate(results: List[VatResult], period: str = "") -> OssExportData:
     )
 
 
-def _hdr_cell(ws, row: int, col: int, value: str, bg: str, fg: str = _WHITE, bold: bool = True, size: int = 10):
-    c = ws.cell(row=row, column=col, value=value)
-    c.font = Font(bold=bold, color=fg, name="Arial", size=size)
-    c.fill = PatternFill("solid", start_color=bg)
-    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    c.border = _BORDER
-    return c
+def _merge(ws, cell_range: str) -> None:
+    """Fusionne des cellules en mode `write_only` (l'API `ws.merge_cells()`
+    normale n'existe pas sur `WriteOnlyWorksheet` — vérifié empiriquement
+    compatible en passant directement par `ws.merged_cells.ranges`, qui
+    est la structure lue par openpyxl à la sauvegarde quel que soit le mode)."""
+    ws.merged_cells.ranges.add(CellRange(cell_range))
 
 
-def _data_cell(ws, row: int, col: int, value, fmt: str = None, zebra: bool = False):
-    c = ws.cell(row=row, column=col, value=value)
-    c.font = Font(name="Arial", size=9)
-    c.border = _BORDER
-    c.alignment = Alignment(vertical="center")
-    if fmt:
-        c.number_format = fmt
-    if zebra:
-        c.fill = PatternFill("solid", start_color=_GREY_ROW)
-    return c
+def _wcell(ws, value, font=None, fill=None, alignment=None, number_format=None, border=None):
+    """Construit une cellule stylée prête à être placée dans une ligne et
+    ajoutée via `ws.append([...])` — seule API d'écriture disponible en
+    mode `write_only` (pas d'accès aléatoire type `ws.cell(row=, column=)`).
+    `WriteOnlyCell` fonctionne aussi bien en `Workbook()` normal qu'en
+    `Workbook(write_only=True)` (même pattern que `excel_report.py::_wcell`)."""
+    cell = WriteOnlyCell(ws, value=value)
+    if font is not None:
+        cell.font = font
+    if fill is not None:
+        cell.fill = fill
+    if alignment is not None:
+        cell.alignment = alignment
+    if number_format is not None:
+        cell.number_format = number_format
+    if border is not None:
+        cell.border = border
+    return cell
 
 
-def _total_cell(ws, row: int, col: int, value, fmt: str = None):
-    c = ws.cell(row=row, column=col, value=value)
-    c.font = Font(bold=True, name="Arial", size=9)
-    c.fill = PatternFill("solid", start_color=_TOTAL_FILL)
-    c.border = _BORDER
-    c.alignment = Alignment(vertical="center")
-    if fmt:
-        c.number_format = fmt
-    return c
+def _hdr_cell(ws, value: str, bg: str, fg: str = _WHITE, bold: bool = True, size: int = 10):
+    return _wcell(
+        ws, value,
+        font=Font(bold=bold, color=fg, name="Arial", size=size),
+        fill=PatternFill("solid", start_color=bg),
+        alignment=Alignment(horizontal="center", vertical="center", wrap_text=True),
+        border=_BORDER,
+    )
+
+
+def _data_cell(ws, value, fmt: str = None, zebra: bool = False, alignment: Alignment = None):
+    return _wcell(
+        ws, value,
+        font=Font(name="Arial", size=9),
+        fill=PatternFill("solid", start_color=_GREY_ROW) if zebra else None,
+        alignment=alignment or Alignment(vertical="center"),
+        number_format=fmt,
+        border=_BORDER,
+    )
+
+
+def _total_cell(ws, value, fmt: str = None, alignment: Alignment = None):
+    return _wcell(
+        ws, value,
+        font=Font(bold=True, name="Arial", size=9),
+        fill=PatternFill("solid", start_color=_TOTAL_FILL),
+        alignment=alignment or Alignment(vertical="center"),
+        number_format=fmt,
+        border=_BORDER,
+    )
 
 
 def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     ws = wb.create_sheet("OSS_Résumé")
     ws.sheet_view.showGridLines = False
 
-    # Titre
-    ws.merge_cells("A1:J1")
-    t = ws["A1"]
-    t.value = _("oss_export_title", period=period)
-    t.font = Font(bold=True, size=13, color=_WHITE, name="Arial")
-    t.fill = PatternFill("solid", start_color=_BLUE_HEADER)
-    t.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 28
+    # Largeurs de colonnes : DOIVENT être fixées avant le tout premier
+    # `append` (vérifié empiriquement en write_only — contrairement au mode
+    # normal, ce n'est pas juste "avant le premier append de LA colonne").
+    widths = [12, 22, 10, 16, 15, 16, 15, 16, 15, 14]
+    for col, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(col)].width = w
 
-    ws.merge_cells("A2:J2")
-    sub = ws["A2"]
-    sub.value = _("oss_export_subtitle")
-    sub.font = Font(italic=True, size=9, color="595959", name="Arial")
-    sub.alignment = Alignment(horizontal="center")
+    # Titre
+    ws.row_dimensions[1].height = 28
+    t = _wcell(
+        ws, _("oss_export_title", period=period),
+        font=Font(bold=True, size=13, color=_WHITE, name="Arial"),
+        fill=PatternFill("solid", start_color=_BLUE_HEADER),
+        alignment=Alignment(horizontal="center", vertical="center"),
+    )
+    ws.append([t])
+    _merge(ws, "A1:J1")
+
+    sub = _wcell(
+        ws, _("oss_export_subtitle"),
+        font=Font(italic=True, size=9, color="595959", name="Arial"),
+        alignment=Alignment(horizontal="center"),
+    )
+    ws.append([sub])
+    _merge(ws, "A2:J2")
 
     # Headers colonnes
     headers = [
@@ -537,77 +578,79 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
         _("oss_col_base_net"), _("oss_col_vat_net"),
         _("oss_col_nb_tx")
     ]
-    widths =  [12,           22,     10,
-               16,             15,
-               16,             15,
-               16,             15,
-               14]
-    for col, (h, w) in enumerate(zip(headers, widths), 1):
-        _hdr_cell(ws, 3, col, h, _BLUE_LIGHT, fg="1F4E79", size=9)
-        ws.column_dimensions[get_column_letter(col)].width = w
     ws.row_dimensions[3].height = 20
+    ws.append([_hdr_cell(ws, h, _BLUE_LIGHT, fg="1F4E79", size=9) for h in headers])
 
     # Données
     for i, line in enumerate(data.oss_by_country):
         r = i + 4
         zebra = i % 2 == 1
-        _data_cell(ws, r, 1, line.country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, r, 2, line.country_name, zebra=zebra)
-        _data_cell(ws, r, 3, float(line.vat_rate) / 100, fmt="0.0%", zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, r, 4, float(line.base_ht_vente), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, r, 5, float(line.vat_vente), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, r, 6, float(line.base_ht_remb), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, r, 7, float(line.vat_remb), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, r, 8, float(line.base_ht), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, r, 9, float(line.vat_amount), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, r, 10, line.nb_transactions, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[r].height = 16
+        ws.append([
+            _data_cell(ws, line.country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, line.country_name, zebra=zebra),
+            _data_cell(ws, float(line.vat_rate) / 100, fmt="0.0%", zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, float(line.base_ht_vente), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _data_cell(ws, float(line.vat_vente), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _data_cell(ws, float(line.base_ht_remb), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _data_cell(ws, float(line.vat_remb), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _data_cell(ws, float(line.base_ht), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _data_cell(ws, float(line.vat_amount), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _data_cell(ws, line.nb_transactions, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+        ])
 
     # Ligne total
     n = len(data.oss_by_country)
     total_row = n + 4
-    _total_cell(ws, total_row, 1, _("TOTAL")).alignment = Alignment(horizontal="center", vertical="center")
-    _total_cell(ws, total_row, 2, _("oss_total_countries", count=n))
-    _total_cell(ws, total_row, 3, "")
-    _total_cell(ws, total_row, 4, f"=SUM(D4:D{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
-    _total_cell(ws, total_row, 5, f"=SUM(E4:E{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
-    _total_cell(ws, total_row, 6, f"=SUM(F4:F{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
-    _total_cell(ws, total_row, 7, f"=SUM(G4:G{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
-    _total_cell(ws, total_row, 8, f"=SUM(H4:H{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
-    _total_cell(ws, total_row, 9, f"=SUM(I4:I{total_row-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
-    _total_cell(ws, total_row, 10, f"=SUM(J4:J{total_row-1})").alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[total_row].height = 18
+    ws.append([
+        _total_cell(ws, _("TOTAL"), alignment=Alignment(horizontal="center", vertical="center")),
+        _total_cell(ws, _("oss_total_countries", count=n)),
+        _total_cell(ws, ""),
+        _total_cell(ws, f"=SUM(D4:D{total_row-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, f"=SUM(E4:E{total_row-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, f"=SUM(F4:F{total_row-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, f"=SUM(G4:G{total_row-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, f"=SUM(H4:H{total_row-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, f"=SUM(I4:I{total_row-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, f"=SUM(J4:J{total_row-1})", alignment=Alignment(horizontal="center", vertical="center")),
+    ])
 
     # Note de bas de page
     note_row = total_row + 2
-    ws.merge_cells(f"A{note_row}:J{note_row}")
-    n_cell = ws[f"A{note_row}"]
-    n_cell.value = _("oss_footer_note")
-    n_cell.font = Font(italic=True, size=8, color="C00000", name="Arial")
+    n_cell = _wcell(ws, _("oss_footer_note"), font=Font(italic=True, size=8, color="C00000", name="Arial"))
+    # Ligne intermédiaire vide (note_row = total_row + 2 dans l'original,
+    # donc une ligne blanche entre le total et la note).
+    ws.append([])
+    ws.append([n_cell])
+    _merge(ws, f"A{note_row}:J{note_row}")
 
 
 def _build_oss_detail(wb: Workbook, data: OssExportData):
     ws = wb.create_sheet("OSS_Détail")
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:H1")
-    t = ws["A1"]
-    t.value = _("oss_detail_title")
-    t.font = Font(bold=True, size=12, color=_WHITE, name="Arial")
-    t.fill = PatternFill("solid", start_color=_ORANGE_HDR)
-    t.alignment = Alignment(horizontal="center", vertical="center")
+    widths = [20, 14, 10, 14, 16, 16, 11, 14]
+    for col, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(col)].width = w
+
     ws.row_dimensions[1].height = 25
+    t = _wcell(
+        ws, _("oss_detail_title"),
+        font=Font(bold=True, size=12, color=_WHITE, name="Arial"),
+        fill=PatternFill("solid", start_color=_ORANGE_HDR),
+        alignment=Alignment(horizontal="center", vertical="center"),
+    )
+    ws.append([t])
+    _merge(ws, "A1:H1")
 
     headers = [
         _("oss_detail_col_id"), _("oss_detail_col_date"), _("oss_detail_col_stock"),
         _("oss_detail_col_dest"), _("oss_detail_col_dest_name"),
         _("oss_detail_col_base_ht"), _("oss_detail_col_vat_rate"), _("oss_detail_col_vat_amount")
     ]
-    widths =  [20,         14,     10,      14,             16,            16,             11,          14]
-    for col, (h, w) in enumerate(zip(headers, widths), 1):
-        _hdr_cell(ws, 2, col, h, _ORANGE_LIGHT, fg=_ORANGE_HDR, size=9)
-        ws.column_dimensions[get_column_letter(col)].width = w
     ws.row_dimensions[2].height = 18
+    ws.append([_hdr_cell(ws, h, _ORANGE_LIGHT, fg=_ORANGE_HDR, size=9) for h in headers])
 
     # data.oss_details contient des tuples (VatResult, ht_converti, tva_converti) —
     # ht/tva déjà reconvertis au taux BCE de clôture de période (même valeur
@@ -615,78 +658,95 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
     for i, (r, ht, tva) in enumerate(data.oss_details):
         row = i + 3
         zebra = i % 2 == 1
-        _data_cell(ws, row, 1, (getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra)
-        _data_cell(ws, row, 2, r.sale.transaction_date, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, row, 3, r.sale.stock_country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, row, 4, r.sale.buyer_country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, row, 5, COUNTRY_NAMES.get(r.sale.buyer_country, r.sale.buyer_country), zebra=zebra)
-        _data_cell(ws, row, 6, float(ht), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
-        _data_cell(ws, row, 7, float(r.vat_rate) / 100, fmt="0.0%", zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, row, 8, float(tva), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
         ws.row_dimensions[row].height = 15
+        ws.append([
+            _data_cell(ws, (getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra),
+            _data_cell(ws, r.sale.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, r.sale.stock_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, r.sale.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, COUNTRY_NAMES.get(r.sale.buyer_country, r.sale.buyer_country), zebra=zebra),
+            _data_cell(ws, float(ht), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _data_cell(ws, float(r.vat_rate) / 100, fmt="0.0%", zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, float(tva), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+        ])
 
     # Totaux
     n = len(data.oss_details)
     tr = n + 3
-    for col in range(1, 6):
-        _total_cell(ws, tr, col, "")
-    _total_cell(ws, tr, 5, _("TOTAL"))
-    _total_cell(ws, tr, 6, f"=SUM(F3:F{tr-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
-    _total_cell(ws, tr, 7, "")
-    _total_cell(ws, tr, 8, f"=SUM(H3:H{tr-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
+    ws.append([
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, _("TOTAL")),
+        _total_cell(ws, f"=SUM(F3:F{tr-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, ""),
+        _total_cell(ws, f"=SUM(H3:H{tr-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+    ])
 
 
 def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
     ws = wb.create_sheet("B2B_Recap")
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:F1")
-    t = ws["A1"]
-    t.value = _("b2b_recap_title", period=period)
-    t.font = Font(bold=True, size=12, color=_WHITE, name="Arial")
-    t.fill = PatternFill("solid", start_color=_GREEN_HDR)
-    t.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 25
+    widths = [20, 14, 22, 12, 20, 18]
+    for col, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(col)].width = w
 
-    ws.merge_cells("A2:F2")
-    sub = ws["A2"]
-    sub.value = _("b2b_recap_subtitle")
-    sub.font = Font(italic=True, size=9, color="595959", name="Arial")
-    sub.alignment = Alignment(horizontal="center")
+    ws.row_dimensions[1].height = 25
+    t = _wcell(
+        ws, _("b2b_recap_title", period=period),
+        font=Font(bold=True, size=12, color=_WHITE, name="Arial"),
+        fill=PatternFill("solid", start_color=_GREEN_HDR),
+        alignment=Alignment(horizontal="center", vertical="center"),
+    )
+    ws.append([t])
+    _merge(ws, "A1:F1")
+
+    sub = _wcell(
+        ws, _("b2b_recap_subtitle"),
+        font=Font(italic=True, size=9, color="595959", name="Arial"),
+        alignment=Alignment(horizontal="center"),
+    )
+    ws.append([sub])
+    _merge(ws, "A2:F2")
 
     headers = [
         _("b2b_col_id"), _("b2b_col_date"), _("b2b_col_vat_number"),
         _("b2b_col_country_code"), _("b2b_col_buyer_country"), _("b2b_col_amount_ht")
     ]
-    widths  = [20,         14,     22,                 12,          20,               18]
-    for col, (h, w) in enumerate(zip(headers, widths), 1):
-        _hdr_cell(ws, 3, col, h, _GREEN_LIGHT, fg=_GREEN_HDR, size=9)
-        ws.column_dimensions[get_column_letter(col)].width = w
     ws.row_dimensions[3].height = 18
+    ws.append([_hdr_cell(ws, h, _GREEN_LIGHT, fg=_GREEN_HDR, size=9) for h in headers])
 
     for i, line in enumerate(data.b2b_lines):
         row = i + 4
         zebra = i % 2 == 1
-        _data_cell(ws, row, 1, line.sale_id, zebra=zebra)
-        _data_cell(ws, row, 2, line.transaction_date, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, row, 3, line.buyer_vat_number or "—", zebra=zebra)
-        _data_cell(ws, row, 4, line.buyer_country, zebra=zebra).alignment = Alignment(horizontal="center", vertical="center")
-        _data_cell(ws, row, 5, line.country_name, zebra=zebra)
-        _data_cell(ws, row, 6, float(line.amount_ht), fmt='#,##0.00 "€"', zebra=zebra).alignment = Alignment(horizontal="right", vertical="center")
         ws.row_dimensions[row].height = 15
+        ws.append([
+            _data_cell(ws, line.sale_id, zebra=zebra),
+            _data_cell(ws, line.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, line.buyer_vat_number or "—", zebra=zebra),
+            _data_cell(ws, line.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, line.country_name, zebra=zebra),
+            _data_cell(ws, float(line.amount_ht), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+        ])
 
     n = len(data.b2b_lines)
     tr = n + 4
-    for col in range(1, 6):
-        _total_cell(ws, tr, col, "")
-    _total_cell(ws, tr, 5, _("TOTAL HT"))
-    _total_cell(ws, tr, 6, f"=SUM(F4:F{tr-1})", fmt='#,##0.00 "€"').alignment = Alignment(horizontal="right", vertical="center")
+    ws.append([
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, _("TOTAL HT")),
+        _total_cell(ws, f"=SUM(F4:F{tr-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+    ])
 
     note_row = tr + 2
-    ws.merge_cells(f"A{note_row}:F{note_row}")
-    n_cell = ws[f"A{note_row}"]
-    n_cell.value = _("b2b_footer_note")
-    n_cell.font = Font(italic=True, size=8, color="C00000", name="Arial")
+    n_cell = _wcell(ws, _("b2b_footer_note"), font=Font(italic=True, size=8, color="C00000", name="Arial"))
+    ws.append([])
+    ws.append([n_cell])
+    _merge(ws, f"A{note_row}:F{note_row}")
 
 
 def _fmt_dec(value: Optional[Decimal]) -> str:
@@ -720,9 +780,9 @@ def build_oss_excel(
         data = _aggregate(results, period=period)
     data.period = period
 
-    wb = Workbook()
-    # Supprimer la feuille par défaut
-    wb.remove(wb.active)
+    wb = Workbook(write_only=True)
+    # Contrairement au mode normal, `Workbook(write_only=True)` ne crée pas
+    # de feuille par défaut : pas de `wb.remove(wb.active)` nécessaire.
 
     _build_oss_resume(wb, data, period)
     _build_oss_detail(wb, data)
@@ -742,8 +802,7 @@ def build_b2b_excel(
     if data is None:
         data = _aggregate(results, period=period)
 
-    wb = Workbook()
-    wb.remove(wb.active)
+    wb = Workbook(write_only=True)
     _build_b2b_recap(wb, data, period)
 
     output_path = Path(output_path)
