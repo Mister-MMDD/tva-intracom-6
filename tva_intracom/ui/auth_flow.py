@@ -384,7 +384,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             }
             </script>
             """,
-            height=0,
+            height="content",
         )
 
     try:

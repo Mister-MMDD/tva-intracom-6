@@ -102,7 +102,7 @@ st.iframe(f"""
         window.parent.document.onclick = resetTimer;
         resetTimer();
     </script>
-""", height=0)
+""", height="content")
 
 # --- Synchro langue <-> compte ---
 # `language_selector()` (appelé plus haut, avant l'authentification, pour que
