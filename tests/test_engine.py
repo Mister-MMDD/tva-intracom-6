@@ -15,8 +15,8 @@ Couvre l'intégralité des scénarios de compute_vat() :
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 
 # Permet d'importer le package tva_intracom depuis /home/claude/
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))

@@ -17,13 +17,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable, List, Optional, Set, Tuple
 
-from ...models import BuyerType, Sale
-from ...vies_engine import _normalize_vat_id as normalize_vat
-from ...ecb_rates import prefetch_rates
-from ...rates import COUNTRY_CURRENCIES
 from .aggregate import preaggregate_v5
 from .classify import (
-    BuyerClassification,
     CurrencyResult,
     apply_vat_exception,
     classify_buyer,
@@ -41,6 +36,9 @@ from .constants import (
 )
 from .detect import EXPECTED_COLUMNS, detect_format, detect_separator, normalize_header
 from .parsers import PARSERS
+from ...ecb_rates import prefetch_rates
+from ...models import BuyerType, Sale
+from ...vies_engine import _normalize_vat_id as normalize_vat
 
 logger = logging.getLogger(__name__)
 

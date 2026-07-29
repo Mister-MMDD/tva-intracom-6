@@ -11,10 +11,10 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from tva_intracom.i18n import _
 
+from tva_intracom.i18n import _
 from tva_intracom.rates import COUNTRY_ISO3
-from tva_intracom.ui.formatting import _country_label, _fmt, _get_conversion_rate
+from tva_intracom.ui.formatting import _country_label, _get_conversion_rate
 from tva_intracom.ui.tabs.context import TabContext
 
 

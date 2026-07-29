@@ -34,8 +34,9 @@ qu'une seule fois par visite, pas à chaque étape.
 from __future__ import annotations
 
 import streamlit as st
-from tva_intracom.i18n import _
+
 from tva_intracom import auth as tva_auth
+from tva_intracom.i18n import _
 
 
 def _dialog_progress(step: int, total: int) -> None:

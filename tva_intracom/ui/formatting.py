@@ -17,6 +17,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+
 from tva_intracom.i18n import _
 
 

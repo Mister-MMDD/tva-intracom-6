@@ -66,8 +66,8 @@ import logging
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Optional
 
-from tva_intracom.models import VatResult, Scenario, Channel
 from tva_intracom.i18n import _
+from tva_intracom.models import VatResult, Scenario, Channel
 
 logger = logging.getLogger(__name__)
 

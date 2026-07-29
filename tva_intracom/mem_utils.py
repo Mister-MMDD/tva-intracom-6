@@ -21,6 +21,7 @@ from __future__ import annotations
 import ctypes
 import gc
 import logging
+
 import streamlit as st
 
 logger = logging.getLogger(__name__)

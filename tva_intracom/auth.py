@@ -14,8 +14,6 @@ Dépendance ajoutée à requirements.txt : psycopg2-binary
 """
 from __future__ import annotations
 
-import os
-import json
 import secrets
 import threading
 import time
@@ -25,7 +23,7 @@ from typing import Optional
 import psycopg2
 import psycopg2.pool
 import requests
-import streamlit as st
+
 from .config import get_secret
 from .security import encrypt_data, decrypt_data
 

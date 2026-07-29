@@ -35,8 +35,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
 import psycopg2
-import psycopg2.pool
 import psycopg2.extras
+import psycopg2.pool
 
 from .config import get_secret
 
@@ -611,21 +611,20 @@ def quarter_end_date(period: str) -> Optional[date]:
     le DERNIER JOUR de la période de déclaration — et non le taux du jour
     de chaque vente — lorsqu'une conversion en EUR est nécessaire pour l'OSS.
 
-    Accepte les formats produits/normalisés par oss_xml.py :
-        "2026-Q1" / "2026-T1" -> dernier jour du trimestre
-        "2026"                -> 31 décembre
-        "2026-S1"             -> dernier jour du semestre (30/06 ou 31/12)
-    Les formats "plage" (2026-Q1_Q3, 2025-2026) ne sont pas couverts ici
-    (déclarations multi-trimestres/années : à traiter période par période
-    en amont) — retourne None dans ce cas, ce qui fait retomber l'appelant
-    sur le comportement antérieur (taux du jour de la vente).
+    Cette fonction ne traite que les périodes trimestrielles explicites.
+    Pour les périodes plus larges (semestres, années), l'appelant doit
+    utiliser le fallback trimestriel par transaction (get_oss_rate_date).
+
+    Accepte :
+        "2026-Q1" / "2026-T1" -> 31/03/2026
+        "2026-Q4" / "2026-T4" -> 31/12/2026
 
     Returns:
-        La date de clôture, ou None si le format n'est pas reconnu.
+        La date de clôture du trimestre, ou None si non reconnu ou non trimestriel.
     """
     if not period:
         return None
-    p = period.strip().upper().replace("T", "Q")  # tolère le format FR "T"
+    p = period.strip().upper().replace("T", "Q")
 
     m = re.fullmatch(r"(\d{4})-Q([1-4])", p)
     if m:
@@ -635,16 +634,27 @@ def quarter_end_date(period: str) -> Optional[date]:
             return date(year, 12, 31)
         return date(year, month + 1, 1) - timedelta(days=1)
 
-    m = re.fullmatch(r"(\d{4})-S([12])", p)
-    if m:
-        year, s = int(m.group(1)), int(m.group(2))
-        return date(year, 6, 30) if s == 1 else date(year, 12, 31)
-
-    m = re.fullmatch(r"(\d{4})", p)
-    if m:
-        return date(int(m.group(1)), 12, 31)
-
     return None
+
+
+def get_oss_rate_date(period: str, transaction_date: date) -> date:
+    """Détermine la date du taux BCE à utiliser pour une transaction OSS donnée.
+    
+    Suit le Règl. UE 2020/194, art. 5 bis : dernier jour de la période de 
+    déclaration. Si la période est une plage (ex: 2024-Q1_Q2), on utilise
+    la fin du trimestre de la transaction.
+    """
+    rate_date = quarter_end_date(period)
+    if not rate_date:
+        # Fallback intelligent pour OSS : fin du trimestre de la transaction
+        year = transaction_date.year
+        q = (transaction_date.month - 1) // 3 + 1
+        m_end = q * 3
+        if m_end == 12:
+            rate_date = date(year, 12, 31)
+        else:
+            rate_date = date(year, m_end + 1, 1) - timedelta(days=1)
+    return rate_date
 
 
 def convert_to_currency_for_oss(
@@ -657,16 +667,17 @@ def convert_to_currency_for_oss(
 ) -> tuple[Decimal, Decimal, str]:
     """Convertit un montant vers la devise cible avec le taux BCE de clôture de période OSS.
 
-    Si `period` n'est pas reconnu (plage multi-trimestres/années), on retombe
-    sur le taux du jour de la transaction (comportement précédent) pour ne
-    pas bloquer un cas d'usage existant — à traiter période par période en amont.
+    Si `period` n'est pas reconnu (plage multi-trimestres/années) ou incomplet (mois unique), 
+    on utilise le taux de clôture du trimestre contenant la `transaction_date` 
+    (Règl. UE 2020/194, art. 5 bis). Si ce taux futur n'est pas encore publié,
+    on retombe sur le taux du jour de la transaction.
     """
     source_currency = source_currency.upper()
     target_currency = target_currency.upper()
     if source_currency == target_currency:
         return original_amount, Decimal("1"), target_currency.lower()
 
-    rate_date = quarter_end_date(period) or transaction_date
+    rate_date = get_oss_rate_date(period, transaction_date)
     return convert_to_currency(original_amount, source_currency, target_currency, rate_date, fallback_rate=fallback_rate)
 
 

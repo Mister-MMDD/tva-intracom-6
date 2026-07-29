@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tva_intracom.vies_engine import ViesResult, _clean_vat_number, check_vat, check_vat_raw
 from tva_intracom import BuyerType, Sale, Scenario, compute_all_with_vies
+from tva_intracom.vies_engine import ViesResult, _clean_vat_number, check_vat, check_vat_raw
 
 
 def test_clean_vat_number_standard():

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date as _date
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -30,10 +30,9 @@ from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.cell_range import CellRange
 
-from .models import Scenario, VatResult
-from .i18n import _
 from .ecb_rates import convert_to_currency_for_oss
-from .rates import COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
+from .i18n import _
+from .models import Scenario, VatResult
 
 _CENT = Decimal("0.01")
 _ZERO = Decimal("0.00")

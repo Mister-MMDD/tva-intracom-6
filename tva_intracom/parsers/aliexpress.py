@@ -26,9 +26,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
 
-from ..models import BuyerType, Sale
-from ..rates import COUNTRY_CURRENCIES
 from . import ParseResult
+from ..models import BuyerType, Sale
 
 logger = logging.getLogger(__name__)
 

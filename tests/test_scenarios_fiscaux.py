@@ -7,9 +7,12 @@
 """
 
 from __future__ import annotations
+
 from decimal import Decimal
+
 from tva_intracom.engine import compute_vat, compute_all_with_vies
 from tva_intracom.models import Sale, BuyerType, Scenario, Collector
+
 
 def make_sale(**kwargs) -> Sale:
     """Helper pour créer une vente de test."""

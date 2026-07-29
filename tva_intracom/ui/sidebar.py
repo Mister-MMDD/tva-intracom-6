@@ -23,26 +23,26 @@ Usage dans app.py :
 from __future__ import annotations
 
 import json
-import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
 import streamlit as st
-from tva_intracom.i18n import _
 
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom import billing as tva_billing
-from tva_intracom.rates import EU_COUNTRIES, COUNTRY_NAMES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, oss_threshold_in_currency
+from tva_intracom.i18n import _
+from tva_intracom.rates import EU_COUNTRIES, COUNTRY_NAMES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
+    oss_threshold_in_currency
+from tva_intracom.ui.rerun_utils import preserve_upload_rerun
+from tva_intracom.ui.theme import _PLATFORM_OPTIONS
 from tva_intracom.vies_engine import (
     get_cache_stats as vies_cache_stats,
     purge_expired_cache,
     set_cache_ttl,
 )
-from tva_intracom.ui.theme import _PLATFORM_OPTIONS
-from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 
 
 @dataclass

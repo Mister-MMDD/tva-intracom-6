@@ -1,22 +1,18 @@
 """Application Streamlit — Moteur TVA Intracommunautaire."""
 from __future__ import annotations
+
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent))
 
-import tempfile, re
+import tempfile
 import gzip
 import logging
-import time
-import os
-import gc
-from typing import Optional, List, Set, Dict, Tuple, Union, Callable
+from typing import Optional, Callable
 from decimal import Decimal
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
-from datetime import datetime, timedelta
-import math
+from datetime import datetime
 import pandas as pd
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
 from tva_intracom.i18n import _, init_i18n, language_selector
@@ -29,46 +25,25 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-from tva_intracom.ecb_rates import cache_info as ecb_cache_info, get_rate as _ecb_get_rate, quarter_end_date as _ecb_quarter_end_date
-from tva_intracom.vies_engine import (
-    get_cache_stats as vies_cache_stats,
-    purge_expired_cache,
-    set_cache_ttl,
-)
-from tva_intracom.engine import ViesValidationSummary, compute_all_with_vies
+from tva_intracom.ecb_rates import get_rate as _ecb_get_rate
+from tva_intracom.engine import compute_all_with_vies
 from tva_intracom.ui.background_calc import (
     start_background_job,
     get_job_state,
     clear_job,
     render_job_progress,
 )
-from tva_intracom.excel_report import export_xlsx
-from tva_intracom.models import Scenario, BuyerType, Channel, Collector
 from tva_intracom.report import build_report
-from tva_intracom.oss_export import build_oss_excel, build_oss_csv
-from tva_intracom.ca3_report import generate_ca3_html_report_v2
-from tva_intracom.fec_export import generate_fec_bytes
-from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
-from tva_intracom.oss_export import aggregate_oss_results, find_oss_negative_buckets
-from tva_intracom import billing as tva_billing
 
 _ZERO = Decimal("0.00")
 from tva_intracom.rates import (
-    COUNTRY_NAMES,
-    COUNTRY_ISO3,
-    COUNTRY_FISCAL_META,
-    STANDARD_VAT_RATES,
     is_eu,
 )
 
-from tva_intracom.ui.theme import apply_theme, _PLATFORM_OPTIONS
+from tva_intracom.ui.theme import apply_theme
 from tva_intracom.ui.formatting import (
     _country_label,
     _fmt,
-    _money_col,
-    _pct_col,
-    _smart_money_df,
-    _gated_preview_table,
 )
 
 # =============================================================================
@@ -283,7 +258,6 @@ else:
     release_memory()
 
 if uploaded_files:
-    from tva_intracom.parsers import ParseResult
     from tva_intracom.parsers import amazon as parser_amazon
     from tva_intracom.parsers import mirakl as parser_mirakl
     from tva_intracom.parsers import shopify as parser_shopify
@@ -478,39 +452,14 @@ if uploaded_files:
                 width="stretch", hide_index=True,
             )
 
-    # Résumé des taux de change BCE effectivement utilisés
+    # Devises étrangères utilisées (le taux BCE de clôture de période
+    # réellement appliqué à la déclaration OSS est affiché plus bas, une
+    # fois `period_label` résolu — voir bloc après build_billing_gate).
+    _fx_currencies_used: set = set()
     if convert_fx:
-        _fx_used: dict = {}
         for _s in all_sales:
-            if _s.original_currency and _s.original_currency != "EUR" and _s.exchange_rate:
-                _k = (_s.original_currency, getattr(_s, "exchange_rate_source", "?"))
-                if _k not in _fx_used:
-                    _fx_used[_k] = {"rate": float(_s.exchange_rate), "date": _s.transaction_date[:7] if _s.transaction_date else ""}
-        if _fx_used:
-            with st.expander(_("bce_rates_title", count=len(_fx_used))):
-                st.caption(_("bce_rates_per_tx_disclaimer"))
-                for (_ccy, _src), _info in sorted(_fx_used.items()):
-                    _src_lbl = {_("bce_source_official"): "BCE officiel", "fallback": _("bce_source_fallback"), "eur": _("bce_source_native")}.get(_src, _src)
-                    st.caption(f"**{_ccy}** : 1 EUR = {_info['rate']:.4f} {_ccy} — source : {_src_lbl} — 1ère transaction : {_info['date'] or '?'}")
-
-                # Taux OSS de clôture de période (Règl. UE 2020/194, art. 5 bis) —
-                # c'est CE taux (et non le taux par transaction ci-dessus) qui est
-                # effectivement appliqué à la déclaration OSS agrégée. Afficher
-                # les deux évite tout rapprochement manuel erroné entre le détail
-                # par transaction et le total OSS déclaré (cf. bug rapporté sur SE/SEK).
-                _oss_quarter_end = _ecb_quarter_end_date(oss_period) if oss_period else None
-                if _oss_quarter_end:
-                    st.divider()
-                    st.caption(_("bce_rates_oss_disclaimer", date=_oss_quarter_end.isoformat()))
-                    for _ccy in sorted({c for c, _ in _fx_used}):
-                        try:
-                            _oss_rate = _ecb_get_rate(_ccy, _oss_quarter_end)
-                        except Exception:
-                            _oss_rate = None
-                        if _oss_rate is not None:
-                            st.caption(f"**{_ccy}** : 1 EUR = {float(_oss_rate):.4f} {_ccy} — taux OSS retenu au {_oss_quarter_end.isoformat()}")
-                        else:
-                            st.caption(f"**{_ccy}** : {_('bce_rates_oss_unavailable')}")
+            if _s.original_currency and _s.original_currency != "EUR":
+                _fx_currencies_used.add(_s.original_currency)
 
     sales, refunds = all_sales, all_refunds
 
@@ -559,7 +508,7 @@ if uploaded_files:
 
         vies_summary = None
         if st.session_state.get("_calc_key") != _cache_key:
-            # On capture le contexte de session AVANT de lancer le thread pour 
+            # On capture le contexte de session AVANT de lancer le thread pour
             # éviter les appels à st.session_state (ScriptRunContext)
             _lang_for_thread = st.session_state.get("language", "fr")
             _curr_for_thread = st.session_state.get("target_currency", "EUR")
@@ -832,6 +781,51 @@ if uploaded_files:
         _unlock_label_suffix = _gate.unlock_label_suffix
         _gated_download = _gate.gated_download
         _get_payg_checkout_url = _gate.get_payg_checkout_url
+
+        # Taux BCE de clôture de période réellement utilisés pour la
+        # conversion OSS (Règl. UE 2020/194, art. 5 bis) — affiche les taux
+        # par devise et par date de clôture si la période est multiple.
+        if convert_fx and _fx_currencies_used:
+            from tva_intracom.ecb_rates import get_oss_rate_date
+            _used_rates_info = set()
+            for _r in results:
+                if _r.sale.original_currency and _r.sale.original_currency != "EUR":
+                    try:
+                        _tx_date = datetime.fromisoformat((_r.sale.transaction_date or "")[:10])
+                        # On utilise la date de clôture OSS correspondante à la transaction
+                        _rate_date = get_oss_rate_date(period_label, _tx_date)
+                        _used_rates_info.add((_r.sale.original_currency.upper(), _rate_date))
+                    except Exception:
+                        pass
+            
+            if _used_rates_info:
+                _all_dates = sorted({d for c, d in _used_rates_info})
+                with st.expander(_("bce_rates_title", count=len(_used_rates_info))):
+                    if len(_all_dates) == 1:
+                        st.caption(_("bce_rates_oss_disclaimer", date=_all_dates[0].isoformat()))
+                    elif "_" in period_label:
+                        _p_parts = period_label.split("_")
+                        _p_start = _p_parts[0]
+                        _p_end = _p_parts[-1]
+                        if not "-" in _p_end and "-" in _p_start:
+                            # Cas "2026-Q1_Q3" -> "2026-Q1" à "2026-Q3"
+                            _p_year = _p_start.split("-")[0]
+                            _p_end = f"{_p_year}-{_p_end}"
+                        st.caption(_("bce_rates_oss_disclaimer_range", start=_p_start, end=_p_end))
+                    else:
+                        st.caption(_("bce_rates_oss_disclaimer", date=f"{_all_dates[0].isoformat()} → {_all_dates[-1].isoformat()}"))
+
+                    for _ccy, _d in sorted(_used_rates_info):
+                        try:
+                            _oss_rate = _ecb_get_rate(_ccy, _d)
+                        except Exception:
+                            _oss_rate = None
+                        
+                        _date_suffix = f" ({_d.strftime('%d/%m/%Y')})" if len(_all_dates) > 1 else ""
+                        if _oss_rate is not None:
+                            st.caption(f"**{_ccy}** : 1 EUR = {float(_oss_rate):.4f} {_ccy}{_date_suffix}")
+                        else:
+                            st.caption(f"**{_ccy}** : {_('bce_rates_oss_unavailable')}{_date_suffix}")
 
         # =====================================================================
         # ONGLETS PRINCIPAUX

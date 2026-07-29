@@ -35,14 +35,14 @@ from datetime import datetime as _dt
 from typing import Any, Optional
 
 import streamlit as st
-from tva_intracom.i18n import _
 
 from tva_intracom import billing as tva_billing
+from tva_intracom.i18n import _
 from tva_intracom.models import Channel
 from tva_intracom.rates import is_eu
 from tva_intracom.ui.formatting import _country_label
-from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
 from tva_intracom.ui.sidebar import _cached_db_read
+from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
 
 
 def detect_period_label(results, oss_period: str) -> tuple[str, Optional[tuple[str, str]]]:

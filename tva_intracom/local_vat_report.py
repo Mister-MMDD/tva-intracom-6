@@ -35,9 +35,9 @@ import logging
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Optional
 
+from tva_intracom.i18n import _
 from tva_intracom.models import VatResult
 from tva_intracom.rates import COUNTRY_FISCAL_META, COUNTRY_NAMES, LOCAL_VAT_BOX_CODES
-from tva_intracom.i18n import _
 
 logger = logging.getLogger(__name__)
 

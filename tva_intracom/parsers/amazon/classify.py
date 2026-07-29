@@ -9,10 +9,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date as _date
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional
 
-from ...ecb_rates import convert_to_eur, convert_to_currency  # noqa: E402
-from ...rates import COUNTRY_CURRENCIES
 from .constants import (
     REFUND_TYPES,
     is_national_tax_id,
@@ -20,6 +17,7 @@ from .constants import (
     is_vat_placeholder,
     safe_decimal,
 )
+from ...ecb_rates import convert_to_currency  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -35,9 +35,9 @@ from decimal import Decimal
 import pytest
 
 from tva_intracom.engine import compute_vat
-from tva_intracom.models import BuyerType, Channel, Collector, Sale, Scenario, VatResult
+from tva_intracom.models import BuyerType, Sale
 from tva_intracom.rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES
-from tva_intracom.report import _bucket_label, _ZERO, ReportSummary, build_report
+from tva_intracom.report import _bucket_label, _ZERO, build_report
 
 _UNCLASSIFIED = "Autre / non classé"
 

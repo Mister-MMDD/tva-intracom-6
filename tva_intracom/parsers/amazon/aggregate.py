@@ -11,7 +11,6 @@ liste de lignes agrégées (une par acte de vente).
 from __future__ import annotations
 
 import logging
-from typing import Iterator
 
 from .constants import safe_decimal
 

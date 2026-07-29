@@ -27,10 +27,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
 
-from ..models import BuyerType, Sale
-from ..ecb_rates import prefetch_rates
-from ..rates import COUNTRY_CURRENCIES
 from . import ParseResult
+from ..ecb_rates import prefetch_rates
+from ..models import BuyerType, Sale
 
 logger = logging.getLogger(__name__)
 

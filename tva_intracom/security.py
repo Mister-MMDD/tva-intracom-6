@@ -1,7 +1,9 @@
 """Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)."""
 
 import logging
+
 from cryptography.fernet import Fernet
+
 from .config import get_secret
 
 logger = logging.getLogger(__name__)

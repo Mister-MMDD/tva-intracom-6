@@ -13,19 +13,16 @@ où `results` est la liste de VatResult retournée par compute_all_with_vies().
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
 from typing import List
 
 import streamlit as st
 
+from .models import VatResult
 from .rates import (
-    VAT_RATE_HISTORY,
     COUNTRY_NAMES,
     rate_periods_for_country,
     vat_rate_at_date,
-    STANDARD_VAT_RATES,
 )
-from .models import VatResult
 
 
 def _parse_date(s: str) -> date | None:

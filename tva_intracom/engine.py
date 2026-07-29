@@ -29,7 +29,7 @@ from .models import (
     ViesReclassification,
     ViesValidationSummary,
 )
-from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate, vat_rate_at_date, has_rate_changed
+from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate
 from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES, oss_threshold_in_currency, OSS_THRESHOLD_FIXED_EQUIVALENTS
 from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical

@@ -13,13 +13,13 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .models import VatResult
-from .report import ReportSummary, build_report
-from .i18n import _ as i18n_
-from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
 from . import ecb_rates
-from .parsers.amazon.detect import parse_date as _parse_amz_date
+from .i18n import _ as i18n_
+from .models import VatResult
 from .oss_export import aggregate_oss_results
+from .parsers.amazon.detect import parse_date as _parse_amz_date
+from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
+from .report import ReportSummary, build_report
 
 _COUNTRY_NAMES_XL = COUNTRY_NAMES
 

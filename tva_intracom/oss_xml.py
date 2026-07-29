@@ -16,13 +16,13 @@ Structure XML correcte (Reg. UE 2021/965) :
 
 from __future__ import annotations
 
+import logging
 import re
 import xml.etree.ElementTree as ET
-import logging
 from decimal import Decimal
+from pathlib import Path
 from typing import List
 from xml.dom import minidom
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

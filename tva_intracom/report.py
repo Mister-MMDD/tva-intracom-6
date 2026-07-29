@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Dict, List, Optional, Set
 
-from .models import Channel, Collector, Scenario, VatResult
 from .i18n import _
+from .models import Channel, Collector, Scenario, VatResult
 from .rates import is_eu
 
 _ZERO = Decimal("0.00")

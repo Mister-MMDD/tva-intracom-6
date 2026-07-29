@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import enum
+from dataclasses import field
 from decimal import Decimal
 from typing import Any
+
 from pydantic.dataclasses import dataclass
-from dataclasses import field
 
 
 class BuyerType(enum.Enum):

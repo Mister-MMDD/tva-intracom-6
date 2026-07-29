@@ -42,7 +42,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import threading
 import time
@@ -56,7 +55,7 @@ from typing import Optional
 import psycopg2
 import psycopg2.pool
 from psycopg2.extras import execute_values
-from .config import get_secret
+
 from .security import encrypt_data as _enc, decrypt_data as _dec
 
 logger = logging.getLogger(__name__)

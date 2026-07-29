@@ -10,9 +10,10 @@ from decimal import Decimal
 
 import pandas as pd
 import streamlit as st
-from tva_intracom.i18n import _
 
-from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _render_filter_bar, _fmt
+from tva_intracom.i18n import _
+from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _render_filter_bar, \
+    _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
 

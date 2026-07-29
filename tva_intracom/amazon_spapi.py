@@ -1,12 +1,10 @@
 """Intégration Amazon Selling Partner API (SP-API) — OAuth 2.0 & Reports."""
 from __future__ import annotations
 
-import os
-import time
 import requests
-import streamlit as st
+
 from .config import get_secret
-from typing import Optional
+
 
 def get_authorization_url(state: str) -> str:
     """Génère l'URL pour rediriger l'utilisateur vers Amazon Seller Central."""

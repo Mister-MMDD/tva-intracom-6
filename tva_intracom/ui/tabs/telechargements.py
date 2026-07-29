@@ -11,18 +11,19 @@ intentionnelle entre onglets.
 
 from __future__ import annotations
 
+import gc
 import os
 import tempfile
-import gc
 from decimal import Decimal
 
 import streamlit as st
-from tva_intracom.i18n import _
 
-from tva_intracom.models import Scenario
 from tva_intracom.ca3_report import generate_ca3_html_report_v2
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.fec_export import generate_fec_bytes
+from tva_intracom.i18n import _
+from tva_intracom.local_vat_report import generate_local_vat_html_report
+from tva_intracom.models import Scenario
 from tva_intracom.oss_export import (
     aggregate_oss_results,
     build_b2b_excel,
@@ -31,7 +32,6 @@ from tva_intracom.oss_export import (
 )
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
-from tva_intracom.local_vat_report import generate_local_vat_html_report
 from tva_intracom.ui.formatting import _country_label, _fec_period_end_date, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 

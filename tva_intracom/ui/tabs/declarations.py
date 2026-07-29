@@ -15,11 +15,12 @@ from decimal import Decimal
 
 import pandas as pd
 import streamlit as st
-from tva_intracom.i18n import _
 
+from tva_intracom.i18n import _
 from tva_intracom.models import Channel
 from tva_intracom.oss_export import aggregate_oss_results
-from tva_intracom.ui.formatting import _country_label, _gated_preview_table, _money_col, _smart_money_df, _fmt
+from tva_intracom.ui.formatting import _country_label, _gated_preview_table, _money_col, \
+    _smart_money_df, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
 _ZERO = Decimal("0.00")

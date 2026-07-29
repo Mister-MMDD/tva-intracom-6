@@ -37,8 +37,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable
 
-from .models import Collector, Scenario, VatResult
 from .i18n import _
+from .models import Collector, Scenario, VatResult
 
 # ---------------------------------------------------------------------------
 # Plan comptable — comptes génériques paramétrables.
