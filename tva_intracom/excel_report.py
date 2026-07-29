@@ -18,6 +18,7 @@ from .report import ReportSummary, build_report
 from .i18n import _ as i18n_
 from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
 from . import ecb_rates
+from .parsers.amazon.detect import parse_date as _parse_amz_date
 
 _COUNTRY_NAMES_XL = COUNTRY_NAMES
 
@@ -1168,10 +1169,20 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
             t.get("ACTIVITY_TRANSACTION_ID") or t.get("activity_transaction_id") or ""
     )
     # Date
-    date_str = (
+    # BUGFIX : les exports Amazon (transferts FC) fournissent cette date au
+    # format "DD-MM-YYYY" (ex: "31-05-2026"), jamais ISO. Le code découpait
+    # auparavant cette chaîne comme si elle était déjà "YYYY-MM-DD"
+    # (`mois = date_str[:7]`, `annee = mois[:4]` dans _write_intrastat_tab),
+    # ce qui produisait des valeurs absurdes ("01-0", "02-0"...) au lieu
+    # d'une vraie année, et donc un mauvais regroupement mensuel/annuel des
+    # flux Intrastat et un mauvais calcul des dates limites de déclaration
+    # (Calendrier Fiscal). `parse_date()` (déjà utilisé par les parsers de
+    # ventes pour ce même format) normalise ici vers ISO AVANT tout découpage
+    # en aval.
+    date_str = _parse_amz_date(
             t.get("TRANSACTION_COMPLETE_DATE") or t.get("transaction_complete_date") or
             t.get("TAX_CALCULATION_DATE") or t.get("tax_calculation_date") or ""
-    )[:10]
+    )
     # ASIN
     asin = (t.get("ASIN") or t.get("asin") or "").strip()
     # Désignation

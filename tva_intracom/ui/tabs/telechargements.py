@@ -170,7 +170,8 @@ def render_telechargements() -> None:
         # ── ZONE TÉLÉCHARGEMENTS ──────────────────────────────────────
         st.divider()
 
-        # 1. Rapport principal — pleine largeur, bouton primaire
+        # 1. Rapport principal — pleine largeur, style secondaire (sombre,
+        # cohérent avec tous les autres boutons de téléchargement)
         st.markdown(_("dl_audit_header"))
         xlsx_bytes = _lazy_artifact("main_xlsx", _build_main_xlsx, label="dl_generate_main_btn", spinner_label=_("dl_generation_excel"))
         if not _can_export:
@@ -181,14 +182,12 @@ def render_telechargements() -> None:
                 _("dl_main_report_btn"), data=b"",
                 file_name=_("dl_main_report_filename", company=nom_entreprise, period=period_label),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
             )
         elif xlsx_bytes is not None:
             _gated_download(
                 _("dl_main_report_btn"), data=xlsx_bytes,
                 file_name=_("dl_main_report_filename", company=nom_entreprise, period=period_label),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
             )
         # else : compte débloqué mais rapport pas encore généré — le bouton
         # "Générer ce rapport" est déjà affiché par _lazy_artifact ci-dessus.
@@ -236,9 +235,9 @@ def render_telechargements() -> None:
             oss_xml_bytes = _lazy_artifact(f"oss_xml_{_confirm_corrections}", _build_oss_xml, label="dl_generate_oss_xml_btn")
 
             if not _can_export:
-                _gated_download(_("dl_xml_oss_btn"), data=b"", file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml", type="primary")
+                _gated_download(_("dl_xml_oss_btn"), data=b"", file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml")
             elif oss_xml_bytes:
-                _gated_download(_("dl_xml_oss_btn"), data=oss_xml_bytes, file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml", type="primary")
+                _gated_download(_("dl_xml_oss_btn"), data=oss_xml_bytes, file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml")
 
             # Ligne Excel (Détail)
             def _build_oss_xlsx():
