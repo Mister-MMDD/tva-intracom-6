@@ -6,7 +6,7 @@ import re
 from datetime import date as _date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
@@ -19,6 +19,7 @@ from .i18n import _ as i18n_
 from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
 from . import ecb_rates
 from .parsers.amazon.detect import parse_date as _parse_amz_date
+from .oss_export import aggregate_oss_results
 
 _COUNTRY_NAMES_XL = COUNTRY_NAMES
 
@@ -295,7 +296,7 @@ def _write_recap(
 
     if _currency != "EUR":
         ws.append([_wcell(ws, i18n_("xl_recap_currency_note", currency=_currency, date=_conv_date.isoformat()),
-                           font=Font(italic=True, size=9, color="7f7f7f"))])
+                          font=Font(italic=True, size=9, color="7f7f7f"))])
         ws.row_dimensions[2].height = 16
     else:
         ws.append([])
@@ -303,7 +304,7 @@ def _write_recap(
     # Entêtes de la grille de synthèse
     headers = [i18n_("xl_recap_col_indicator"), i18n_("xl_recap_col_gross"), i18n_("xl_recap_col_refunds"), i18n_("xl_recap_col_net")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
     ws.row_dimensions[3].height = 22
     _width_tracker.observe_row(headers)
@@ -401,7 +402,7 @@ def _write_recap(
     _bucket_header_row = current_row
     _headers_bucket = [i18n_("xl_audit_col_channel"), i18n_("xl_audit_col_control")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers_bucket])
     _width_tracker.observe_row(_headers_bucket)
     current_row += 1
@@ -535,7 +536,7 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
             str(collector),
             str(channel),
             str(note),
-        ]
+            ]
 
         _row_cells = [
             _wcell(ws, _row_values[0]),
@@ -637,7 +638,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         i18n_("xl_audit_col_gap_abs"), i18n_("xl_audit_col_gap_pct"), i18n_("xl_audit_col_risk"),
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers_1])
     ws.row_dimensions[4].height = 22
     _width_tracker.observe_row(_headers_1)
@@ -685,7 +686,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         i18n_("xl_detail_col_vat_amz"), i18n_("xl_detail_col_vat_mot"), i18n_("xl_detail_col_gap"),
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers_2])
     ws.row_dimensions[row].height = 22
     _width_tracker.observe_row(_headers_2)
@@ -725,7 +726,7 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
         i18n_("xl_vies_col_country"), i18n_("xl_vies_col_name"), i18n_("xl_vies_col_error")
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers])
     ws.row_dimensions[1].height = 22
     _width_tracker.observe_row(_headers)
@@ -831,8 +832,8 @@ def _write_intrastat_tab(
             i18n_("xl_intrastat_col_threshold"), i18n_("xl_intrastat_col_pct"), i18n_("xl_intrastat_col_status"),
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE,
-                           fill=PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"),
-                           alignment=Alignment(horizontal="center", vertical="center"))
+                          fill=PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"),
+                          alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_seuil])
         _width_tracker.observe_row(_headers_seuil)
         current_row += 1
@@ -865,7 +866,7 @@ def _write_intrastat_tab(
                 _width_tracker.observe_row(_vals_seuil)
                 current_row += 1
         ws.append([_wcell(ws, i18n_("xl_intrastat_footer", unconfirmed=(i18n_("xl_intrastat_unconfirmed_footer") if any_unconfirmed else "")),
-                           font=Font(italic=True, size=9, color="7f7f7f"))])
+                          font=Font(italic=True, size=9, color="7f7f7f"))])
         current_row += 2
     else:
         ws.append([_wcell(ws, i18n_("xl_intrastat_no_transfer"), font=Font(italic=True))])
@@ -886,7 +887,7 @@ def _write_intrastat_tab(
             i18n_("xl_intrastat_col_val_stat"), i18n_("xl_intrastat_col_delivery"), i18n_("xl_intrastat_col_remark"),
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=GREEN_FILL,
-                           alignment=Alignment(horizontal="center", vertical="center"))
+                          alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_flux])
         ws.row_dimensions[current_row].height = 22
         _width_tracker.observe_row(_headers_flux)
@@ -975,7 +976,7 @@ def _write_calendar_tab(
     ws.append([_wcell(ws, i18n_("xl_cal_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
     ws.append([_wcell(ws, i18n_("xl_cal_meta", date=today.isoformat(), country=seller_country, period=(period or i18n_("xl_cal_unspecified"))),
-                       font=Font(italic=True, size=10, color="595959"))])
+                      font=Font(italic=True, size=10, color="595959"))])
     ws.row_dimensions[2].height = 20
     ws.append([])
     ws.row_dimensions[3].height = 8
@@ -986,7 +987,7 @@ def _write_calendar_tab(
         i18n_("xl_cal_col_portal"), i18n_("xl_cal_col_legal"),
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=PURPLE_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers])
     ws.row_dimensions[4].height = 22
     _width_tracker.observe_row(_headers)
@@ -1180,8 +1181,8 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
     # ventes pour ce même format) normalise ici vers ISO AVANT tout découpage
     # en aval.
     date_str = _parse_amz_date(
-            t.get("TRANSACTION_COMPLETE_DATE") or t.get("transaction_complete_date") or
-            t.get("TAX_CALCULATION_DATE") or t.get("tax_calculation_date") or ""
+        t.get("TRANSACTION_COMPLETE_DATE") or t.get("transaction_complete_date") or
+        t.get("TAX_CALCULATION_DATE") or t.get("tax_calculation_date") or ""
     )
     # ASIN
     asin = (t.get("ASIN") or t.get("asin") or "").strip()
@@ -1236,7 +1237,7 @@ def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
         i18n_("xl_fba_col_qty"), i18n_("xl_fba_col_dep"), i18n_("xl_fba_col_arr"), i18n_("xl_fba_col_type"),
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers])
     ws.row_dimensions[1].height = 22
     _width_tracker.observe_row(_headers)
@@ -1354,7 +1355,7 @@ def _write_fba_aic_tab(
             f"TVA AIC estimée ({display_currency})", "Statut",
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                           alignment=Alignment(horizontal="center", vertical="center"))
+                          alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_detail])
         ws.row_dimensions[current_row].height = 22
         _width_tracker.observe_row(_headers_detail)
@@ -1408,7 +1409,7 @@ def _write_fba_aic_tab(
             "Référence légale", "Action requise",
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                           alignment=Alignment(horizontal="center", vertical="center"))
+                          alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_sub])
         ws.row_dimensions[current_row].height = 22
         _width_tracker.observe_row(_headers_sub)
@@ -1452,8 +1453,8 @@ def _write_fba_aic_tab(
             "Immat. départ", "Immat. arrivée", "Observation",
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE,
-                           fill=PatternFill(start_color="A6A6A6", end_color="A6A6A6", fill_type="solid"),
-                           alignment=Alignment(horizontal="center", vertical="center"))
+                          fill=PatternFill(start_color="A6A6A6", end_color="A6A6A6", fill_type="solid"),
+                          alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_inact])
         ws.row_dimensions[current_row].height = 22
         _width_tracker.observe_row(_headers_inact)
@@ -1523,7 +1524,9 @@ def _write_section_group_row(ws, month_start_col: int, n_months: int, total_star
     return row_cells
 
 
-def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") -> None:
+def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
+                   results: list | None = None, refund_results: list | None = None,
+                   period: str = "") -> None:
     """Onglet OSS détaillé : mois par mois (net) puis Brut / Remboursements / Net
     (total période) par pays de destination."""
     ws.title = i18n_("xl_tab_oss")
@@ -1539,7 +1542,7 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") ->
 
     if display_currency != "EUR":
         ws.append([_wcell(ws, i18n_("xl_recap_currency_note", currency=display_currency, date=_conv_date.isoformat()),
-                           font=Font(italic=True, size=9, color="7f7f7f"))])
+                          font=Font(italic=True, size=9, color="7f7f7f"))])
         ws.row_dimensions[2].height = 16
     else:
         ws.append([])  # ligne 2 volontairement vide (comportement d'origine)
@@ -1550,6 +1553,24 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") ->
     )
     by_country_month = getattr(summary, "oss_by_country_month", {}) or {}
     months = sorted({m for per_country in by_country_month.values() for m in per_country})
+
+    # Totaux Brut/Remb par pays d'arrivée reconvertis au taux BCE de clôture
+    # de période (art. 5 bis Règl. UE 2020/194) — même méthode que le
+    # dashboard (declarations.py). `summary.oss_by_country` seul reste figé
+    # au taux du jour de vente : pour les pays facturés en devise étrangère
+    # (ex. Suède/SEK), ça produit un total différent de celui affiché au
+    # tableau de bord. On ne recalcule que si `results` a été fourni ;
+    # sinon on retombe sur le comportement historique (summary seul).
+    _period_tva_vente: Dict[str, Decimal] = {}
+    _period_tva_remb: Dict[str, Decimal] = {}
+    if results is not None:
+        _agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
+        for _departure, _by_arrival in _agg.items():
+            for _arrival, _by_rate in _by_arrival.items():
+                for _bucket in _by_rate.values():
+                    _period_tva_vente[_arrival] = _period_tva_vente.get(_arrival, _z) + _bucket["tva_vente"]
+                    _period_tva_remb[_arrival] = _period_tva_remb.get(_arrival, _z) + _bucket["tva_remb"]
+        all_countries = sorted(set(all_countries) | set(_period_tva_vente) | set(_period_tva_remb))
 
     # Colonnes : Pays, Code, [mois...] (net seul), Brut, Remboursements, Net (total période)
     month_start_col = 3
@@ -1564,15 +1585,19 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") ->
     headers += [_month_label(m) for m in months]
     headers += [i18n_("xl_oss_col_vat_gross"), i18n_("xl_oss_col_vat_refunds"), i18n_("xl_oss_col_vat_net")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
     ws.row_dimensions[header_row].height = 22
     _width_tracker.observe_row(headers)
 
     row = header_row + 1
     for country in all_countries:
-        brut   = summary.oss_by_country.get(country, _z)
-        refund = summary.refund_oss_by_country.get(country, _z) if getattr(summary, "refund_oss_by_country", None) else _z
+        if results is not None:
+            brut   = _period_tva_vente.get(country, _z)
+            refund = _period_tva_remb.get(country, _z)
+        else:
+            brut   = summary.oss_by_country.get(country, _z)
+            refund = summary.refund_oss_by_country.get(country, _z) if getattr(summary, "refund_oss_by_country", None) else _z
         net    = brut + refund  # noqa: F841 (conservé pour parité de lecture avec l'original)
 
         month_values = by_country_month.get(country, {})
@@ -1590,7 +1615,7 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") ->
         _row_cells.append(_wcell(ws, _conv(brut), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
-                                  number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
+                                 number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
         # Excel recalculates this correctly on open, but we help it
         # by ensuring letters match the displayed screenshot bug (G5 = Brut, H5 = Refund).
         # Wait, in the code letter_brut is col_brut. col_brut = total_start_col.
@@ -1614,7 +1639,7 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR") ->
         col = month_start_col + i
         letter = get_column_letter(col)
         _total_row_cells.append(_wcell(ws, f"=SUM({letter}{header_row+1}:{letter}{row-2})",
-                                        number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
+                                       number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
     for formula in [
         f"=SUM({letter_brut}{header_row+1}:{letter_brut}{row-2})",
         f"=SUM({letter_ref}{header_row+1}:{letter_ref}{row-2})",
@@ -1649,7 +1674,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     if display_currency != "EUR":
         ws.append([_wcell(ws, i18n_("xl_recap_currency_note", currency=display_currency, date=_conv_date.isoformat()),
-                           font=Font(italic=True, size=9, color="7f7f7f"))])
+                          font=Font(italic=True, size=9, color="7f7f7f"))])
         ws.row_dimensions[2].height = 16
     else:
         ws.append([])
@@ -1690,7 +1715,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     header_row = 5
     if unregistered:
         ws.append([_wcell(ws, i18n_("xl_local_unregistered_warning", countries=", ".join(unregistered)),
-                           font=_ALERT_FONT, fill=_ALERT_FILL)])
+                          font=_ALERT_FONT, fill=_ALERT_FILL)])
         ws.row_dimensions[3].height = 18
     else:
         ws.append([])
@@ -1709,7 +1734,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     headers += [_month_label(m) for m in months]
     headers += [i18n_("xl_local_col_vat_due"), i18n_("xl_local_col_vat_refunds"), i18n_("xl_local_col_vat_net"), i18n_("xl_local_col_status")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
     ws.row_dimensions[header_row].height = 22
     _width_tracker.observe_row(headers)
@@ -1731,7 +1756,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         _row_cells.append(_wcell(ws, _conv(brut), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
-                                  number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
+                                 number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
         # Excel recalculates this correctly on open, but we help it
         # by ensuring letters match the displayed screenshot bug (G5 = Brut, H5 = Refund).
         # Wait, in the code letter_brut is col_brut. col_brut = total_start_col.
@@ -1740,8 +1765,8 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         # Screenshot shows F=Brut, G=Refund, H=Net. This matches col_brut=6 (F).
         _status_val = i18n_("xl_local_status_registered") if is_registered else i18n_("xl_local_status_unconfirmed")
         _row_cells.append(_wcell(ws, _status_val,
-                                  font=_ALERT_FONT if not is_registered else None,
-                                  fill=_ALERT_FILL if not is_registered else None))
+                                 font=_ALERT_FONT if not is_registered else None,
+                                 fill=_ALERT_FILL if not is_registered else None))
         _vals += [_conv(brut), _conv(refund), _status_val]
 
         ws.append(_row_cells)
@@ -1757,7 +1782,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         col = month_start_col + i
         letter = get_column_letter(col)
         _total_cells.append(_wcell(ws, f"=SUM({letter}{header_row+1}:{letter}{row-2})",
-                                    number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
+                                   number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
 
     # We re-calculate letters for the total row to be absolutely safe
     l_brut = get_column_letter(col_brut)
@@ -1789,7 +1814,7 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
 
     headers = [i18n_("xl_inv_cn_col_type"), i18n_("xl_inv_cn_col_date"), i18n_("xl_inv_cn_col_market"), i18n_("xl_inv_cn_col_program"), i18n_("xl_inv_cn_col_ref"), i18n_("xl_inv_cn_col_ht"), i18n_("xl_inv_cn_col_vat"), i18n_("xl_inv_cn_col_currency")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                      alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
     ws.row_dimensions[4].height = 22
     _width_tracker.observe_row(headers)
@@ -1945,7 +1970,8 @@ def export_xlsx(
     # 6. Onglet OSS détaillé par pays
     if summary.oss_by_country or getattr(summary, "refund_oss_by_country", None):
         ws_oss = _SequentialSheetWriter(wb.create_sheet())
-        _write_oss_tab(ws_oss, summary, display_currency=_currency)
+        _write_oss_tab(ws_oss, summary, display_currency=_currency,
+                       results=results, refund_results=refund_results, period=period)
         ws_oss.finalize()
 
     # 7. Onglet TVA locale par pays

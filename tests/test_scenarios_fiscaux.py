@@ -40,12 +40,11 @@ def test_monaco_assimilated_to_fr():
     assert res.vat_rate == Decimal("20")
     assert "Monaco" in res.note
 
-    # Cas cross-border (non couvert par la convention bilatérale FR-MC dans le moteur)
-    # ex: DE -> MC. Devrait tomber en EXPORT ou rester standard ? 
-    # Le moteur actuel dit : reste EXPORT si non FR->MC.
+    # Cas cross-border : DE -> MC. Monaco = France fiscale -> OSS vers FR.
     sale_de = make_sale(stock_country="DE", buyer_country="MC")
     res_de = compute_vat(sale_de)
-    assert res_de.scenario == Scenario.EXPORT
+    assert res_de.scenario == Scenario.OSS_B2C
+    assert res_de.vat_country == "FR"
 
 def test_b2b_art_194_reverse_charge():
     """Vérifie l'autoliquidation nationale (Art. 194) dans les pays l'ayant adoptée."""

@@ -78,7 +78,7 @@ def test_check_vat_network_error(mock_urlopen_func):
 @patch("tva_intracom.vies_engine.urllib.request.urlopen")
 def test_check_vat_raw_valid(mock_urlopen_func):
     mock_urlopen_func.return_value = _mock_urlopen(valid=True)
-    result = check_vat_raw("DE123456789")
+    result = check_vat_raw("test", "DE123456789")
     assert result.valid is True
 
 
@@ -99,7 +99,7 @@ def test_compute_all_with_vies_reclassifies_invalid(mock_check):
             buyer_vat_number="DE000000000",
         ),
     ]
-    results, vies_summary = compute_all_with_vies(sales)
+    results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")
     assert len(results) == 1
     r = results[0]
     # Reclassifie en B2C -> OSS (pas reverse charge).
@@ -130,7 +130,7 @@ def test_compute_all_with_vies_valid_number(mock_check):
             buyer_vat_number="DE123456789",
         ),
     ]
-    results, vies_summary = compute_all_with_vies(sales)
+    results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")
     assert len(results) == 1
     r = results[0]
     assert r.scenario == Scenario.B2B_REVERSE_CHARGE

@@ -27,14 +27,14 @@ def sample_results():
 
 def test_export_creates_file(sample_results, tmp_path):
     output = tmp_path / "rapport.xlsx"
-    result_path = export_xlsx(sample_results, output)
+    result_path = export_xlsx(sample_results, output, scope_id="test")
     assert result_path.exists()
     assert result_path.stat().st_size > 0
 
 
 def test_export_has_two_sheets(sample_results, tmp_path):
     output = tmp_path / "rapport.xlsx"
-    export_xlsx(sample_results, output)
+    export_xlsx(sample_results, output, scope_id="test")
     wb = load_workbook(str(output))
     assert "Recapitulatif" in wb.sheetnames
     assert "Detail ventes" in wb.sheetnames
@@ -42,7 +42,7 @@ def test_export_has_two_sheets(sample_results, tmp_path):
 
 def test_detail_sheet_rows(sample_results, tmp_path):
     output = tmp_path / "rapport.xlsx"
-    export_xlsx(sample_results, output)
+    export_xlsx(sample_results, output, scope_id="test")
     wb = load_workbook(str(output))
     ws = wb["Detail ventes"]
     # Header + 3 ventes.
@@ -52,7 +52,7 @@ def test_detail_sheet_rows(sample_results, tmp_path):
 def test_summary_sheet_has_total(sample_results, tmp_path):
     output = tmp_path / "rapport.xlsx"
     summary = build_report(sample_results)
-    export_xlsx(sample_results, output, summary=summary)
+    export_xlsx(sample_results, output, scope_id="test", summary=summary)
     wb = load_workbook(str(output))
     ws = wb["Recapitulatif"]
     # Verifie qu'on retrouve le CA HT total (400.00) quelque part.

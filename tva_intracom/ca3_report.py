@@ -66,7 +66,7 @@ import logging
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Optional
 
-from tva_intracom.models import VatResult, Scenario
+from tva_intracom.models import VatResult, Scenario, Channel
 from tva_intracom.i18n import _
 
 logger = logging.getLogger(__name__)
@@ -225,14 +225,19 @@ def compute_ca3_lines_v2(
         buyer_in_seller   = res.sale.buyer_country == seller_country.upper()
         suffix = "remb" if is_refund else "vente"
 
-        if res.scenario == Scenario.DOMESTIC and stock_from_seller and (
-                buyer_in_seller or res.sale.buyer_country == "MC"
-        ):
+        if res.channel == Channel.FR_DOMESTIC:
+            # Source de vérité : channel == FR_DOMESTIC (posée par engine.py),
+            # identique au filtre utilisé par declarations.py pour le
+            # dashboard. On ne re-teste plus scenario == Scenario.DOMESTIC
+            # seul : le cas DDP (Scenario.IMPORT_SELLER_AS_IMPORTER, vendeur
+            # importateur d'un bien hors-UE > 150 € livré in fine au pays
+            # vendeur) est lui aussi requalifié en FR_DOMESTIC par le moteur
+            # et doit donc apparaître en case A1/Ligne 08 — l'ancien filtre
+            # (scenario == DOMESTIC and stock_from_seller and buyer_in_seller)
+            # l'excluait à tort, sous-déclarant la CA3 de ces ventes DDP.
             # Monaco (MC) : assimilé au territoire français pour la TVA
-            # (convention fiscale franco-monégasque du 18 mai 1963) — le
-            # moteur (engine.py) classe déjà ces ventes en DOMESTIC/FR_DOMESTIC,
-            # mais buyer_country reste "MC" (pas "FR") : on l'inclut donc
-            # explicitement ici, sinon ces ventes disparaîtraient du rapport CA3.
+            # (convention fiscale franco-monégasque du 18 mai 1963) — déjà
+            # couvert nativement par channel == FR_DOMESTIC.
             amt  = res.sale.amount_ht
             tva  = res.vat_amount
             rate = res.vat_rate
