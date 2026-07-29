@@ -11,7 +11,9 @@ intentionnelle entre onglets.
 
 from __future__ import annotations
 
+import os
 import tempfile
+import gc
 from decimal import Decimal
 
 import streamlit as st
@@ -81,22 +83,21 @@ def render_telechargements() -> None:
     _oss_tva_net_total = ctx.oss_tva_net_total
     home_country = getattr(ctx, "home_country", "FR") or "FR"
 
-    results_net = results + (refund_results or [])
-
     # ── Cache des exports coûteux ───────────────────────────────────────────
-    # Les exports (Excel principal, CA3/déclaration locale HTML, B2B, FEC,
-    # Excel OSS) ne dépendent QUE des résultats du calcul TVA + des paramètres
-    # d'identité de l'entreprise — jamais des widgets propres à cet onglet
-    # (checkbox de confirmation OSS, sélecteur de pays local). Sans cache, ils
-    # étaient pourtant régénérés en intégralité (jusqu'à 20k lignes) à chaque
-    # interaction avec CES widgets, alors qu'ils n'en dépendent pas. On les
-    # mémoïse donc par `_dl_cache_key`, régénérés seulement si le calcul TVA
-    # ou l'identité de l'entreprise change réellement.
     _dl_cache_key = (
         ctx.calc_key, nom_entreprise, siren_entreprise, tva_fr,
         tuple(sorted(local_vat_numbers.items())) if local_vat_numbers else None,
         ctx.target_currency,
     )
+
+    # BUGFIX (RAM) : Si la clé de cache change, on supprime immédiatement les
+    # anciens artefacts binaires du session_state pour libérer la mémoire,
+    # sinon ils restent stockés tant que l'utilisateur ne regénère pas tout.
+    if st.session_state.get("_dl_active_cache_key") != _dl_cache_key:
+        for k in list(st.session_state.keys()):
+            if k.startswith("_dl_artifact_") or k.startswith("_oss_preview_"):
+                del st.session_state[k]
+        st.session_state["_dl_active_cache_key"] = _dl_cache_key
 
     # ── Génération paresseuse (à la demande) des exports coûteux ───────────
     # BUGFIX (perf) : auparavant, TOUS les exports (Excel principal, OSS
@@ -154,18 +155,34 @@ def render_telechargements() -> None:
 
     st.subheader(_("tab_downloads"))
     with st.container():
+        # RAM : On évite de créer results_net (copie de liste) trop tôt ou
+        # systématiquement. On l'encapsule dans une fonction pour ne la créer
+        # que si un export OSS, B2B ou FEC est réellement demandé.
+        def _get_results_net():
+            return results + (refund_results or [])
+
         def _build_main_xlsx():
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
+            xlsx_path = None
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
+                    xlsx_path = xlsx_tmp.name
                 _vies_ids = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
-                xlsx_path = export_xlsx(results, xlsx_tmp.name, scope_id=_vies_scope_id, summary=summary,
-                                        refund_results=refund_results, all_fc_transfers=all_fc_transfers,
-                                        vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
-                                        countries_with_vat=countries_with_vat,
-                                        period=period_label, seller_country=home_country,
-                                        display_currency=ctx.target_currency,
-                                        invoice_credit_notes=all_invoice_credit_notes)
-            with open(xlsx_path, "rb") as f:
-                return f.read()
+                export_xlsx(results, xlsx_path, scope_id=_vies_scope_id, summary=summary,
+                            refund_results=refund_results, all_fc_transfers=all_fc_transfers,
+                            vies_affected_sale_ids=_vies_ids, vies_summary=vies_summary,
+                            countries_with_vat=countries_with_vat,
+                            period=period_label, seller_country=home_country,
+                            display_currency=ctx.target_currency,
+                            invoice_credit_notes=all_invoice_credit_notes)
+                with open(xlsx_path, "rb") as f:
+                    return f.read()
+            finally:
+                if xlsx_path and os.path.exists(xlsx_path):
+                    try:
+                        os.remove(xlsx_path)
+                    except Exception:
+                        pass
+                gc.collect()  # Libération forcée après gros export Excel
 
         # ── ZONE TÉLÉCHARGEMENTS ──────────────────────────────────────
         st.divider()
@@ -197,22 +214,26 @@ def render_telechargements() -> None:
 
         # 2. Guichet Unique OSS
         st.markdown(_("dl_oss_header"))
-        oss_results_dl = [r for r in results_net if r.scenario == Scenario.OSS_B2C]
-        if oss_results_dl:
+        if any(r.scenario == Scenario.OSS_B2C for r in results):
             st.caption(_("dl_oss_caption"))
 
             # Ligne XML (Prioritaire)
             # ── Détection en amont des soldes OSS négatifs ──────────
-            # NOTE : aggregate_oss_results() reste calculé systématiquement
-            # (pas de génération de fichier, juste une agrégation nécessaire
-            # à l'affichage de l'avertissement/expander ci-dessous) — seule la
-            # construction du XML/Excel final est différée.
-            _oss_agg_preview = aggregate_oss_results(results_net, period=period_label)
-            _negative_buckets = find_oss_negative_buckets(_oss_agg_preview)
+            # Optimisation : Cache de l'agrégation pour éviter le recalcul sur rerun fragment
+            _oss_agg_key = f"_oss_preview_{ctx.calc_key}"
+            if _oss_agg_key not in st.session_state:
+                _res_net = _get_results_net()
+                _oss_agg_preview = aggregate_oss_results(_res_net, period=period_label)
+                _negative_buckets = find_oss_negative_buckets(_oss_agg_preview)
+                st.session_state[_oss_agg_key] = (_oss_agg_preview, _negative_buckets)
+            else:
+                _oss_agg_preview, _negative_buckets = st.session_state[_oss_agg_key]
+
             _confirm_corrections = st.session_state.get("confirm_oss_corrections", False)
 
             if _negative_buckets:
-                _suggestions = preview_negative_bucket_suggestions(results_net, period_label)
+                _res_net = _get_results_net()
+                _suggestions = preview_negative_bucket_suggestions(_res_net, period_label)
                 _any_matched = any(s.matched for s in _suggestions)
                 if _any_matched:
                     with st.expander(_("dl_oss_negative_expander"), expanded=True):
@@ -226,10 +247,11 @@ def render_telechargements() -> None:
                         _confirm_corrections = st.checkbox(_("dl_oss_confirm_corrections"), key="confirm_oss_corrections")
 
             def _build_oss_xml():
+                _res_net = _get_results_net()
                 try:
-                    return generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
+                    return generate_oss_xml(results=_res_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
                 except ValueError:
-                    return generate_oss_xml(results=results_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
+                    return generate_oss_xml(results=_res_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
 
             # On inclut _confirm_corrections dans la clé de cache car le XML change selon cette option
             oss_xml_bytes = _lazy_artifact(f"oss_xml_{_confirm_corrections}", _build_oss_xml, label="dl_generate_oss_xml_btn")
@@ -241,10 +263,20 @@ def render_telechargements() -> None:
 
             # Ligne Excel (Détail)
             def _build_oss_xlsx():
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as oss_tmp:
-                    oss_xlsx_path = build_oss_excel(results_net, oss_tmp.name, period=period_label)
-                with open(oss_xlsx_path, "rb") as f:
-                    return f.read()
+                oss_xlsx_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as oss_tmp:
+                        oss_xlsx_path = oss_tmp.name
+                    build_oss_excel(_get_results_net(), oss_xlsx_path, period=period_label)
+                    with open(oss_xlsx_path, "rb") as f:
+                        return f.read()
+                finally:
+                    if oss_xlsx_path and os.path.exists(oss_xlsx_path):
+                        try:
+                            os.remove(oss_xlsx_path)
+                        except Exception:
+                            pass
+                    gc.collect()
 
             oss_xlsx_bytes = _lazy_artifact("oss_xlsx", _build_oss_xlsx, label="dl_generate_oss_xlsx_btn")
             if not _can_export:
@@ -296,14 +328,23 @@ def render_telechargements() -> None:
 
         # 4. Livraisons B2B
         st.markdown(_("b2b_deliveries_header"))
-        b2b_results_dl = [r for r in results_net if r.scenario == Scenario.B2B_REVERSE_CHARGE]
-        if b2b_results_dl:
-            st.caption(_("b2b_deliveries_caption", count=len(b2b_results_dl), ht=f"{float(summary.reverse_charge_ht):,.2f}"))
+        if any(r.scenario == Scenario.B2B_REVERSE_CHARGE for r in results):
+            st.caption(_("b2b_deliveries_caption", count=len([r for r in results if r.scenario == Scenario.B2B_REVERSE_CHARGE]), ht=f"{float(summary.reverse_charge_ht):,.2f}"))
             def _build_b2b_xlsx():
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as b2b_tmp2:
-                    b2b_xlsx_path = build_b2b_excel(results_net, b2b_tmp2.name, period=period_label)
-                with open(b2b_xlsx_path, "rb") as f:
-                    return f.read()
+                b2b_xlsx_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as b2b_tmp2:
+                        b2b_xlsx_path = b2b_tmp2.name
+                    build_b2b_excel(_get_results_net(), b2b_xlsx_path, period=period_label)
+                    with open(b2b_xlsx_path, "rb") as f:
+                        return f.read()
+                finally:
+                    if b2b_xlsx_path and os.path.exists(b2b_xlsx_path):
+                        try:
+                            os.remove(b2b_xlsx_path)
+                        except Exception:
+                            pass
+                    gc.collect()
             b2b_xlsx_bytes = _lazy_artifact("b2b_xlsx", _build_b2b_xlsx, label="dl_generate_b2b_btn")
             _b2b_filename = _("dl_xlsx_b2b_filename", company=nom_entreprise, period=period_label)
             if not _can_export:
@@ -318,11 +359,10 @@ def render_telechargements() -> None:
         # 5. Déclarations Locales (hors pays d'origine)
         st.markdown(_("local_declarations_header"))
         st.caption(_("local_declarations_home_note", country=_country_label(home_country)))
-        _local_tax_data = [r for r in results_net if r.channel.value == "LOCAL" and r.vat_country]
-        if not _local_tax_data:
+        _local_countries = sorted({r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country})
+        if not _local_countries:
             st.info(_("no_local_sales_info"))
         else:
-            _local_countries = sorted({r.vat_country for r in _local_tax_data})
             export_country = st.selectbox(_("dl_select_country_label"), _local_countries, format_func=lambda c: f"{_country_label(c)} ({c})", key="dl_country_select")
 
             def _build_local_csv(country):
@@ -332,7 +372,8 @@ def render_telechargements() -> None:
                 period_lbl = period_label or "Periode non renseignee"
                 meta = COUNTRY_FISCAL_META.get(country, (f"Declaration TVA {_country_label(country)}", "Base HT", "TVA", "—", "—"))
                 decl_name, lbl_base, lbl_tax, rate_std, rate_red = meta
-                country_results = [r for r in results_net if r.vat_country == country and r.channel.value in ("LOCAL", "FR_DOMESTIC")]
+                _res_net = _get_results_net()
+                country_results = [r for r in _res_net if r.vat_country == country and r.channel.value in ("LOCAL", "FR_DOMESTIC")]
                 by_rate = _dd(lambda: {"base": Decimal("0"), "tva": Decimal("0"), "nb": 0})
                 for r in country_results:
                     by_rate[str(r.vat_rate)]["base"] += r.sale.amount_ht
@@ -397,23 +438,33 @@ def render_telechargements() -> None:
             with c1:
                 _local_csv_filename = _("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label)
                 _local_csv_label = _("dl_local_csv_btn", country=_country_label(export_country))
+                
+                # Performance : Utilisation du cache lazy pour le CSV local
+                csv_bytes = _lazy_artifact(f"local_csv_{export_country}", lambda: _build_local_csv(export_country), label="dl_generate_local_csv_btn", country=_country_label(export_country))
+                
                 if not _can_export:
                     _gated_download(_local_csv_label, data=b"", file_name=_local_csv_filename, mime="text/csv")
-                else:
-                    _gated_download(_local_csv_label, data=_build_local_csv(export_country), file_name=_local_csv_filename, mime="text/csv")
+                elif csv_bytes is not None:
+                    _gated_download(_local_csv_label, data=csv_bytes, file_name=_local_csv_filename, mime="text/csv")
             with c2:
                 if export_country != home_country:
                     _local_html_filename = _("dl_local_html_filename", country=export_country, company=nom_entreprise, period=period_label)
                     _local_html_label = _("dl_local_html_btn", country=_country_label(export_country))
-                    if not _can_export:
-                        _gated_download(_local_html_label, data=b"", file_name=_local_html_filename, mime="text/html")
-                    else:
-                        _local_html = generate_local_vat_html_report(
+                    
+                    # Performance : Utilisation du cache lazy pour le HTML local
+                    def _build_local_html():
+                        return generate_local_vat_html_report(
                             results=results, refund_results=refund_results, vat_country=export_country,
                             company_name=nom_entreprise, siren=siren_entreprise,
                             period_label=period_label, seller_country=home_country,
-                        )
-                        _gated_download(_local_html_label, data=_local_html.encode("utf-8"), file_name=_local_html_filename, mime="text/html")
+                        ).encode("utf-8")
+                    
+                    html_bytes = _lazy_artifact(f"local_html_{export_country}", _build_local_html, label="dl_generate_local_html_btn", country=_country_label(export_country))
+                    
+                    if not _can_export:
+                        _gated_download(_local_html_label, data=b"", file_name=_local_html_filename, mime="text/html")
+                    elif html_bytes is not None:
+                        _gated_download(_local_html_label, data=html_bytes, file_name=_local_html_filename, mime="text/html")
 
         st.divider()
 
@@ -422,7 +473,7 @@ def render_telechargements() -> None:
         st.caption(_("dl_fec_caption"))
         _fec_ecriture_date = _fec_period_end_date(period_label)
         def _build_fec_bytes():
-            return generate_fec_bytes(results_net, period=period_label, ecriture_date=_fec_ecriture_date, piece_ref=_("dl_fec_piece_ref", period=period_label))
+            return generate_fec_bytes(_get_results_net(), period=period_label, ecriture_date=_fec_ecriture_date, piece_ref=_("dl_fec_piece_ref", period=period_label))
         fec_bytes = _lazy_artifact("fec_bytes", _build_fec_bytes, label="dl_generate_fec_btn")
         _fec_filename = _("dl_fec_filename", company=nom_entreprise, period=period_label)
         if not _can_export:

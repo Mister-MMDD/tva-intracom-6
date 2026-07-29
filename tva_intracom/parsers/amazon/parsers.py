@@ -67,6 +67,15 @@ class _RowParser:
     def asin(self, row: dict) -> str:
         raise NotImplementedError
 
+    def seller_is_importer(self, row: dict) -> bool:
+        """True si le vendeur est l'importateur officiel (Customs Duty).
+        Défaut à False pour les formats 1-4, à surcharger si colonne présente."""
+        return False
+
+    def ioss_number(self, row: dict) -> str:
+        """Numéro IOSS propre au vendeur. Vide par défaut."""
+        return ""
+
 
 # ---------------------------------------------------------------------------
 # Format 1 — Ancien format

@@ -109,6 +109,8 @@ def _process_rows(
     progress_callback: Optional[Callable[[int, int], None]] = None,
     progress_step: int = 500,
     target_currency: str = "EUR",
+    ioss_number: str = "",
+    seller_is_importer: bool = False,
 ) -> None:
     """Traite chaque ligne agrégée et alimente result.sales / result.refunds.
 
@@ -357,6 +359,8 @@ def _process_rows(
             product_category=product_category,
             asin=row_asin,
             amazon_vat_amount=amazon_vat_amt,
+            seller_is_importer=seller_is_importer or parser.seller_is_importer(row),
+            ioss_number=ioss_number.strip() if ioss_number else parser.ioss_number(row),
             arrival_post_code=postal_code,
         )
 
@@ -554,6 +558,9 @@ def load_amazon_report(
     progress_callback: Optional[Callable[[int, int, Optional[str]], None]] = None,
     bce_label: Optional[str] = None,
     bce_wait_label: Optional[str] = None,
+    target_currency: str = "EUR",
+    ioss_number: str = "",
+    seller_is_importer: bool = False,
 ) -> AmazonImportResult:
     """Charge un fichier Amazon VAT Transactions Report (formats 1 à 5).
 
@@ -641,6 +648,8 @@ def load_amazon_report(
         result=result,
         progress_callback=progress_callback,
         target_currency=target_currency,
+        ioss_number=ioss_number,
+        seller_is_importer=seller_is_importer,
     )
 
     logger.info(

@@ -46,7 +46,9 @@ tva-intracom/
 │   └── workflows/
 │       └── ci.yml                    Pipeline CI (pytest sur push/PR)
 ├── data/
+├── schemas/                          Schémas XSD officiels (DGFIP/UE) pour validation XML OSS
 ├── tests/
+├── tva-site/                         Site vitrine / landing page (HTML/JS/CSS statique)
 ├── tva_intracom/
 │   ├── data/
 │   ├── i18n/
@@ -105,6 +107,7 @@ tva-intracom/
 │   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
 │   ├── excel_report.py               Export Excel multi-onglets
 │   ├── historical_rates_widget.py    Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués
+│   ├── mem_utils.py                  Utilitaires d'analyse et d'optimisation de la mémoire (interning, RAM stats)
 │   ├── models.py                     Dataclasses : Sale, VatResult, Scenario, BuyerType…
 │   ├── oss_export.py                 Agrégation OSS partagée, exports Excel + CSV URSSAF
 │   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
@@ -153,9 +156,14 @@ tva-intracom/
 ├── generate_dataset.py               Générateur de données de test au format Amazon.
 ├── generer_donnees_10k.py
 ├── generer_donnees_multian.py
+├── mise.toml                         Config gestionnaire d'outils mise
+├── nixpacks.toml                     Config build Nixpacks (Railway)
+├── Procfile                          Processus de démarrage pour déploiement cloud
 ├── pyproject.toml
+├── railway.toml                      Config spécifique Railway
 ├── README.md
 ├── requirements.txt
+├── runtime.txt                       Version Python pour déploiement
 └── vercel.json                       Config Vercel (includeFiles vers tva_intracom/billing.py)
 ```
 
@@ -181,6 +189,8 @@ tva-intracom/
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
 | `historical_rates_widget.py` | Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués |
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne, et agrégation mensuelle nette par pays (oss_by_country_month, local_by_country_month) |
+| `mem_utils.py` | Utilitaires d'analyse et d'optimisation de la mémoire (interning, RAM stats) |
+| `memdebug.py` | Débugger de mémoire pour identifier les fuites d'objets (SaaS high-load) |
 | `cli.py` | Interface en ligne de commande (CLI) pour exécuter le moteur hors interface web |
 | `amazon_adapter.py` | Passerelle de compatibilité entre les anciens modèles de données et le nouveau package de parsers |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
@@ -214,7 +224,7 @@ du script.
 | `ui/tabs/context.py` | `TabContext` — dataclass regroupant tout l'état nécessaire aux onglets (résultats moteur, statut billing, paramètres entreprise, données brutes d'import), construite une fois avant l'affichage des onglets |
 | `ui/tabs/declarations.py` | Onglet **💶 Déclarations** — récapitulatif "Ce que vous devez reverser" (CA3, OSS par pays, IOSS, DDP, Fisc local), barre de seuil OSS, Contrôle de Cohérence Comptable |
 | `ui/tabs/detail_ventes.py` | Onglet **📋 Détail ventes** — 4 sous-onglets : Ce que vous devez / Géré par des tiers / Ligne par ligne / Remboursements |
-| `ui/tabs/vies.py` | Onglet **🛡️ VIES** — KPIs de validation, classification manuelle des numéros non vérifiés (`st.fragment`), overrides persistés, reclassifications B2B→B2C |
+| `ui/tabs/vies_ui.py` | Onglet **🛡️ VIES** — KPIs de validation, classification manuelle des numéros non vérifiés (`st.fragment`), overrides persistés, reclassifications B2B→B2C |
 | `ui/tabs/audit.py` | Onglet **🔬 Audit Amazon** — écarts TVA Amazon par catégorie (taux, VIES, UK, autoliquidation art.194, TVA manquante), mouvements de stock FBA |
 | `ui/tabs/telechargements.py` | Onglet **📥 Téléchargements** — génération de tous les exports (Excel complet avec détail mensuel, XML/Excel/CSV OSS, déclaration du **pays d'origine** en premier — CA3 HTML si FR, rapport HTML générique sinon —, déclarations locales HTML/CSV pour tous les autres pays (dont la France si elle n'est pas le pays d'origine), B2B, FEC) |
 | `ui/tabs/visualisations.py` | Onglet **📊 Visualisations** — TVA due par pays, répartition Vous/Amazon/Douane, carte Europe, évolution mensuelle, répartition par scénario |
@@ -795,6 +805,12 @@ conversion BCE.
   - **Excel — Ajustement colonnes (`_auto_width`)** : Optimisation par échantillonnage (150 premières lignes) pour estimer la largeur des colonnes, au lieu de scanner l'intégralité du fichier — gain de temps radical sur les exports de 10k+ lignes.
   - **Billing** : Réutilisation du cache SIREN/Abonnement déjà peuplé par la sidebar, éliminant les requêtes SQL dupliquées lors de la construction du tunnel de paiement.
   - **Téléchargements** : Mise en cache des 5 exports indépendants (Excel principal, OSS Excel, CA3/HTML local, B2B Excel, FEC) via une clé de téléchargement dédiée (`_dl_cache_key`).
+- **Optimisation de la RAM (SaaS High-Load)** :
+  - **Internage des chaînes (String Interning)** : Les objets `Sale` et `VatResult` utilisent `sys.intern()` pour les codes pays, devises et catégories fiscales. Cela réduit radicalement l'empreinte mémoire sur les imports de 100k+ lignes en ne stockant qu'une seule instance de chaque chaîne répétitive.
+  - **Lazy Concaténation** : Évitement des copies de listes lors de la fusion ventes/remboursements pour les exports.
+  - **Gestion proactive du Garbage Collector** : Appels forcés à `gc.collect()` après la génération d'exports Excel lourds pour libérer immédiatement les ressources système.
+  - **Nettoyage automatique du cache binaire** : Suppression explicite des anciens fichiers générés du `session_state` dès que les données de calcul changent.
+  - **Génération différée (Lazy Artifacts)** : Les fichiers ne sont plus générés systématiquement en RAM, mais uniquement au clic de l'utilisateur sur le bouton de génération.
 - **Stabilisation du calcul** : Introduction de `calc_key` dans le `TabContext` (transmis depuis `app.py`) pour garantir la cohérence des résultats entre onglets et éviter les recalculs intempestifs.
 - **Efficacité du moteur fiscal** : Optimisation de `engine.py` (résolution de la langue une seule fois par lot dans `_run_oss_loop` au lieu d'une résolution par vente dans `_note()`).
 - **Stabilité des identifiants** : Passage à une clé composite `(sale_id, amount_ht)` pour identifier les transactions de façon stable à travers les différents modules d'audit et de reporting, éliminant la fragilité des `id()` Python lors des copies d'objets.
@@ -1010,6 +1026,8 @@ automatique sur le portail DGFIP) reste non implémenté à ce jour.
   case de confirmation que si le rattachement est total. ⚠️ La structure
   XML du bloc `CorrectionsOfVatReturns` généré est une approximation non
   vérifiée contre le schéma XSD officiel — à valider avant tout dépôt réel.
+
+- ~~Fuites de ressources temporaires sur Windows~~ **Corrigé** : Correction des handlers de fichiers temporaires (`tempfile`) qui n'étaient pas correctement supprimés du disque sur les serveurs Windows, risquant de saturer le stockage à long terme.
 
 ---
 

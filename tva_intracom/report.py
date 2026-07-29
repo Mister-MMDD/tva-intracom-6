@@ -13,7 +13,7 @@ from .rates import is_eu
 _ZERO = Decimal("0.00")
 
 
-@dataclass
+@dataclass(slots=True)
 class ReportSummary:
     """Synthese chiffree de l'ensemble des ventes."""
 

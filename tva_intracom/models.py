@@ -101,9 +101,16 @@ class Sale:
 
     def __post_init__(self) -> None:
         # Nettoyage et normalisation
-        object.__setattr__(self, "stock_country", (self.stock_country or "").upper())
-        object.__setattr__(self, "buyer_country", (self.buyer_country or "").upper())
-        object.__setattr__(self, "seller_country", (self.seller_country or "FR").upper())
+        import sys
+        object.__setattr__(self, "stock_country", sys.intern((self.stock_country or "").upper()))
+        object.__setattr__(self, "buyer_country", sys.intern((self.buyer_country or "").upper()))
+        object.__setattr__(self, "seller_country", sys.intern((self.seller_country or "FR").upper()))
+        
+        if self.original_currency:
+            object.__setattr__(self, "original_currency", sys.intern(self.original_currency.upper()))
+        
+        if self.product_category:
+            object.__setattr__(self, "product_category", sys.intern(self.product_category.upper()))
 
         # Validation des pays (ISO 2 lettres)
         for field_name in ["stock_country", "buyer_country", "seller_country"]:
@@ -150,6 +157,10 @@ class VatResult:
     collector: Collector
     channel: Channel
     note: str
+
+    def __post_init__(self) -> None:
+        import sys
+        object.__setattr__(self, "vat_country", sys.intern((self.vat_country or "").upper()))
 
 
 @dataclass(slots=True)

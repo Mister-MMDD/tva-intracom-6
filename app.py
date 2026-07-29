@@ -340,6 +340,9 @@ if uploaded_files:
                         progress_callback=_on_parse_progress,
                         bce_label=_("calc_progress_bce_count"),
                         bce_wait_label=_("calc_progress_bce"),
+                        target_currency=target_currency,
+                        ioss_number=ioss_number,
+                        seller_is_importer=seller_is_importer,
                     )
                     parse_progress_ph.empty()
                 elif "Mirakl" in file_format:

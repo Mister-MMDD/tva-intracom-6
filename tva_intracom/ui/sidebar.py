@@ -299,8 +299,9 @@ def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
     if not cat_col:
         cat_col = next((c for c in df_cat.columns if any(k in c for k in ["TAX", "GROUP", "CODE", "TYPE"])), None)
     if asin_col and cat_col:
+        import sys
         return {
-            str(a).strip().upper(): str(c).strip().upper()
+            str(a).strip().upper(): sys.intern(str(c).strip().upper())
             for a, c in zip(df_cat[asin_col], df_cat[cat_col]) if pd.notna(a) and pd.notna(c)
         }
     return {}
