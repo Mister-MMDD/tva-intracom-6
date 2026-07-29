@@ -377,6 +377,23 @@ if uploaded_files:
                 for p in tmp_paths: p.unlink(missing_ok=True)
                 st.stop()
 
+        # Optimisation RAM : `parse_result.sales` / `.refunds` / `.fc_transfers`
+        # de chaque ParseResult sont déjà entièrement recopiés dans
+        # `all_sales` / `all_refunds` / `all_fc_transfers` ci-dessus (via
+        # `.extend()`) et ne sont plus jamais relus après ce point (seuls
+        # les scalaires/petites listes comme `return_rows`, `invoice_rows`,
+        # `credit_note_rows`, `skipped_rows`, `period_mismatches` le sont,
+        # cf. usages de `_parse_results` plus bas). Les garder dans les
+        # ParseResult mis en cache en session_state revenait donc à
+        # dupliquer en RAM la totalité des ventes/remboursements importés,
+        # en continu pendant toute la session (pas juste un pic transitoire).
+        # On les vide juste avant la mise en cache pour ne garder que les
+        # métadonnées réellement utilisées en aval.
+        for _pr in _parse_results:
+            _pr.sales = []
+            _pr.refunds = []
+            _pr.fc_transfers = []
+
         st.session_state["_parse_cache_key"] = _parse_cache_key
         st.session_state["_parse_cache_data"] = (
             all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,

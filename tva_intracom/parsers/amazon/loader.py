@@ -455,6 +455,16 @@ def _read_and_prepare_rows(
             df = pl.read_csv(handle, separator=sep, infer_schema_length=0, encoding=encoding)
             df = df.rename({c: normalize_header(c) for c in df.columns})
             raw_rows = df.to_dicts()
+            # Optimisation RAM : une fois `raw_rows` construit, le DataFrame
+            # polars ne sert plus à rien mais restait vivant jusqu'à la fin
+            # de la fonction (portée locale) — sur un gros rapport Amazon
+            # (plusieurs centaines de milliers de lignes), ça faisait
+            # coexister inutilement le DataFrame ET sa conversion en liste
+            # de dicts (elle-même plus lourde en RAM que le DataFrame, à
+            # cause de l'overhead par-cellule/par-dict de CPython) pendant
+            # tout le reste du parsing (détection de format, préagrégation
+            # v5...). On le libère dès que possible.
+            del df
         except Exception as exc_polars:
             logger.debug("Lecture polars échouée (%s), tentative pandas.", exc_polars)
             handle.seek(0)
@@ -471,6 +481,7 @@ def _read_and_prepare_rows(
                 )
                 df_pd.columns = [normalize_header(str(c)) for c in df_pd.columns]
                 raw_rows = df_pd.to_dict("records")
+                del df_pd  # cf. commentaire équivalent sur le chemin polars ci-dessus
             except Exception as exc_pandas:
                 logger.warning(
                     "Lecture pandas du CSV échouée (%s) — repli sur csv.DictReader.", exc_pandas

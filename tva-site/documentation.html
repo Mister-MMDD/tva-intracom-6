@@ -93,43 +93,16 @@ tva-intracom/
 ├── tests/
 ├── tva_intracom/
 │   ├── i18n/                         Fichiers de traduction (7 langues)
-│   ├── parsers/
-│   │   └── amazon/                   Sous-package d'import Amazon (formats 1-5)
-│   ├── __init__.py
-│   ├── amazon_adapter.py             Passerelle de compatibilité anciens modèles.
-│   ├── amazon_spapi.py               Intégration Amazon Selling Partner API.
-│   ├── auth.py                       Authentification & sessions (Postgres/Supabase).
-│   ├── auth_supabase.py              Auth par mot de passe & OAuth (Google, Amazon...).
-│   ├── billing.py                    Facturation Stripe (PAYG, Pro, Cabinet).
-│   ├── ca3_report.py                 Génération du rapport CA3 (HTML/Cerfa).
-│   ├── local_vat_report.py           Rapport HTML pour pays UE hors France.
-│   ├── historical_rates_widget.py    Alerte & tableau des changements de taux TVA.
-│   ├── fec_export.py                 Export comptable FEC (Journal des ventes).
-│   ├── cli.py                        Interface en ligne de commande.
-│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque).
-│   ├── engine.py                     Cœur du moteur de classification fiscale.
-│   ├── excel_report.py               Export Excel multi-onglets complet.
-│   ├── models.py                     Modèles de données (Pydantic).
-│   ├── oss_export.py                 Agrégation OSS & Export CSV URSSAF.
-│   ├── oss_xml.py                    Génération XML OSS officiel (UE 2021/965).
-│   ├── rates.py                      Taux TVA historisés & Seuils EMEBI.
-│   ├── security.py                   Sécurité Amazon DPP (Chiffrement Fernet).
-│   ├── vies_certificate.py           Génération de certificat VIES en PDF.
-│   ├── vies_engine.py                Validation VIES avec historique d'audit.
-│   ├── ui/                           Interface Streamlit modulaire
-│   │   ├── auth_flow.py              Flux de connexion & OAuth.
-│   │   ├── onboarding.py             Visite guidée interactive.
-│   │   ├── sidebar.py                Barre latérale (SIREN, SP-API, Billing).
-│   │   ├── billing_gate.py           Gating & téléchargements sécurisés.
-│   │   ├── background_calc.py        Calculs longs en thread séparé.
-│   │   └── tabs/                     Un module par onglet applicatif
-│
+│   ├── parsers/                      Package multi-plateformes (Amazon, Mirakl, Shopify...)
+│   ├── ui/                           Interface Streamlit modulaire (tabs, auth, billing)
+│   ├── mem_utils.py                  Optimisation mémoire (internage, RAM stats)
+│   ├── vies_engine.py                Validation VIES avec historique d'audit
+│   └── ...                           Moteur fiscal et générateurs de rapports
+├── tva-site/                         Site vitrine (HTML statique template-basé)
 ├── vercel_webhook/                   Webhook Stripe (Vercel serverless)
 ├── app.py                            Orchestrateur Streamlit principal
-├── generate_dataset.py               Générateur de données de test
-├── pyproject.toml
-├── README.md
-└── requirements.txt
+├── pyproject.toml                    Configuration du package
+└── README.md                         Documentation technique maître
                 </pre>
 
                 <h3>Scénarios modélisés</h3>
@@ -192,10 +165,10 @@ tva-intracom/
 
                 <h3 style="margin-top: 20px;">Roadmap & Évolutions</h3>
                 <ul style="font-size: 0.9rem;">
-                    <li>✅ Visite guidée de première connexion (Onboarding).</li>
                     <li>✅ Certificats de validité VIES en PDF (Preuve de bonne foi).</li>
                     <li>✅ Gestion multi-pays d'origine (Home Country).</li>
                     <li>✅ Correction automatique des soldes OSS négatifs.</li>
+                    <li>✅ Optimisation RAM High-Load (Internage, Lazy Loading).</li>
                     <li>✅ Export comptable FEC (Journal des ventes).</li>
                     <li>⏳ Intégration directe EDI-TVA (Dépôt automatique).</li>
                 </ul>
