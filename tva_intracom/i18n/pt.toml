@@ -3,6 +3,9 @@ upload_label = "Arraste os seus ficheiros aqui (um ou vários meses)"
 upload_help = "Ficheiros CSV, TSV ou TXT. Múltiplos ficheiros para agregar vários meses."
 duplicate_files_warning = "⚠️ **{count} ficheiro(s) duplicado(s) ignorado(s)** : {files}"
 reupload_required_warning = "⚠️ Os seus ficheiros foram perdidos (mudança de idioma ou opção de importação). Por favor, carregue-os novamente."
+inactivity_files_purged = "⏳ Sessão inativa: os seus ficheiros foram limpos por segurança."
+app_is_sleeping = "😴 A aplicação está em modo de espera para poupar recursos."
+wake_up_app = "Reativar a aplicação"
 language = "Idioma"
 
 # Countries

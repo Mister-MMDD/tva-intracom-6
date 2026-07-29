@@ -3,6 +3,9 @@ upload_label = "Upuść swoje pliki tutaj (jeden lub kilka miesięcy)"
 upload_help = "CSV, TSV lub TXT. Wiele plików w celu agregacji kilku miesięcy."
 duplicate_files_warning = "⚠️ **Zignorowano {count} zduplikowany(ch) plik(ów)** : {files}"
 reupload_required_warning = "⚠️ Twoje pliki zostały utracone (zmiana języka lub opcji importu). Prosimy je wgrać ponownie."
+inactivity_files_purged = "⏳ Nieaktywna sesja: Twoje pliki zostały usunięte ze względów bezpieczeństwa."
+app_is_sleeping = "😴 Aplikacja jest w trybie uśpienia, aby oszczędzać zasoby."
+wake_up_app = "Aktywuj ponownie aplikację"
 language = "Język"
 
 # Countries

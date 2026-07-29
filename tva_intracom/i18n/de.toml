@@ -3,6 +3,9 @@ upload_label = "Dateien hier ablegen (ein oder mehrere Monate)"
 upload_help = "CSV-, TSV- oder TXT-Dateien. Mehrere Dateien zur Aggregation mehrerer Monate."
 duplicate_files_warning = "⚠️ **{count} duplizierte Datei(en) ignoriert** : {files}"
 reupload_required_warning = "⚠️ Ihre Dateien sind verloren gegangen (Sprach- oder Importoptionsänderung). Bitte laden Sie sie erneut hoch."
+inactivity_files_purged = "⏳ Inaktive Sitzung: Ihre Dateien wurden aus Sicherheitsgründen gelöscht."
+app_is_sleeping = "😴 Die Anwendung befindet sich im Ruhemodus, um Ressourcen zu sparen."
+wake_up_app = "Anwendung reaktivieren"
 language = "Sprache"
 
 # Countries

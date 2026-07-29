@@ -98,6 +98,38 @@ _vies_scope_id = _auth_ctx.vies_scope_id
 _stripe_success_url = _auth_ctx.stripe_success_url
 _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 
+# --- Gestion de l'inactivité & Mode Veille ---
+INACTIVITY_TIMEOUT_SEC = 2 * 60
+
+# Si l'URL contient ?sleep=1, on force le nettoyage
+if st.query_params.get("sleep") == "1":
+    for key in list(st.session_state.keys()):
+        if key not in {"language", "auth_user", "tva_cookie_manager", "_prefs_synced_user"}:
+            st.session_state.pop(key, None)
+    st.info(_("app_is_sleeping"))
+    if st.button(_("wake_up_app")):
+        st.query_params.clear()
+        st.rerun()
+    st.stop()
+
+# Détecteur d'inactivité en JS (Redirige vers ?sleep=1 après 30 min sans mouvement)
+import streamlit.components.v1 as components
+components.html(f"""
+    <script>
+        var timeout;
+        function resetTimer() {{
+            clearTimeout(timeout);
+            timeout = setTimeout(function() {{
+                window.parent.location.href = window.parent.location.pathname + "?sleep=1";
+            }}, {INACTIVITY_TIMEOUT_SEC * 1000});
+        }}
+        window.parent.document.onmousemove = resetTimer;
+        window.parent.document.onkeydown = resetTimer;
+        window.parent.document.onclick = resetTimer;
+        resetTimer();
+    </script>
+""", height=0)
+
 # --- Synchro langue <-> compte ---
 # `language_selector()` (appelé plus haut, avant l'authentification, pour que
 # l'écran de connexion lui-même soit localisé) ne connaît que la session

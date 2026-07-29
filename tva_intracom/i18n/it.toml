@@ -3,6 +3,9 @@ upload_label = "Trascina qui i tuoi file (uno o più mesi)"
 upload_help = "File CSV, TSV o TXT. File multipli per aggregare diversi mesi."
 duplicate_files_warning = "⚠️ **{count} file duplicati ignorati** : {files}"
 reupload_required_warning = "⚠️ I file sono andati persi (cambio lingua o opzione di importazione). Ricaricali."
+inactivity_files_purged = "⏳ Sessione inattiva: i tuoi file sono stati svuotati per sicurezza."
+app_is_sleeping = "😴 L'applicazione è in standby per risparmiare risorse."
+wake_up_app = "Riattiva l'applicazione"
 language = "Lingua"
 
 # Countries
