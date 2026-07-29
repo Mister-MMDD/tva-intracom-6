@@ -29,7 +29,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-from tva_intracom.ecb_rates import cache_info as ecb_cache_info
+from tva_intracom.ecb_rates import cache_info as ecb_cache_info, get_rate as _ecb_get_rate, quarter_end_date as _ecb_quarter_end_date
 from tva_intracom.vies_engine import (
     get_cache_stats as vies_cache_stats,
     purge_expired_cache,
@@ -277,7 +277,7 @@ else:
     for _stale_key in list(st.session_state.keys()):
         if _stale_key not in _WHITELIST:
             st.session_state.pop(_stale_key, None)
-    
+
     # Force le nettoyage de la mémoire après suppression de gros objets
     from tva_intracom.mem_utils import release_memory
     release_memory()
@@ -356,14 +356,14 @@ if uploaded_files:
                     def _on_parse_progress(processed: int, total: int, label: Optional[str] = None, _fname=uploaded_file.name) -> None:
                         if label:
                             text = label
-                            # On utilise le pourcentage fourni par processed/total si pertinent, 
+                            # On utilise le pourcentage fourni par processed/total si pertinent,
                             # ou on laisse à la valeur actuelle si on est dans une phase de pre-calcul.
                             pct = processed / total if total else 0.0
                         else:
                             pct = processed / total if total else 1.0
                             _suffix = f" ({_('fx_conv_suffix')})" if convert_fx else ""
                             text = _("analysis_progress_count", name=_fname, processed=f"{processed:,}".replace(",", " "), total=f"{total:,}".replace(",", " "), suffix=_suffix)
-                        
+
                         _progress_bar.progress(min(pct, 1.0), text=text)
 
                     parse_result = parser_amazon.load_amazon_report(
@@ -488,9 +488,29 @@ if uploaded_files:
                     _fx_used[_k] = {"rate": float(_s.exchange_rate), "date": _s.transaction_date[:7] if _s.transaction_date else ""}
         if _fx_used:
             with st.expander(_("bce_rates_title", count=len(_fx_used))):
+                st.caption(_("bce_rates_per_tx_disclaimer"))
                 for (_ccy, _src), _info in sorted(_fx_used.items()):
                     _src_lbl = {_("bce_source_official"): "BCE officiel", "fallback": _("bce_source_fallback"), "eur": _("bce_source_native")}.get(_src, _src)
-                    st.caption(f"**{_ccy}** : 1 EUR = {_info['rate']:.4f} {_ccy} — source : {_src_lbl} — période : {_info['date'] or '?'}")
+                    st.caption(f"**{_ccy}** : 1 EUR = {_info['rate']:.4f} {_ccy} — source : {_src_lbl} — 1ère transaction : {_info['date'] or '?'}")
+
+                # Taux OSS de clôture de période (Règl. UE 2020/194, art. 5 bis) —
+                # c'est CE taux (et non le taux par transaction ci-dessus) qui est
+                # effectivement appliqué à la déclaration OSS agrégée. Afficher
+                # les deux évite tout rapprochement manuel erroné entre le détail
+                # par transaction et le total OSS déclaré (cf. bug rapporté sur SE/SEK).
+                _oss_quarter_end = _ecb_quarter_end_date(oss_period) if oss_period else None
+                if _oss_quarter_end:
+                    st.divider()
+                    st.caption(_("bce_rates_oss_disclaimer", date=_oss_quarter_end.isoformat()))
+                    for _ccy in sorted({c for c, _ in _fx_used}):
+                        try:
+                            _oss_rate = _ecb_get_rate(_ccy, _oss_quarter_end)
+                        except Exception:
+                            _oss_rate = None
+                        if _oss_rate is not None:
+                            st.caption(f"**{_ccy}** : 1 EUR = {float(_oss_rate):.4f} {_ccy} — taux OSS retenu au {_oss_quarter_end.isoformat()}")
+                        else:
+                            st.caption(f"**{_ccy}** : {_('bce_rates_oss_unavailable')}")
 
     sales, refunds = all_sales, all_refunds
 
@@ -666,8 +686,8 @@ if uploaded_files:
         # utilisé tel quel, sans filtre UE, ce qui réclamait à tort un numéro
         # de TVA local (et bloquait le téléchargement) pour du stock hors UE.
         unregistered = {
-            c for c in all_stock_countries if c and is_eu(c) and c != home_country
-        } - set(countries_with_vat)
+                           c for c in all_stock_countries if c and is_eu(c) and c != home_country
+                       } - set(countries_with_vat)
         pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
         unregistered_local = pay_eu - set(countries_with_vat)
 
