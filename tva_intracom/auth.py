@@ -61,6 +61,22 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     return _pool
 
 
+def close_idle_connections() -> None:
+    """Ferme le pool et remet `_pool` à None, pour ne laisser AUCUNE connexion
+    ouverte vers le pooler Supabase entre deux interactions réelles (voir
+    app.py, fin de script). Sans effet si le pool n'a jamais été créé.
+    Le prochain appel à `_get_pool()` en recrée un neuf, de façon paresseuse.
+    """
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            try:
+                _pool.closeall()
+            except Exception:
+                pass
+            _pool = None
+
+
 def _run(fn):
     """Exécute fn(conn, cur) avec une connexion prise dans le pool, avec un
     retry unique si la connexion s'avère fermée côté serveur.

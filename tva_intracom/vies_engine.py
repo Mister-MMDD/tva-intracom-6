@@ -264,6 +264,26 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     return _pool
 
 
+def close_idle_connections() -> None:
+    """Ferme le pool VIES et le remet à None (voir app.py, fin de script) —
+    aucune connexion ne doit rester ouverte vers Supabase entre deux
+    interactions réelles. Sans effet si le pool n'a jamais été créé.
+
+    IMPORTANT : app.py ne doit appeler ceci que si aucun job de calcul en
+    arrière-plan n'est en cours (voir background_calc.any_job_running()) —
+    ce pool est utilisé par validate_vat_numbers_parallel via un
+    ThreadPoolExecutor pouvant tourner pendant un job de fond.
+    """
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            try:
+                _pool.closeall()
+            except Exception:
+                pass
+            _pool = None
+
+
 def _init_schema(pool: psycopg2.pool.ThreadedConnectionPool) -> None:
     conn = pool.getconn()
     try:

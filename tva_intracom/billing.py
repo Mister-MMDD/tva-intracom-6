@@ -86,6 +86,20 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
     return _pool
 
 
+def close_idle_connections() -> None:
+    """Ferme le pool de facturation et le remet à None (voir app.py, fin de
+    script) — aucune connexion ne doit rester ouverte vers Supabase entre
+    deux interactions réelles. Sans effet si le pool n'a jamais été créé.
+    """
+    global _pool
+    if _pool is not None:
+        try:
+            _pool.closeall()
+        except Exception:
+            pass
+        _pool = None
+
+
 def _run(fn):
     """Exécute fn(conn, cur) avec une connexion prise dans le pool, avec un
     retry unique si la connexion s'avère fermée côté serveur.

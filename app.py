@@ -32,6 +32,7 @@ from tva_intracom.ui.background_calc import (
     get_job_state,
     clear_job,
     render_job_progress,
+    any_job_running,
 )
 from tva_intracom.report import build_report
 
@@ -100,6 +101,9 @@ _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 # - Sinon, si la langue de session a changé depuis (l'utilisateur vient
 #   d'utiliser le sélecteur) : on persiste ce choix sur le compte.
 from tva_intracom import auth as tva_auth
+from tva_intracom import ecb_rates as _tva_ecb_rates
+from tva_intracom import billing as _tva_billing
+from tva_intracom import vies_engine as _tva_vies_engine
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
 _sess_lang = st.session_state.get("language", "fr")
 if st.session_state.get("_prefs_synced_user") != _current_user.id:
@@ -921,3 +925,34 @@ else:
             {_('how_to_use_step3')}
             {_('how_to_use_step4')}
         """)
+
+# --- Fermeture des connexions DB idle en fin de script ---
+#
+# 4 pools psycopg2 globaux (auth.py, ecb_rates.py, billing.py, vies_engine.py)
+# gardaient au moins 1 connexion ouverte en permanence vers le pooler
+# Supabase (aws-0-eu-west-1.pooler.supabase.com), dès leur première
+# utilisation, jusqu'à l'arrêt du process — indépendamment du nombre
+# d'utilisateurs actifs. Ce trafic keepalive TCP empêchait Railway de
+# détecter l'inactivité réelle et de déclencher le scale-to-zero serverless.
+#
+# On ferme donc explicitement ces 4 pools à la toute fin de CHAQUE exécution
+# de script (donc après chaque interaction réelle d'un utilisateur) : le
+# prochain accès les recrée à la demande (lazy), sans coût notable pour une
+# app dont les requêtes DB sont ponctuelles (auth, facturation, cache VIES).
+#
+# Garde-fou : ne jamais fermer pendant qu'un job de fond tourne encore
+# (any_job_running()) — vies_engine.py est utilisé par
+# validate_vat_numbers_parallel via un ThreadPoolExecutor qui peut être
+# encore actif dans un thread séparé au moment où le script principal
+# termine son propre rerun.
+if not any_job_running():
+    for _close_fn in (
+        tva_auth.close_idle_connections,
+        _tva_ecb_rates.close_idle_connections,
+        _tva_billing.close_idle_connections,
+        _tva_vies_engine.close_idle_connections,
+    ):
+        try:
+            _close_fn()
+        except Exception:
+            pass

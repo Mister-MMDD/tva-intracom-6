@@ -36,6 +36,20 @@ from typing import Any, Callable, Optional
 
 import streamlit as st
 
+# Compteur global (process entier, toutes sessions confondues) de jobs en
+# cours — volontairement un compteur module-level protégé par verrou, PAS
+# dans st.session_state (qui est par session, donc invisible d'une session à
+# l'autre). Sert de garde-fou pour ne jamais fermer les pools de connexions
+# DB (voir app.py, fin de script) pendant qu'un thread de calcul est encore
+# en train de s'en servir (ex. vies_engine via compute_all_with_vies).
+_active_jobs_lock = threading.Lock()
+_active_jobs_count = 0
+
+
+def any_job_running() -> bool:
+    with _active_jobs_lock:
+        return _active_jobs_count > 0
+
 
 @dataclass
 class _JobState:
@@ -79,6 +93,9 @@ def start_background_job(
             state.progress_text = text
 
     def _runner() -> None:
+        global _active_jobs_count
+        with _active_jobs_lock:
+            _active_jobs_count += 1
         try:
             result = target_fn(_report)
             with state.lock:
@@ -90,6 +107,8 @@ def start_background_job(
         finally:
             with state.lock:
                 state.done = True
+            with _active_jobs_lock:
+                _active_jobs_count -= 1
 
     threading.Thread(target=_runner, daemon=True, name=f"bgjob-{job_id}").start()
 

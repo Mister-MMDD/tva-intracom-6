@@ -115,6 +115,21 @@ def _get_pool() -> Optional["psycopg2.pool.ThreadedConnectionPool"]:
         return _pool
 
 
+def close_idle_connections() -> None:
+    """Ferme le pool BCE et le remet à None (voir app.py, fin de script) —
+    aucune connexion ne doit rester ouverte vers Supabase entre deux
+    interactions réelles. Sans effet si le pool n'a jamais été créé.
+    """
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            try:
+                _pool.closeall()
+            except Exception:
+                pass
+            _pool = None
+
+
 def _init_schema(pool: "psycopg2.pool.ThreadedConnectionPool") -> None:
     conn = pool.getconn()
     try:
