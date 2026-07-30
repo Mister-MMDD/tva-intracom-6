@@ -73,91 +73,21 @@ _vies_scope_id = _auth_ctx.vies_scope_id
 _stripe_success_url = _auth_ctx.stripe_success_url
 _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 
-# --- Gestion de l'inactivité & Mode Veille ---
+# NOTE : le mécanisme applicatif de "veille" (détection d'inactivité côté
+# app + purge mémoire + écran ?sleep=1) a été retiré volontairement.
 #
-# ANCIENNE APPROCHE (retirée) : un <script> injecté via components.html()
-# tentait `window.parent.location.href = ...?sleep=1` après un délai JS.
-# Ça ne fonctionne JAMAIS : components.html() rend le script dans une
-# iframe avec sandbox="allow-scripts allow-same-origin ...", SANS le flag
-# `allow-top-navigation` ni `allow-top-navigation-by-user-activation`, et
-# l'API components.html() ne permet pas de le configurer. Confirmé en
-# console : "Unsafe attempt to initiate navigation ... SecurityError".
+# Toute vérification périodique — même très espacée (fragment run_every,
+# polling JS régulier, etc.) — génère du trafic WebSocket réel qui empêche
+# Railway de considérer le service comme réellement idle, et bloque donc le
+# scale-to-zero serverless (Settings > Deploy > "Enable Serverless").
 #
-# NOUVELLE APPROCHE : composant BIDIRECTIONNEL (`streamlit_javascript`) qui
-# renvoie une valeur JS à Python via le protocole officiel des composants
-# Streamlit (postMessage + setComponentValue), non soumis à la restriction
-# de navigation du sandbox : c'est le script Python qui déclenche lui-même
-# `st.rerun()` une fois l'inactivité confirmée, pas l'iframe qui force une
-# navigation du parent.
-#
-# Polling volontairement espacé (POLL_INTERVAL_SEC) : pas d'urgence à réagir
-# vite, et un polling trop fréquent maintiendrait le WebSocket occupé en
-# continu — à l'encontre du sleep Railway (sleepApplication=true), basé sur
-# l'absence réelle de trafic.
-INACTIVITY_TIMEOUT_SEC = 2 * 60
-POLL_INTERVAL_SEC = 20
-
-_SLEEP_PRESERVE_KEYS = {"language", "auth_user", "tva_cookie_manager", "_prefs_synced_user"}
-
-# Si l'URL contient ?sleep=1, on force le nettoyage (déclenché par Python,
-# pas par une navigation JS).
-if st.query_params.get("sleep") == "1":
-    for key in list(st.session_state.keys()):
-        if key not in _SLEEP_PRESERVE_KEYS:
-            st.session_state.pop(key, None)
-    from tva_intracom.mem_utils import release_memory
-    release_memory()
-    st.info(_("app_is_sleeping"))
-    if st.button(_("wake_up_app")):
-        st.query_params.clear()
-        st.rerun()
-    st.stop()
-
-# Détecteur d'inactivité bidirectionnel : renvoie à Python le nombre de ms
-# écoulées depuis le dernier mouvement/frappe/clic détecté côté navigateur.
-# `key` fixe garantit un seul minuteur JS par onglet (pas recréé à chaque
-# rerun) ; le suivi du temps est fait côté JS (pas de fragment run_every
-# Python tournant en continu).
-@st.fragment(run_every=POLL_INTERVAL_SEC)
-def _tva_idle_check() -> None:
-    """Revérifie l'inactivité toutes les POLL_INTERVAL_SEC secondes.
-
-    Volontairement dans un fragment (pas de time.sleep() bloquant le thread
-    principal du script) : `run_every` fait tourner CE fragment seul, sans
-    bloquer le reste de la page ni empêcher Streamlit de traiter un clic
-    pendant l'intervalle — contrairement à un time.sleep() dans le script
-    principal qui gèlerait toute interaction utilisateur.
-    """
-    try:
-        from streamlit_javascript import st_javascript
-
-        _idle_ms = st_javascript(
-            """
-            (function(){
-                if (!window._tvaIdleInit) {
-                    window._tvaIdleInit = true;
-                    window._tvaLastActivity = Date.now();
-                    const reset = () => { window._tvaLastActivity = Date.now(); };
-                    document.addEventListener('mousemove', reset, true);
-                    document.addEventListener('keydown', reset, true);
-                    document.addEventListener('click', reset, true);
-                    document.addEventListener('scroll', reset, true);
-                    document.addEventListener('touchstart', reset, true);
-                }
-                return Date.now() - window._tvaLastActivity;
-            })()
-            """,
-            key="tva_idle_probe",
-        )
-    except Exception:
-        _idle_ms = None
-
-    if isinstance(_idle_ms, (int, float)) and _idle_ms >= INACTIVITY_TIMEOUT_SEC * 1000:
-        st.query_params["sleep"] = "1"
-        st.rerun()  # rerun complet (hors fragment) pour repasser par le bloc ?sleep=1 ci-dessus
-
-
-_tva_idle_check()
+# Railway serverless gère maintenant cette responsabilité au niveau infra :
+# le container entier est coupé après une période d'inactivité réelle (RAM
+# rendue à 0, pas juste un gc.collect()/malloc_trim applicatif), et redémarre
+# à la prochaine requête entrante (mise en file d'attente le temps du
+# redémarrage). C'est strictement supérieur à toute purge applicative, et
+# ne fonctionne QUE si l'app elle-même reste silencieuse quand personne ne
+# l'utilise — d'où la suppression de tout polling ici.
 
 # --- Synchro langue <-> compte ---
 # `language_selector()` (appelé plus haut, avant l'authentification, pour que
