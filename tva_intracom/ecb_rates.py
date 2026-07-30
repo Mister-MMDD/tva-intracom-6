@@ -69,7 +69,7 @@ _cache_lock = threading.Lock()
 # lors de retraitements de fichiers anciens.
 _RETENTION_DAYS = 3650
 
-_pool: Optional["psycopg2.pool.ThreadedConnectionPool"] = None
+_pool: Optional["_NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
 # Sticky : évite de retenter une connexion Postgres à chaque appel si
 # SUPABASE_DB_URL n'est pas configuré (tests, dev local) ou si la base est
@@ -82,7 +82,31 @@ def _cache_key(currency: str, d: date) -> str:
     return f"{currency.upper()}|{d.isoformat()}"
 
 
-def _get_pool() -> Optional["psycopg2.pool.ThreadedConnectionPool"]:
+class _NonPoolingConnectionPool:
+    """Voir tva_intracom/auth.py pour l'explication complète : remplace un
+    pool persistant par un objet à la même API (`getconn()`/`putconn()`/
+    `closeall()`) qui n'accumule jamais de connexion — chaque `getconn()`
+    ouvre une connexion neuve, chaque `putconn()` la ferme réellement.
+    """
+
+    def __init__(self, dsn: str, sslmode: str = "require") -> None:
+        self._dsn = dsn
+        self._sslmode = sslmode
+
+    def getconn(self, *_args, **_kwargs):
+        return psycopg2.connect(self._dsn, sslmode=self._sslmode)
+
+    def putconn(self, conn, *_args, **_kwargs) -> None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    def closeall(self) -> None:
+        pass
+
+
+def _get_pool() -> Optional["_NonPoolingConnectionPool"]:
     global _pool, _db_unavailable
     if _db_unavailable:
         return None
@@ -102,7 +126,7 @@ def _get_pool() -> Optional["psycopg2.pool.ThreadedConnectionPool"]:
             _db_unavailable = True
             return None
         try:
-            pool = psycopg2.pool.ThreadedConnectionPool(1, 5, dsn, sslmode="require")
+            pool = _NonPoolingConnectionPool(dsn, sslmode="require")
             _init_schema(pool)
         except Exception as exc:
             logger.warning(
@@ -116,9 +140,9 @@ def _get_pool() -> Optional["psycopg2.pool.ThreadedConnectionPool"]:
 
 
 def close_idle_connections() -> None:
-    """Ferme le pool BCE et le remet à None (voir app.py, fin de script) —
-    aucune connexion ne doit rester ouverte vers Supabase entre deux
-    interactions réelles. Sans effet si le pool n'a jamais été créé.
+    """Conservé pour compatibilité d'API (appelé par app.py) : sans effet
+    utile désormais puisque `_NonPoolingConnectionPool` ne garde jamais de
+    connexion ouverte entre deux appels.
     """
     global _pool
     with _pool_lock:
@@ -130,7 +154,7 @@ def close_idle_connections() -> None:
             _pool = None
 
 
-def _init_schema(pool: "psycopg2.pool.ThreadedConnectionPool") -> None:
+def _init_schema(pool: "_NonPoolingConnectionPool") -> None:
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:

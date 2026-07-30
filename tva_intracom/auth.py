@@ -38,11 +38,54 @@ MAGIC_LINK_TTL_SECONDS = 15 * 60
 # (?session_token=...) et ne doit jamais être envoyé par e-mail.
 SESSION_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 
-_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+_pool: Optional["_NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
 
 
-def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+class _NonPoolingConnectionPool:
+    """Remplace psycopg2.pool.ThreadedConnectionPool par un objet à la même
+    API (`getconn()` / `putconn()` / `closeall()`) mais qui n'accumule
+    JAMAIS de connexion : chaque `getconn()` ouvre une connexion neuve,
+    chaque `putconn()` la ferme réellement (qu'on demande `close=True` ou
+    non — il n'y a de toute façon rien à remettre dans un pool).
+
+    Pourquoi : un pool classique avec `minconn=1` garde au moins une
+    connexion TCP ouverte en permanence vers le pooler Supabase
+    (aws-0-eu-west-1.pooler.supabase.com:6543), pour toute la durée de vie
+    du process — indépendamment du nombre d'utilisateurs actifs. Fermer ce
+    pool "à la fin du script" ou "au début du run suivant" ne suffit pas :
+    tant qu'il y a de vrais utilisateurs, Streamlit réexécute le script en
+    continu et une connexion réapparaît aussitôt ; et dès que le dernier
+    utilisateur part pour la nuit, la connexion ouverte par ce tout dernier
+    run reste vivante indéfiniment, faute d'un run suivant pour la fermer.
+    Ce trafic keepalive TCP empêchait Railway de détecter l'inactivité
+    réelle et bloquait le scale-to-zero serverless.
+
+    Contrepartie : chaque appel DB ouvre une connexion + TLS neuve
+    (quelques dizaines de ms). Acceptable ici : les accès DB de ce module
+    sont ponctuels (vérif de session, magic link...), pas dans une boucle
+    chaude.
+    """
+
+    def __init__(self, dsn: str, sslmode: str = "require") -> None:
+        self._dsn = dsn
+        self._sslmode = sslmode
+
+    def getconn(self, *_args, **_kwargs):
+        return psycopg2.connect(self._dsn, sslmode=self._sslmode)
+
+    def putconn(self, conn, *_args, **_kwargs) -> None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    def closeall(self) -> None:
+        # Rien à fermer : aucune connexion n'est jamais conservée.
+        pass
+
+
+def _get_pool() -> "_NonPoolingConnectionPool":
     global _pool
     if _pool is None:
         with _pool_lock:
@@ -54,18 +97,16 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                         "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
                         "d'authentification. Configurez ce secret côté Streamlit Cloud et Vercel."
                     )
-                # Utilisation de ThreadedConnectionPool pour la sécurité multi-thread de Streamlit
-                new_pool = psycopg2.pool.ThreadedConnectionPool(1, 10, dsn, sslmode="require")
+                new_pool = _NonPoolingConnectionPool(dsn, sslmode="require")
                 _init_schema(new_pool)
                 _pool = new_pool
     return _pool
 
 
 def close_idle_connections() -> None:
-    """Ferme le pool et remet `_pool` à None, pour ne laisser AUCUNE connexion
-    ouverte vers le pooler Supabase entre deux interactions réelles (voir
-    app.py, fin de script). Sans effet si le pool n'a jamais été créé.
-    Le prochain appel à `_get_pool()` en recrée un neuf, de façon paresseuse.
+    """Conservé pour compatibilité d'API (appelé par app.py) : sans effet
+    utile désormais puisque `_NonPoolingConnectionPool` ne garde jamais de
+    connexion ouverte entre deux appels — il n'y a plus rien à fermer.
     """
     global _pool
     with _pool_lock:

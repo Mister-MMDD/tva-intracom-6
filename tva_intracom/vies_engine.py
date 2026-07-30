@@ -235,11 +235,41 @@ def _parse_flexible_date(s: str) -> datetime:
 
 from .config import get_secret
 
-_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+_pool: Optional["_NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
 
 
-def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+class _NonPoolingConnectionPool:
+    """Voir tva_intracom/auth.py pour l'explication complète : remplace un
+    pool persistant par un objet à la même API (`getconn()`/`putconn()`/
+    `closeall()`) qui n'accumule jamais de connexion — chaque `getconn()`
+    ouvre une connexion neuve, chaque `putconn()` la ferme réellement.
+
+    Compatible avec l'usage concurrent de ce module (jusqu'à 25 workers
+    ThreadPoolExecutor pour la validation VIES parallèle,
+    voir validate_vat_numbers_parallel) : psycopg2.connect() est thread-safe
+    à l'appel (chaque thread obtient sa propre connexion indépendante), il
+    n'y a plus de notion de slots de pool à se partager entre threads.
+    """
+
+    def __init__(self, dsn: str, sslmode: str = "require") -> None:
+        self._dsn = dsn
+        self._sslmode = sslmode
+
+    def getconn(self, *_args, **_kwargs):
+        return psycopg2.connect(self._dsn, sslmode=self._sslmode)
+
+    def putconn(self, conn, *_args, **_kwargs) -> None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    def closeall(self) -> None:
+        pass
+
+
+def _get_pool() -> "_NonPoolingConnectionPool":
     global _pool
     if _pool is None:
         with _pool_lock:
@@ -251,28 +281,16 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                         "base du cache VIES. Configurez ce secret côté Streamlit Cloud "
                         "(même valeur que pour auth.py / billing.py)."
                     )
-                # ThreadedConnectionPool (et non SimpleConnectionPool) : ce module
-                # emprunte des connexions depuis jusqu'à 25 threads simultanés
-                # (ThreadPoolExecutor de validate_vat_numbers_parallel — voir plus
-                # bas). SimpleConnectionPool n'a pas de verrou interne autour de
-                # getconn()/putconn() et n'est pas garanti thread-safe par
-                # psycopg2 dans ce scénario concurrent — ThreadedConnectionPool
-                # ajoute ce verrou (même API, même signature de constructeur).
-                pool = psycopg2.pool.ThreadedConnectionPool(1, 25, dsn, sslmode="require")
+                pool = _NonPoolingConnectionPool(dsn, sslmode="require")
                 _init_schema(pool)
                 _pool = pool
     return _pool
 
 
 def close_idle_connections() -> None:
-    """Ferme le pool VIES et le remet à None (voir app.py, fin de script) —
-    aucune connexion ne doit rester ouverte vers Supabase entre deux
-    interactions réelles. Sans effet si le pool n'a jamais été créé.
-
-    IMPORTANT : app.py ne doit appeler ceci que si aucun job de calcul en
-    arrière-plan n'est en cours (voir background_calc.any_job_running()) —
-    ce pool est utilisé par validate_vat_numbers_parallel via un
-    ThreadPoolExecutor pouvant tourner pendant un job de fond.
+    """Conservé pour compatibilité d'API (appelé par app.py) : sans effet
+    utile désormais puisque `_NonPoolingConnectionPool` ne garde jamais de
+    connexion ouverte entre deux appels.
     """
     global _pool
     with _pool_lock:
@@ -284,7 +302,7 @@ def close_idle_connections() -> None:
             _pool = None
 
 
-def _init_schema(pool: psycopg2.pool.ThreadedConnectionPool) -> None:
+def _init_schema(pool: "_NonPoolingConnectionPool") -> None:
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:

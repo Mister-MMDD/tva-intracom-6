@@ -52,7 +52,7 @@ PRICE_PAYG_EXPORT = os.environ.get("STRIPE_PRICE_PAYG_EXPORT", "")
 _BUSINESS_SIREN_QUOTA = 1
 _CABINET_MIN_QUANTITY = 3
 
-_pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
+_pool: Optional["_NonPoolingConnectionPool"] = None
 
 
 def _safe_get(obj, key, default=None):
@@ -73,7 +73,34 @@ def _stripe_configured() -> bool:
     return True
 
 
-def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
+class _NonPoolingConnectionPool:
+    """Voir tva_intracom/auth.py pour l'explication complète : remplace un
+    pool persistant (qui garde ≥1 connexion ouverte en permanence vers
+    aws-0-eu-west-1.pooler.supabase.com, même sans utilisateur actif) par un
+    objet à la même API qui ouvre une connexion neuve à chaque `getconn()`
+    et la ferme réellement à chaque `putconn()` — zéro connexion accumulée
+    entre deux appels, donc zéro trafic keepalive résiduel empêchant le
+    scale-to-zero serverless Railway.
+    """
+
+    def __init__(self, dsn: str, sslmode: str = "require") -> None:
+        self._dsn = dsn
+        self._sslmode = sslmode
+
+    def getconn(self, *_args, **_kwargs):
+        return psycopg2.connect(self._dsn, sslmode=self._sslmode)
+
+    def putconn(self, conn, *_args, **_kwargs) -> None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    def closeall(self) -> None:
+        pass
+
+
+def _get_pool() -> "_NonPoolingConnectionPool":
     global _pool
     if _pool is None:
         dsn = _env("SUPABASE_DB_URL")
@@ -81,15 +108,15 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
             raise RuntimeError(
                 "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
             )
-        _pool = psycopg2.pool.SimpleConnectionPool(1, 5, dsn, sslmode="require")
+        _pool = _NonPoolingConnectionPool(dsn, sslmode="require")
         _init_schema()
     return _pool
 
 
 def close_idle_connections() -> None:
-    """Ferme le pool de facturation et le remet à None (voir app.py, fin de
-    script) — aucune connexion ne doit rester ouverte vers Supabase entre
-    deux interactions réelles. Sans effet si le pool n'a jamais été créé.
+    """Conservé pour compatibilité d'API (appelé par app.py) : sans effet
+    utile désormais puisque `_NonPoolingConnectionPool` ne garde jamais de
+    connexion ouverte entre deux appels.
     """
     global _pool
     if _pool is not None:
