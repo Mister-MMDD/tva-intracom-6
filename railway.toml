@@ -5,9 +5,10 @@ buildEnvironment = "V3"
 [deploy]
 runtime = "V2"
 numReplicas = 1
-startCommand = "LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 MALLOC_CONF='dirty_decay_ms:0,muzzy_decay_ms:0' streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"
+startCommand = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"
 sleepApplication = true
-useLegacyStacker = false
-ipv6EgressEnabled = true
+healthcheckPath = ""
+ipv6EgressEnabled = false
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 1
+
