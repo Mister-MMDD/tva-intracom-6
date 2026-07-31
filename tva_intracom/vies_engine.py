@@ -1079,6 +1079,27 @@ def check_vat(country_code: str, vat_number: str, timeout: int = DEFAULT_TIMEOUT
                     error=res_data["error"].get("errorMsg", "Erreur API inconnue")
                 )
 
+            # Forme alternative observée en pratique : {"errorWrappers": [{"error": "MS_UNAVAILABLE"}, ...]}
+            # — une LISTE, distincte de la clé "error" singulière ci-dessus. Sans cette
+            # branche, un numéro dont l'État membre est indisponible (MS_UNAVAILABLE,
+            # MS_MAX_CONCURRENT_REQ...) recevait un ViesResult(valid=False, error="")
+            # — indiscernable d'un "réellement invalide" pour _is_unreliable()/
+            # _is_transient(), qui se basent uniquement sur result.error. Conséquence
+            # vécue en prod : tous les numéros allemands faussement marqués invalides
+            # lors d'une panne du service national DE, faute de fallback_cache après
+            # une purge de la base (voir incident du 31/07/2026).
+            error_wrappers = res_data.get("errorWrappers")
+            if error_wrappers:
+                codes = [
+                    w.get("error", "Erreur inconnue")
+                    for w in error_wrappers
+                    if isinstance(w, dict)
+                ]
+                return ViesResult(
+                    valid=False, country_code=country_code, vat_number=vat_number,
+                    error=", ".join(codes) or "Erreur API inconnue (errorWrappers vide)",
+                )
+
             result = ViesResult(
                 valid=res_data.get("valid", res_data.get("isValid", False)),
                 country_code=res_data.get("countryCode", country_code),
