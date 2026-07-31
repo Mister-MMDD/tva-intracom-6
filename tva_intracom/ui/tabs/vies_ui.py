@@ -76,6 +76,16 @@ def render_manual_vies_classification() -> None:
 
 def render_vies(ctx: TabContext) -> None:
     """Rendu complet de l'onglet VIES."""
+    # Purge automatique des expirés pour ce compte au chargement de l'onglet
+    # (évite d'avoir à cliquer manuellement sur le bouton de purge en sidebar)
+    if f"vies_auto_purged_{ctx.vies_scope_id}" not in st.session_state:
+        from tva_intracom.vies_engine import purge_expired_cache
+        try:
+            purge_expired_cache(ctx.vies_scope_id)
+            st.session_state[f"vies_auto_purged_{ctx.vies_scope_id}"] = True
+        except Exception:
+            pass
+
     _can_export = ctx.can_export
     _gated_download = ctx.gated_download
     _vies_retry_nonce = ctx.vies_retry_nonce
@@ -302,7 +312,7 @@ def render_vies(ctx: TabContext) -> None:
             _fraud_cfg = _smart_money_df(_fraud_df_filt,
                 money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
                 note_cols=[_("vies_col_rejected_vat"), _("vies_col_id"), _("vies_col_expl")])
-            _gated_preview_table(_fraud_df_filt, _can_export, column_config=_fraud_cfg)
+            _gated_preview_table(_fraud_df_filt, _can_export, column_config=_fraud_cfg, total_count=len(_fraud_df_filt))
 
             if avec_delta:
                 by_c = {}

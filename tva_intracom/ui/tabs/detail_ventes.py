@@ -132,7 +132,7 @@ def render_detail_ventes() -> None:
             pct_cols=[_("col_rate_pct")],
             note_cols=[_("col_note")],
             existing_config=_orig_cfg)
-        _gated_preview_table(_your_df, _can_export, column_config=_your_cfg)
+        _gated_preview_table(_your_df, _can_export, column_config=_your_cfg, total_count=_n_your)
 
     with sub_b:
         st.caption(_("subtab_managed_by_tiers_caption"))
@@ -149,7 +149,7 @@ def render_detail_ventes() -> None:
         
         _third_df = _third_df_filt.copy()
         _third_cfg = _smart_money_df(_third_df, money_cols=[_lbl_ht])
-        _gated_preview_table(_third_df, _can_export, column_config=_third_cfg)
+        _gated_preview_table(_third_df, _can_export, column_config=_third_cfg, total_count=len(_third_df_filt))
 
     with sub_c:
         st.caption(_("subtab_row_by_row_caption"))
@@ -191,7 +191,7 @@ def render_detail_ventes() -> None:
             pct_cols=[_("col_rate_pct")],
             note_cols=[_("col_note")],
             existing_config=_orig_cfg)
-        _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg)
+        _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg, total_count=_n_all)
 
     with sub_d:
         if not refund_results:
@@ -227,4 +227,4 @@ def render_detail_ventes() -> None:
             _ref_cfg = _smart_money_df(_ref_df,
                 money_cols=[_lbl_ht, _lbl_vat],
                 pct_cols=[_("col_rate_pct")])
-            _gated_preview_table(_ref_df, _can_export, column_config=_ref_cfg)
+            _gated_preview_table(_ref_df, _can_export, column_config=_ref_cfg, total_count=len(_ref_df_filt))

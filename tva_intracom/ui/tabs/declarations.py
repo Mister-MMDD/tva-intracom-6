@@ -287,7 +287,8 @@ def render_declarations(ctx: TabContext) -> None:
         ]
         if _bucket_rows:
             _gated_preview_table(pd.DataFrame(_bucket_rows), _can_export,
-                                 column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))})
+                                 column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))},
+                                 total_count=len(_bucket_rows))
         c1, c2, c3 = st.columns(3)
         c1.metric(_("kpi_declared_net_ht"), _fmt(_declared_net_ht))
         c2.metric(_("kpi_sum_canals_net_ht"), _fmt(_bucket_net_ht))

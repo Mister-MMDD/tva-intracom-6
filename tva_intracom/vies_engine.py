@@ -76,7 +76,7 @@ DEFAULT_TIMEOUT = 10
 # tous les autres. _SCOPE_TTL_DAYS stocke donc le TTL par scope_id ; le cache
 # global mutualisé (vies_global_cache), lui, n'est jamais scopé et utilise
 # toujours DEFAULT_CACHE_TTL_DAYS, non modifiable depuis l'UI.
-DEFAULT_CACHE_TTL_DAYS: int = 90
+DEFAULT_CACHE_TTL_DAYS: int = 30
 _SCOPE_TTL_DAYS: dict[str, int] = {}
 
 
@@ -1291,11 +1291,16 @@ def validate_vat_numbers_parallel(
             continue
 
         global_entry = global_cache_map.get(norm)
-        if global_entry is not None and global_entry[1]:
-            results[vat_id] = global_entry[0]
-            to_copy_from_global.append((norm, global_entry[0]))
-            _tick()
-            continue
+        if global_entry is not None:
+            # BUGFIX : Si l'utilisateur a réduit son TTL (ex: 1 jour), on ne doit 
+            # pas utiliser une entrée du cache global qui a 80 jours (même si 
+            # elle est considérée "fraîche" par le défaut global de 90j).
+            # On vérifie la fraîcheur par rapport au TTL du SCOPE.
+            if not _is_expired(global_entry[0].checked_at, scope_id):
+                results[vat_id] = global_entry[0]
+                to_copy_from_global.append((norm, global_entry[0]))
+                _tick()
+                continue
 
         if scope_entry is not None:
             fallback_cache[norm] = scope_entry[0]

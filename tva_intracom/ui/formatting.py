@@ -298,7 +298,8 @@ def _gated_preview_table(
     pct: float = 0.15,
     min_rows: int = 5,
     key: str = None,
-    column_config: dict = None
+    column_config: dict = None,
+    total_count: int = None
 ) -> None:
     """Affiche un tableau de résultats avec protection des données sensibles."""
     if can_export:
@@ -307,8 +308,8 @@ def _gated_preview_table(
         return
 
     # PERFORMANCE : Si bridé, on ne traite qu'un échantillon pour économiser la RAM
-    n_total = len(df)
-    n_visible = max(min_rows, min(20, n_total)) # On limite à 20 lignes max en aperçu
+    n_total = total_count if total_count is not None else len(df)
+    n_visible = max(min_rows, min(20, len(df))) # On limite à 20 lignes max en aperçu
     
     # On crée un aperçu léger
     df_preview = df.head(n_visible).copy()
@@ -342,14 +343,23 @@ def _gated_preview_table(
         if col not in safe_cols:
             df_preview.iloc[min_rows:, df_preview.columns.get_loc(col)] = lock_msg
 
-    # Pour un aperçu masqué, on utilise TextColumn partout car les types sont mixtes
-    config = {col: st.column_config.TextColumn(col) for col in df_preview.columns}
-    if column_config:
-        config.update(column_config)
+    # Pour un aperçu masqué, on utilise TextColumn partout car les types sont mixtes.
+    # On doit forcer TextColumn même si column_config demande du numérique, 
+    # pour éviter l'erreur "The value cannot be interpreted as a number" sur le cadenas.
+    config = {}
+    for col in df_preview.columns:
+        label = col
+        if column_config and col in column_config:
+            c_orig = column_config[col]
+            # On essaie d'extraire le label (soit via l'attribut .label de l'objet config,
+            # soit via une clé 'label' si c'est un dict).
+            label = getattr(c_orig, "label", None) or (c_orig.get("label") if isinstance(c_orig, dict) else None) or col
+        config[col] = st.column_config.TextColumn(label)
 
     st.dataframe(df_preview, width="stretch", column_config=config, hide_index=True, key=key)
     
-    if n_total > n_visible:
+    if n_total > min_rows:
+        # Le nombre de lignes masquées est le total moins les lignes affichées en clair (min_rows)
         st.warning(_("gated_preview_warning", count=n_total - min_rows))
 
 

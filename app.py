@@ -648,6 +648,86 @@ if uploaded_files:
         # =====================================================================
         render_historical_rates_alert(results)
 
+        # On calcule pay_eu nécessaire pour le billing gate et les immatriculations
+        pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
+
+        # =====================================================================
+        # GATING BILLING
+        # =====================================================================
+        from tva_intracom.ui.billing_gate import build_billing_gate, render_account_link_panel
+
+        _gate = build_billing_gate(
+            results=results, oss_period=oss_period, cache_key=_cache_key,
+            current_user=_current_user, siren_entreprise=siren_entreprise,
+            siren_quota_status=_siren_quota_status,
+            all_stock_countries=all_stock_countries, pay_eu=pay_eu,
+            seller_is_importer=seller_is_importer,
+            local_vat_numbers=local_vat_numbers, ioss_number=ioss_number,
+            vies_summary=vies_summary,
+            stripe_success_url=_stripe_success_url,
+            stripe_cancel_url=_stripe_cancel_url,
+            vies_scope_id=_vies_scope_id,
+            all_account_identifiers=all_account_identifiers,
+            nom_entreprise=nom_entreprise,
+            home_country=home_country,
+        )
+        render_account_link_panel(_gate)
+        period_label = _gate.period_label
+        _period_detected_range = _gate.period_detected_range
+        _can_export = _gate.can_export
+        _quota_status = _gate.quota_status
+        _compliance_blocked = _gate.compliance_blocked
+        _missing_vats = _gate.missing_vats
+        _ioss_missing = _gate.ioss_missing
+        _unlock_label_suffix = _gate.unlock_label_suffix
+        _gated_download = _gate.gated_download
+        _get_payg_checkout_url = _gate.get_payg_checkout_url
+
+        # Taux BCE de clôture de période réellement utilisés pour la
+        # conversion OSS (Règl. UE 2020/194, art. 5 bis) — affiche les taux
+        # par devise et par date de clôture si la période est multiple.
+        if convert_fx and _fx_currencies_used:
+            from tva_intracom.ecb_rates import get_oss_rate_date
+            _used_rates_info = set()
+            for _r in results:
+                if _r.sale.original_currency and _r.sale.original_currency != "EUR":
+                    try:
+                        _tx_date = datetime.fromisoformat((_r.sale.transaction_date or "")[:10])
+                        # On utilise la date de clôture OSS correspondante à la transaction
+                        _rate_date = get_oss_rate_date(period_label, _tx_date)
+                        _used_rates_info.add((_r.sale.original_currency.upper(), _rate_date))
+                    except Exception:
+                        pass
+            
+            if _used_rates_info:
+                _all_dates = sorted({d for c, d in _used_rates_info})
+                with st.expander(_("bce_rates_title", count=len(_used_rates_info))):
+                    if len(_all_dates) == 1:
+                        st.caption(_("bce_rates_oss_disclaimer", date=_all_dates[0].isoformat()))
+                    elif "_" in period_label:
+                        _p_parts = period_label.split("_")
+                        _p_start = _p_parts[0]
+                        _p_end = _p_parts[-1]
+                        if not "-" in _p_end and "-" in _p_start:
+                            # Cas "2026-Q1_Q3" -> "2026-Q1" à "2026-Q3"
+                            _p_year = _p_start.split("-")[0]
+                            _p_end = f"{_p_year}-{_p_end}"
+                        st.caption(_("bce_rates_oss_disclaimer_range", start=_p_start, end=_p_end))
+                    else:
+                        st.caption(_("bce_rates_oss_disclaimer", date=f"{_all_dates[0].isoformat()} → {_all_dates[-1].isoformat()}"))
+
+                    for _ccy, _d in sorted(_used_rates_info):
+                        try:
+                            _oss_rate = _ecb_get_rate(_ccy, _d)
+                        except Exception:
+                            _oss_rate = None
+                        
+                        _date_suffix = f" ({_d.strftime('%d/%m/%Y')})" if len(_all_dates) > 1 else ""
+                        if _oss_rate is not None:
+                            st.caption(f"**{_ccy}** : 1 EUR = {float(_oss_rate):.4f} {_ccy}{_date_suffix}")
+                        else:
+                            st.caption(f"**{_ccy}** : {_('bce_rates_oss_unavailable')}{_date_suffix}")
+
         # Immatriculations requises
         # BUGFIX : un stock situé hors UE (US, GB post-Brexit, CH, CN, un
         # entrepôt 3PL non-UE...) ne crée aucune obligation d'immatriculation
@@ -658,7 +738,6 @@ if uploaded_files:
         unregistered = {
                            c for c in all_stock_countries if c and is_eu(c) and c != home_country
                        } - set(countries_with_vat)
-        pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
         unregistered_local = pay_eu - set(countries_with_vat)
 
         registration_needed = {}
@@ -770,83 +849,6 @@ if uploaded_files:
                     st.markdown(f'<span class="badge-alert">{_("config_error_badge")}</span>', unsafe_allow_html=True)
                 else:
                     st.markdown(_kpi_card(_("amazon_config_success", platform=platform_name), _fmt(0), "#2ca02c"), unsafe_allow_html=True)
-
-        # =====================================================================
-        # GATING BILLING
-        # =====================================================================
-        from tva_intracom.ui.billing_gate import build_billing_gate, render_account_link_panel
-
-        _gate = build_billing_gate(
-            results=results, oss_period=oss_period, cache_key=_cache_key,
-            current_user=_current_user, siren_entreprise=siren_entreprise,
-            siren_quota_status=_siren_quota_status,
-            all_stock_countries=all_stock_countries, pay_eu=pay_eu,
-            seller_is_importer=seller_is_importer,
-            local_vat_numbers=local_vat_numbers, ioss_number=ioss_number,
-            vies_summary=vies_summary,
-            stripe_success_url=_stripe_success_url,
-            stripe_cancel_url=_stripe_cancel_url,
-            vies_scope_id=_vies_scope_id,
-            all_account_identifiers=all_account_identifiers,
-            nom_entreprise=nom_entreprise,
-            home_country=home_country,
-        )
-        render_account_link_panel(_gate)
-        period_label = _gate.period_label
-        _period_detected_range = _gate.period_detected_range
-        _can_export = _gate.can_export
-        _quota_status = _gate.quota_status
-        _compliance_blocked = _gate.compliance_blocked
-        _missing_vats = _gate.missing_vats
-        _ioss_missing = _gate.ioss_missing
-        _unlock_label_suffix = _gate.unlock_label_suffix
-        _gated_download = _gate.gated_download
-        _get_payg_checkout_url = _gate.get_payg_checkout_url
-
-        # Taux BCE de clôture de période réellement utilisés pour la
-        # conversion OSS (Règl. UE 2020/194, art. 5 bis) — affiche les taux
-        # par devise et par date de clôture si la période est multiple.
-        if convert_fx and _fx_currencies_used:
-            from tva_intracom.ecb_rates import get_oss_rate_date
-            _used_rates_info = set()
-            for _r in results:
-                if _r.sale.original_currency and _r.sale.original_currency != "EUR":
-                    try:
-                        _tx_date = datetime.fromisoformat((_r.sale.transaction_date or "")[:10])
-                        # On utilise la date de clôture OSS correspondante à la transaction
-                        _rate_date = get_oss_rate_date(period_label, _tx_date)
-                        _used_rates_info.add((_r.sale.original_currency.upper(), _rate_date))
-                    except Exception:
-                        pass
-            
-            if _used_rates_info:
-                _all_dates = sorted({d for c, d in _used_rates_info})
-                with st.expander(_("bce_rates_title", count=len(_used_rates_info))):
-                    if len(_all_dates) == 1:
-                        st.caption(_("bce_rates_oss_disclaimer", date=_all_dates[0].isoformat()))
-                    elif "_" in period_label:
-                        _p_parts = period_label.split("_")
-                        _p_start = _p_parts[0]
-                        _p_end = _p_parts[-1]
-                        if not "-" in _p_end and "-" in _p_start:
-                            # Cas "2026-Q1_Q3" -> "2026-Q1" à "2026-Q3"
-                            _p_year = _p_start.split("-")[0]
-                            _p_end = f"{_p_year}-{_p_end}"
-                        st.caption(_("bce_rates_oss_disclaimer_range", start=_p_start, end=_p_end))
-                    else:
-                        st.caption(_("bce_rates_oss_disclaimer", date=f"{_all_dates[0].isoformat()} → {_all_dates[-1].isoformat()}"))
-
-                    for _ccy, _d in sorted(_used_rates_info):
-                        try:
-                            _oss_rate = _ecb_get_rate(_ccy, _d)
-                        except Exception:
-                            _oss_rate = None
-                        
-                        _date_suffix = f" ({_d.strftime('%d/%m/%Y')})" if len(_all_dates) > 1 else ""
-                        if _oss_rate is not None:
-                            st.caption(f"**{_ccy}** : 1 EUR = {float(_oss_rate):.4f} {_ccy}{_date_suffix}")
-                        else:
-                            st.caption(f"**{_ccy}** : {_('bce_rates_oss_unavailable')}{_date_suffix}")
 
         # =====================================================================
         # ONGLETS PRINCIPAUX

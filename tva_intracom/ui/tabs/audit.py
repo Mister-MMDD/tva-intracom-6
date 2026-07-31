@@ -140,7 +140,7 @@ def render_audit() -> None:
                 _cfg = _smart_money_df(_df_page,
                                        money_cols=[_lbl_ht, _lbl_tva_amz, _lbl_tva_mot, _lbl_gap],
                                        pct_cols=[_("col_rate_amz_pct"), _("col_rate_moteur_pct")])
-                _gated_preview_table(_df_page, _can_export, column_config=_cfg)
+                _gated_preview_table(_df_page, _can_export, column_config=_cfg, total_count=_n)
 
             sub1, sub2, sub3, sub4, sub5 = st.tabs([
                 _("audit_tab_rate_gaps", count=len(ecarts_autres_tab)),
@@ -217,7 +217,7 @@ def render_audit() -> None:
                                     for c,d in by_c.items()])
             _df_loc_filt = _render_filter_bar(_df_loc, "stock_loc")
             _loc_cfg = _smart_money_df(_df_loc_filt, money_cols=[_("col_volume_ht_eur", currency=_target_currency)])
-            _gated_preview_table(_df_loc_filt, _can_export, column_config=_loc_cfg)
+            _gated_preview_table(_df_loc_filt, _can_export, column_config=_loc_cfg, total_count=len(_df_loc_filt))
         if all_fc_transfers:
             st.caption(_("audit_fba_count_caption", count=len(all_fc_transfers)))
             with st.expander(_("audit_fba_expander")):
@@ -235,6 +235,6 @@ def render_audit() -> None:
                 st.caption(_("results_count_caption", count=_n_fc,
                              filtered=(_("results_filtered_tag") if _n_fc < len(_df_fc) else ''),
                              visible=min(_lim_fc, _n_fc)))
-                _gated_preview_table(_df_fc_filt.head(_lim_fc).copy(), _can_export)
+                _gated_preview_table(_df_fc_filt.head(_lim_fc).copy(), _can_export, total_count=_n_fc)
         else:
             st.info(_("audit_fba_none"))

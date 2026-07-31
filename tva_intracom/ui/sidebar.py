@@ -965,8 +965,8 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         with st.expander(_("cache_vies_header"), expanded=False):
             try:
                 _cs = vies_cache_stats(_vies_scope_id)
-                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=7, max_value=365,
-                                      value=_cs["ttl_days"], step=7,
+                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=365,
+                                      value=_cs["ttl_days"], step=1,
                                       help=_("ttl_cache_help"))
                 if _ttl_days != _cs["ttl_days"]:
                     set_cache_ttl(_vies_scope_id, _ttl_days)
