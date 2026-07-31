@@ -190,7 +190,6 @@ tva-intracom/
 | `historical_rates_widget.py` | Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués |
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne, et agrégation mensuelle nette par pays (oss_by_country_month, local_by_country_month) |
 | `mem_utils.py` | Utilitaires d'analyse et d'optimisation de la mémoire (interning, RAM stats) |
-| `memdebug.py` | Débugger de mémoire pour identifier les fuites d'objets (SaaS high-load) |
 | `cli.py` | Interface en ligne de commande (CLI) pour exécuter le moteur hors interface web |
 | `amazon_adapter.py` | Passerelle de compatibilité entre les anciens modèles de données et le nouveau package de parsers |
 | `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
@@ -214,7 +213,7 @@ du script.
 | Module | Rôle |
 |---|---|
 | `ui/theme.py` | `apply_theme()` — configuration de page Streamlit (titre, icône, layout) et injection du CSS de marque |
-| `ui/formatting.py` | Helpers d'affichage partagés : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df` (formatage vectorisé haute performance), `_gated_preview_table` (optimisé RAM), `_fec_period_end_date`, tri numérique robuste, `_render_filter_bar` (scan optimisé) |
+| `ui/formatting.py` | Helpers d'affichage partagés : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df` (formatage vectorisé haute performance), `_gated_preview_table` (optimisé RAM, affichage du décompte total des lignes masquées, protection "tva"), `_fec_period_end_date`, tri numérique robuste, `_render_filter_bar` (scan optimisé) |
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
 | `ui/onboarding.py` | `maybe_show_sidebar_tour` / `maybe_show_tabs_tour` — Visite guidée de première connexion utilisant `st.dialog` et `st.fragment` |
 | `ui/rerun_utils.py` | `preserve_upload_rerun()` — Gestion fine des reruns pour éviter de perdre le fichier uploadé lors d'interactions sidebar |
@@ -394,15 +393,17 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
   séparés, qui peuvent ne pas être cochés sur l'endpoint selon la config
   Stripe. Les erreurs de traitement sont loggées côté serveur (logs Vercel),
   jamais renvoyées dans la réponse HTTP.
-- **Base de données partagée** : Postgres (Supabase), accessible à la fois depuis
+*   **Base de données partagée** : Postgres (Supabase), accessible à la fois depuis
   Streamlit Cloud (lecture des crédits/abonnements) et depuis la fonction serverless
   Vercel (écriture après paiement confirmé) — un SQLite local ne conviendrait pas
-  puisque les deux environnements ne partagent aucun disque. Le pool de connexions
-  (`auth.py` et `billing.py`) retente automatiquement une fois en cas de connexion
-  fermée côté serveur par le pooler Supabase (PgBouncer, mode transaction, qui
-  recycle agressivement les connexions inactives) — situation la plus visible en
-  développement local, où le process Python (et donc le pool) survit longtemps
-  entre deux requêtes.
+  puisque les deux environnements ne partagent aucun disque. La gestion des 
+  connexions (`auth.py`, `billing.py`, `ecb_rates.py`) utilise un cache par 
+  thread (`threading.local()`) : une seule connexion est ouverte et réutilisée 
+  par exécution (run) Streamlit, puis fermée au début du run suivant sur le 
+  même thread. C'est optimal pour Streamlit (1 thread = 1 session) tout en 
+  restant compatible avec PgBouncer. `vies_engine.py` conserve une connexion 
+  fraîche par appel pour supporter son exécution parallèle (`ThreadPoolExecutor` 
+  à 25 workers).
 
 ---
 
@@ -468,7 +469,7 @@ Le module s'appuie sur une architecture résiliente à trois niveaux pour interr
 *   *Domaines professionnels* (`@cabinet-comptable.fr`) : Le cache est partagé entre tous les collaborateurs d'une même structure (`domain:<domaine>`).
 *   **Piste d'audit (vies_check_history)** : Table au format *append-only* (jamais écrasée). Chaque scope conserve sa propre preuve horodatée de la date à laquelle il a validé un statut VIES (y compris s'il l'a récupéré via le cache global), indispensable pour justifier une exonération B2B lors d'un contrôle fiscal.
 *   **Classifications manuelles (vies_manual_overrides)** : Permet à l'utilisateur de forcer le statut d'un numéro indisponible ou inconclusif. Ces overrides sont strictement privés, ont une durée de vie indexée sur le TTL **propre au scope courant** (voir ci-dessous), et **ne remontent jamais** dans le cache global.
-*   **TTL de cache configurable, isolé par scope** : Le TTL (durée avant revalidation, slider 7-365 jours dans la sidebar) est stocké par `scope_id`, jamais dans une variable partagée par tout le process — un cabinet qui ajuste son TTL n'affecte ni les autres cabinets, ni le cache global mutualisé (`vies_global_cache`), qui conserve toujours sa valeur par défaut (90 jours) non modifiable depuis l'UI.
+*   **TTL de cache configurable, isolé par scope** : Le TTL (durée avant revalidation, slider 1-365 jours dans la sidebar) est stocké par `scope_id`, jamais dans une variable partagée par tout le process — un cabinet qui ajuste son TTL n'affecte ni les autres cabinets, ni le cache global mutualisé (`vies_global_cache`), qui conserve toujours sa valeur par défaut (30 jours) non modifiable depuis l'UI.
 *   **Blocage de conformité** : Téléchargements bloqués si des numéros TVA B2B
     demeurent non classifiés (erreur serveur UE) pour garantir l'exactitude
     fiscale des rapports.
@@ -1013,12 +1014,7 @@ automatique sur le portail DGFIP) reste non implémenté à ce jour.
     ⚠️ Le module suppose un vendeur établi en France MÉTROPOLITAINE — le cas
     DOM (taux 8,5 %/2,1 %, lignes 10/11) n'est pas géré.
 
-- ~~Robustesse pool de connexions VIES (`vies.py`)~~ **Corrigé** : le pool
-  Postgres utilisé pour les vérifications VIES parallèles (jusqu'à 25
-  workers `ThreadPoolExecutor` concurrents) utilise désormais
-  `psycopg2.pool.ThreadedConnectionPool` au lieu de `SimpleConnectionPool`
-  (même API), qui n'était pas garanti thread-safe par psycopg2 dans ce
-  scénario concurrent.
+- ~~Robustesse des connexions VIES~~ **Corrigé** : `vies_engine.py` utilise un pool à connexion fraîche par appel (nécessaire pour le `ThreadPoolExecutor` parallèle) avec résolution intelligente de la portée et retry exponentiel.
 
 - ~~Correction automatique des soldes OSS négatifs dans le XML~~ **Implémenté
   (version assistée)** : `oss_export.suggest_negative_bucket_corrections()`
