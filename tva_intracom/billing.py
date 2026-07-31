@@ -24,6 +24,7 @@ from typing import Optional
 import psycopg2
 import psycopg2.pool
 import streamlit as st
+import threading
 
 try:
     import stripe  # type: ignore
@@ -74,30 +75,48 @@ def _stripe_configured() -> bool:
 
 
 class _NonPoolingConnectionPool:
-    """Voir tva_intracom/auth.py pour l'explication complète : remplace un
-    pool persistant (qui garde ≥1 connexion ouverte en permanence vers
-    aws-0-eu-west-1.pooler.supabase.com, même sans utilisateur actif) par un
-    objet à la même API qui ouvre une connexion neuve à chaque `getconn()`
-    et la ferme réellement à chaque `putconn()` — zéro connexion accumulée
-    entre deux appels, donc zéro trafic keepalive résiduel empêchant le
-    scale-to-zero serverless Railway.
+    """Voir tva_intracom/auth.py pour l'explication complète : cache d'une
+    connexion par thread (threading.local), réutilisée pour tous les appels
+    d'un même run Streamlit (1 seule connexion+TLS par run, pas une par
+    appel), mais jamais gardée ouverte entre deux runs — fermée par
+    `close_idle_connections()`, appelé par app.py au tout début de chaque
+    nouveau run.
     """
 
     def __init__(self, dsn: str, sslmode: str = "require") -> None:
         self._dsn = dsn
         self._sslmode = sslmode
+        self._local = threading.local()
 
     def getconn(self, *_args, **_kwargs):
-        return psycopg2.connect(self._dsn, sslmode=self._sslmode)
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                if conn.closed == 0:
+                    return conn
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
+        conn = psycopg2.connect(self._dsn, sslmode=self._sslmode)
+        self._local.conn = conn
+        return conn
 
     def putconn(self, conn, *_args, **_kwargs) -> None:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        # No-op volontaire : connexion réutilisée pour le reste du run.
+        pass
 
     def closeall(self) -> None:
-        pass
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
 
 
 def _get_pool() -> "_NonPoolingConnectionPool":
@@ -114,17 +133,16 @@ def _get_pool() -> "_NonPoolingConnectionPool":
 
 
 def close_idle_connections() -> None:
-    """Conservé pour compatibilité d'API (appelé par app.py) : sans effet
-    utile désormais puisque `_NonPoolingConnectionPool` ne garde jamais de
-    connexion ouverte entre deux appels.
+    """Appelé par app.py au tout début de CHAQUE run, avant l'auth : ferme
+    la connexion que CE thread avait ouverte lors du run précédent. On garde
+    l'objet `_pool` en vie entre les runs (évite de relancer `_init_schema()`
+    à chaque run) — seule la connexion réellement ouverte est fermée.
     """
-    global _pool
     if _pool is not None:
         try:
             _pool.closeall()
         except Exception:
             pass
-        _pool = None
 
 
 def _run(fn):

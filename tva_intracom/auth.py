@@ -44,45 +44,76 @@ _pool_lock = threading.Lock()
 
 class _NonPoolingConnectionPool:
     """Remplace psycopg2.pool.ThreadedConnectionPool par un objet à la même
-    API (`getconn()` / `putconn()` / `closeall()`) mais qui n'accumule
-    JAMAIS de connexion : chaque `getconn()` ouvre une connexion neuve,
-    chaque `putconn()` la ferme réellement (qu'on demande `close=True` ou
-    non — il n'y a de toute façon rien à remettre dans un pool).
+    API (`getconn()` / `putconn()` / `closeall()`), mais SANS jamais garder
+    de connexion ouverte entre deux RUNS (reruns Streamlit) — tout en
+    réutilisant UNE SEULE connexion pour tous les appels d'un même run.
 
-    Pourquoi : un pool classique avec `minconn=1` garde au moins une
-    connexion TCP ouverte en permanence vers le pooler Supabase
-    (aws-0-eu-west-1.pooler.supabase.com:6543), pour toute la durée de vie
-    du process — indépendamment du nombre d'utilisateurs actifs. Fermer ce
-    pool "à la fin du script" ou "au début du run suivant" ne suffit pas :
-    tant qu'il y a de vrais utilisateurs, Streamlit réexécute le script en
-    continu et une connexion réapparaît aussitôt ; et dès que le dernier
-    utilisateur part pour la nuit, la connexion ouverte par ce tout dernier
-    run reste vivante indéfiniment, faute d'un run suivant pour la fermer.
-    Ce trafic keepalive TCP empêchait Railway de détecter l'inactivité
-    réelle et bloquait le scale-to-zero serverless.
+    Pourquoi un cache par thread (threading.local), pas un pool classique :
+    un pool avec minconn=1 garde au moins une connexion TCP ouverte en
+    permanence vers le pooler Supabase (aws-0-eu-west-1.pooler.supabase.com
+    :6543), pour toute la durée de vie du process, indépendamment du nombre
+    d'utilisateurs actifs — c'est ce qui empêchait Railway de détecter
+    l'inactivité réelle et bloquait le scale-to-zero serverless.
 
-    Contrepartie : chaque appel DB ouvre une connexion + TLS neuve
-    (quelques dizaines de ms). Acceptable ici : les accès DB de ce module
-    sont ponctuels (vérif de session, magic link...), pas dans une boucle
-    chaude.
+    Pourquoi PAS une simple connexion globale (un seul `_conn` partagé par
+    tout le process) : Streamlit exécute chaque session utilisateur dans son
+    propre thread. Une connexion globale unique serait partagée entre
+    plusieurs utilisateurs simultanés — une requête de l'utilisateur A
+    pourrait techniquement s'exécuter sur la connexion encore "en cours"
+    de l'utilisateur B. `threading.local()` isole naturellement chaque
+    thread (= chaque run Streamlit en cours), sans risque de mélange entre
+    utilisateurs, et fonctionne aussi hors Streamlit (CLI, mono-thread).
+
+    Cycle de vie : `getconn()` ouvre une connexion neuve la première fois
+    dans un thread donné, puis la réutilise pour les appels suivants du même
+    thread tant qu'elle n'a pas été explicitement fermée. `putconn()` est
+    VOLONTAIREMENT un no-op — on ne referme pas après chaque requête, pour
+    ne payer le coût TLS qu'une fois par run. La fermeture réelle a lieu via
+    `close_idle_connections()`, appelé par app.py au tout DÉBUT de chaque
+    nouveau run (avant même l'auth) : ça ferme la connexion laissée par le
+    run précédent sur CE thread — donc, si Streamlit réutilise le même
+    thread pour les reruns d'une même session (cas normal), une connexion ne
+    vit jamais plus longtemps qu'un seul run.
     """
 
     def __init__(self, dsn: str, sslmode: str = "require") -> None:
         self._dsn = dsn
         self._sslmode = sslmode
+        self._local = threading.local()
 
     def getconn(self, *_args, **_kwargs):
-        return psycopg2.connect(self._dsn, sslmode=self._sslmode)
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                if conn.closed == 0:
+                    return conn
+            except Exception:
+                pass
+            # Connexion périmée/cassée (ex. coupée côté serveur) : on la
+            # jette et on en ouvre une neuve ci-dessous.
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
+        conn = psycopg2.connect(self._dsn, sslmode=self._sslmode)
+        self._local.conn = conn
+        return conn
 
     def putconn(self, conn, *_args, **_kwargs) -> None:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        # No-op volontaire : on garde la connexion ouverte pour la réutiliser
+        # dans ce même run (voir docstring de la classe). Fermeture réelle
+        # via close_idle_connections(), pas ici.
+        pass
 
     def closeall(self) -> None:
-        # Rien à fermer : aucune connexion n'est jamais conservée.
-        pass
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
 
 
 def _get_pool() -> "_NonPoolingConnectionPool":
@@ -104,18 +135,20 @@ def _get_pool() -> "_NonPoolingConnectionPool":
 
 
 def close_idle_connections() -> None:
-    """Conservé pour compatibilité d'API (appelé par app.py) : sans effet
-    utile désormais puisque `_NonPoolingConnectionPool` ne garde jamais de
-    connexion ouverte entre deux appels — il n'y a plus rien à fermer.
+    """Appelé par app.py au tout début de CHAQUE run, avant l'auth : ferme
+    la connexion que CE thread avait ouverte lors du run précédent (voir
+    docstring de `_NonPoolingConnectionPool`). On garde volontairement
+    l'objet `_pool` lui-même en vie entre les runs (juste un wrapper léger,
+    sans état hormis le thread-local) pour ne pas relancer `_init_schema()`
+    à chaque run — seule la connexion réellement ouverte est fermée.
     """
-    global _pool
     with _pool_lock:
-        if _pool is not None:
-            try:
-                _pool.closeall()
-            except Exception:
-                pass
-            _pool = None
+        _p = _pool
+    if _p is not None:
+        try:
+            _p.closeall()
+        except Exception:
+            pass
 
 
 def _run(fn):

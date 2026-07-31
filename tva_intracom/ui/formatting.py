@@ -245,7 +245,22 @@ def _smart_money_df(
             continue
 
         col_lower = col.lower()
-        
+
+        # 0. Colonnes IDENTIFIANTS (numéro de TVA, ID, etc.) — À VÉRIFIER EN
+        # PREMIER, avant la détection "montant" ci-dessous. Sans cette
+        # priorité, un libellé comme "N° TVA rejeté" matche la sous-chaîne
+        # "tva" du test monétaire (pensé pour "Montant TVA"/"TVA collectée")
+        # par pure coïncidence lexicale — "TVA" désigne à la fois la taxe et
+        # apparaît dans "numéro de TVA". Un numéro de TVA n'est PAS un
+        # montant, même si son libellé contient le mot "tva". Cf. incident :
+        # numéros de TVA italiens (stockés sans préfixe "IT" à cet endroit,
+        # donc purement numériques) reformatés en "1 234 567 890 €" pour les
+        # utilisateurs gratuits (_gated_preview_table applique _fmt(), qui
+        # réussit un float() sur une chaîne purement numérique).
+        if any(k in col_lower for k in ["n°", "numéro", "numero", "num."]) or "id" in col_lower:
+            column_config[col] = st.column_config.TextColumn(col, width="medium")
+            continue
+
         # 1. Colonnes de notes (Texte long)
         if col in n_cols or "note" in col_lower or "commentaire" in col_lower:
             column_config[col] = st.column_config.TextColumn(col)
@@ -300,8 +315,21 @@ def _gated_preview_table(
     
     # PERFORMANCE : On formate les nombres en strings AVANT de masquer, 
     # pour garder un bel affichage (espaces, €) dans les lignes visibles.
+    #
+    # IMPORTANT : on exclut d'abord les colonnes IDENTIFIANTS (n°, numéro,
+    # id) du test "montant" ci-dessous — même bug/même raison qu'expliqué
+    # dans _smart_money_df() : "N° TVA rejeté" contient la sous-chaîne
+    # "tva" et se faisait reformater en devise via _fmt(), qui réussit un
+    # float() sur les numéros de TVA italiens (stockés sans préfixe "IT"
+    # à cet endroit, donc purement numériques) — invisibles pour les autres
+    # pays car leur préfixe alphabétique fait échouer float().
     for col in df_preview.columns:
-        if any(k in col.lower() for k in ["montant", "tva", "ttc", "ht", "total"]):
+        col_lower = col.lower()
+        is_identifier_col = (
+            any(k in col_lower for k in ["n°", "numéro", "numero", "num."])
+            or "id" in col_lower
+        )
+        if not is_identifier_col and any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total"]):
             df_preview[col] = df_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
         else:
             df_preview[col] = df_preview[col].astype(str)
