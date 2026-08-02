@@ -136,7 +136,7 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
     ioss_number = st.text_input(_("ioss_number_label"), placeholder="ex: IM1234567890", key="ioss_new",
                                 help=_("ioss_help"))
     seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new")
-    apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", limit=_oss_limit_label(home_country)), value=False, key="oss_thr_new")
+    apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=False, key="oss_thr_new")
     countries_with_vat = st.multiselect(_("local_vat_countries_label"),
                                         options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
 
@@ -216,7 +216,7 @@ def _edit_siren_form_fragment(
                                            help=_("ioss_help"))
 
     _draft_seller_is_importer = st.toggle(_("ddp_label"), value=match.get("seller_is_importer") or False if match else False, key="ddp_edit")
-    _draft_apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", limit=_oss_limit_label(home_country)), value=match.get("apply_fr_under_threshold") or False if match else False, key="oss_thr_edit")
+    _draft_apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=match.get("apply_fr_under_threshold") or False if match else False, key="oss_thr_edit")
 
     _draft_countries_with_vat = st.multiselect(_("local_vat_countries_label"),
                                                options=sorted(list(EU_COUNTRIES)), default=default_vat_countries, key="vat_countries_edit")
