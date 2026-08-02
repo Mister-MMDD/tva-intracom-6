@@ -247,7 +247,7 @@ def render_detail_ventes() -> None:
             pct_cols=[_("col_rate_pct")],
             note_cols=[_("col_note")],
             existing_config=_orig_cfg)
-        _gated_preview_table(_exempt_df, _can_export, column_config=_exempt_cfg, total_count=_n_exempt)
+        _gated_preview_table(_exempt_df, _can_export, column_config=_exempt_cfg, total_count=_n_exempt, lock_all=True)
 
     with sub_c:
         st.caption(_("subtab_managed_by_tiers_caption"))
