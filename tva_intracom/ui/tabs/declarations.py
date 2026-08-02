@@ -26,6 +26,71 @@ from tva_intracom.ui.tabs.context import TabContext
 _ZERO = Decimal("0.00")
 
 
+@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+def _aggregate_declarations_raw(_results: list, _refund_results: list, calc_key) -> dict:
+    """Agrégats bruts (Decimal, clés de code pays non traduites) pour les
+    lignes CA3 domestique / IOSS / DDP / Fiscal local du récapitulatif.
+
+    Mis en cache par `calc_key`, sur le même principe que `_oss_cache_key`
+    un peu plus loin dans ce fichier (voir son commentaire) : ces boucles
+    `for r in results` tournaient auparavant à chaque rerun Streamlit, même
+    pour une interaction sans rapport (sidebar, autre onglet), alors que
+    le contenu de `results`/`refund_results` ne change qu'avec `calc_key`.
+    Les arguments `_results`/`_refund_results` sont préfixés d'un
+    underscore pour que st.cache_data ne tente pas de les hacher (coûteux
+    sur des objets métier) ; seule `calc_key` sert de clé de cache.
+
+    Important : ne rien mettre en cache ici qui dépende de `home_country`
+    ou de libellés traduits (_()) -- ces deux éléments peuvent changer
+    sans que `calc_key` change (le home_country n'affecte que le LABEL
+    d'une ligne CA3/DDP, pas les montants eux-mêmes puisque le moteur a
+    déjà classé chaque vente par `r.channel`/`r.vat_country`).
+    """
+    home_ht_brut = sum((r.sale.amount_ht for r in _results if r.channel == Channel.FR_DOMESTIC), _ZERO)
+    home_ht_remb = sum((r.sale.amount_ht for r in _refund_results if r.channel == Channel.FR_DOMESTIC), _ZERO)
+
+    _ioss_results = [r for r in _results if r.scenario.value == "IOSS_DIRECT"]
+    _ioss_refund_results = [r for r in _refund_results if r.scenario.value == "IOSS_DIRECT"]
+    ioss = None
+    if _ioss_results or _ioss_refund_results:
+        ioss = {
+            "ht_brut": sum((r.sale.amount_ht for r in _ioss_results), _ZERO),
+            "ht_remb": sum((r.sale.amount_ht for r in _ioss_refund_results), _ZERO),
+            "tva_brute": sum((r.vat_amount for r in _ioss_results), _ZERO),
+            "tva_remb": sum((r.vat_amount for r in _ioss_refund_results), _ZERO),
+        }
+
+    _ddp_results = [r for r in _results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
+    _ddp_refund_results = [r for r in _refund_results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
+    ddp_agg: dict = {}
+    for r in _ddp_results:
+        _acc = ddp_agg.setdefault(r.vat_country, {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO})
+        _acc["ht_brut"] += r.sale.amount_ht
+        _acc["tva_brute"] += r.vat_amount
+    for r in _ddp_refund_results:
+        _acc = ddp_agg.setdefault(r.vat_country, {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO})
+        _acc["ht_remb"] += r.sale.amount_ht
+        _acc["tva_remb"] += r.vat_amount
+
+    local_ht_brut_by_country: dict = {}
+    for r in _results:
+        if r.channel == Channel.LOCAL_REGISTRATION:
+            local_ht_brut_by_country[r.vat_country] = local_ht_brut_by_country.get(r.vat_country, _ZERO) + r.sale.amount_ht
+    local_ht_remb_by_country: dict = {}
+    for r in _refund_results:
+        if r.channel == Channel.LOCAL_REGISTRATION:
+            local_ht_remb_by_country[r.vat_country] = local_ht_remb_by_country.get(r.vat_country, _ZERO) + r.sale.amount_ht
+
+    return {
+        "home_ht_brut": home_ht_brut,
+        "home_ht_remb": home_ht_remb,
+        "ioss": ioss,
+        "ddp_agg": ddp_agg,
+        "local_ht_brut_by_country": local_ht_brut_by_country,
+        "local_ht_remb_by_country": local_ht_remb_by_country,
+    }
+
+
 def render_declarations(ctx: TabContext) -> None:
     """Rendu complet de l'onglet Déclarations."""
     results = ctx.results
@@ -82,9 +147,15 @@ def render_declarations(ctx: TabContext) -> None:
     _oss_ht_remb_total   = sum((v["ht_remb"]   for v in _oss_country_totals.values()), _ZERO)
     _oss_ht_net_total    = sum((v["ht_net"]    for v in _oss_country_totals.values()), _ZERO)
 
+    # Agrégats CA3/IOSS/DDP/Local mis en cache par calc_key (voir
+    # _aggregate_declarations_raw plus haut) : un seul passage O(n) sur
+    # results/refund_results, refait uniquement quand les résultats sous-
+    # jacents changent réellement, pas à chaque rerun Streamlit.
+    _decl_agg = _aggregate_declarations_raw(results, refund_results or [], ctx.calc_key)
+
     # Home Country declaration (ex-France CA3)
-    home_ht_brut = sum(r.sale.amount_ht for r in results if r.channel == Channel.FR_DOMESTIC)
-    home_ht_remb = sum(r.sale.amount_ht for r in (refund_results or []) if r.channel == Channel.FR_DOMESTIC)
+    home_ht_brut = _decl_agg["home_ht_brut"]
+    home_ht_remb = _decl_agg["home_ht_remb"]
 
     if home_country == "FR":
         home_label = _("canal_vat_fr")
@@ -124,13 +195,12 @@ def render_declarations(ctx: TabContext) -> None:
             _("col_tva_nette"): float(_c["tva_net"])
         })
 
-    _ioss_results = [r for r in results if r.scenario.value == "IOSS_DIRECT"]
-    _ioss_refund_results = [r for r in (refund_results or []) if r.scenario.value == "IOSS_DIRECT"]
-    if _ioss_results or _ioss_refund_results:
-        _ioss_tva_brute = sum(r.vat_amount for r in _ioss_results)
-        _ioss_tva_remb = sum(r.vat_amount for r in _ioss_refund_results)
-        _ioss_ht_brut = sum(r.sale.amount_ht for r in _ioss_results)
-        _ioss_ht_remb = sum(r.sale.amount_ht for r in _ioss_refund_results)
+    _ioss = _decl_agg["ioss"]
+    if _ioss is not None:
+        _ioss_tva_brute = _ioss["tva_brute"]
+        _ioss_tva_remb = _ioss["tva_remb"]
+        _ioss_ht_brut = _ioss["ht_brut"]
+        _ioss_ht_remb = _ioss["ht_remb"]
         recap_data.append({
             _("col_canal"): _("canal_ioss_vendeur"),
             _("col_ca_ht_brut"): float(_ioss_ht_brut),
@@ -141,18 +211,8 @@ def render_declarations(ctx: TabContext) -> None:
             _("col_tva_nette"): float(_ioss_tva_brute + _ioss_tva_remb)
         })
 
-    _ddp_results = [r for r in results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
-    _ddp_refund_results = [r for r in (refund_results or []) if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
-    if _ddp_results or _ddp_refund_results:
-        _ddp_agg = {}
-        for r in _ddp_results:
-            _acc = _ddp_agg.setdefault(r.vat_country, {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO})
-            _acc["ht_brut"] += r.sale.amount_ht
-            _acc["tva_brute"] += r.vat_amount
-        for r in _ddp_refund_results:
-            _acc = _ddp_agg.setdefault(r.vat_country, {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO})
-            _acc["ht_remb"] += r.sale.amount_ht
-            _acc["tva_remb"] += r.vat_amount
+    _ddp_agg = _decl_agg["ddp_agg"]
+    if _ddp_agg:
         for _ccode, _vals in sorted(_ddp_agg.items()):
             if _ccode == home_country:
                 _label = _("canal_ddp_fr") if home_country == "FR" else f"TVA DDP {home_country}"
@@ -171,14 +231,8 @@ def render_declarations(ctx: TabContext) -> None:
 
     # 5. Déclarations Locales (hors pays d'origine)
     if summary.local_by_country:
-        local_ht_brut_by_country = {}
-        for r in results:
-            if r.channel == Channel.LOCAL_REGISTRATION:
-                local_ht_brut_by_country[r.vat_country] = local_ht_brut_by_country.get(r.vat_country, _ZERO) + r.sale.amount_ht
-        local_ht_remb_by_country = {}
-        for r in (refund_results or []):
-            if r.channel == Channel.LOCAL_REGISTRATION:
-                local_ht_remb_by_country[r.vat_country] = local_ht_remb_by_country.get(r.vat_country, _ZERO) + r.sale.amount_ht
+        local_ht_brut_by_country = _decl_agg["local_ht_brut_by_country"]
+        local_ht_remb_by_country = _decl_agg["local_ht_remb_by_country"]
 
         _local_ht_brut_total = sum(local_ht_brut_by_country.values(), _ZERO)
         _local_ht_remb_total = sum(local_ht_remb_by_country.values(), _ZERO)

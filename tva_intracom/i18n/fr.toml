@@ -237,8 +237,11 @@ tab_visualizations = "📈 Graphiques"
 
 # Sous-onglets Détail Ventes
 subtab_what_you_owe = "💸 Ce que vous devez"
+subtab_exemptions = "🛡️ Exonération"
+subtab_exemptions_caption = "Ventes dont vous êtes responsable mais qui sont exonérées de TVA (Export, B2B intracommunautaire, etc.)."
 subtab_managed_by_tiers = "🤝 Géré par des tiers"
 subtab_managed_by_tiers_caption = "Ventes dont Amazon ou la douane collecte la TVA."
+subtab_managed_by_tiers_note = "💡 **Note** : Si vous utilisez votre propre numéro IOSS ou l'option DDP (Vendeur Importateur), ces ventes basculent automatiquement dans l'onglet « Ce que vous devez » car vous en devenez responsable."
 subtab_row_by_row = "📄 Ligne par ligne"
 subtab_row_by_row_caption = "Toutes les ventes, ligne par ligne."
 subtab_refunds = "🔄 Remboursements ({count})"

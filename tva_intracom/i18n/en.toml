@@ -237,8 +237,11 @@ tab_visualizations = "📈 Visualizations"
 
 # Sales Detail Sub-tabs
 subtab_what_you_owe = "💸 What you owe"
+subtab_exemptions = "🛡️ Exemption"
+subtab_exemptions_caption = "Sales for which you are responsible but are tax-exempt (Export, B2B intra-community, etc.)."
 subtab_managed_by_tiers = "🤝 Managed by third parties"
 subtab_managed_by_tiers_caption = "Sales for which Amazon or customs collect VAT."
+subtab_managed_by_tiers_note = "💡 **Note**: If you use your own IOSS number or the DDP option (Seller as Importer), these sales automatically move to the 'What you owe' tab as you become responsible for them."
 subtab_row_by_row = "📄 Row by row"
 subtab_row_by_row_caption = "All sales, row by row."
 subtab_refunds = "🔄 Refunds ({count})"

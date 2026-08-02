@@ -32,6 +32,82 @@ def _orig_currency_cols(r, target_currency: str) -> tuple[str, object]:
     return "", ""
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Construction des lignes — mise en cache
+#
+# Les 4 sous-onglets reconstruisaient chacun un DataFrame en itérant
+# LIGNE PAR LIGNE sur `results`/`refund_results` (accès imbriqués
+# Sale/VatResult, conversion Decimal->float, appel `_orig_currency_cols`)
+# à CHAQUE rerun de l'app entière -- pas seulement lors d'une interaction
+# dans cet onglet. `@st.fragment` isole bien les reruns déclenchés par un
+# widget interne (tri, pagination, filtres), mais un rerun complet
+# déclenché ailleurs (sidebar, autre onglet, changement de langue)
+# réexécute ce fragment intégralement comme n'importe quelle fonction du
+# script -- sur un fichier de 10-20k lignes, ce passage O(n) était refait
+# en pure perte à chaque fois.
+#
+# `_build_rows_df` isole ce passage O(n) dans une fonction `st.cache_data`
+# (mêmes garde-fous que les autres caches du projet : ttl=1800,
+# max_entries=20), avec des clés FIXES non traduites (id/stock/dest/...) :
+# aucune dépendance à la langue d'affichage, donc pas besoin de `lang`
+# dans la clé de cache (contrairement à Visualisations, où les figures
+# elles-mêmes portent des libellés traduits). `target_currency` reste
+# dans la clé : c'est la seule chose qui détermine si les colonnes
+# devise/montant d'origine sont renseignées (voir _orig_currency_cols).
+# Le tri et le renommage des colonnes en libellés traduits restent faits
+# À CHAQUE rerun, mais ce sont des opérations pandas vectorisées (tri,
+# sélection/renommage de colonnes), largement moins coûteuses que la
+# boucle Python ligne par ligne qu'elles remplacent.
+# ─────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+def _build_rows_df(_results: list, target_currency: str, calc_key, label: str) -> pd.DataFrame:
+    """Construit le DataFrame brut (une ligne par vente, clés fixes non
+    traduites) pour un ensemble de `VatResult` donné (ventes ou
+    remboursements). Voir le commentaire ci-dessus pour le rationnel complet.
+
+    `label` (ex: "sales", "refunds") est inclus dans la clé de cache pour
+    éviter toute collision entre les deux listes de résultats.
+
+    `vat_country` est gardé dans le DataFrame bien qu'il ne soit affiché
+    dans aucun sous-onglet : c'est la clé utilisée par le tri "Pays"
+    (distincte de `dest` = pays de destination de la vente).
+    """
+    rows = []
+    for r in _results:
+        dev, orig = _orig_currency_cols(r, target_currency)
+        rows.append({
+            "id": (r.sale.display_id or r.sale.sale_id),
+            "stock": r.sale.stock_country,
+            "dest": r.sale.buyer_country,
+            "vat_country": r.vat_country,
+            "ht": float(r.sale.amount_ht),
+            "rate_pct": float(r.vat_rate),
+            "vat": float(r.vat_amount),
+            "canal": r.channel.value,
+            "scenario": r.scenario.value,
+            "collector": r.collector.value,
+            "currency": dev,
+            "orig": orig,
+            "note": r.note,
+        })
+    return pd.DataFrame(rows)
+
+
+def _finalize_df(df_slice: pd.DataFrame, labels: dict, include_collector: bool) -> pd.DataFrame:
+    """Sélectionne l'ordre de colonnes final et renomme en libellés traduits.
+
+    Opération pandas vectorisée (sélection + rename), pas de boucle Python
+    -- appelée à chaque rerun mais négligeable comparée à la construction
+    des lignes elle-même (mise en cache dans `_build_rows_df`).
+    """
+    cols_order = ["id", "stock", "dest", "ht", "rate_pct", "vat", "canal", "scenario"]
+    if include_collector:
+        cols_order.append("collector")
+    cols_order += ["currency", "orig", "note"]
+    return df_slice[cols_order].rename(columns=labels)
+
+
 @st.fragment
 def render_detail_ventes() -> None:
     """Rendu complet de l'onglet Détail ventes.
@@ -86,36 +162,40 @@ def render_detail_ventes() -> None:
     _c_note = _("col_note")
     _c_collector = _("col_collector")
 
-    sub_a, sub_b, sub_c, sub_d = st.tabs([
-        _("subtab_what_you_owe"), _("subtab_managed_by_tiers"), _("subtab_row_by_row"),
+    _labels = {
+        "id": "ID", "stock": _c_stock, "dest": _c_dest, "ht": _lbl_ht,
+        "rate_pct": _c_rate_pct, "vat": _lbl_vat, "canal": _c_canal,
+        "scenario": _c_scenario, "collector": _c_collector,
+        "currency": _c_currency, "orig": _lbl_orig, "note": _c_note,
+    }
+
+    sub_a, sub_b, sub_c, sub_d, sub_e = st.tabs([
+        _("subtab_what_you_owe"), _("subtab_exemptions"), _("subtab_managed_by_tiers"), _("subtab_row_by_row"),
         _("subtab_refunds", count=len(refund_results or [])),
     ])
 
+    # Construction des DataFrames bruts (mise en cache par calc_key + devise,
+    # voir _build_rows_df) : un seul passage O(n) sur `results` et un sur
+    # `refund_results`, partagés par les 5 sous-onglets ci-dessous.
+    _sales_df_raw = _build_rows_df(results, _target_currency, ctx.calc_key, "sales")
+    _refund_df_raw = _build_rows_df(refund_results or [], _target_currency, ctx.calc_key, "refunds")
+
+    _sort_opts = {
+        _("sort_country"): "Pays",
+        _("sort_rate"): "Taux",
+        _("sort_ht"): "HT"
+    }
+
     with sub_a:
         st.caption(_("what_you_owe_caption"))
-        your_results = [r for r in results if r.collector.value == "SELLER"]
-        _sort_opts = {
-            _("sort_country"): "Pays",
-            _("sort_rate"): "Taux",
-            _("sort_ht"): "HT"
-        }
+        _your_raw = _sales_df_raw[(_sales_df_raw["collector"] == "SELLER") & (_sales_df_raw["vat"] > 0)]
         sort_yours_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_yours")
         sort_yours = _sort_opts[sort_yours_lbl]
-        if sort_yours == "Pays": your_results.sort(key=lambda r: r.vat_country)
-        elif sort_yours == "Taux": your_results.sort(key=lambda r: -r.vat_rate)
-        else: your_results.sort(key=lambda r: -r.sale.amount_ht)
-        _your_rows = []
-        for r in your_results:
-            _dev, _orig = _orig_currency_cols(r, _target_currency)
-            _your_rows.append({
-                "ID":(r.sale.display_id or r.sale.sale_id), _c_stock:r.sale.stock_country, _c_dest:r.sale.buyer_country,
-                _lbl_ht:float(r.sale.amount_ht), _c_rate_pct:float(r.vat_rate),
-                _lbl_vat:float(r.vat_amount), _c_canal:r.channel.value, _c_scenario:r.scenario.value,
-                _c_currency:_dev,
-                _lbl_orig:_orig,
-                _c_note:r.note})
-        _your_df_full = pd.DataFrame(_your_rows)
-        
+        if sort_yours == "Pays": _your_raw = _your_raw.sort_values("vat_country")
+        elif sort_yours == "Taux": _your_raw = _your_raw.sort_values("rate_pct", ascending=False)
+        else: _your_raw = _your_raw.sort_values("ht", ascending=False)
+        _your_df_full = _finalize_df(_your_raw, _labels, include_collector=False)
+
         # Filtres
         _your_df_filt = _render_filter_bar(_your_df_full, "your")
 
@@ -125,7 +205,7 @@ def render_detail_ventes() -> None:
         _n_your = len(_your_df_filt)
         _lim_your = _n_your if _ps_your == _("rows_all") else int(_ps_your)
         st.caption(_("results_count_caption", count=_n_your, filtered=(_("results_filtered_tag") if _n_your < len(_your_df_full) else ''), visible=min(_lim_your, _n_your)))
-        
+
         _your_df = _your_df_filt.head(_lim_your).copy()
         _your_cfg = _smart_money_df(_your_df,
             money_cols=[_lbl_ht, _lbl_vat],
@@ -135,45 +215,71 @@ def render_detail_ventes() -> None:
         _gated_preview_table(_your_df, _can_export, column_config=_your_cfg, total_count=_n_your)
 
     with sub_b:
-        st.caption(_("subtab_managed_by_tiers_caption"))
-        third_results = [r for r in results if r.collector.value != "SELLER"]
-        _third_rows = [{
-            "ID":(r.sale.display_id or r.sale.sale_id), _c_stock:r.sale.stock_country, _c_dest:r.sale.buyer_country,
-            _lbl_ht:float(r.sale.amount_ht), _c_scenario:r.scenario.value,
-            _c_collector:r.collector.value, _c_canal:r.channel.value}
-            for r in third_results]
-        _third_df_full = pd.DataFrame(_third_rows)
-        
+        st.caption(_("subtab_exemptions_caption"))
+        # Exonérations : 
+        # 1. Vendeur responsable mais TVA à 0 (ex: Export, ou option sous seuil)
+        # 2. Acheteur responsable (Reverse Charge) SAUF si c'est un import standard
+        _exempt_raw = _sales_df_raw[
+            ((_sales_df_raw["collector"] == "SELLER") & (_sales_df_raw["vat"] <= 0)) |
+            ((_sales_df_raw["collector"] == "BUYER") & (_sales_df_raw["scenario"] != "IMPORT_STANDARD"))
+        ]
+        sort_exempt_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_exempt")
+        sort_exempt = _sort_opts[sort_exempt_lbl]
+        if sort_exempt == "Pays": _exempt_raw = _exempt_raw.sort_values("vat_country")
+        elif sort_exempt == "Taux": _exempt_raw = _exempt_raw.sort_values("rate_pct", ascending=False)
+        else: _exempt_raw = _exempt_raw.sort_values("ht", ascending=False)
+        _exempt_df_full = _finalize_df(_exempt_raw, _labels, include_collector=False)
+
         # Filtres
-        _third_df_filt = _render_filter_bar(_third_df_full, "third")
-        
-        _third_df = _third_df_filt.copy()
-        _third_cfg = _smart_money_df(_third_df, money_cols=[_lbl_ht])
-        _gated_preview_table(_third_df, _can_export, column_config=_third_cfg, total_count=len(_third_df_filt))
+        _exempt_df_filt = _render_filter_bar(_exempt_df_full, "exempt")
+
+        # Pagination
+        _ps_exempt = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
+            value=250, key="page_size_exempt")
+        _n_exempt = len(_exempt_df_filt)
+        _lim_exempt = _n_exempt if _ps_exempt == _("rows_all") else int(_ps_exempt)
+        st.caption(_("results_count_caption", count=_n_exempt, filtered=(_("results_filtered_tag") if _n_exempt < len(_exempt_df_full) else ''), visible=min(_lim_exempt, _n_exempt)))
+
+        _exempt_df = _exempt_df_filt.head(_lim_exempt).copy()
+        _exempt_cfg = _smart_money_df(_exempt_df,
+            money_cols=[_lbl_ht, _lbl_vat],
+            pct_cols=[_("col_rate_pct")],
+            note_cols=[_("col_note")],
+            existing_config=_orig_cfg)
+        _gated_preview_table(_exempt_df, _can_export, column_config=_exempt_cfg, total_count=_n_exempt)
 
     with sub_c:
+        st.caption(_("subtab_managed_by_tiers_caption"))
+        st.info(_("subtab_managed_by_tiers_note"))
+        # Géré par des tiers :
+        # 1. Collecté par la plateforme (Amazon Deemed Supplier)
+        # 2. Import standard (TVA douane payée par l'acheteur/transporteur)
+        _third_raw = _sales_df_raw[
+            (_sales_df_raw["collector"] == "AMAZON") |
+            ((_sales_df_raw["collector"] == "BUYER") & (_sales_df_raw["scenario"] == "IMPORT_STANDARD"))
+        ]
+        _third_df_full = _finalize_df(_third_raw, _labels, include_collector=True)
+
+        # Filtres
+        _third_df_filt = _render_filter_bar(_third_df_full, "third")
+
+        _third_df = _third_df_filt.copy()
+        _third_cfg = _smart_money_df(_third_df,
+            money_cols=[_lbl_ht, _lbl_vat],
+            pct_cols=[_("col_rate_pct")],
+            note_cols=[_("col_note")],
+            existing_config=_orig_cfg)
+        _gated_preview_table(_third_df, _can_export, column_config=_third_cfg, total_count=len(_third_df_filt))
+
+    with sub_d:
         st.caption(_("subtab_row_by_row_caption"))
-        _sort_all_opts = {
-            _("sort_country"): "Pays",
-            _("sort_rate"): "Taux",
-            _("sort_ht"): "HT"
-        }
-        sort_all_lbl = st.radio(_("sort_by_label"), list(_sort_all_opts.keys()), horizontal=True, key="sort_all")
-        sort_all = _sort_all_opts[sort_all_lbl]
-        all_sorted = sorted(results,
-            key=lambda r: r.vat_country if sort_all=="Pays" else (-r.vat_rate if sort_all=="Taux" else -r.sale.amount_ht))
-        _all_rows = []
-        for r in all_sorted:
-            _dev, _orig = _orig_currency_cols(r, _target_currency)
-            _all_rows.append({
-                "ID":(r.sale.display_id or r.sale.sale_id), _c_stock:r.sale.stock_country, _c_dest:r.sale.buyer_country,
-                _lbl_ht:float(r.sale.amount_ht), _c_scenario:r.scenario.value,
-                _c_rate_pct:float(r.vat_rate), _lbl_vat:float(r.vat_amount),
-                _c_canal:r.channel.value,
-                _c_currency:_dev,
-                _lbl_orig:_orig,
-                _c_note:r.note})
-        _all_df_full = pd.DataFrame(_all_rows)
+        sort_all_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_all")
+        sort_all = _sort_opts[sort_all_lbl]
+        _all_raw = _sales_df_raw
+        if sort_all == "Pays": _all_raw = _all_raw.sort_values("vat_country")
+        elif sort_all == "Taux": _all_raw = _all_raw.sort_values("rate_pct", ascending=False)
+        else: _all_raw = _all_raw.sort_values("ht", ascending=False)
+        _all_df_full = _finalize_df(_all_raw, _labels, include_collector=False)
 
         # Filtres
         _all_df_filt = _render_filter_bar(_all_df_full, "all")
@@ -193,7 +299,7 @@ def render_detail_ventes() -> None:
             existing_config=_orig_cfg)
         _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg, total_count=_n_all)
 
-    with sub_d:
+    with sub_e:
         if not refund_results:
             st.info(_("no_refunds_info"))
         else:
@@ -203,28 +309,21 @@ def render_detail_ventes() -> None:
             ra.metric(_("kpi_refunds"), len(refund_results))
             rb.metric(_("kpi_ht_refunded"), _fmt(_ref_ht))
             rc.metric(_("kpi_vat_restituted"), _fmt(_ref_tva))
-            _sort_ref_opts = {
-                _("sort_country"): "Pays",
-                _("sort_rate"): "Taux",
-                _("sort_ht"): "HT"
-            }
-            sort_ref_lbl = st.radio(_("sort_by_label"), list(_sort_ref_opts.keys()), horizontal=True, key="sort_ref")
-            sort_ref = _sort_ref_opts[sort_ref_lbl]
-            ref_sorted = sorted(refund_results,
-                key=lambda r: r.vat_country if sort_ref=="Pays" else (-r.vat_rate if sort_ref=="Taux" else r.sale.amount_ht))
-            _ref_rows = [{
-                "ID":(r.sale.display_id or r.sale.sale_id), _c_stock:r.sale.stock_country, _c_dest:r.sale.buyer_country,
-                _lbl_ht:float(r.sale.amount_ht), _c_scenario:r.scenario.value,
-                _c_rate_pct:float(r.vat_rate), _lbl_vat:float(r.vat_amount),
-                _c_canal:r.channel.value}
-                for r in ref_sorted]
-            _ref_df_full = pd.DataFrame(_ref_rows)
-            
+            sort_ref_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_ref")
+            sort_ref = _sort_opts[sort_ref_lbl]
+            _ref_raw = _refund_df_raw
+            if sort_ref == "Pays": _ref_raw = _ref_raw.sort_values("vat_country")
+            elif sort_ref == "Taux": _ref_raw = _ref_raw.sort_values("rate_pct", ascending=False)
+            else: _ref_raw = _ref_raw.sort_values("ht", ascending=True)
+            _ref_df_full = _finalize_df(_ref_raw, _labels, include_collector=False)
+
             # Filtres
             _ref_df_filt = _render_filter_bar(_ref_df_full, "refund")
-            
+
             _ref_df = _ref_df_filt.copy()
             _ref_cfg = _smart_money_df(_ref_df,
                 money_cols=[_lbl_ht, _lbl_vat],
-                pct_cols=[_("col_rate_pct")])
+                pct_cols=[_("col_rate_pct")],
+                note_cols=[_("col_note")],
+                existing_config=_orig_cfg)
             _gated_preview_table(_ref_df, _can_export, column_config=_ref_cfg, total_count=len(_ref_df_filt))

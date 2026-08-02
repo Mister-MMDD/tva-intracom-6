@@ -237,8 +237,11 @@ tab_visualizations = "📈 Visualisierungen"
 
 # Sales Detail Sub-tabs
 subtab_what_you_owe = "💸 Was Sie schulden"
+subtab_exemptions = "🛡️ Steuerbefreiung"
+subtab_exemptions_caption = "Verkäufe, für die Sie verantwortlich sind, die aber von der Steuer befreit sind (Export, innergemeinschaftliches B2B usw.)."
 subtab_managed_by_tiers = "🤝 Durch Dritte verwaltet"
 subtab_managed_by_tiers_caption = "Verkäufe, bei denen Amazon oder der Zoll die MwSt einziehen."
+subtab_managed_by_tiers_note = "💡 **Hinweis**: Wenn Sie Ihre eigene IOSS-Nummer oder die DDP-Option (Verkäufer als Importeur) verwenden, werden diese Verkäufe automatisch in den Tab „Was Sie schulden“ verschoben, da Sie dafür verantwortlich werden."
 subtab_row_by_row = "📄 Zeile für Zeile"
 subtab_row_by_row_caption = "Alle Verkäufe, Zeile für Zeile."
 subtab_refunds = "🔄 Erstattungen ({count})"

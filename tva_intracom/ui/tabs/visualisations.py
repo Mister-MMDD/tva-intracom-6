@@ -292,8 +292,28 @@ def _build_fig_time_scen(
     return fig_time, fig_scen
 
 
-def render_visualisations(ctx: TabContext) -> None:
-    """Rendu complet de l'onglet Visualisations."""
+@st.fragment
+def render_visualisations() -> None:
+    """Rendu complet de l'onglet Visualisations.
+
+    Décoré en `@st.fragment`, comme `render_detail_ventes()` / `render_audit()`
+    / `render_telechargements()` : un rerun déclenché par une interaction sur
+    un AUTRE onglet ne rejoue plus ce fragment, qui reconstruisait sinon 5
+    figures Plotly à chaque passage même quand l'utilisateur regardait un
+    tout autre onglet (c'était le seul des 6 onglets principaux sans cette
+    isolation).
+
+    IMPORTANT (mémoire) : comme pour `render_detail_ventes()`, `ctx` n'est
+    PAS reçu en paramètre mais lu depuis `st.session_state["_tab_ctx"]` à
+    l'intérieur du corps de la fonction. Streamlit retient, au niveau
+    session interne, les arguments du dernier appel d'une fonction
+    `@st.fragment` -- si `ctx` (qui porte `results`/`refund_results`,
+    potentiellement des milliers d'objets `VatResult`) était passé en
+    argument, Streamlit le garderait vivant indéfiniment, MÊME après un
+    `st.session_state.clear()` au logout (fuite mémoire documentée ailleurs
+    dans ce projet, voir docstring de `render_detail_ventes`).
+    """
+    ctx: TabContext = st.session_state["_tab_ctx"]
     results = ctx.results
     refund_results = ctx.refund_results
     summary = ctx.summary

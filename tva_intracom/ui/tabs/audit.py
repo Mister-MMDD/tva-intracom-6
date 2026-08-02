@@ -17,6 +17,31 @@ from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _r
 from tva_intracom.ui.tabs.context import TabContext
 
 
+@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+def _aggregate_fba_local_sales(_all_sales: list, calc_key) -> dict:
+    """Agrège les ventes locales hors pays d'origine (stock == destination,
+    hors FR) par pays de stock : nombre de ventes + HT total.
+
+    Mis en cache par `calc_key` (même clé que le reste des onglets) :
+    `all_sales` peut contenir des dizaines de milliers de lignes, et cette
+    liste + boucle tournait auparavant à chaque rerun du fragment Audit,
+    même pour une interaction sans rapport avec ce sous-onglet FBA (filtre
+    sur le sous-onglet "Écarts TVA", changement de sous-onglet, etc.).
+
+    `countries_with_vat` n'entre PAS dans cette agrégation (ni dans la clé
+    de cache) : il ne sert qu'à classer les pays déjà agrégés en "à risque"
+    / "conforme" ensuite, à la volée, hors cache -- ce paramètre peut
+    changer sans que `calc_key` change.
+    """
+    local_sales_outside_fr = [s for s in _all_sales if s.stock_country == s.buyer_country and s.stock_country != "FR"]
+    by_c: dict[str, dict] = {}
+    for s in local_sales_outside_fr:
+        _acc = by_c.setdefault(s.stock_country, {"nb": 0, "ht": 0.0})
+        _acc["nb"] += 1
+        _acc["ht"] += float(s.amount_ht)
+    return by_c
+
+
 @st.fragment
 def render_audit() -> None:
     """Rendu complet de l'onglet Audit Amazon.
@@ -202,12 +227,8 @@ def render_audit() -> None:
 
     with audit_sub2:
         st.subheader(_("audit_fba_header"))
-        local_sales_outside_fr = [s for s in all_sales if s.stock_country==s.buyer_country and s.stock_country!="FR"]
-        if local_sales_outside_fr:
-            by_c = {}
-            for s in local_sales_outside_fr:
-                by_c.setdefault(s.stock_country,{"nb":0,"ht":0.0})
-                by_c[s.stock_country]["nb"]+=1; by_c[s.stock_country]["ht"]+=float(s.amount_ht)
+        by_c = _aggregate_fba_local_sales(all_sales, ctx.calc_key)
+        if by_c:
             at_risk = [c for c in by_c if c not in countries_with_vat]
             ok = [c for c in by_c if c in countries_with_vat]
             if at_risk: st.error(_("audit_local_sales_error", countries=', '.join(at_risk)))

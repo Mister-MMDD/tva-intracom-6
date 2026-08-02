@@ -90,14 +90,14 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
                                    placeholder=_("filter_dest_placeholder"))
         
     with _fc:
-        _scen_opts = sorted([str(x) for x in df["Scénario"].unique() if pd.notna(x)]) if "Scénario" in df.columns else []
-        _scen_sel = st.multiselect(_("filter_scenario"), _scen_opts, key=f"scen_{key_suffix}", 
-                                   placeholder=_("filter_scenario_placeholder"))
-        
-    with _fd:
         _canal_opts = sorted([str(x) for x in df["Canal"].unique() if pd.notna(x)]) if "Canal" in df.columns else []
         _canal_sel = st.multiselect(_("filter_canal"), _canal_opts, key=f"canal_{key_suffix}", 
                                    placeholder=_("filter_canal_placeholder"))
+        
+    with _fd:
+        _scen_opts = sorted([str(x) for x in df["Scénario"].unique() if pd.notna(x)]) if "Scénario" in df.columns else []
+        _scen_sel = st.multiselect(_("filter_scenario"), _scen_opts, key=f"scen_{key_suffix}", 
+                                   placeholder=_("filter_scenario_placeholder"))
         
     df_filt = df # On évite la copie systématique ici
     

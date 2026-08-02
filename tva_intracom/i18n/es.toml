@@ -237,8 +237,11 @@ tab_visualizations = "📈 Visualizaciones"
 
 # Sales Detail Sub-tabs
 subtab_what_you_owe = "💸 Lo que debe"
+subtab_exemptions = "🛡️ Exención"
+subtab_exemptions_caption = "Ventas de las que usted es responsable pero que están exentas de IVA (Exportación, B2B intracomunitario, etc.)."
 subtab_managed_by_tiers = "🤝 Gestionado por terceros"
 subtab_managed_by_tiers_caption = "Ventas para las cuales Amazon o las aduanas recaudan el IVA."
+subtab_managed_by_tiers_note = "💡 **Nota**: Si utiliza su propio número IOSS o la opción DDP (Vendedor como Importador), estas ventas se mueven automáticamente a la pestaña 'Lo que debe', ya que usted pasa a ser el responsable de las mismas."
 subtab_row_by_row = "📄 Fila por fila"
 subtab_row_by_row_caption = "All sales, row by row."
 subtab_refunds = "🔄 Reembolsos ({count})"

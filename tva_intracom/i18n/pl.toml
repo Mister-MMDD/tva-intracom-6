@@ -237,8 +237,11 @@ tab_visualizations = "📈 Wizualizacje"
 
 # Sales Detail Sub-tabs
 subtab_what_you_owe = "💸 Co jesteś winien"
+subtab_exemptions = "🛡️ Zwolnienie"
+subtab_exemptions_caption = "Sprzedaż, za którą jesteś odpowiedzialny, ale która jest zwolniona z VAT (eksport, wewnątrzwspólnotowe B2B itp.)."
 subtab_managed_by_tiers = "🤝 Zarządzane przez podmioty trzecie"
 subtab_managed_by_tiers_caption = "Sprzedaż, dla której Amazon lub urząd celny pobierają VAT."
+subtab_managed_by_tiers_note = "💡 **Uwaga**: Jeśli korzystasz z własnego numeru IOSS lub opcji DDP (Sprzedawca jako importer), sprzedaż ta automatycznie przenosi się do zakładki „Co jesteś winien”, ponieważ stajesz się za nią odpowiedzialny."
 subtab_row_by_row = "📄 Wiersz po wierszu"
 subtab_row_by_row_caption = "Wszystkie sprzedaże, wiersz po wierszu."
 subtab_refunds = "🔄 Zwroty ({count})"
