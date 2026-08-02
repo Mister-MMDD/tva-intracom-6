@@ -150,7 +150,6 @@ elif _current_user.language != _sess_lang:
     _current_user.language = _sess_lang
 
 from tva_intracom.ui.sidebar import render_sidebar
-from tva_intracom.ui.onboarding import maybe_show_sidebar_tour, maybe_show_tabs_tour
 
 # BUGFIX : la sidebar (rendue ci-dessous) affiche `_period_label` tel qu'il
 # était à LA FIN DU RUN PRÉCÉDENT (upload/retrait de fichier/calcul n'ont pas
@@ -163,7 +162,6 @@ from tva_intracom.ui.onboarding import maybe_show_sidebar_tour, maybe_show_tabs_
 _period_label_shown_by_sidebar = st.session_state.get("_period_label", "")
 
 _sb = render_sidebar(_auth_ctx)
-maybe_show_sidebar_tour(_current_user)
 file_format = _sb.file_format
 enable_vies = _sb.enable_vies
 on_invalid_behavior = _sb.on_invalid_behavior
@@ -911,11 +909,6 @@ if uploaded_files:
         # vivants même après un `st.session_state.clear()` au logout.
         # Voir la docstring de render_detail_ventes() pour le détail complet.
         st.session_state["_tab_ctx"] = _tab_ctx
-
-        # Visite guidée des onglets : uniquement au tout premier import réussi
-        # pour ce compte (voir tva_intracom/ui/onboarding.py) — `results`
-        # n'existe à ce stade que si le calcul a abouti sans lever d'exception.
-        maybe_show_tabs_tour(_current_user)
 
         with tab_decl: render_declarations(_tab_ctx)
         with tab_detail: render_detail_ventes()

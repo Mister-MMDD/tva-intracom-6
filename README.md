@@ -103,6 +103,7 @@ tva-intracom/
 │   │                                 paramétrable (ACCOUNTS), écritures équilibrées débit/crédit
 │   ├── cli.py                        Interface en ligne de commande (CLI).
 │   ├── config.py                     Utilitaire de gestion des secrets (variables d'environnement, Streamlit secrets).
+│   ├── database.py                   Pooling Postgres centralisé (NonPoolingConnectionPool, run_with_retry)
 │   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
 │   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
 │   ├── excel_report.py               Export Excel multi-onglets
@@ -175,6 +176,7 @@ tva-intracom/
 |---|---|
 | `models.py` | Modèles de données (Pydantic) : Sale, VatResult, Scenario, BuyerType, Channel, Collector |
 | `config.py` | Utilitaire de gestion des secrets (lwa, stripe, resend, postgres) avec fallback local |
+| `database.py` | Gestion centralisée des connexions Postgres : `NonPoolingConnectionPool` (cache par thread compatible scale-to-zero, ou connexion fraîche par appel selon `cache_connection`) + `run_with_retry()` — consommé par `auth.py`, `billing.py`, `ecb_rates.py` et `vies_engine.py` (voir section « Base de données partagée » ci-dessus) |
 | `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
 | `security.py` | Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy) — chiffrement Fernet des PII avec protection **Fail-Safe** contre l'exposition accidentelle en clair. |
@@ -396,14 +398,20 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
 *   **Base de données partagée** : Postgres (Supabase), accessible à la fois depuis
   Streamlit Cloud (lecture des crédits/abonnements) et depuis la fonction serverless
   Vercel (écriture après paiement confirmé) — un SQLite local ne conviendrait pas
-  puisque les deux environnements ne partagent aucun disque. La gestion des 
-  connexions (`auth.py`, `billing.py`, `ecb_rates.py`) utilise un cache par 
-  thread (`threading.local()`) : une seule connexion est ouverte et réutilisée 
-  par exécution (run) Streamlit, puis fermée au début du run suivant sur le 
-  même thread. C'est optimal pour Streamlit (1 thread = 1 session) tout en 
-  restant compatible avec PgBouncer. `vies_engine.py` conserve une connexion 
-  fraîche par appel pour supporter son exécution parallèle (`ThreadPoolExecutor` 
-  à 25 workers).
+  puisque les deux environnements ne partagent aucun disque. La gestion des
+  connexions est centralisée dans `database.py`
+  (`NonPoolingConnectionPool` + `run_with_retry()`), consommée par `auth.py`,
+  `billing.py` et `ecb_rates.py` en mode `cache_connection=True` : une seule
+  connexion est ouverte et réutilisée par exécution (run) Streamlit (cache par
+  thread via `threading.local()`), puis fermée au début du run suivant sur le
+  même thread. C'est optimal pour Streamlit (1 thread = 1 session) tout en
+  restant compatible avec PgBouncer — et volontairement **pas** un vrai pool
+  persistant (`psycopg2.pool.ThreadedConnectionPool`), qui garderait une
+  connexion TCP ouverte en permanence et empêcherait Railway de détecter
+  l'inactivité et de mettre l'app en veille (scale-to-zero). `vies_engine.py`
+  utilise le même module en mode `cache_connection=False` (connexion fraîche
+  par appel) pour supporter son exécution parallèle (`ThreadPoolExecutor` à 25
+  workers).
 
 ---
 
@@ -1033,6 +1041,58 @@ automatique sur le portail DGFIP) reste non implémenté à ce jour.
   vérifiée contre le schéma XSD officiel — à valider avant tout dépôt réel.
 
 - ~~Fuites de ressources temporaires sur Windows~~ **Corrigé** : Correction des handlers de fichiers temporaires (`tempfile`) qui n'étaient pas correctement supprimés du disque sur les serveurs Windows, risquant de saturer le stockage à long terme.
+
+- **Gestion des connexions Postgres centralisée** : la classe de pooling
+  compatible scale-to-zero (`_NonPoolingConnectionPool`, une connexion mise en
+  cache par thread via `threading.local`, jamais un vrai pool persistant — un
+  pool classique garderait une connexion TCP ouverte en permanence et
+  empêcherait Railway de détecter l'inactivité et de mettre l'app en veille)
+  était dupliquée à l'identique dans `auth.py`, `billing.py` et `ecb_rates.py`,
+  avec une variante sans cache dans `vies_engine.py` (connexion neuve par
+  appel, nécessaire pour son `ThreadPoolExecutor` à 25 workers). Centralisée
+  dans un nouveau module `database.py`
+  (`NonPoolingConnectionPool(cache_connection=True/False)` + `run_with_retry()`
+  commun), consommé par les quatre fichiers. Au passage, un bug latent a été
+  corrigé : en cas de connexion perdue (`InterfaceError`/`OperationalError`),
+  `pool.putconn(conn, close=True)` ignorait silencieusement le paramètre
+  `close` (l'ancienne classe ne fermait jamais réellement la connexion cassée,
+  seul l'objet pool global était jeté) — la connexion cassée est désormais
+  fermée explicitement avant retry.
+
+- ~~Deadlock au chargement de la barre latérale (billing.py)~~ **Corrigé (bug
+  critique introduit par la centralisation ci-dessus, puis corrigé dans la
+  foulée)** : lors du refactor de la connexion DB, l'ordre d'initialisation de
+  `billing.py::_get_pool()` a été involontairement inversé — `_pool` était
+  assigné **après** l'appel à `_init_schema()` au lieu d'avant. Or
+  `_init_schema()` appelle en interne `_run()`, qui rappelle `_get_pool()` :
+  avec `_pool` encore `None` à ce stade, cet appel récursif retentait
+  d'acquérir `_pool_lock` (nouvellement ajouté, `threading.Lock` non
+  réentrant) déjà tenu par le même thread → blocage définitif de l'app juste
+  après l'écran de connexion (rendu du `st.file_uploader()` jamais atteint),
+  sur un thread Streamlit non principal (d'où l'inefficacité de `Ctrl+C`,
+  qui n'interrompt que le thread principal — un `terminate` du process était
+  nécessaire). `auth.py`/`ecb_rates.py`/`vies_engine.py` n'étaient pas
+  affectés : leur `_init_schema(pool)` reçoit le pool directement en
+  argument et n'appelle jamais `_get_pool()`. Reproduit et confirmé corrigé
+  par un test de régression dédié (mock `psycopg2` + timeout dur).
+
+- ~~Décalage entre le récapitulatif Excel et l'onglet OSS détaillé~~
+  **Corrigé** : pour les ventes OSS facturées dans une devise autre que
+  l'EUR (Suède/SEK, Pologne/PLN…), `excel_report.py::_write_recap` (onglet
+  Récapitulatif) sommait `summary.oss_by_country`/`summary.oss_ht_by_country`
+  — figés au **taux BCE du jour de la vente** — tandis que
+  `_write_oss_tab` (onglet OSS détaillé) et le tableau de bord recalculaient
+  au **taux BCE de clôture de période** via `oss_export.aggregate_oss_results()`
+  (Règl. UE 2020/194, art. 5 bis), seule méthode légalement correcte pour une
+  déclaration OSS. Les deux onglets pouvaient donc afficher des totaux TVA
+  OSS différents (écart constaté : 1,29 € sur un fichier de test contenant
+  des ventes SEK), alors que le total TVA global restait identique (les
+  autres postes de la déclaration n'étant pas concernés). Nouvelle fonction
+  partagée `_oss_period_totals()`, utilisée par les deux onglets — le
+  récapitulatif reprend désormais le total déjà correct de l'onglet OSS
+  détaillé. Un repli vers l'ancien comportement (taux du jour de vente)
+  subsiste pour les appels ne fournissant pas `results`/`refund_results`
+  (usage bibliothèque hors `app.py`).
 
 ---
 
