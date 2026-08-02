@@ -100,7 +100,6 @@ cookie_manager = ensure_cookie_manager()
 language_selector()
 
 st.title(f"🇪🇺 {_('title')}")
-st.caption(f"[{_('website_label')}](https://www.tvacalculator.eu/)")
 
 _auth_ctx = run_auth_flow(cookie_manager)
 if _auth_ctx is None:
@@ -228,7 +227,7 @@ uploaded_files = st.file_uploader(
 # rapports Amazon/Mirakl/Shopify réels (texte, colonnes très répétitives —
 # codes pays, ASIN, dates), le ratio mesuré est de l'ordre de 6-6.5x
 # (~15% de la taille d'origine), pour un coût CPU de l'ordre de quelques
-# secondes même au pire cas (fichier de 150 Mo, la limite `maxUploadSize`).
+# secondes même au pire cas (fichier de 100 Mo, la limite `maxUploadSize`).
 # La décompression n'a lieu que dans `getvalue()`, c'est-à-dire seulement
 # quand un re-parsing est réellement déclenché (changement d'encodage, de
 # devise, de catalogue ASIN...) — jamais à chaque rerun. La taille d'origine
@@ -247,6 +246,15 @@ class _CachedUploadedFile:
 _preserve_upload_this_run = consume_preserve_flag()
 
 if uploaded_files:
+    # ── Vérification technique de la taille (100 Mo par fichier) ────────────
+    # Streamlit limite l'upload au niveau serveur (config.toml), mais on
+    # rajoute une sécurité explicite ici pour informer l'utilisateur si un
+    # fichier dépasse notre limite métier de 100 Mo.
+    _OVERSIZED = [f.name for f in uploaded_files if f.size > 100 * 1024 * 1024]
+    if _OVERSIZED:
+        st.error(_("files_too_large_error", files=", ".join(f"`{n}`" for n in _OVERSIZED), max_mb=100))
+        st.stop()
+
     st.session_state["_last_uploaded_files_bytes"] = {
         f.name: (gzip.compress(f.getvalue(), compresslevel=6), f.size)
         for f in uploaded_files

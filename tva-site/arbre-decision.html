@@ -6,8 +6,8 @@
     <title>Arbre de décision — Moteur TVA Intracommunautaire</title>
     <meta name="description" content="Arbre de décision interactif du moteur fiscal : détermination du régime de TVA applicable (OSS, IOSS, autoliquidation, exonération) selon la localisation du stock et de l'acheteur.">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-    <link rel="stylesheet" href="style.css">
-    <script src="script.js" defer></script>
+    <link rel="stylesheet" href="style.css?v=1.2">
+    <script src="script.js?v=1.2" defer></script>
 </head>
 
 <body>
@@ -36,6 +36,31 @@
     <h1>Arbre de Décision — Moteur Fiscal TVA</h1>
     <p>Flux d'aiguillage réglementaire complet pour déterminer le régime de TVA applicable à chaque vente.</p>
 </header>
+
+<style>
+/* Forcer la hauteur et le centrage même si le CSS global est caché */
+.tree-diagram-wrapper {
+    min-height: 850px !important;
+    display: flex !important;
+    align-items: flex-start !important;
+    padding: 60px 24px 100px !important;
+}
+
+.footnotes {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    text-align: center !important;
+    margin: 60px auto !important;
+}
+
+.footnote-section {
+    text-align: center !important;
+    max-width: 1000px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+</style>
 
 <div class="container" style="max-width: 100%; padding: 0 24px;">
     <div class="footnote-section" style="max-width: 700px; margin: 0 auto 20px;">

@@ -267,7 +267,7 @@ def _edit_siren_form_fragment(
 # garde, un fichier très volumineux lu via pd.read_csv(engine='python')
 # pouvait épuiser la mémoire du process Streamlit (partagé entre sessions
 # sur Streamlit Cloud) — DoS involontaire ou malveillant.
-_MAX_CATALOG_MB = 20
+_MAX_CATALOG_MB = 100
 
 
 @st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
