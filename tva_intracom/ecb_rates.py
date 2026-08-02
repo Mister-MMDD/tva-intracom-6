@@ -40,6 +40,7 @@ import psycopg2.pool
 
 from .config import get_secret
 from .database import NonPoolingConnectionPool
+from .perf_log import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,7 @@ def _init_schema(pool: "NonPoolingConnectionPool") -> None:
         pool.putconn(conn)
 
 
+@timeit()
 def _db_get_rates_batch(currency_dates: list[tuple[str, date]]) -> dict[tuple[str, date], Decimal]:
     """Récupère plusieurs taux depuis la base de données en une seule requête.
     
@@ -261,6 +263,7 @@ _FETCH_MAX_ATTEMPTS = 3
 _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
 
 
+@timeit()
 def _request_ecb(url: str, description: str) -> Optional[dict]:
     """Effectue une requête à l'API BCE avec gestion des retries."""
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -288,6 +291,7 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
     return None
 
 
+@timeit()
 def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
     """Interroge l'API ECB pour EUR/{currency} à une date donnée.
 
@@ -321,6 +325,7 @@ def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
         return None
 
 
+@timeit()
 def _fetch_ecb_batch(
     currencies: list[str], start_date: date, end_date: date
 ) -> dict[str, dict[date, Decimal]]:
@@ -389,6 +394,7 @@ def _fetch_ecb_batch(
 # API publique
 # ------------------------------------------------------------------
 
+@timeit()
 def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     """Retourne le taux EUR/{currency} (unités de devise pour 1 EUR).
 
@@ -425,6 +431,7 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     return rate
 
 
+@timeit()
 def prefetch_rates(
     currency_dates: list[tuple[str, date]],
     max_workers: int = 8,

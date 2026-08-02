@@ -40,6 +40,7 @@ from .parsers import PARSERS
 from ...ecb_rates import prefetch_rates
 from ...models import BuyerType, Sale
 from ...vies_engine import _normalize_vat_id as normalize_vat
+from ...perf_log import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -417,6 +418,7 @@ def _process_rows(
 # Point d'entrée public
 # ---------------------------------------------------------------------------
 
+@timeit()
 def _read_and_prepare_rows(
     path: Path,
     encoding: str,
@@ -613,6 +615,7 @@ def _read_and_prepare_rows(
     return rows_to_process, fmt, parser
 
 
+@timeit()
 def load_amazon_report(
     path: "Path | str",
     seller_country: str = "FR",

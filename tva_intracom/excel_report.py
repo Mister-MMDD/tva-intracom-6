@@ -20,6 +20,7 @@ from .oss_export import aggregate_oss_results
 from .parsers.amazon.detect import parse_date as _parse_amz_date
 from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
 from .report import ReportSummary, build_report
+from .perf_log import timeit
 
 _COUNTRY_NAMES_XL = COUNTRY_NAMES
 
@@ -1923,6 +1924,7 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
     _width_tracker.apply(ws)
 
 
+@timeit()
 def export_xlsx(
         results: List[VatResult],
         output_path: str | Path,

@@ -33,6 +33,7 @@ from openpyxl.worksheet.cell_range import CellRange
 from .ecb_rates import convert_to_currency_for_oss
 from .i18n import _
 from .models import Scenario, VatResult
+from .perf_log import timeit
 
 _CENT = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -90,6 +91,7 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
     return ht, tva
 
 
+@timeit()
 def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggType:
     """Agrège les VatResult OSS_B2C par pays de départ puis pays d'arrivée.
 
@@ -757,6 +759,7 @@ def _fmt_dec(value: Optional[Decimal]) -> str:
     return f"{value:.2f}".replace(".", ",")
 
 
+@timeit()
 def build_oss_excel(
     results: List[VatResult],
     output_path: str | Path,
@@ -791,6 +794,7 @@ def build_oss_excel(
     return output_path
 
 
+@timeit()
 def build_b2b_excel(
     results: List[VatResult],
     output_path: str | Path,
@@ -809,6 +813,7 @@ def build_b2b_excel(
     return output_path
 
 
+@timeit()
 def build_oss_csv(
     results: List[VatResult],
     period: str = "",
@@ -871,6 +876,7 @@ def build_oss_csv(
     return oss_bytes, b2b_bytes
 
 
+@timeit()
 def build_oss_export(
     results: List[VatResult],
     output_dir: str | Path,

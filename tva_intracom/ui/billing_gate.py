@@ -43,6 +43,7 @@ from tva_intracom.rates import is_eu
 from tva_intracom.ui.formatting import _country_label
 from tva_intracom.ui.sidebar import _cached_db_read
 from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
+from ..perf_log import timeit
 
 
 def detect_period_label(results, oss_period: str) -> tuple[str, Optional[tuple[str, str]]]:
@@ -268,6 +269,7 @@ class BillingGate:
         st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
 
 
+@timeit()
 def build_billing_gate(
         *,
         results,

@@ -28,6 +28,7 @@ import requests
 from .config import get_secret
 from .database import NonPoolingConnectionPool, run_with_retry
 from .security import encrypt_data, decrypt_data
+from .perf_log import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,7 @@ def _row_to_user(row) -> User:
     )
 
 
+@timeit()
 def get_or_create_user(email: str) -> User:
     email = email.strip().lower()
 
@@ -237,6 +239,7 @@ def get_or_create_user(email: str) -> User:
     return _run(_fn)
 
 
+@timeit()
 def set_home_country(user_id: str, country: str) -> None:
     """Met à jour le pays d'origine (établissement) du compte — réglage
     global, pas par SIREN (voir sidebar.py, section Entreprise & Paramètres).
@@ -252,6 +255,7 @@ def set_home_country(user_id: str, country: str) -> None:
     _run(_fn)
 
 
+@timeit()
 def set_language(user_id: str, language: str) -> None:
     """Met à jour la langue préférée du compte — réglage global, persisté
     pour être restaurée automatiquement à la prochaine connexion (voir
@@ -267,6 +271,7 @@ def set_language(user_id: str, language: str) -> None:
     _run(_fn)
 
 
+@timeit()
 def set_display_currency(user_id: str, currency: str) -> None:
     """Met à jour la devise d'affichage préférée du compte (voir
     sidebar.py, sélecteur sous le pays d'origine). "DEFAULT" signifie :
@@ -337,6 +342,7 @@ def send_magic_link_email(email: str, login_url: str) -> None:
     response.raise_for_status()
 
 
+@timeit()
 def consume_magic_link(token: str, ip_address: str = "unknown") -> Optional[User]:
     """Valide un jeton de connexion. Retourne None si invalide, expiré, ou déjà utilisé.
     Inclut une protection brute-force (DPP Amazon)."""
@@ -386,6 +392,7 @@ def consume_magic_link(token: str, ip_address: str = "unknown") -> Optional[User
     return get_or_create_user(res)
 
 
+@timeit()
 def get_user_by_id(user_id: str) -> Optional[User]:
     """Retourne l'utilisateur associé à un ID, sans passer par un jeton."""
     def _fetch_user(conn, cur):
@@ -498,6 +505,7 @@ def export_all_user_data(user_id: str) -> dict:
     }
 
 
+@timeit()
 def create_session_token(user_id: str) -> str:
     """Génère un jeton de session longue durée (30 jours), réutilisable
     (contrairement au lien magique), destiné à être porté dans l'URL pour
@@ -516,6 +524,7 @@ def create_session_token(user_id: str) -> str:
     return token
 
 
+@timeit()
 def get_user_by_session_token(token: str) -> Optional[User]:
     """Retourne l'utilisateur associé à un jeton de session valide (non
     expiré), sans le consommer — il reste utilisable jusqu'à expiration."""

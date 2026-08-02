@@ -57,6 +57,7 @@ import psycopg2.pool
 from psycopg2.extras import execute_values
 
 from .security import encrypt_data as _enc, decrypt_data as _dec
+from .perf_log import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -477,6 +478,7 @@ def _db_set_global(vat_id: str, result: ViesResult) -> None:
 # d'utiliser les fonctions unitaires ci-dessus, qui restent nécessaires.
 # ---------------------------------------------------------------------------
 
+@timeit()
 def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool]]:
     """Une seule requête pour tous les vat_ids d'un coup."""
     if not vat_ids:
@@ -495,6 +497,7 @@ def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[Vi
     return out
 
 
+@timeit()
 def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool]]:
     """Une seule requête pour tous les vat_ids d'un coup."""
     if not vat_ids:
@@ -513,6 +516,7 @@ def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool
     return out
 
 
+@timeit()
 def _db_set_scope_batch(scope_id: str, items: list[tuple[str, ViesResult]], log_history: bool = True) -> None:
     """Upsert en lot dans vies_scope_cache + insertion en lot dans
     vies_check_history — un aller-retour réseau au lieu de N."""
@@ -543,6 +547,7 @@ def _db_set_scope_batch(scope_id: str, items: list[tuple[str, ViesResult]], log_
         conn.commit()
 
 
+@timeit()
 def _db_set_global_batch(items: list[tuple[str, ViesResult]]) -> None:
     """Upsert en lot dans vies_global_cache — un aller-retour réseau au lieu
     de N. N'écrit jamais depuis un chemin lié aux overrides manuels."""
@@ -1223,6 +1228,7 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
 # Validation en lot parallèle avec cache scope → global → API
 # ---------------------------------------------------------------------------
 
+@timeit()
 def validate_vat_numbers_parallel(
         scope_id: str,
         vat_ids: list[str],
@@ -1378,6 +1384,7 @@ def validate_vat_numbers_parallel(
     return results
 
 
+@timeit()
 def validate_vat_numbers(
         scope_id: str,
         vat_ids: list[str],
