@@ -313,14 +313,11 @@ def render_declarations(ctx: TabContext) -> None:
         # Masquage
         lock_msg = "🔒 " + _("locked_premium")
         for idx, row in _recap_preview.iterrows():
-            if row[_("type_column_label")] == _("type_total"):
-                for col in tva_cols:
-                    if col in _recap_preview.columns:
-                        _recap_preview.at[idx, col] = lock_msg
-            else:
-                for col in tva_cols + ca_cols:
-                    if col in _recap_preview.columns:
-                        _recap_preview.at[idx, col] = lock_msg
+            # CA est maintenant toujours visible (total et pays)
+            # Seule la TVA reste verrouillée partout
+            for col in tva_cols:
+                if col in _recap_preview.columns:
+                    _recap_preview.at[idx, col] = lock_msg
 
         # Affichage propre via dataframe (TextColumn)
         _prev_df = _recap_preview.drop(columns=[_("type_column_label")])

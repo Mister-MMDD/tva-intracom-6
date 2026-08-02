@@ -299,7 +299,8 @@ def _gated_preview_table(
     min_rows: int = 5,
     key: str = None,
     column_config: dict = None,
-    total_count: int = None
+    total_count: int = None,
+    extra_safe_cols: list[str] = None
 ) -> None:
     """Affiche un tableau de résultats avec protection des données sensibles."""
     if can_export:
@@ -332,6 +333,8 @@ def _gated_preview_table(
 
     lock_msg = "🔒 " + _("gated_locked")
     safe_cols = ["Date", "Pays", "Dest", "ID", "Transaction", "Type", "Stock"]
+    if extra_safe_cols:
+        safe_cols.extend(extra_safe_cols)
     
     # Masquage sur l'échantillon
     for i, col in enumerate(df_preview.columns):
