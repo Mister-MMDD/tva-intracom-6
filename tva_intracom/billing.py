@@ -89,9 +89,18 @@ def _get_pool() -> "NonPoolingConnectionPool":
                     raise RuntimeError(
                         "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
                     )
-                new_pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
+                # IMPORTANT : `_pool` DOIT être assigné AVANT l'appel à
+                # _init_schema() ci-dessous, pas après. _init_schema() appelle
+                # en interne _run(_fn), qui rappelle _get_pool() — si `_pool`
+                # est encore None à ce moment-là, cet appel récursif retente
+                # d'acquérir `_pool_lock` (déjà tenu par ce même thread) et
+                # provoque un DEADLOCK (threading.Lock n'est pas réentrant).
+                # En assignant `_pool` en premier, l'appel récursif le trouve
+                # déjà défini et ressort immédiatement sans repasser par le
+                # verrou. Bug vécu en production le 02/08/2026 (voir post-mortem).
+                _pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
                 _init_schema()
-                _pool = new_pool
+    return _pool
     return _pool
 
 

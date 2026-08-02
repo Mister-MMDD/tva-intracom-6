@@ -287,12 +287,45 @@ class _RowDimEntry:
         self._writer.set_row_height(self._row_num, value)
 
 
+def _oss_period_totals(
+    results: list, refund_results: list | None, period: str
+) -> tuple[Decimal, Decimal, Decimal, Decimal]:
+    """Totaux OSS agrégés (HT brut, HT remb, TVA brut, TVA remb), recalculés
+    au taux BCE de clôture de période (art. 5 bis Règl. UE 2020/194) plutôt
+    qu'au taux du jour de vente figé sur summary.oss_ht_by_country /
+    summary.oss_by_country.
+
+    Même méthode et même source (`aggregate_oss_results`) que le tableau de
+    bord (declarations.py) et que l'onglet OSS détaillé (_write_oss_tab) —
+    à utiliser partout où un total OSS est affiché, pour éviter que le
+    récapitulatif diverge de ces deux-là sur les ventes en devise étrangère
+    (ex. Suède/SEK, Pologne/PLN) : `summary.oss_by_country` seul ne reflète
+    que le taux du jour de la vente, pas celui de clôture de la période
+    déclarée. Bug constaté en production le 02/08/2026 (écart de 1,29 € sur
+    un fichier de test contenant des ventes SEK) — voir post-mortem.
+    """
+    _z = Decimal("0.00")
+    ht_brut = ht_remb = vat_brut = vat_remb = _z
+    agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
+    for _departure, _by_arrival in agg.items():
+        for _arrival, _by_rate in _by_arrival.items():
+            for _bucket in _by_rate.values():
+                ht_brut += _bucket["ht_vente"]
+                ht_remb += _bucket["ht_remb"]
+                vat_brut += _bucket["tva_vente"]
+                vat_remb += _bucket["tva_remb"]
+    return ht_brut, ht_remb, vat_brut, vat_remb
+
+
 def _write_recap(
         ws,
         summary: ReportSummary,
         hash_totals: dict | None = None,
         seller_country: str = "FR",
         display_currency: str | None = None,
+        results: list | None = None,
+        refund_results: list | None = None,
+        period: str = "",
 ) -> None:
     ws.title = i18n_("xl_tab_recap")
 
@@ -341,10 +374,19 @@ def _write_recap(
     ws.row_dimensions[3].height = 22
 
     _z = Decimal("0.00")
-    oss_ht_brut = sum(summary.oss_ht_by_country.values(), _z)
-    oss_ht_remb = sum(summary.refund_oss_ht_by_country.values(), _z)
-    oss_vat_brut = sum(summary.oss_by_country.values(), _z)
-    oss_vat_remb = sum(summary.refund_oss_by_country.values(), _z)
+    if results is not None:
+        # Même méthode que le dashboard / l'onglet OSS détaillé (taux de
+        # clôture de période) — voir docstring de _oss_period_totals().
+        oss_ht_brut, oss_ht_remb, oss_vat_brut, oss_vat_remb = _oss_period_totals(
+            results, refund_results, period
+        )
+    else:
+        # Comportement historique (fallback CLI / appels sans results) :
+        # taux du jour de vente, figé sur summary.oss_*_by_country.
+        oss_ht_brut = sum(summary.oss_ht_by_country.values(), _z)
+        oss_ht_remb = sum(summary.refund_oss_ht_by_country.values(), _z)
+        oss_vat_brut = sum(summary.oss_by_country.values(), _z)
+        oss_vat_remb = sum(summary.refund_oss_by_country.values(), _z)
 
     local_ht_brut = sum(summary.local_ht_by_country.values(), _z)
     local_ht_remb = sum(summary.refund_local_ht_by_country.values(), _z)
@@ -1944,7 +1986,9 @@ def export_xlsx(
 
     # 1. Page de synthèse
     ws_recap = _SequentialSheetWriter(wb.create_sheet())
-    _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country, display_currency=display_currency)
+    _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country,
+                 display_currency=display_currency, results=results, refund_results=refund_results,
+                 period=period)
     ws_recap.finalize()
 
     # 2. Séparation ventes / remboursements
