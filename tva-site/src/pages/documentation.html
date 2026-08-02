@@ -31,11 +31,13 @@
             <div class="card">
                 <h2>Cœur du Moteur</h2>
                 <ul style="font-size: 0.9rem;">
-                    <li><strong>engine.py</strong> : Moteur de classification fiscale.</li>
-                    <li><strong>vies_engine.py</strong> : Validation VIES avec cache PostgreSQL.</li>
-                    <li><strong>ca3_report.py</strong> : Génération rapports CA3 (Cerfa).</li>
-                    <li><strong>fec_export.py</strong> : Export comptable (Journal des ventes).</li>
-                    <li><strong>oss_xml.py</strong> : Générateur XML OSS conforme 2021/965.</li>
+                    <li><strong>engine.py</strong> : Moteur de classification fiscale (Directive 2006/112/CE).</li>
+                    <li><strong>rates.py</strong> : Taux TVA historisés par pays et catégorie (Standard/Réduit).</li>
+                    <li><strong>ecb_rates.py</strong> : Synchro auto avec la Banque Centrale Européenne (BCE).</li>
+                    <li><strong>vies_engine.py</strong> : Validation VIES avec cache et piste d'audit conforme (365 jours).</li>
+                    <li><strong>ca3_report.py / oss_xml.py</strong> : Générateurs de liasses fiscales (HTML/XML).</li>
+                    <li><strong>local_vat_report.py</strong> : Rapports de TVA locaux pour les autres pays de l'UE.</li>
+                    <li><strong>billing.py</strong> : Moteur de facturation Stripe et gestion des quotas.</li>
                 </ul>
             </div>
         </div>
@@ -52,51 +54,60 @@
                 <h3>Arborescence du dépôt</h3>
                 <pre>
 tva-intracom/
-├── .devcontainer/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                    Pipeline CI (pytest sur push/PR)
-├── data/
-├── tests/
+│       └── ci.yml                    Pipeline CI (pytest)
+├── tests/                            Tests unitaires et d'intégration
 ├── tva_intracom/
 │   ├── i18n/                         Fichiers de traduction (7 langues)
 │   ├── parsers/
 │   │   └── amazon/                   Sous-package d'import Amazon (formats 1-5)
-│   ├── __init__.py
-│   ├── amazon_adapter.py             Passerelle de compatibilité anciens modèles.
-│   ├── amazon_spapi.py               Intégration Amazon Selling Partner API.
-│   ├── auth.py                       Authentification & sessions (Postgres/Supabase).
-│   ├── auth_supabase.py              Auth par mot de passe & OAuth (Google, Amazon...).
-│   ├── billing.py                    Facturation Stripe (PAYG, Pro, Cabinet).
-│   ├── ca3_report.py                 Génération du rapport CA3 (HTML/Cerfa).
-│   ├── local_vat_report.py           Rapport HTML pour pays UE hors France.
-│   ├── historical_rates_widget.py    Alerte & tableau des changements de taux TVA.
-│   ├── fec_export.py                 Export comptable FEC (Journal des ventes).
-│   ├── cli.py                        Interface en ligne de commande.
-│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque).
-│   ├── engine.py                     Cœur du moteur de classification fiscale.
-│   ├── excel_report.py               Export Excel multi-onglets complet.
-│   ├── models.py                     Modèles de données (Pydantic).
-│   ├── oss_export.py                 Agrégation OSS & Export CSV URSSAF.
-│   ├── oss_xml.py                    Génération XML OSS officiel (UE 2021/965).
-│   ├── rates.py                      Taux TVA historisés & Seuils EMEBI.
-│   ├── security.py                   Sécurité Amazon DPP (Chiffrement Fernet).
-│   ├── vies_certificate.py           Génération de certificat VIES en PDF.
-│   ├── vies_engine.py                Validation VIES avec historique d'audit.
 │   ├── ui/                           Interface Streamlit modulaire
-│   │   ├── auth_flow.py              Flux de connexion & OAuth.
-│   │   ├── onboarding.py             Visite guidée interactive.
-│   │   ├── sidebar.py                Barre latérale (SIREN, SP-API, Billing).
-│   │   ├── billing_gate.py           Gating & téléchargements sécurisés.
-│   │   ├── background_calc.py        Calculs longs en thread séparé.
-│   │   └── tabs/                     Un module par onglet applicatif
+│   │   ├── tabs/                     Modules d'onglets :
+│   │   │   ├── audit.py              Réconciliation Amazon & Écarts
+│   │   │   ├── declarations.py       Synthèse CA3, OSS & IOSS
+│   │   │   ├── detail_ventes.py      Analyse transactionnelle fine
+│   │   │   ├── telechargements.py    Génération des fichiers de sortie
+│   │   │   ├── vies_ui.py            Gestion B2B et overrides VIES
+│   │   │   └── visualisations.py     Graphiques et exposition fiscale
+│   │   ├── auth_flow.py              Flux de connexion & OAuth
+│   │   ├── background_calc.py        Calculs longs en thread séparé
+│   │   ├── billing_gate.py           Gating & téléchargements sécurisés
+│   │   ├── formatting.py             Utilitaires de formatage (Devises, Dates)
+│   │   ├── onboarding.py             Visite guidée interactive
+│   │   ├── rerun_utils.py            Gestion des reruns Streamlit
+│   │   ├── sidebar.py                Configuration (SIREN, Pays, Devises)
+│   │   └── theme.py                  Gestion du mode clair/sombre
+│   ├── __init__.py                   Initialisation du package
+│   ├── amazon_adapter.py             Passerelle compatibilité anciens modèles
+│   ├── auth.py                       Gestion des sessions (Supabase)
+│   ├── auth_supabase.py              Auth mot de passe & OAuth
+│   ├── billing.py                    Facturation Stripe (PAYG, Pro, Cabinet)
+│   ├── ca3_report.py                 Génération du rapport CA3 (HTML/Cerfa)
+│   ├── cli.py                        Interface en ligne de commande
+│   ├── config.py                     Configuration & Secrets
+│   ├── database.py                   Couche d'accès PostgreSQL (Pooler)
+│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque)
+│   ├── engine.py                     Cœur du moteur de classification fiscale
+│   ├── excel_report.py               Export Excel multi-onglets complet
+│   ├── fec_export.py                 Export comptable FEC (Journal des ventes)
+│   ├── historical_rates_widget.py    Alerte & tableau des changements de taux TVA
+│   ├── local_vat_report.py           Rapport HTML pour pays UE hors France
+│   ├── mem_utils.py                  Optimisation mémoire (Interning)
+│   ├── models.py                     Modèles de données (Pydantic)
+│   ├── oss_export.py                 Agrégation OSS & Export CSV URSSAF
+│   ├── oss_xml.py                    Génération XML OSS officiel (DGFiP)
+│   ├── rates.py                      Taux TVA historisés & Seuils EMEBI
+│   ├── report.py                     Générateur de rapports PDF/HTML
+│   ├── security.py                   Sécurité Amazon DPP (Chiffrement Fernet)
+│   ├── vies_certificate.py           Génération de certificat VIES en PDF
+│   └── vies_engine.py                Validation VIES avec historique d'audit
 │
 ├── vercel_webhook/                   Webhook Stripe (Vercel serverless)
 ├── app.py                            Orchestrateur Streamlit principal
-├── generate_dataset.py               Générateur de données de test
-├── pyproject.toml
-├── README.md
-└── requirements.txt
+├── Procfile                          Configuration déploiement (Railway/Heroku)
+├── pyproject.toml                    Configuration du projet et dépendances
+└── README.md                         Documentation générale
                 </pre>
 
                 <h3>Scénarios modélisés</h3>
@@ -161,7 +172,8 @@ tva-intracom/
                 <ul style="font-size: 0.9rem;">
                     <li>✅ Certificats de validité VIES en PDF (Preuve de bonne foi).</li>
                     <li>✅ Gestion multi-pays d'origine (Home Country).</li>
-                    <li>✅ Taux BCE de clôture OSS automatisés (Règl. UE 2020/194).</li>
+                    <li>✅ Taux BCE de clôture OSS automatisés (Règl. UE 2020/194) et correction des écarts d'arrondis.</li>
+                    <li>✅ Protection brute-force (DPP) et optimisation du pool de connexions.</li>
                     <li>✅ Correction automatique des soldes OSS négatifs.</li>
                     <li>✅ Optimisation RAM High-Load (Internage, Lazy Loading).</li>
                     <li>✅ Export comptable FEC (Journal des ventes).</li>

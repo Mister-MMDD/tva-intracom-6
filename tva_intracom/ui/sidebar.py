@@ -1079,6 +1079,12 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     except Exception as _del_err:
                         st.error(f"Erreur lors de la suppression : {_del_err}")
 
+        # ── Support ───────────────────────────────────────────────────────────────
+        st.divider()
+        st.markdown(f"**{_('contact_support')}**")
+        st.caption("support@tvacalculator.eu")
+        st.markdown(f"[{_('website_label')}](https://www.tvacalculator.eu/)")
+
     return SidebarResult(
         file_format=file_format,
         enable_vies=enable_vies,

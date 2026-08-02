@@ -7,6 +7,8 @@ inactivity_files_purged = "⏳ Session inactive : vos fichiers ont été vidés 
 app_is_sleeping = "😴 L'application est en veille pour économiser les ressources."
 wake_up_app = "Réactiver l'application"
 language = "Langue"
+contact_support = "Contacter le support"
+website_label = "Site Web"
 
 # Pays
 country_AT = "Autriche"

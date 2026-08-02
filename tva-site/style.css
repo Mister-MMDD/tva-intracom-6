@@ -763,7 +763,10 @@ footer {
 .tree-diagram-wrapper {
     width: 100%;
     overflow-x: auto;
-    padding: 40px 24px 80px;
+    padding: 60px 24px 100px;
+    min-height: 850px;
+    display: flex;
+    align-items: flex-start;
 }
 
 .tree-diagram {
@@ -942,6 +945,21 @@ footer {
     padding: 20px 24px;
     margin-bottom: 20px;
     max-width: 1000px;
+    text-align: center; /* Centrage du texte demandé */
+}
+
+.footnotes {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 60px auto;
+    padding: 0 24px;
+    text-align: center;
+}
+
+.footnotes h3 {
+    margin-bottom: 30px;
+    color: var(--text-dark);
 }
 
 .footnote-section:last-child {

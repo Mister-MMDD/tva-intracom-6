@@ -100,6 +100,7 @@ cookie_manager = ensure_cookie_manager()
 language_selector()
 
 st.title(f"🇪🇺 {_('title')}")
+st.caption(f"[{_('website_label')}](https://www.tvacalculator.eu/)")
 
 _auth_ctx = run_auth_flow(cookie_manager)
 if _auth_ctx is None:

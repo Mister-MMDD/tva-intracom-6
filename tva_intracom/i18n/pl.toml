@@ -7,6 +7,8 @@ inactivity_files_purged = "⏳ Nieaktywna sesja: Twoje pliki zostały usunięte 
 app_is_sleeping = "😴 Aplikacja jest w trybie uśpienia, aby oszczędzać zasoby."
 wake_up_app = "Aktywuj ponownie aplikację"
 language = "Język"
+contact_support = "Kontakt z pomocą techniczną"
+website_label = "Strona internetowa"
 
 # Countries
 country_AT = "Austria"

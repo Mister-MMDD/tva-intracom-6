@@ -7,6 +7,8 @@ inactivity_files_purged = "⏳ Sessão inativa: os seus ficheiros foram limpos p
 app_is_sleeping = "😴 A aplicação está em modo de espera para poupar recursos."
 wake_up_app = "Reativar a aplicação"
 language = "Idioma"
+contact_support = "Contactar o suporte"
+website_label = "Sítio Web"
 
 # Countries
 country_AT = "Áustria"

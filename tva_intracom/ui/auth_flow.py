@@ -435,6 +435,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             st.stop()
 
         st.info(_("auth_required_info"))
+        st.caption(f"[{_('website_label')}](https://www.tvacalculator.eu/)")
 
         if _local_bypass:
             st.warning(_("dev_bypass_warning"))

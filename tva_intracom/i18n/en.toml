@@ -7,6 +7,8 @@ inactivity_files_purged = "⏳ Inactive session: your files have been cleared fo
 app_is_sleeping = "😴 The app is sleeping to save resources."
 wake_up_app = "Wake up app"
 language = "Language"
+contact_support = "Contact Support"
+website_label = "Website"
 
 # Countries
 country_AT = "Austria"

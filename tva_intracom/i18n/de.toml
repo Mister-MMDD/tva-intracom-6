@@ -7,6 +7,8 @@ inactivity_files_purged = "⏳ Inaktive Sitzung: Ihre Dateien wurden aus Sicherh
 app_is_sleeping = "😴 Die Anwendung befindet sich im Ruhemodus, um Ressourcen zu sparen."
 wake_up_app = "Anwendung reaktivieren"
 language = "Sprache"
+contact_support = "Support kontaktieren"
+website_label = "Webseite"
 
 # Countries
 country_AT = "Österreich"
