@@ -192,6 +192,13 @@ class ViesValidationSummary:
     valid_count: int = 0
     invalid_count: int = 0
     inconclusive_count: int = 0
+    # Classifications saisies manuellement par l'utilisateur (jamais une
+    # vérification automatique fraîche) — comptées à part.
+    manual_override_count: int = 0
+    # Replis sur une entrée de cache déjà expirée (TTL dépassé), utilisée
+    # uniquement parce que VIES était indisponible au moment du calcul —
+    # traités comme incertains (B2C par sécurité), jamais comme fiables.
+    stale_fallback_count: int = 0
     inconclusive_vats: list[str] = field(default_factory=list)
     inconclusive_vat_details: list[dict[str, Any]] = field(default_factory=list)
     vat_to_display_ids: dict[str, list[str]] = field(default_factory=dict)
@@ -204,6 +211,23 @@ class ViesValidationSummary:
     def total_invalid(self) -> int: return self.invalid_count
     @property
     def total_inconclusive(self) -> int: return self.inconclusive_count
+    @property
+    def total_manual_override(self) -> int: return self.manual_override_count
+    @property
+    def total_stale_fallback(self) -> int: return self.stale_fallback_count
+    @property
+    def total_not_auto_verified(self) -> int:
+        """Total des numéros qui ne sont PAS le résultat d'une vérification
+        automatique fraîche (VIES ou cache non expiré) : override manuel +
+        repli sur cache périmé + inconclusif pur. C'est ce total, et non
+        `inconclusive_count` seul, qui doit être communiqué à l'utilisateur
+        pour refléter fidèlement la part de l'export non auto-vérifiée."""
+        return self.manual_override_count + self.stale_fallback_count + self.inconclusive_count
+    @property
+    def total_auto_verified(self) -> int:
+        """Numéros dont le statut vient d'une vérification automatique
+        fraîche (VIES ou cache dans le TTL) — seule catégorie fiable à 100%."""
+        return self.valid_count + self.invalid_count
     @property
     def fraud_avoided_amount(self) -> Decimal:
         return sum((r.vat_avoided for r in self.reclassifications), Decimal("0.00"))

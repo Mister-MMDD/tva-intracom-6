@@ -816,9 +816,9 @@ conversion BCE.
   - **Billing** : Réutilisation du cache SIREN/Abonnement déjà peuplé par la sidebar, éliminant les requêtes SQL dupliquées lors de la construction du tunnel de paiement.
   - **Téléchargements** : Mise en cache des 5 exports indépendants (Excel principal, OSS Excel, CA3/HTML local, B2B Excel, FEC) via une clé de téléchargement dédiée (`_dl_cache_key`).
 - **Optimisation de la RAM (SaaS High-Load)** :
+  - **Filtrage sélectif des colonnes** : Réduction drastique de la consommation RAM en ne conservant que les colonnes strictement nécessaires avant la conversion en dictionnaires Python (`to_dicts()`) — gain de performance majeur.
   - **Internage des chaînes (String Interning)** : Les objets `Sale` et `VatResult` utilisent `sys.intern()` pour les codes pays, devises et catégories fiscales. Cela réduit radicalement l'empreinte mémoire sur les imports de 100k+ lignes en ne stockant qu'une seule instance de chaque chaîne répétitive.
   - **Lazy Concaténation** : Évitement des copies de listes lors de la fusion ventes/remboursements pour les exports.
-  - **Gestion proactive du Garbage Collector** : Appels forcés à `gc.collect()` après la génération d'exports Excel lourds pour libérer immédiatement les ressources système.
   - **Nettoyage automatique du cache binaire** : Suppression explicite des anciens fichiers générés du `session_state` dès que les données de calcul changent.
   - **Génération différée (Lazy Artifacts)** : Les fichiers ne sont plus générés systématiquement en RAM, mais uniquement au clic de l'utilisateur sur le bouton de génération.
 - **Stabilisation du calcul** : Introduction de `calc_key` dans le `TabContext` (transmis depuis `app.py`) pour garantir la cohérence des résultats entre onglets et éviter les recalculs intempestifs.

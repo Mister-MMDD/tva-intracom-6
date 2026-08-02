@@ -15,6 +15,7 @@ n'intervient pas côté code, seul le price_id compte pour le Checkout).
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import time
@@ -26,11 +27,14 @@ import psycopg2.pool
 import streamlit as st
 import threading
 
+logger = logging.getLogger(__name__)
+
 try:
     import stripe  # type: ignore
 except ImportError:
     stripe = None
 
+from .database import NonPoolingConnectionPool, run_with_retry
 from .security import encrypt_data as _enc, decrypt_data as _dec
 from .config import get_secret
 
@@ -53,7 +57,8 @@ PRICE_PAYG_EXPORT = os.environ.get("STRIPE_PRICE_PAYG_EXPORT", "")
 _BUSINESS_SIREN_QUOTA = 1
 _CABINET_MIN_QUANTITY = 3
 
-_pool: Optional["_NonPoolingConnectionPool"] = None
+_pool: Optional["NonPoolingConnectionPool"] = None
+_pool_lock = threading.Lock()
 
 
 def _safe_get(obj, key, default=None):
@@ -74,61 +79,19 @@ def _stripe_configured() -> bool:
     return True
 
 
-class _NonPoolingConnectionPool:
-    """Voir tva_intracom/auth.py pour l'explication complète : cache d'une
-    connexion par thread (threading.local), réutilisée pour tous les appels
-    d'un même run Streamlit (1 seule connexion+TLS par run, pas une par
-    appel), mais jamais gardée ouverte entre deux runs — fermée par
-    `close_idle_connections()`, appelé par app.py au tout début de chaque
-    nouveau run.
-    """
-
-    def __init__(self, dsn: str, sslmode: str = "require") -> None:
-        self._dsn = dsn
-        self._sslmode = sslmode
-        self._local = threading.local()
-
-    def getconn(self, *_args, **_kwargs):
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                if conn.closed == 0:
-                    return conn
-            except Exception:
-                pass
-            try:
-                conn.close()
-            except Exception:
-                pass
-            self._local.conn = None
-        conn = psycopg2.connect(self._dsn, sslmode=self._sslmode)
-        self._local.conn = conn
-        return conn
-
-    def putconn(self, conn, *_args, **_kwargs) -> None:
-        # No-op volontaire : connexion réutilisée pour le reste du run.
-        pass
-
-    def closeall(self) -> None:
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
-            self._local.conn = None
-
-
-def _get_pool() -> "_NonPoolingConnectionPool":
+def _get_pool() -> "NonPoolingConnectionPool":
     global _pool
     if _pool is None:
-        dsn = _env("SUPABASE_DB_URL")
-        if not dsn:
-            raise RuntimeError(
-                "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
-            )
-        _pool = _NonPoolingConnectionPool(dsn, sslmode="require")
-        _init_schema()
+        with _pool_lock:
+            if _pool is None:
+                dsn = _env("SUPABASE_DB_URL")
+                if not dsn:
+                    raise RuntimeError(
+                        "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
+                    )
+                new_pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
+                _init_schema()
+                _pool = new_pool
     return _pool
 
 
@@ -138,11 +101,13 @@ def close_idle_connections() -> None:
     l'objet `_pool` en vie entre les runs (évite de relancer `_init_schema()`
     à chaque run) — seule la connexion réellement ouverte est fermée.
     """
-    if _pool is not None:
+    with _pool_lock:
+        _p = _pool
+    if _p is not None:
         try:
-            _pool.closeall()
+            _p.closeall()
         except Exception:
-            pass
+            logger.debug("Fermeture de connexion idle ignorée (déjà invalide).", exc_info=True)
 
 
 def _run(fn):
@@ -155,24 +120,12 @@ def _run(fn):
     serveur — d'où `psycopg2.InterfaceError: connection already closed`
     après un moment d'inactivité. On jette le pool et on en recrée un neuf
     pour retenter une fois plutôt que de laisser planter la requête."""
-    global _pool
-    last_exc: Exception | None = None
-    for _attempt in range(2):
-        pool = _get_pool()
-        conn = pool.getconn()
-        try:
-            with conn, conn.cursor() as cur:
-                result = fn(conn, cur)
-            pool.putconn(conn)
-            return result
-        except (psycopg2.InterfaceError, psycopg2.OperationalError) as exc:
-            last_exc = exc
-            try:
-                pool.putconn(conn, close=True)
-            except Exception:
-                pass
-            _pool = None
-    raise last_exc
+    def _force_new_pool():
+        global _pool
+        with _pool_lock:
+            _pool = None  # force la recréation d'un pool neuf au prochain tour
+
+    return run_with_retry(_get_pool, fn, on_retry=_force_new_pool)
 
 
 def _init_schema() -> None:
@@ -275,9 +228,27 @@ def delete_user_billing_data(user_id: str) -> None:
     if customer_id and _stripe_configured():
         try:
             stripe.Customer.delete(customer_id)
-        except Exception:
-            # On ignore l'erreur si le client est déjà supprimé côté Stripe
-            pass
+        except stripe.error.InvalidRequestError as exc:
+            # Cas bénin attendu : le client n'existe déjà plus côté Stripe
+            # (ex. suppression manuelle préalable, ou double appel).
+            logger.info(
+                "Suppression Stripe du client %s : déjà absent côté Stripe (%s).",
+                customer_id, exc,
+            )
+        except Exception as exc:
+            # Tout autre échec (réseau, auth, rate limit...) est un vrai
+            # risque : si le client Stripe n'est pas supprimé, son
+            # abonnement peut continuer à être facturé alors que
+            # l'utilisateur pense ses données supprimées (risque RGPD +
+            # facturation indue). On logue en erreur mais on NE bloque PAS
+            # la suppression des données locales, qui reste demandée
+            # explicitement par l'utilisateur.
+            logger.error(
+                "Échec de la suppression du client Stripe %s lors de la suppression "
+                "de compte de l'utilisateur %s : %s. Le client Stripe et son abonnement "
+                "peuvent être encore actifs côté Stripe — vérification manuelle recommandée.",
+                customer_id, user_id, exc,
+            )
 
     def _fn(conn, cur):
         # 2. Supprimer les données locales

@@ -172,14 +172,33 @@ def render_vies(ctx: TabContext) -> None:
         v2.metric(_("vies_kpi_valid"), vies_summary.total_valid)
         v3.metric(_("vies_kpi_invalid"), vies_summary.total_invalid,
             delta=f"-{vies_summary.total_invalid}" if vies_summary.total_invalid else None, delta_color="inverse")
-        v4.metric(_("vies_kpi_unverified"), vies_summary.total_inconclusive,
-            delta=f"{vies_summary.total_inconclusive}" if vies_summary.total_inconclusive else None, delta_color="off")
+        # NB : total_not_auto_verified (pas total_inconclusive seul) inclut
+        # aussi les replis sur cache périmé (stale_fallback_count) — sans ça
+        # une panne VIES en cours de calcul serait invisible dans ce KPI
+        # alors même que les ventes concernées sont traitées par sécurité
+        # comme B2C, exactement comme un inconclusif classique.
+        v4.metric(_("vies_kpi_unverified"), vies_summary.total_not_auto_verified,
+            delta=f"{vies_summary.total_not_auto_verified}" if vies_summary.total_not_auto_verified else None, delta_color="off")
         v5.metric(_("vies_kpi_recovered_vat"), f"{float(vies_summary.fraud_avoided_amount):,.2f} €")
 
-        # Inconclus
-        if vies_summary.total_inconclusive > 0:
-            st.warning(_("vies_unverified_warning", count=vies_summary.total_inconclusive))
-            if vies_summary.total_inconclusive == vies_summary.total_checked:
+        # Repli sur cache périmé pendant une panne VIES : alerte dédiée,
+        # distincte de l'avertissement inconclusif générique, pour que
+        # l'utilisateur comprenne qu'une indisponibilité VIES a eu lieu
+        # pendant CE calcul (pas seulement "des numéros n'ont jamais pu être
+        # vérifiés").
+        if vies_summary.stale_fallback_count > 0:
+            st.warning(_("vies_stale_fallback_warning", count=vies_summary.stale_fallback_count))
+
+        # Inconclus (y compris les replis sur cache périmé : ils figurent déjà
+        # dans inconclusive_vats/inconclusive_vat_details, voir engine.py ;
+        # sans ce total combiné, un calcul où TOUS les numéros non résolus
+        # sont des stale_fallback ne déclencherait jamais le bloc ci-dessous,
+        # alors que ces numéros ont besoin exactement du même traitement
+        # (reclassification manuelle possible, bouton de nouvel essai).
+        _total_unresolved = vies_summary.total_inconclusive + vies_summary.stale_fallback_count
+        if _total_unresolved > 0:
+            st.warning(_("vies_unverified_warning", count=_total_unresolved))
+            if _total_unresolved == vies_summary.total_checked:
                 st.error(_("vies_unverified_all_error"))
                 if st.button(_("vies_test_btn"), key="test_vies_conn"):
                     from tva_intracom.vies_engine import check_vat
@@ -344,7 +363,7 @@ def render_vies(ctx: TabContext) -> None:
             _gated_download(_("vies_dl_btn"),
                 data=("\ufeff"+buf.getvalue()).encode("utf-8"),
                 file_name=_( "vies_dl_filename", company=nom_entreprise, period=period_label), mime="text/csv")
-        elif vies_summary.total_inconclusive:
+        elif vies_summary.total_inconclusive or vies_summary.stale_fallback_count:
             st.info(_("vies_info_no_invalid"))
         else:
             st.success(_("vies_success_all_valid"))

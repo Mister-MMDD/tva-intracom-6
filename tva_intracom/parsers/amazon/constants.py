@@ -24,6 +24,69 @@ INVOICE_TYPES     : frozenset[str] = frozenset({"invoice"})
 CREDIT_NOTE_TYPES : frozenset[str] = frozenset({"credit_note"})
 
 # ---------------------------------------------------------------------------
+# Colonnes réellement consommées (row.get(...)) par les parseurs formats 1-5,
+# loader.py (_process_rows, INVOICE/CREDIT_NOTE, FC transfers, garde CSV
+# mono-colonne exclue) et aggregate.py (preaggregate_v5).
+#
+# Optimisation RAM (voir loader._read_and_prepare_rows) : un rapport Amazon
+# "brut" peut contenir jusqu'à ~95 colonnes, mais seule une fraction est
+# réellement lue. Sur un CSV de 100k lignes, matérialiser 95 colonnes/ligne
+# en dict Python (via `df.to_dicts()`) plutôt que ce sous-ensemble mesure un
+# pic RAM ~4x plus élevé (profilé : 823 Mo vs 255 Mo pour le pipeline complet
+# sur un rapport synthétique de 60 Mo / 95 colonnes / 100k lignes).
+#
+# IMPORTANT : si un nouveau champ est lu quelque part via row.get("xxx") ou
+# row.get(self._COL_XXX) dans parsers.py / loader.py / aggregate.py, il DOIT
+# être ajouté ici, sinon il sera silencieusement absent de raw_rows (get()
+# renverra toujours None/"" au lieu de lever une erreur). Cette liste a été
+# construite par grep exhaustif sur les deux fichiers + relecture manuelle
+# des constantes _COL_* de _Format5Parser — à revalider si ces fichiers
+# changent.
+# ---------------------------------------------------------------------------
+NEEDED_COLUMNS: frozenset[str] = frozenset({
+    # Identifiants / meta
+    "unique_account_identifier", "marketplace", "program_type",
+    "transaction_type", "transaction_event_id", "activity_transaction_id",
+    "order_id", "transaction_id", "asin", "product_id",
+    "vat_inv_number", "vat_invoice_number",
+    # Dates
+    "tax_calculation_date", "transaction_complete_date",
+    "transaction_settlement_date", "order_date", "shipment_date",
+    # Pays / territoire
+    "departure_country", "arrival_country", "sale_depart_country",
+    "sale_arrival_country", "ship_from_country", "ship_to_country",
+    "arrival_post_code", "ship_to_postal_code", "delivery_postal_code",
+    "ship_to_zip",
+    # TVA acheteur / classification
+    "buyer_vat_number", "buyer_country", "buyer_tax_registration",
+    "buyer_tax_registration_type",
+    # Quantité
+    "qty", "quantity",
+    # Devise / change
+    "transaction_currency_code", "currency", "exchange_rate",
+    "invoice_level_exchange_rate", "invoice_level_exchange_rate_date",
+    "invoice_level_currency_code",
+    # Montants HT (formats 1-4)
+    "total_activity_value_amt_vat_excl", "price_of_items_amt_vat_excl",
+    "total_ship_charge_amt_vat_excl", "total_gift_wrap_amt_vat_excl",
+    "transaction_total_vat_excl_amount",
+    # Montants HT (format 5 — composantes séparées, sommées par aggregate.py)
+    "our_price_tax_exclusive_selling_price",
+    "shipping_tax_exclusive_selling_price",
+    "giftwrap_tax_exclusive_selling_price",
+    "our_price_tax_exclusive_promo_amount",
+    "shipping_tax_exclusive_promo_amount",
+    "giftwrap_tax_exclusive_promo_amount",
+    "our_price_tax_amount", "shipping_tax_amount", "giftwrap_tax_amount",
+    # TVA Amazon (deemed supplier)
+    "total_activity_value_vat_amt",
+    "tax_collection_model", "tax_collection_responsibility",
+    "marketplace_facilitator_tax_collection_model",
+    "tax_reporting_scheme", "jurisdiction_level",
+    # INVOICE / CREDIT_NOTE (écritures de facturation pure)
+})
+
+# ---------------------------------------------------------------------------
 # TVA — placeholders et préfixes UE
 # ---------------------------------------------------------------------------
 

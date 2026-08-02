@@ -39,6 +39,7 @@ import psycopg2.extras
 import psycopg2.pool
 
 from .config import get_secret
+from .database import NonPoolingConnectionPool
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ _cache_lock = threading.Lock()
 # lors de retraitements de fichiers anciens.
 _RETENTION_DAYS = 3650
 
-_pool: Optional["_NonPoolingConnectionPool"] = None
+_pool: Optional["NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
 # Sticky : évite de retenter une connexion Postgres à chaque appel si
 # SUPABASE_DB_URL n'est pas configuré (tests, dev local) ou si la base est
@@ -82,51 +83,7 @@ def _cache_key(currency: str, d: date) -> str:
     return f"{currency.upper()}|{d.isoformat()}"
 
 
-class _NonPoolingConnectionPool:
-    """Voir tva_intracom/auth.py pour l'explication complète : cache d'une
-    connexion par thread (threading.local), réutilisée pour tous les appels
-    d'un même run Streamlit, jamais gardée ouverte entre deux runs —
-    fermée par `close_idle_connections()`, appelé par app.py au tout début
-    de chaque nouveau run.
-    """
-
-    def __init__(self, dsn: str, sslmode: str = "require") -> None:
-        self._dsn = dsn
-        self._sslmode = sslmode
-        self._local = threading.local()
-
-    def getconn(self, *_args, **_kwargs):
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                if conn.closed == 0:
-                    return conn
-            except Exception:
-                pass
-            try:
-                conn.close()
-            except Exception:
-                pass
-            self._local.conn = None
-        conn = psycopg2.connect(self._dsn, sslmode=self._sslmode)
-        self._local.conn = conn
-        return conn
-
-    def putconn(self, conn, *_args, **_kwargs) -> None:
-        # No-op volontaire : connexion réutilisée pour le reste du run.
-        pass
-
-    def closeall(self) -> None:
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
-            self._local.conn = None
-
-
-def _get_pool() -> Optional["_NonPoolingConnectionPool"]:
+def _get_pool() -> Optional["NonPoolingConnectionPool"]:
     global _pool, _db_unavailable
     if _db_unavailable:
         return None
@@ -146,7 +103,7 @@ def _get_pool() -> Optional["_NonPoolingConnectionPool"]:
             _db_unavailable = True
             return None
         try:
-            pool = _NonPoolingConnectionPool(dsn, sslmode="require")
+            pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
             _init_schema(pool)
         except Exception as exc:
             logger.warning(
@@ -172,10 +129,10 @@ def close_idle_connections() -> None:
         try:
             _p.closeall()
         except Exception:
-            pass
+            logger.debug("Fermeture de connexion idle ignorée (déjà invalide).", exc_info=True)
 
 
-def _init_schema(pool: "_NonPoolingConnectionPool") -> None:
+def _init_schema(pool: "NonPoolingConnectionPool") -> None:
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:

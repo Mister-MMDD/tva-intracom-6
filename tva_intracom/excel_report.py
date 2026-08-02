@@ -237,6 +237,24 @@ class _SequentialSheetWriter:
         # posée juste après l'append de la même ligne) ; on l'ignore par sécurité
         # plutôt que de lever une exception qui casserait un export entier.
 
+    def apply_column_widths(self, widths: dict[int, int]) -> None:
+        """Fixe manuellement les largeurs et désactive le tracker automatique."""
+        if self._widths_set:
+            return
+
+        for col_idx, length in widths.items():
+            self._ws.column_dimensions[get_column_letter(col_idx)].width = max(length + 4, 12)
+
+        self._widths_set = True
+        # On vide le buffer vers le mode direct (pending), en gardant la dernière
+        # ligne pour permettre la fixation de sa hauteur juste après cet appel.
+        last = self._buffer.pop() if self._buffer else None
+        for row_num, row_cells, height in self._buffer:
+            self._emit(row_num, row_cells, height)
+        self._buffer = []
+        if last is not None:
+            self._pending = last
+
     def finalize(self) -> None:
         """À appeler après la fin d'écriture d'une feuille (voir export_xlsx).
         `keep_last_pending=False` ici : contrairement au vidage déclenché par
@@ -277,7 +295,17 @@ def _write_recap(
         display_currency: str | None = None,
 ) -> None:
     ws.title = i18n_("xl_tab_recap")
-    _width_tracker = _ColumnWidthTracker()
+
+    # Application forcée des largeurs : on le fait au début pour désactiver le 
+    # tracker automatique qui se fait piéger par les formules (Excel affiche
+    # un montant long "1 234,56 EUR" alors que la valeur stockée est une 
+    # formule courte "=B4+C4").
+    if hasattr(ws, "apply_column_widths"):
+        ws.apply_column_widths({
+            1: 50,  # Libellé
+            2: 30, 3: 30, 4: 30,  # CA Brut, Remb, Net
+            5: 30, 6: 30, 7: 30,  # TVA Brute, Remb, Net
+        })
 
     ws.append([_wcell(ws, i18n_("xl_recap_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
@@ -302,68 +330,83 @@ def _write_recap(
         ws.append([])
 
     # Entêtes de la grille de synthèse
-    headers = [i18n_("xl_recap_col_indicator"), i18n_("xl_recap_col_gross"), i18n_("xl_recap_col_refunds"), i18n_("xl_recap_col_net")]
+    headers = [
+        i18n_("xl_recap_col_indicator"),
+        i18n_("xl_recap_col_ca_brut"), i18n_("xl_recap_col_ca_remb"), i18n_("xl_recap_col_ca_net"),
+        i18n_("xl_recap_col_tva_brute"), i18n_("xl_recap_col_tva_remb"), i18n_("xl_recap_col_tva_nette")
+    ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
     ws.row_dimensions[3].height = 22
-    _width_tracker.observe_row(headers)
 
     _z = Decimal("0.00")
-    ref_fr     = getattr(summary, "refund_fr_domestic_vat", _z)
-    ref_amz    = getattr(summary, "refund_amazon_vat", _z)
-    ref_tot_ht = getattr(summary, "refund_total_ht", _z)          # négatif
-    ref_oss    = sum(summary.refund_oss_by_country.values(), _z) if getattr(summary, "refund_oss_by_country", None) else _z
+    oss_ht_brut = sum(summary.oss_ht_by_country.values(), _z)
+    oss_ht_remb = sum(summary.refund_oss_ht_by_country.values(), _z)
+    oss_vat_brut = sum(summary.oss_by_country.values(), _z)
+    oss_vat_remb = sum(summary.refund_oss_by_country.values(), _z)
 
-    oss_brut    = sum(summary.oss_by_country.values(), _z) if summary.oss_by_country else _z
-    local_brut  = sum(summary.local_by_country.values(), _z) if summary.local_by_country else _z
-    ref_local   = sum(summary.refund_local_by_country.values(), _z) if getattr(summary, "refund_local_by_country", None) else _z
+    local_ht_brut = sum(summary.local_ht_by_country.values(), _z)
+    local_ht_remb = sum(summary.refund_local_ht_by_country.values(), _z)
+    local_vat_brut = sum(summary.local_by_country.values(), _z)
+    local_vat_remb = sum(summary.refund_local_by_country.values(), _z)
 
-    # Libellé du poste "domestique pays d'origine" : dynamique dès que le
-    # compte n'est pas rattaché à la France (home_country ≠ FR) — voir
-    # README section "Pays d'origine du compte".
+    # Libellé du poste "domestique pays d'origine"
     if (seller_country or "FR").upper() == "FR":
         _home_label = i18n_("xl_indicator_vat_fr")
     else:
         _home_label = i18n_("xl_indicator_vat_home_generic", country=_get_country_name(seller_country))
 
-    # [Libellé, Montant Brut (positif), Remboursements (négatif ou 0)]
+    # [Libellé, HT Brut, HT Remb, TVA Brut, TVA Remb]
     data_structure = [
-        (i18n_("xl_indicator_ca_ht"),          summary.total_ht,          ref_tot_ht),
-        (_home_label,                      summary.fr_domestic_vat,   ref_fr),
-        (i18n_("xl_indicator_vat_oss"),        oss_brut,                  ref_oss),
-        (i18n_("xl_indicator_vat_amazon"),     summary.amazon_vat,        ref_amz),
-        (i18n_("xl_indicator_vat_local"),      local_brut,                ref_local),
-        (i18n_("xl_indicator_vat_import"),     summary.import_vat,        _z),
-        (i18n_("xl_indicator_b2b_exempt"),     summary.reverse_charge_ht, _z),
-        (i18n_("xl_indicator_export_exempt"),   summary.export_ht,         _z),
+        (i18n_("xl_indicator_ca_ht"),          summary.total_ht,          summary.refund_total_ht,   _z,                       _z),
+        (_home_label,                      summary.fr_domestic_ht,    summary.refund_fr_domestic_ht, summary.fr_domestic_vat, summary.refund_fr_domestic_vat),
+        (i18n_("xl_indicator_vat_oss"),        oss_ht_brut,               oss_ht_remb,               oss_vat_brut,             oss_vat_remb),
+        (i18n_("xl_indicator_vat_amazon"),     summary.amazon_ht,         summary.refund_amazon_ht,  summary.amazon_vat,       summary.refund_amazon_vat),
+        (i18n_("xl_indicator_vat_local"),      local_ht_brut,             local_ht_remb,             local_vat_brut,           local_vat_remb),
+        (i18n_("xl_indicator_vat_import"),     summary.import_ht,         summary.refund_import_ht,  summary.import_vat,       summary.refund_import_vat),
+        (i18n_("xl_indicator_b2b_exempt"),     summary.reverse_charge_ht, summary.refund_reverse_charge_ht, _z,                _z),
+        (i18n_("xl_indicator_export_exempt"),   summary.export_ht,         summary.refund_export_ht,  _z,                       _z),
     ]
 
     current_row = 4
-    # Mémoriser dynamiquement les numéros de ligne des postes qui entrent dans le
-    # total vendeur : CA3 (TVA FR), OSS, et TVA Locale. Les indices hardcodés
-    # casseraient silencieusement si on insère ou réordonne une ligne.
     _row_ca3: int | None = None
     _row_oss: int | None = None
     _row_local: int | None = None
 
-    for idx, (label, brut_val, refund_val) in enumerate(data_structure):
-        _brut_f = float(_conv(brut_val))
-        _ref_f = float(_conv(refund_val))
-        _vals = [label, _brut_f, _ref_f, f"=B{current_row}+C{current_row}"]
-        ws.append([
-            _wcell(ws, label),
-            _wcell(ws, _brut_f, number_format=_fmt_home),
-            _wcell(ws, _ref_f, number_format=_fmt_home),
-            _wcell(ws, f"=B{current_row}+C{current_row}", number_format=_fmt_home, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL),
-        ])
-        ws.row_dimensions[current_row].height = 18
-        _width_tracker.observe_row(_vals)
+    for idx, (label, ht_brut, ht_remb, vat_brut, vat_remb) in enumerate(data_structure):
+        _hb_f = float(_conv(ht_brut))
+        _hr_f = float(_conv(ht_remb))
+        _vb_f = float(_conv(vat_brut))
+        _vr_f = float(_conv(vat_remb))
+        
+        # Lignes HT uniquement : CA global (0), B2B exonéré (6), Export (7)
+        is_ht_only_row = idx in (0, 6, 7)
 
-        # Capturer les numéros de ligne des postes inclus dans le total vendeur
-        if idx == 1: _row_ca3   = current_row  # TVA France CA3
-        if idx == 2: _row_oss   = current_row  # TVA OSS
-        if idx == 4: _row_local = current_row  # TVA Locale
+        # Construction des cellules de la ligne
+        row_cells = [
+            _wcell(ws, label),
+            _wcell(ws, _hb_f, number_format=_fmt_home),
+            _wcell(ws, _hr_f, number_format=_fmt_home),
+            _wcell(ws, f"=B{current_row}+C{current_row}", number_format=_fmt_home, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL),
+        ]
+
+        if is_ht_only_row:
+            # Pour ces lignes, on laisse les colonnes TVA vides
+            row_cells.extend([_wcell(ws, None), _wcell(ws, None), _wcell(ws, None)])
+        else:
+            row_cells.extend([
+                _wcell(ws, _vb_f, number_format=_fmt_home),
+                _wcell(ws, _vr_f, number_format=_fmt_home),
+                _wcell(ws, f"=E{current_row}+F{current_row}", number_format=_fmt_home, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL),
+            ])
+
+        ws.append(row_cells)
+        ws.row_dimensions[current_row].height = 18
+
+        if idx == 1: _row_ca3   = current_row
+        if idx == 2: _row_oss   = current_row
+        if idx == 4: _row_local = current_row
 
         current_row += 1
 
@@ -371,24 +414,19 @@ def _write_recap(
     ws.append([])
     current_row += 1
 
-    # Formules dynamiques : CA3 + OSS + Local (Amazon et Import exclus — collectés par tiers)
-    _total_brut_formula  = f"=B{_row_ca3}+B{_row_oss}+B{_row_local}"
-    _total_refund_formula = f"=C{_row_ca3}+C{_row_oss}+C{_row_local}"
+    _tva_brute_formula = f"=E{_row_ca3}+E{_row_oss}+E{_row_local}"
+    _tva_remb_formula  = f"=F{_row_ca3}+F{_row_oss}+F{_row_local}"
 
     ws.append([
         _wcell(ws, i18n_("xl_recap_total_remit"), font=_BOLD_FONT),
-        _wcell(ws, _total_brut_formula, number_format=_fmt_home, font=_BOLD_FONT),
-        _wcell(ws, _total_refund_formula, number_format=_fmt_home, font=_BOLD_FONT),
-        _wcell(ws, f"=B{current_row}+C{current_row}", number_format=_fmt_home, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL),
+        _wcell(ws, None), _wcell(ws, None), _wcell(ws, None), # Pas de total CA ici
+        _wcell(ws, _tva_brute_formula, number_format=_fmt_home, font=_BOLD_FONT),
+        _wcell(ws, _tva_remb_formula, number_format=_fmt_home, font=_BOLD_FONT),
+        _wcell(ws, f"=E{current_row}+F{current_row}", number_format=_fmt_home, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL),
     ])
     ws.row_dimensions[current_row].height = 20
 
-    # ── Contrôle de cohérence comptable (ht_by_bucket) ─────────────────────
-    # Miroir de l'encart Streamlit (app.py) : ventilation HT exhaustive et
-    # mutuellement exclusive par canal fiscal (report.py::ht_by_bucket),
-    # calculée indépendamment du total ci-dessus. Permet au cabinet
-    # comptable de retrouver le même contrôle d'intégrité dans le livrable
-    # Excel, sans avoir accès à l'interface Streamlit.
+    # ── Contrôle de cohérence comptable ────────────────────────────────────
     ws.append([])
     ws.append([])
     current_row += 3
@@ -399,66 +437,48 @@ def _write_recap(
     ws.append([])
     current_row += 2
 
-    _bucket_header_row = current_row
-    _headers_bucket = [i18n_("xl_audit_col_channel"), i18n_("xl_audit_col_control")]
+    # Tableau de vérification (tel que demandé par l'utilisateur)
+    _headers_audit = [i18n_("xl_audit_col_indicator"), i18n_("xl_audit_col_control")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                       alignment=Alignment(horizontal="center", vertical="center"))
-               for t in _headers_bucket])
-    _width_tracker.observe_row(_headers_bucket)
+               for t in _headers_audit])
     current_row += 1
-    _bucket_first_data_row = current_row
-    net_ht_by_bucket = getattr(summary, "net_ht_by_bucket", {})
-    for _bucket_label_, _bucket_val in net_ht_by_bucket.items():
-        if _bucket_val == 0:
-            continue
-        _bucket_conv = float(_conv(_bucket_val))
-        _is_other = _bucket_label_ == "Autre / non classé"
-        _vals_bucket = [_bucket_label_, _bucket_conv]
-        ws.append([
-            _wcell(ws, _bucket_label_, font=_BOLD_FONT if _is_other else None),
-            _wcell(ws, _bucket_conv, number_format=_fmt_home, fill=_ORANGE_HEADER_FILL if _is_other else None),
-        ])
-        _width_tracker.observe_row(_vals_bucket)
-        current_row += 1
-    _bucket_last_data_row = max(current_row - 1, _bucket_first_data_row)
 
-    ws.append([])
-    current_row += 1
+    # Ligne : Total CA HT (somme des canaux)
+    _bucket_net_ht = float(_conv(summary.net_ht_total))
     ws.append([
         _wcell(ws, i18n_("xl_audit_total_ht"), font=_BOLD_FONT),
-        _wcell(ws, f"=SUM(B{_bucket_first_data_row}:B{_bucket_last_data_row})", number_format=_fmt_home, font=_BOLD_FONT),
+        _wcell(ws, _bucket_net_ht, number_format=_fmt_home, font=_BOLD_FONT),
     ])
-
     current_row += 1
+
+    # Ligne : CA HT net déclaré
     _declared_net_ht = float(_conv(summary.total_ht + summary.refund_total_ht))
     ws.append([
         _wcell(ws, i18n_("xl_audit_declared_net_ht")),
         _wcell(ws, _declared_net_ht, number_format=_fmt_home),
     ])
-
     current_row += 1
+
+    # Ligne : Écart de réconciliation
     ws.append([
         _wcell(ws, i18n_("xl_audit_reconciliation_gap"), font=_BOLD_FONT),
         _wcell(ws, f"=B{current_row - 1}-B{current_row - 2}", number_format=_fmt_home, font=_BOLD_FONT),
     ])
+    current_row += 1
 
-    # --- Injection des Hash Totals techniques en fin de tableau ---
     if hash_totals:
         ws.append([])
-        ws.append([])
-        current_row += 2
+        current_row += 1
         ws.append([
             _wcell(ws, i18n_("xl_audit_total_rows")),
             _wcell(ws, hash_totals.get("count", 0), font=Font(name="Courier New")),
         ])
-
         current_row += 1
         ws.append([
             _wcell(ws, i18n_("xl_audit_file_signature")),
             _wcell(ws, hash_totals.get("id_hash", 0), font=Font(name="Courier New", bold=True)),
         ])
-
-    _width_tracker.apply(ws)
 
 
 def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bool = False, display_currency: str = "EUR") -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Dict, List, Optional, Set
@@ -9,6 +10,8 @@ from typing import Dict, List, Optional, Set
 from .i18n import _
 from .models import Channel, Collector, Scenario, VatResult
 from .rates import is_eu
+
+logger = logging.getLogger(__name__)
 
 _ZERO = Decimal("0.00")
 
@@ -19,6 +22,16 @@ class ReportSummary:
 
     total_ht: Decimal = _ZERO
 
+    # HT par canal (Brut)
+    fr_domestic_ht: Decimal = _ZERO
+    oss_ht_by_country: Dict[str, Decimal] = field(default_factory=dict)
+    local_ht_by_country: Dict[str, Decimal] = field(default_factory=dict)
+    ioss_ht: Decimal = _ZERO
+    amazon_ht: Decimal = _ZERO
+    import_ht: Decimal = _ZERO
+    reverse_charge_ht: Decimal = _ZERO                    # B2B exonere (HT)
+    export_ht: Decimal = _ZERO                            # export hors UE (HT)
+
     # TVA que VOUS devez reverser.
     fr_domestic_vat: Decimal = _ZERO                      # CA3 France
     oss_by_country: Dict[str, Decimal] = field(default_factory=dict)  # via OSS (FR)
@@ -28,15 +41,24 @@ class ReportSummary:
     # TVA geree par d'autres / sans reversement de votre part.
     amazon_vat: Decimal = _ZERO                           # deemed supplier
     import_vat: Decimal = _ZERO                           # due en douane par l'importateur
-    reverse_charge_ht: Decimal = _ZERO                    # B2B exonere (HT)
-    export_ht: Decimal = _ZERO                            # export hors UE (HT)
 
     # Remboursements (montants négatifs, ventilés par canal).
     refund_total_ht: Decimal = _ZERO                      # CA HT remboursé (négatif)
+    refund_fr_domestic_ht: Decimal = _ZERO
+    refund_oss_ht_by_country: Dict[str, Decimal] = field(default_factory=dict)
+    refund_local_ht_by_country: Dict[str, Decimal] = field(default_factory=dict)
+    refund_ioss_ht: Decimal = _ZERO
+    refund_amazon_ht: Decimal = _ZERO
+    refund_import_ht: Decimal = _ZERO
+    refund_reverse_charge_ht: Decimal = _ZERO
+    refund_export_ht: Decimal = _ZERO
+
     refund_fr_domestic_vat: Decimal = _ZERO               # TVA FR à déduire (négatif)
     refund_oss_by_country: Dict[str, Decimal] = field(default_factory=dict)  # TVA OSS à déduire
     refund_local_by_country: Dict[str, Decimal] = field(default_factory=dict)
     refund_amazon_vat: Decimal = _ZERO                    # TVA Amazon remboursée
+    refund_import_vat: Decimal = _ZERO
+    refund_ioss_vat: Decimal = _ZERO
     refund_count: int = 0
 
     # Ventilation mensuelle NETTE (ventes + remboursements déjà combinés,
@@ -176,10 +198,14 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
         summary.refund_total_ht += ht
         summary.refund_count += 1
         if r.channel == Channel.FR_DOMESTIC:
+            summary.refund_fr_domestic_ht += ht
             summary.refund_fr_domestic_vat += r.vat_amount
             if month:
                 summary.fr_domestic_by_month[month] = summary.fr_domestic_by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.OSS:
+            summary.refund_oss_ht_by_country[r.vat_country] = (
+                    summary.refund_oss_ht_by_country.get(r.vat_country, _ZERO) + ht
+            )
             summary.refund_oss_by_country[r.vat_country] = (
                     summary.refund_oss_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
@@ -187,14 +213,29 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
                 by_month = summary.oss_by_country_month.setdefault(r.vat_country, {})
                 by_month[month] = by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.LOCAL_REGISTRATION:
+            summary.refund_local_ht_by_country[r.vat_country] = (
+                    summary.refund_local_ht_by_country.get(r.vat_country, _ZERO) + ht
+            )
             summary.refund_local_by_country[r.vat_country] = (
                     summary.refund_local_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
             if month:
                 by_month = summary.local_by_country_month.setdefault(r.vat_country, {})
                 by_month[month] = by_month.get(month, _ZERO) + r.vat_amount
+        
+        if r.channel == Channel.IOSS:
+            summary.refund_ioss_ht += ht
+            summary.refund_ioss_vat += r.vat_amount
         if r.collector == Collector.AMAZON:
+            summary.refund_amazon_ht += ht
             summary.refund_amazon_vat += r.vat_amount
+        if r.scenario == Scenario.B2B_REVERSE_CHARGE:
+            summary.refund_reverse_charge_ht += ht
+        if r.scenario == Scenario.EXPORT:
+            summary.refund_export_ht += ht
+        if r.scenario == Scenario.IMPORT_STANDARD:
+            summary.refund_import_ht += ht
+            summary.refund_import_vat += r.vat_amount
     else:
         summary.total_ht += ht
         stock = r.sale.stock_country
@@ -203,10 +244,14 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
             summary.stock_countries_requiring_registration.add(stock)
 
         if r.channel == Channel.FR_DOMESTIC:
+            summary.fr_domestic_ht += ht
             summary.fr_domestic_vat += r.vat_amount
             if month:
                 summary.fr_domestic_by_month[month] = summary.fr_domestic_by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.OSS:
+            summary.oss_ht_by_country[r.vat_country] = (
+                    summary.oss_ht_by_country.get(r.vat_country, _ZERO) + ht
+            )
             summary.oss_by_country[r.vat_country] = (
                     summary.oss_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
@@ -214,6 +259,9 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
                 by_month = summary.oss_by_country_month.setdefault(r.vat_country, {})
                 by_month[month] = by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.LOCAL_REGISTRATION:
+            summary.local_ht_by_country[r.vat_country] = (
+                    summary.local_ht_by_country.get(r.vat_country, _ZERO) + ht
+            )
             summary.local_by_country[r.vat_country] = (
                     summary.local_by_country.get(r.vat_country, _ZERO) + r.vat_amount
             )
@@ -221,14 +269,18 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
                 by_month = summary.local_by_country_month.setdefault(r.vat_country, {})
                 by_month[month] = by_month.get(month, _ZERO) + r.vat_amount
         elif r.channel == Channel.IOSS:
+            summary.ioss_ht += ht
             summary.ioss_vat += r.vat_amount
+        
         if r.collector == Collector.AMAZON:
+            summary.amazon_ht += ht
             summary.amazon_vat += r.vat_amount
         if r.scenario == Scenario.B2B_REVERSE_CHARGE:
             summary.reverse_charge_ht += ht
         if r.scenario == Scenario.EXPORT:
             summary.export_ht += ht
         if r.scenario == Scenario.IMPORT_STANDARD:
+            summary.import_ht += ht
             summary.import_vat += r.vat_amount
 
 
@@ -276,19 +328,33 @@ def render_report(summary: ReportSummary, seller_country: str = "FR") -> str:
     currency = COUNTRY_CURRENCIES.get((seller_country or "FR").upper(), "EUR")
     conv_date = _date.today()
 
-    def _conv(amount: Decimal) -> Decimal:
+    def _conv(amount: Decimal) -> tuple[Decimal, str]:
+        """Retourne (montant, devise réellement utilisée pour l'affichage).
+
+        En cas d'échec de récupération du taux BCE, on revient explicitement
+        à l'EUR — à la fois dans le montant ET dans le libellé de devise —
+        plutôt que d'afficher le montant EUR non converti sous l'étiquette
+        de la devise locale (ce qui laissait auparavant croire, à tort, que
+        la conversion avait eu lieu).
+        """
         if not currency or currency == "EUR":
-            return amount
+            return amount, "EUR"
         try:
             converted, _rate, _info = ecb_rates.convert_to_currency(
                 amount, "EUR", currency, conv_date,
             )
-            return converted
-        except Exception:
-            return amount
+            return converted, currency
+        except Exception as exc:
+            logger.warning(
+                "Conversion %s->%s indisponible (%s) : repli sur montant EUR "
+                "non converti, affiché avec le libellé EUR.",
+                "EUR", currency, exc,
+            )
+            return amount, "EUR"
 
     def _f(amount: Decimal) -> str:
-        return _fmt(_conv(amount), currency)
+        converted, display_currency = _conv(amount)
+        return _fmt(converted, display_currency)
 
     lines: List[str] = []
     lines.append("=" * 64)

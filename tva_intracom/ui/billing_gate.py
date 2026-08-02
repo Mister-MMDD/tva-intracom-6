@@ -246,9 +246,24 @@ class BillingGate:
             return
 
         # Priorité 3 : Affichage du bouton de téléchargement (avec warning VIES éventuel)
-        if self.vies_summary and self.vies_summary.total_inconclusive > 0:
+        #
+        # Le compteur affiché reflète tout ce qui N'EST PAS une vérification
+        # automatique fraîche (VIES ou cache dans le TTL) : overrides manuels,
+        # replis sur cache périmé pendant une panne VIES, et inconclusifs purs.
+        # Avant ce correctif, seuls les inconclusifs purs étaient comptés —
+        # les overrides manuels et les replis sur cache périmé étaient
+        # silencieusement traités comme des vérifications automatiques.
+        if self.vies_summary and self.vies_summary.total_not_auto_verified > 0:
             st.warning(
-                _("gate_vies_warning", label=label, count=self.vies_summary.total_inconclusive)
+                _(
+                    "gate_vies_warning",
+                    label=label,
+                    auto_verified=self.vies_summary.total_auto_verified,
+                    total=self.vies_summary.total_checked,
+                    manual=self.vies_summary.manual_override_count,
+                    stale=self.vies_summary.stale_fallback_count,
+                    inconclusive=self.vies_summary.inconclusive_count,
+                )
             )
         st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
 

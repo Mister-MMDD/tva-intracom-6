@@ -48,7 +48,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _dc_replace
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -166,6 +166,17 @@ class ViesResult:
     name: str = ""
     address: str = ""
     error: str = ""
+    # Date de dernière vérification connue (ISO 8601 UTC), renseignée quand le
+    # résultat provient du cache (scope ou global) ; vide pour un résultat
+    # tout juste obtenu de l'API VIES.
+    checked_at: str = ""
+    # True si ce résultat n'est PAS une vérification fraîche mais un repli sur
+    # une entrée de cache déjà expirée (TTL dépassé), utilisée uniquement
+    # parce que l'API VIES était indisponible au moment du calcul. Un tel
+    # résultat ne doit jamais être traité comme une confirmation automatique
+    # fiable : voir engine.py (is_inconclusive) qui le traite comme un
+    # inconclusif classique (B2C par défaut, motif affiché à l'utilisateur).
+    stale_fallback: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -234,42 +245,13 @@ def _parse_flexible_date(s: str) -> datetime:
 # ---------------------------------------------------------------------------
 
 from .config import get_secret
+from .database import NonPoolingConnectionPool
 
-_pool: Optional["_NonPoolingConnectionPool"] = None
+_pool: Optional["NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
 
 
-class _NonPoolingConnectionPool:
-    """Voir tva_intracom/auth.py pour l'explication complète : remplace un
-    pool persistant par un objet à la même API (`getconn()`/`putconn()`/
-    `closeall()`) qui n'accumule jamais de connexion — chaque `getconn()`
-    ouvre une connexion neuve, chaque `putconn()` la ferme réellement.
-
-    Compatible avec l'usage concurrent de ce module (jusqu'à 25 workers
-    ThreadPoolExecutor pour la validation VIES parallèle,
-    voir validate_vat_numbers_parallel) : psycopg2.connect() est thread-safe
-    à l'appel (chaque thread obtient sa propre connexion indépendante), il
-    n'y a plus de notion de slots de pool à se partager entre threads.
-    """
-
-    def __init__(self, dsn: str, sslmode: str = "require") -> None:
-        self._dsn = dsn
-        self._sslmode = sslmode
-
-    def getconn(self, *_args, **_kwargs):
-        return psycopg2.connect(self._dsn, sslmode=self._sslmode)
-
-    def putconn(self, conn, *_args, **_kwargs) -> None:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-    def closeall(self) -> None:
-        pass
-
-
-def _get_pool() -> "_NonPoolingConnectionPool":
+def _get_pool() -> "NonPoolingConnectionPool":
     global _pool
     if _pool is None:
         with _pool_lock:
@@ -281,7 +263,12 @@ def _get_pool() -> "_NonPoolingConnectionPool":
                         "base du cache VIES. Configurez ce secret côté Streamlit Cloud "
                         "(même valeur que pour auth.py / billing.py)."
                     )
-                pool = _NonPoolingConnectionPool(dsn, sslmode="require")
+                # cache_connection=False : compatible avec l'usage concurrent de ce
+                # module (jusqu'à 25 workers ThreadPoolExecutor pour la validation
+                # VIES parallèle, voir validate_vat_numbers_parallel) — chaque
+                # getconn() ouvre une connexion neuve, chaque putconn() la ferme
+                # réellement ; pas de notion de connexion partagée entre threads.
+                pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=False)
                 _init_schema(pool)
                 _pool = pool
     return _pool
@@ -289,8 +276,8 @@ def _get_pool() -> "_NonPoolingConnectionPool":
 
 def close_idle_connections() -> None:
     """Conservé pour compatibilité d'API (appelé par app.py) : sans effet
-    utile désormais puisque `_NonPoolingConnectionPool` ne garde jamais de
-    connexion ouverte entre deux appels.
+    utile désormais puisque `NonPoolingConnectionPool(cache_connection=False)`
+    ne garde jamais de connexion ouverte entre deux appels.
     """
     global _pool
     with _pool_lock:
@@ -298,11 +285,11 @@ def close_idle_connections() -> None:
             try:
                 _pool.closeall()
             except Exception:
-                pass
+                logger.debug("Fermeture de pool VIES ignorée (déjà invalide).", exc_info=True)
             _pool = None
 
 
-def _init_schema(pool: "_NonPoolingConnectionPool") -> None:
+def _init_schema(pool: "NonPoolingConnectionPool") -> None:
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
@@ -392,10 +379,19 @@ def _conn() -> _ConnCtx:
 # ---------------------------------------------------------------------------
 
 def _row_to_result(row) -> ViesResult:
-    valid, cc, num, name, addr, err = row
+    """Accepte soit 6 colonnes (valid..error, ancien usage), soit 7
+    (valid..error, checked_at) — le 7e élément, s'il est présent, est reporté
+    dans ViesResult.checked_at pour permettre l'affichage de la date de
+    dernière vérification connue en cas de repli sur cache périmé."""
+    if len(row) >= 7:
+        valid, cc, num, name, addr, err, checked_at = row[:7]
+    else:
+        valid, cc, num, name, addr, err = row
+        checked_at = None
     return ViesResult(
         valid=bool(valid), country_code=cc, vat_number=num,
-        name=_dec(name), address=_dec(addr), error=err or ""
+        name=_dec(name), address=_dec(addr), error=err or "",
+        checked_at=checked_at.isoformat() if checked_at else "",
     )
 
 
@@ -409,7 +405,7 @@ def _db_get_scope(scope_id: str, vat_id: str) -> tuple[Optional[ViesResult], boo
         row = cur.fetchone()
     if row is None:
         return None, False
-    result = _row_to_result(row[:6])
+    result = _row_to_result(row[:7])
     return result, not _is_expired(row[6], scope_id)
 
 
@@ -423,7 +419,7 @@ def _db_get_global(vat_id: str) -> tuple[Optional[ViesResult], bool]:
         row = cur.fetchone()
     if row is None:
         return None, False
-    result = _row_to_result(row[:6])
+    result = _row_to_result(row[:7])
     return result, not _is_expired(row[6])
 
 
@@ -495,7 +491,7 @@ def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[Vi
     out: dict[str, tuple[ViesResult, bool]] = {}
     for row in rows:
         vat_id, checked_at = row[0], row[7]
-        out[vat_id] = (_row_to_result(row[1:7]), not _is_expired(checked_at, scope_id))
+        out[vat_id] = (_row_to_result(row[1:8]), not _is_expired(checked_at, scope_id))
     return out
 
 
@@ -513,7 +509,7 @@ def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool
     out: dict[str, tuple[ViesResult, bool]] = {}
     for row in rows:
         vat_id, checked_at = row[0], row[7]
-        out[vat_id] = (_row_to_result(row[1:7]), not _is_expired(checked_at))
+        out[vat_id] = (_row_to_result(row[1:8]), not _is_expired(checked_at))
     return out
 
 
@@ -1198,8 +1194,12 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
         if _is_unreliable(res):
             fallback = cached if cached is not None else global_cached
             if fallback is not None:
-                logger.info("VIES instable pour %s — résultat en cache conservé.", _mask_vat(norm))
-                return fallback
+                logger.info(
+                    "VIES instable pour %s — repli sur cache périmé (marqué non-fiable, "
+                    "dernière vérification connue : %s).",
+                    _mask_vat(norm), fallback.checked_at or "date inconnue",
+                )
+                return _dc_replace(fallback, stale_fallback=True)
             return res
 
         if cached is not None and _is_downgrade(cached, res):
@@ -1345,9 +1345,11 @@ def validate_vat_numbers_parallel(
                 fb = fallback_cache.get(norm_id)
                 if fb is not None:
                     logger.info(
-                        "VIES instable pour %s — entrée en cache utilisée comme repli.", norm_id,
+                        "VIES instable pour %s — repli sur cache périmé (marqué non-fiable, "
+                        "dernière vérification connue : %s).",
+                        norm_id, fb.checked_at or "date inconnue",
                     )
-                    results[orig_id] = fb
+                    results[orig_id] = _dc_replace(fb, stale_fallback=True)
                 else:
                     results[orig_id] = ViesResult(
                         valid=False, country_code=result.country_code,

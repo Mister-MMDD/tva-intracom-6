@@ -29,6 +29,7 @@ from .constants import (
     CREDIT_NOTE_TYPES,
     INBOUND_TYPES,
     INVOICE_TYPES,
+    NEEDED_COLUMNS,
     REFUND_TYPES,
     SALE_TYPES,
     TRANSFER_TYPES,
@@ -128,7 +129,21 @@ def _process_rows(
         progress_step: fréquence d'appel du callback, en nombre de lignes.
     """
     total = len(rows_to_process)
-    for processed, (line_no, row) in enumerate(rows_to_process, start=1):
+    for processed in range(1, total + 1):
+        idx = processed - 1
+        line_no, row = rows_to_process[idx]
+        # Optimisation RAM : `rows_to_process` reste référencé par l'appelant
+        # (load_amazon_report) le temps de cette boucle. Sans ce nettoyage,
+        # chaque dict brut (`row`) resterait vivant via la liste jusqu'à la
+        # toute fin du traitement, en plus des objets `Sale` déjà accumulés
+        # dans `result.sales`/`result.refunds` — les deux structures
+        # coexistant en RAM pendant toute la durée du parsing. On remplace
+        # l'entrée consommée par None dès qu'elle n'est plus utile, pour que
+        # le dict devienne récupérable par le GC immédiatement plutôt qu'en
+        # fin de fonction. Le format 5 (rows_to_process = lignes AGRÉGÉES
+        # par preaggregate_v5, distinctes de raw_rows) bénéficie aussi de ce
+        # nettoyage.
+        rows_to_process[idx] = None
         if progress_callback is not None and (
             processed % progress_step == 0 or processed == total
         ):
@@ -447,21 +462,42 @@ def _read_and_prepare_rows(
         # Repli automatique sur pandas puis csv.DictReader en cas d'échec.
         # ------------------------------------------------------------------
         raw_rows: list[dict] = []
+        # `full_headers` : ensemble COMPLET des colonnes du fichier après
+        # normalisation, capturé AVANT tout filtrage de colonnes — utilisé
+        # pour la détection de format (detect_format), le garde-fou CSV
+        # mono-colonne et les warnings de colonnes manquantes, qui doivent
+        # voir la totalité des colonnes source, pas seulement le
+        # sous-ensemble utile à l'extraction.
+        full_headers: set[str] = set()
         try:
             import polars as pl
             # On lit tout en string pour garder la cohérence avec le reste du moteur
             df = pl.read_csv(handle, separator=sep, infer_schema_length=0, encoding=encoding)
             df = df.rename({c: normalize_header(c) for c in df.columns})
+            full_headers = set(df.columns)
+            # Optimisation RAM : ne garder que les colonnes réellement lues
+            # par les parseurs/loader/aggregate (voir NEEDED_COLUMNS dans
+            # constants.py) AVANT de matérialiser les dicts Python. Sur un
+            # rapport Amazon à ~95 colonnes dont seule une fraction (~25)
+            # est utilisée, ça divise par ~4 le poids de `raw_rows` (mesuré :
+            # 823 Mo → 255 Mo de pic RAM sur un pipeline complet, 100k
+            # lignes / 60 Mo). Filet de sécurité : si l'intersection est
+            # vide (fichier totalement hors format connu), on ne filtre pas
+            # — on laisse `detect_format`/les warnings faire leur travail
+            # sur le DataFrame complet plutôt que de le vider silencieusement.
+            _keep_cols = [c for c in df.columns if c in NEEDED_COLUMNS]
+            if _keep_cols:
+                df = df.select(_keep_cols)
             raw_rows = df.to_dicts()
-            # Optimisation RAM : une fois `raw_rows` construit, le DataFrame
-            # polars ne sert plus à rien mais restait vivant jusqu'à la fin
-            # de la fonction (portée locale) — sur un gros rapport Amazon
-            # (plusieurs centaines de milliers de lignes), ça faisait
-            # coexister inutilement le DataFrame ET sa conversion en liste
-            # de dicts (elle-même plus lourde en RAM que le DataFrame, à
-            # cause de l'overhead par-cellule/par-dict de CPython) pendant
-            # tout le reste du parsing (détection de format, préagrégation
-            # v5...). On le libère dès que possible.
+            # Une fois `raw_rows` construit, le DataFrame polars ne sert
+            # plus à rien mais restait vivant jusqu'à la fin de la fonction
+            # (portée locale) — sur un gros rapport Amazon (plusieurs
+            # centaines de milliers de lignes), ça faisait coexister
+            # inutilement le DataFrame ET sa conversion en liste de dicts
+            # (elle-même plus lourde en RAM que le DataFrame, à cause de
+            # l'overhead par-cellule/par-dict de CPython) pendant tout le
+            # reste du parsing (détection de format, préagrégation v5...).
+            # On le libère dès que possible.
             del df
         except Exception as exc_polars:
             logger.debug("Lecture polars échouée (%s), tentative pandas.", exc_polars)
@@ -478,8 +514,13 @@ def _read_and_prepare_rows(
                     on_bad_lines="warn",
                 )
                 df_pd.columns = [normalize_header(str(c)) for c in df_pd.columns]
+                full_headers = set(df_pd.columns)
+                # cf. commentaire équivalent sur le chemin polars ci-dessus
+                _keep_cols = [c for c in df_pd.columns if c in NEEDED_COLUMNS]
+                if _keep_cols:
+                    df_pd = df_pd[_keep_cols]
                 raw_rows = df_pd.to_dict("records")
-                del df_pd  # cf. commentaire équivalent sur le chemin polars ci-dessus
+                del df_pd
             except Exception as exc_pandas:
                 logger.warning(
                     "Lecture pandas du CSV échouée (%s) — repli sur csv.DictReader.", exc_pandas
@@ -489,12 +530,26 @@ def _read_and_prepare_rows(
                 raw_fieldnames = reader.fieldnames
                 if raw_fieldnames:
                     reader.fieldnames = [normalize_header(f) for f in raw_fieldnames]
+                    full_headers = set(reader.fieldnames)
+                # Filtrage à la volée : csv.DictReader ne construit qu'un
+                # seul dict à la fois, donc contrairement aux chemins
+                # polars/pandas ce filtrage ne réduit pas un pic transitoire
+                # (il n'y en a pas ici) mais réduit directement la taille de
+                # `raw_rows` conservé en mémoire jusqu'à la fin du parsing.
+                # Filet de sécurité identique aux chemins polars/pandas : si
+                # aucune colonne connue ne matche (fichier hors format), on
+                # ne filtre pas plutôt que de vider silencieusement les lignes.
+                _any_known_col = any(h in NEEDED_COLUMNS for h in full_headers)
                 raw_rows = [
-                    {normalize_header(k): v for k, v in row.items() if k}
+                    {
+                        normalize_header(k): v
+                        for k, v in row.items()
+                        if k and (not _any_known_col or normalize_header(k) in NEEDED_COLUMNS)
+                    }
                     for row in reader
                 ]
 
-        headers = set(raw_rows[0].keys()) if raw_rows else set()
+        headers = full_headers or (set(raw_rows[0].keys()) if raw_rows else set())
 
         # --- Détection d'un CSV fusionné en une seule colonne ---
         # Cas classique : le fichier Amazon (colonnes séparées par des
