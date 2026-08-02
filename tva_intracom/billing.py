@@ -24,8 +24,42 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.pool
-import streamlit as st
 import threading
+
+# IMPORTANT : streamlit n'est PAS installé dans l'environnement serverless
+# Vercel qui charge ce module isolément pour le webhook Stripe (voir
+# vercel_webhook/api/stripe_webhook.py) — volontairement, pour rester léger.
+# Sans ce garde-fou, `import streamlit as st` plantait tout le webhook avec
+# ModuleNotFoundError avant même d'exécuter la moindre ligne de logique
+# métier (bug constaté en prod le 02/08/2026, paiement Stripe validé côté
+# Stripe mais webhook en 500 côté Vercel). Même pattern déjà en place dans
+# tva_intracom/config.py pour get_secret().
+#
+# Seul usage de `st` dans ce module : le décorateur `@st.cache_data` sur 3
+# fonctions (get_subscription_status, list_available_promotions,
+# get_pricing_grid) — utile uniquement côté app Streamlit (mise en cache
+# entre reruns UI). Côté webhook Vercel (process court, une invocation par
+# requête), ce cache n'a de toute façon aucune utilité : le shim ci-dessous
+# fournit un décorateur no-op transparent (fonction appelée normalement,
+# sans mise en cache) quand streamlit est absent.
+try:
+    import streamlit as st
+except ImportError:
+    class _NoOpCacheData:
+        """Substitut minimal de st.cache_data : exécute la fonction décorée
+        normalement (aucun cache), sans changer sa signature d'appel."""
+        def __call__(self, *dargs, **dkwargs):
+            def _decorator(fn):
+                return fn
+            # Supporte @st.cache_data et @st.cache_data(ttl=..., show_spinner=...)
+            if dargs and callable(dargs[0]) and not dkwargs:
+                return dargs[0]
+            return _decorator
+
+    class _StreamlitShim:
+        cache_data = _NoOpCacheData()
+
+    st = _StreamlitShim()
 
 logger = logging.getLogger(__name__)
 

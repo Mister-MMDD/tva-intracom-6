@@ -22,8 +22,6 @@ import ctypes
 import gc
 import logging
 
-import streamlit as st
-
 logger = logging.getLogger(__name__)
 
 _libc = None
