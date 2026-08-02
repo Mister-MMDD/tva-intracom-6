@@ -32,7 +32,7 @@ def exchange_code_for_token(code: str) -> dict:
         "client_secret": client_secret,
     }
     
-    response = requests.post(url, data=data)
+    response = requests.post(url, data=data, timeout=10)
     response.raise_for_status()
     return response.json()
 
@@ -49,7 +49,7 @@ def get_access_token(refresh_token: str) -> str:
         "client_secret": client_secret,
     }
     
-    response = requests.post(url, data=data)
+    response = requests.post(url, data=data, timeout=10)
     response.raise_for_status()
     return response.json()["access_token"]
 
@@ -59,7 +59,7 @@ def get_seller_email(access_token: str) -> str:
     Note : Nécessite que le scope 'profile' soit autorisé dans la config LWA."""
     url = "https://api.amazon.com/user/profile"
     headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=10)
     response.raise_for_status()
     # Retourne typiquement {"user_id": "...", "email": "...", "name": "..."}
     return response.json().get("email")
