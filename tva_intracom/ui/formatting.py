@@ -316,14 +316,9 @@ def _gated_preview_table(
     
     # PERFORMANCE : On formate les nombres en strings AVANT de masquer, 
     # pour garder un bel affichage (espaces, €) dans les lignes visibles.
-    #
-    # IMPORTANT : on exclut d'abord les colonnes IDENTIFIANTS (n°, numéro,
-    # id) du test "montant" ci-dessous — même bug/même raison qu'expliqué
-    # dans _smart_money_df() : "N° TVA rejeté" contient la sous-chaîne
-    # "tva" et se faisait reformater en devise via _fmt(), qui réussit un
-    # float() sur les numéros de TVA italiens (stockés sans préfixe "IT"
-    # à cet endroit, donc purement numériques) — invisibles pour les autres
-    # pays car leur préfixe alphabétique fait échouer float().
+    # On force également le type object pour permettre l'insertion ultérieure 
+    # du cadenas (chaîne) dans des colonnes initialement numériques sans
+    # provoquer de TypeError sur les versions récentes de pandas/numpy.
     for col in df_preview.columns:
         col_lower = col.lower()
         is_identifier_col = (
@@ -331,17 +326,17 @@ def _gated_preview_table(
             or "id" in col_lower
         )
         if not is_identifier_col and any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total"]):
-            df_preview[col] = df_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
+            df_preview[col] = df_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—").astype(object)
         else:
-            df_preview[col] = df_preview[col].astype(str)
+            df_preview[col] = df_preview[col].astype(str).astype(object)
 
     lock_msg = "🔒 " + _("gated_locked")
     safe_cols = ["Date", "Pays", "Dest", "ID", "Transaction", "Type", "Stock"]
     
     # Masquage sur l'échantillon
-    for col in df_preview.columns:
+    for i, col in enumerate(df_preview.columns):
         if col not in safe_cols:
-            df_preview.iloc[min_rows:, df_preview.columns.get_loc(col)] = lock_msg
+            df_preview.iloc[min_rows:, i] = lock_msg
 
     # Pour un aperçu masqué, on utilise TextColumn partout car les types sont mixtes.
     # On doit forcer TextColumn même si column_config demande du numérique, 
