@@ -44,13 +44,13 @@ def _get_libs():
                 break
             except OSError:
                 continue
-        
+
         # 2. Tente de charger libc standard
         try:
             _libc = ctypes.CDLL("libc.so.6")
         except OSError:
             _libc = None
-            
+
     return _libc, _jemalloc
 
 
@@ -61,13 +61,57 @@ def release_memory() -> None:
     (fichiers uploadés, résultats de calcul, DataFrames...) : à la
     déconnexion (logout) et lors du retrait de fichiers uploadés.
     """
-    # 1. Vide les caches globaux Streamlit (TRÈS IMPORTANT)
-    # Les agrégats de graphiques (@st.cache_data) peuvent peser plusieurs dizaines de Mo.
+    # 1. Vide UNIQUEMENT les caches @st.cache_data "lourds" (agrégats de
+    # graphiques, DataFrames de détail — plusieurs dizaines de Mo par entrée).
+    #
+    # IMPORTANT : on n'appelle PLUS st.cache_data.clear() (global). Ce clear
+    # global videait AUSSI les caches légers de tva_intracom.billing (grille
+    # tarifaire Stripe, codes promo, statut abonnement — @st.cache_data
+    # ttl=60-600s). Ceux-ci sont coûteux en LATENCE/appels API Stripe
+    # (Charge.list, PromotionCode.list, Coupon.retrieve, Price.retrieve x4)
+    # mais négligeables en mémoire — un clear global les invalidait
+    # inutilement à chaque ajout/retrait de fichier uploadé (release_memory()
+    # est appelée à ce moment-là), déclenchant une rafale d'appels Stripe à
+    # chaque rerun. Constaté en prod le 02/08/2026 : on cible maintenant
+    # explicitement les seules fonctions réellement lourdes en RAM.
+    _heavy_caches = []
     try:
-        st.cache_data.clear()
-        logger.info("Mémoire : st.cache_data vidé.")
+        from .ui.sidebar import _parse_catalog_bytes
+        _heavy_caches.append(_parse_catalog_bytes)
     except Exception:
         pass
+    try:
+        from .ui.tabs.visualisations import (
+            _aggregate_viz_raw, _build_fig_bar, _build_fig_pie,
+            _build_fig_map, _build_fig_time_scen,
+        )
+        _heavy_caches += [_aggregate_viz_raw, _build_fig_bar, _build_fig_pie, _build_fig_map, _build_fig_time_scen]
+    except Exception:
+        pass
+    try:
+        from .ui.tabs.detail_ventes import _build_rows_df
+        _heavy_caches.append(_build_rows_df)
+    except Exception:
+        pass
+    try:
+        from .ui.tabs.declarations import _aggregate_declarations_raw
+        _heavy_caches.append(_aggregate_declarations_raw)
+    except Exception:
+        pass
+    try:
+        from .ui.tabs.audit import _aggregate_fba_local_sales
+        _heavy_caches.append(_aggregate_fba_local_sales)
+    except Exception:
+        pass
+
+    _cleared = 0
+    for _fn in _heavy_caches:
+        try:
+            _fn.clear()
+            _cleared += 1
+        except Exception:
+            pass
+    logger.info(f"Mémoire : {_cleared}/{len(_heavy_caches)} cache(s) @st.cache_data lourd(s) vidé(s) (caches billing/Stripe préservés).")
 
     # 2. Vide les caches de traduction
     try:
@@ -82,7 +126,7 @@ def release_memory() -> None:
 
     # 4. Rend la mémoire à l'OS
     libc, jemalloc = _get_libs()
-    
+
     # Cas A : jemalloc (prioritaire si détecté)
     if jemalloc is not None:
         try:
@@ -91,7 +135,7 @@ def release_memory() -> None:
             val = ctypes.c_ssize_t(0)
             jemalloc.mallctl(b"arenas.dirty_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
             jemalloc.mallctl(b"arenas.muzzy_decay_ms", None, None, ctypes.byref(val), ctypes.sizeof(val))
-            
+
             # Flush complet de l'allocateur
             # arenas.purge forcera la libération de toutes les pages inutilisées
             try:
