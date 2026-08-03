@@ -51,7 +51,7 @@ def make_sale(**kwargs) -> Sale:
         seller_country="FR",
         buyer_vat_valid=False,
         buyer_vat_number="",
-        transaction_date="2024-01-15",
+        transaction_date="2026-01-01",
         product_category="STANDARD",
     )
     defaults.update(kwargs)
@@ -510,7 +510,7 @@ class TestVatRates:
         assert vat_rate("FR") == Decimal("20")
         assert vat_rate("DE") == Decimal("19")
         assert vat_rate("HU") == Decimal("27")
-        assert vat_rate("LU") == Decimal("16")
+        assert vat_rate("LU") == Decimal("17")
         assert vat_rate("MT") == Decimal("18")
 
     def test_reduced_books(self):

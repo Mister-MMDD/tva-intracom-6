@@ -420,6 +420,23 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
             _rate_cache[key] = db_rate
         return db_rate
 
+    # Cache DB également manqué (pas seulement L1) : un live-fetch ECB va
+    # être déclenché (coûteux : ~700-800ms de requête réseau réelle, voir
+    # _fetch_ecb_rate). Si ce site d'appel n'est pas passé par prefetch_rates()
+    # au préalable (voir prefetch_rates(), qui batch ces requêtes), ça
+    # signale un point non batché à investiguer — on logue l'appelant exact
+    # (frame juste au-dessus de get_rate) pour le retrouver facilement dans
+    # les prochains logs sans avoir à deviner/grep tout le codebase à chaque
+    # fois (voir investigation du 2026-08-03 : ~8.8s cumulés sur 5 devises
+    # pour un site d'appel non identifié avec certitude).
+    import inspect
+    _caller = inspect.stack()[1]
+    logger.info(
+        "get_rate(%s, %s) : cache DB manqué, live-fetch ECB déclenché — "
+        "appelant : %s:%s (%s)",
+        currency, target_date, _caller.filename.split("/")[-1], _caller.lineno, _caller.function,
+    )
+
     # Requête HTTP hors du lock pour ne pas bloquer les autres threads.
     rate = _fetch_ecb_rate(currency, target_date)
 

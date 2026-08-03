@@ -6,4 +6,7 @@ Interface publique : identique à l'ancien amazon_adapter.py.
 
 from .loader import AmazonImportResult, load_amazon_report
 
-__all__ = ["load_amazon_report", "AmazonImportResult"]
+# Alias pour uniformiser avec les autres parsers (mirakl, shopify, etc.)
+parse = load_amazon_report
+
+__all__ = ["load_amazon_report", "AmazonImportResult", "parse"]

@@ -59,7 +59,7 @@ class AmazonImportResult:
     total_rows: int = 0
     warnings: List[str] = field(default_factory=list)
     detected_format: int = 0      # 1, 2, 3, 4 ou 5
-    platform: str = "Amazon"
+    platform: str = "amazon"
     # Lignes RETURN physiques (mouvement marchandise sans montant financier).
     # Distinct de skipped_rows : les RETURN sont normaux, le flux financier
     # est dans le REFUND jumeau.
