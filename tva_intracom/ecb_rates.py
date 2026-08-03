@@ -430,11 +430,26 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     # fois (voir investigation du 2026-08-03 : ~8.8s cumulés sur 5 devises
     # pour un site d'appel non identifié avec certitude).
     import inspect
-    _caller = inspect.stack()[1]
+    import os as _os
+    _perf_log_file = _os.path.normpath(__file__).replace("ecb_rates.py", "perf_log.py")
+    _caller = None
+    for _frame_info in inspect.stack()[1:]:
+        # Ignore les frames appartenant à perf_log.py (le wrapper @timeit qui
+        # décore get_rate lui-même) pour remonter jusqu'au VRAI appelant
+        # métier — sans ce filtre, on obtient toujours "perf_log.py:100
+        # (_wrapper)", ce qui n'identifie rien (voir investigation ratée du
+        # 2026-08-03, log_test_5.txt ligne 259).
+        if _os.path.normpath(_frame_info.filename) != _perf_log_file:
+            _caller = _frame_info
+            break
+    _caller_desc = (
+        f"{_caller.filename.split('/')[-1]}:{_caller.lineno} ({_caller.function})"
+        if _caller is not None else "inconnu"
+    )
     logger.info(
         "get_rate(%s, %s) : cache DB manqué, live-fetch ECB déclenché — "
-        "appelant : %s:%s (%s)",
-        currency, target_date, _caller.filename.split("/")[-1], _caller.lineno, _caller.function,
+        "appelant : %s",
+        currency, target_date, _caller_desc,
     )
 
     # Requête HTTP hors du lock pour ne pas bloquer les autres threads.
