@@ -16,20 +16,25 @@ réintroduisant un vrai pool.
 
 Deux modes de fonctionnement, choisis via `cache_connection` :
 
-  - `cache_connection=True` (auth.py, billing.py, ecb_rates.py) :
+  - `cache_connection=True` (auth.py, billing.py, ecb_rates.py, vies_engine.py) :
     une connexion est ouverte la première fois dans un thread donné, puis
     réutilisée pour tous les appels suivants de ce même thread tant
     qu'elle n'a pas été explicitement fermée. `putconn()` est un no-op
     par défaut (on ne paie le coût TLS qu'une fois par run) ; la
     fermeture réelle a lieu via `close_idle_connections()`, à appeler par
     app.py au tout début de chaque nouveau run.
+    Note vies_engine.py : bien que ce module utilise un `ThreadPoolExecutor`
+    jusqu'à 25 workers pour les appels HTTP VIES parallèles, AUCUN appel DB
+    n'a lieu depuis ces workers (uniquement les requêtes réseau VIES) — les
+    requêtes/écritures batch tournent toutes sur le thread appelant, avant
+    ou après la section parallèle. `cache_connection=True` y est donc sûr
+    (et évite ~2 s de handshake Supabase par requête batch, mesuré en prod).
 
-  - `cache_connection=False` (vies_engine.py) : chaque `getconn()` ouvre
-    une connexion neuve, et `putconn()` la ferme immédiatement. Nécessaire
-    car vies_engine.py utilise un `ThreadPoolExecutor` avec jusqu'à 25
-    workers concurrents sur le même thread logique Streamlit — une seule
-    connexion partagée entre ces workers ne serait pas thread-safe côté
-    psycopg2 (contrairement au cas ci-dessus où 1 thread = 1 connexion).
+  - `cache_connection=False` : chaque `getconn()` ouvre une connexion
+    neuve, et `putconn()` la ferme immédiatement. Réservé au cas où du code
+    DB serait un jour appelé DEPUIS plusieurs threads/workers concurrents
+    partageant le même objet pool (psycopg2 n'est pas thread-safe par
+    connexion) — aucun module de ce projet n'est actuellement dans ce cas.
 
 `threading.local()` isole naturellement chaque thread (= chaque run
 Streamlit en cours), sans risque de mélange de requêtes entre

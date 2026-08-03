@@ -48,13 +48,20 @@ try:
 except ImportError:
     class _NoOpCacheData:
         """Substitut minimal de st.cache_data : exécute la fonction décorée
-        normalement (aucun cache), sans changer sa signature d'appel."""
+        normalement (aucun cache), sans changer sa signature d'appel.
+        Expose aussi `.clear()` (no-op) pour matcher l'API réelle de
+        st.cache_data — nécessaire car list_registered_sirens.clear() est
+        appelé après register_siren/request_siren_removal/
+        cancel_siren_removal, y compris dans ce contexte sans Streamlit."""
         def __call__(self, *dargs, **dkwargs):
             def _decorator(fn):
-                return fn
+                def _wrapper(*args, **kwargs):
+                    return fn(*args, **kwargs)
+                _wrapper.clear = lambda: None
+                return _wrapper
             # Supporte @st.cache_data et @st.cache_data(ttl=..., show_spinner=...)
             if dargs and callable(dargs[0]) and not dkwargs:
-                return dargs[0]
+                return _decorator(dargs[0])
             return _decorator
 
     class _StreamlitShim:
@@ -455,8 +462,17 @@ def _purge_expired_siren_removals(user_id: str) -> None:
     _run(_fn)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 @timeit()
 def list_registered_sirens(user_id: str) -> list[dict]:
+    """Mis en cache (TTL 60s, même pattern que get_subscription_status) :
+    mesuré en prod à ~830 ms par appel (requête réseau réelle vers Supabase,
+    pas un coût de connexion — voir retour perf du 2026-08-02), et appelée
+    2 à 3 fois par run (get_siren_quota_status, can_register_new_siren,
+    sidebar.py, billing_gate.py appellent tous cette fonction indépendamment
+    pour le même user_id). Invalidé explicitement (`.clear()`) par
+    register_siren/request_siren_removal/cancel_siren_removal ci-dessous,
+    pour ne jamais afficher un état SIREN périmé après une mutation."""
     _purge_expired_siren_removals(user_id)
 
     def _fn(conn, cur):
@@ -568,6 +584,7 @@ def register_siren(
         conn.commit()
 
     _run(_fn)
+    list_registered_sirens.clear()
 
 
 def request_siren_removal(user_id: str, siren: str) -> float:
@@ -587,6 +604,7 @@ def request_siren_removal(user_id: str, siren: str) -> float:
         conn.commit()
 
     _run(_fn)
+    list_registered_sirens.clear()
     return effective_at
 
 
@@ -600,6 +618,7 @@ def cancel_siren_removal(user_id: str, siren: str) -> None:
         conn.commit()
 
     _run(_fn)
+    list_registered_sirens.clear()
 
 
 # =============================================================================

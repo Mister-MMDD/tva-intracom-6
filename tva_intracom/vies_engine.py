@@ -264,22 +264,38 @@ def _get_pool() -> "NonPoolingConnectionPool":
                         "base du cache VIES. Configurez ce secret côté Streamlit Cloud "
                         "(même valeur que pour auth.py / billing.py)."
                     )
-                # cache_connection=False : compatible avec l'usage concurrent de ce
-                # module (jusqu'à 25 workers ThreadPoolExecutor pour la validation
-                # VIES parallèle, voir validate_vat_numbers_parallel) — chaque
-                # getconn() ouvre une connexion neuve, chaque putconn() la ferme
-                # réellement ; pas de notion de connexion partagée entre threads.
-                pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=False)
+                # cache_connection=True : contrairement à l'hypothèse initiale,
+                # aucune fonction DB de ce module n'est appelée DEPUIS les
+                # workers du ThreadPoolExecutor (voir validate_vat_numbers_parallel
+                # : `_check_one()` ne fait que l'appel HTTP VIES, jamais de
+                # requête SQL). Les deux requêtes batch (_db_get_scope_batch /
+                # _db_get_global_batch) et les deux écritures batch
+                # (_db_set_scope_batch / _db_set_global_batch) tournent toutes
+                # sur le thread principal (script Streamlit, ou thread du job
+                # d'arrière-plan pour les gros fichiers — voir
+                # ui/background_calc.py), jamais concurremment entre elles.
+                # `cache_connection=False` payait donc un handshake TCP+TLS
+                # Supabase neuf (~2 s mesurés en prod, voir retour perf du
+                # 2026-08-02) à CHAQUE requête batch, pour rien : measuré à
+                # ~4-6 s perdus par calcul (ventes + avoirs). Comme pour
+                # auth.py/billing.py/ecb_rates.py, `threading.local()` isole
+                # déjà naturellement chaque thread — donc chaque run (et
+                # chaque job en arrière-plan, qui tourne dans SON propre
+                # thread) obtient sa propre connexion mise en cache, sans
+                # risque de partage entre utilisateurs ou entre threads.
+                pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
                 _init_schema(pool)
                 _pool = pool
     return _pool
 
 
 def close_idle_connections() -> None:
-    """Conservé pour compatibilité d'API (appelé par app.py) : sans effet
-    utile désormais puisque `NonPoolingConnectionPool(cache_connection=False)`
-    ne garde jamais de connexion ouverte entre deux appels.
-    """
+    """Ferme la connexion mise en cache par thread pour ce module, si elle
+    existe. À appeler par app.py en tout début de run (voir app.py), avant
+    même run_auth_flow(), pour qu'une connexion ne survive jamais plus
+    longtemps qu'un seul run — indispensable maintenant que ce module utilise
+    `cache_connection=True` comme auth.py/billing.py/ecb_rates.py (voir
+    _get_pool() ci-dessus pour la justification du changement)."""
     global _pool
     with _pool_lock:
         if _pool is not None:
