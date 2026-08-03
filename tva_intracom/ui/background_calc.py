@@ -36,6 +36,29 @@ from typing import Any, Callable, Optional
 
 import streamlit as st
 
+from .. import auth as _tva_auth
+from .. import billing as _tva_billing
+from .. import ecb_rates as _tva_ecb_rates
+from .. import vies_engine as _tva_vies_engine
+
+# Les 4 modules utilisant `NonPoolingConnectionPool(cache_connection=True)` :
+# chacun met en cache SA connexion dans le `threading.local()` du thread
+# appelant (voir database.py). app.py appelle leurs `close_idle_connections()`
+# respectifs en tout début de CHAQUE run, mais uniquement depuis le thread
+# principal du script Streamlit — jamais depuis un thread `bgjob-*` lancé
+# ci-dessous. Sans l'appel explicite dans `_runner()` (voir plus bas), la
+# connexion ouverte par ce thread (ex. par compute_all_with_vies) ne serait
+# fermée que lorsque le thread se termine ET que Python collecte l'objet
+# (comportement de `__del__` de psycopg2 — vérifié empiriquement comme fiable
+# en pratique, mais implicite et non garanti par contrat). L'appeler ici la
+# rend déterministe et immédiate, sans dépendre du timing du GC.
+_CLOSE_FNS = (
+    _tva_auth.close_idle_connections,
+    _tva_billing.close_idle_connections,
+    _tva_ecb_rates.close_idle_connections,
+    _tva_vies_engine.close_idle_connections,
+)
+
 # Compteur global (process entier, toutes sessions confondues) de jobs en
 # cours — volontairement un compteur module-level protégé par verrou, PAS
 # dans st.session_state (qui est par session, donc invisible d'une session à
@@ -109,6 +132,15 @@ def start_background_job(
                 state.done = True
             with _active_jobs_lock:
                 _active_jobs_count -= 1
+            # Ferme explicitement les connexions DB mises en cache par CE
+            # thread (voir commentaire de _CLOSE_FNS plus haut) — ce thread
+            # va mourir juste après, autant fermer proprement tout de suite
+            # plutôt que de compter sur le GC.
+            for _close_fn in _CLOSE_FNS:
+                try:
+                    _close_fn()
+                except Exception:
+                    pass
 
     threading.Thread(target=_runner, daemon=True, name=f"bgjob-{job_id}").start()
 
