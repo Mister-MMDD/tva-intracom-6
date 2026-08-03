@@ -30,7 +30,7 @@ from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.cell_range import CellRange
 
-from .ecb_rates import convert_to_currency_for_oss
+from .ecb_rates import convert_to_currency_for_oss, get_oss_rate_date, prefetch_rates
 from .i18n import _
 from .models import Scenario, VatResult
 from .perf_log import timeit
@@ -128,6 +128,32 @@ def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggT
             quels (comportement historique).
     """
     aggregated: OssAggType = {}
+
+    # Pré-batch des taux BCE nécessaires : sans ça, convert_ht_tva_for_oss_period
+    # (via convert_to_currency_for_oss -> get_rate) fait une requête DB
+    # individuelle à la PREMIÈRE occurrence de chaque devise/date rencontrée
+    # dans la boucle ci-dessous (les occurrences suivantes de la même paire
+    # touchent le cache mémoire L1 et sont gratuites — mesuré en prod : 5
+    # devises distinctes parmi ~27 lignes OSS_B2C/IOSS_DIRECT ont coûté
+    # ~2.9s cumulés en requêtes individuelles séquentielles, alors qu'UNE
+    # requête batch groupée suffit). `get_oss_rate_date` est une fonction
+    # pure (aucun accès DB) — sûre à appeler ici pour construire l'ensemble
+    # des paires à précharger, sans dupliquer la logique de conversion.
+    if period:
+        _needed_pairs: set[tuple[str, _date]] = set()
+        for _res in results:
+            if _res.scenario not in (Scenario.OSS_B2C, Scenario.IOSS_DIRECT):
+                continue
+            _src_ccy = _res.sale.original_currency
+            if not _src_ccy or _src_ccy == "EUR":
+                continue
+            try:
+                _tx_date = _date.fromisoformat((_res.sale.transaction_date or "")[:10])
+            except ValueError:
+                _tx_date = _date.today()
+            _needed_pairs.add((_src_ccy, get_oss_rate_date(period, _tx_date)))
+        if _needed_pairs:
+            prefetch_rates(sorted(_needed_pairs))
 
     for res in results:
         if res.scenario not in (Scenario.OSS_B2C, Scenario.IOSS_DIRECT):

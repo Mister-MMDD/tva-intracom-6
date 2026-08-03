@@ -637,11 +637,17 @@ def cancel_siren_removal(user_id: str, siren: str) -> None:
 
 
 @timeit()
+@st.cache_data(ttl=60, show_spinner=False)
+@timeit()
 def get_siren_links_for_identifiers(scope_id: str, identifiers) -> dict[str, str]:
-    """Retourne {account_identifier: siren} pour les identifiants déjà liés
-    dans ce scope, parmi ceux fournis. Les identifiants inconnus (jamais liés)
-    sont simplement absents du dict retourné — à l'appelant de les traiter
-    comme "à confirmer" (voir ui/billing_gate.py)."""
+    """Mis en cache (TTL 60s, même pattern que list_registered_sirens) :
+    mesuré en prod à ~400-1240 ms par appel (requête réseau réelle), appelée
+    à chaque render de build_billing_gate (donc à chaque rerun Streamlit)
+    avec typiquement le même jeu d'identifiants tant qu'aucun nouveau fichier
+    n'est importé. Invalidé explicitement (`.clear()`) par
+    link_account_identifier ci-dessous : sans ça, un identifiant tout juste
+    lié par l'utilisateur réapparaîtrait comme "à confirmer" pendant jusqu'à
+    60s au prochain rerun (qui a lieu immédiatement après le clic)."""
     ids = sorted({i for i in identifiers if i})
     if not ids:
         return {}
@@ -683,6 +689,7 @@ def link_account_identifier(scope_id: str, account_identifier: str, siren: str) 
         conn.commit()
 
     _run(_fn)
+    get_siren_links_for_identifiers.clear()
 
 
 def _existing_stripe_customer_id(user_id: str) -> Optional[str]:
