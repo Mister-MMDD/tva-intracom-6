@@ -786,7 +786,9 @@ pytest -q
 
 La suite couvre actuellement : classification des scénarios moteur, taux par
 catégorie produit, cache VIES, seuil OSS multi-année, parsing des formats Amazon 1–5,
-conversion BCE.
+conversion BCE, isolation thread-safe du pool de connexions DB (`cache_connection=True`,
+voir `tests/test_connection_pool_threading.py`), pré-chargement batch des taux BCE
+pour l'export OSS (`tests/test_oss_rate_prefetch.py`).
 
 ---
 
@@ -834,6 +836,53 @@ conversion BCE.
 - **Stabilité des identifiants** : Passage à une clé composite `(sale_id, amount_ht)` pour identifier les transactions de façon stable à travers les différents modules d'audit et de reporting, éliminant la fragilité des `id()` Python lors des copies d'objets.
 - **Stripe** : La session du portail de facturation (Billing Portal) est désormais créée uniquement au clic, au lieu d'être pré-générée à chaque rerun Streamlit.
 - **Filtrage UI (`_render_filter_bar`)** : Optimisation par scan concaténé unique avec gestion robuste des valeurs nulles (évite les lignes vides en recherche).
+
+### Instrumentation perf_log (analyse de logs de production, 2026-08)
+Module `tva_intracom/perf_log.py` : décorateur `@timeit()` / context manager
+`timed()`, logging pur (aucun thread/timer — sans impact sur le scale-to-zero
+Railway). Activable/désactivable via `PERF_LOG_ENABLED` (défaut `1`), seuil
+`[LENT]` via `PERF_LOG_SLOW_MS` (défaut 1000ms). `@timeit(min_ms=N)` permet
+de masquer le bruit d'un point déjà investigué et confirmé stable (voir
+`ecb_rates.get_rate`, filtré à 20ms — des dizaines d'appels/run à 0.0ms une
+fois le cache mémoire L1 chaud).
+
+Corrections trouvées par analyse itérative de logs réels (avant/après
+redéploiement, comparaison statistique) :
+- **VIES (`vies_engine.py`)** : connexion DB mise en cache par thread
+  (`cache_connection=True`, comme auth/billing/ecb_rates) au lieu d'une
+  connexion neuve par requête batch — aucun appel DB n'a lieu depuis les
+  workers du `ThreadPoolExecutor` (uniquement des requêtes HTTP VIES), donc
+  sûr. Gain mesuré en prod : `compute_all_with_vies` divisé par ~4
+  (4.4s → 1.1s en moyenne).
+- **SIREN (`billing.py`)** : `list_registered_sirens` et
+  `get_siren_links_for_identifiers` mis en cache (`@st.cache_data`,
+  TTL 60s), invalidés explicitement après toute mutation
+  (`register_siren`, `request_siren_removal`, `cancel_siren_removal`,
+  `link_account_identifier`) pour ne jamais servir un état SIREN périmé.
+- **Taux BCE pour l'export OSS (`oss_export.py`)** : pré-chargement batch
+  (`prefetch_rates`) des paires (devise, date de clôture trimestrielle)
+  nécessaires à `aggregate_oss_results`, calculées en amont via la fonction
+  pure `get_oss_rate_date` — élimine les requêtes DB individuelles
+  séquentielles (une par devise rencontrée pour la première fois).
+- **Jobs "gros fichier" (`ui/background_calc.py`)** : fermeture explicite
+  des connexions DB mises en cache par le thread du job dans son bloc
+  `finally`, plutôt que de compter sur le `__del__` implicite de psycopg2
+  (comportement fiable en pratique, vérifié empiriquement, mais rendu
+  déterministe).
+- **Diagnostic ciblé (`ecb_rates.get_rate`)** : lorsqu'un live-fetch ECB est
+  déclenché (cache DB manqué), l'appelant exact (fichier:ligne, fonction)
+  est loggé — a permis d'identifier `ui/formatting.py:_get_conversion_rate`
+  comme seule origine des lookups BCE en direct (un par devise d'affichage
+  jamais choisie ce jour-là ; comportement normal et déjà mis en cache par
+  session, coût ponctuel non récurrent).
+- **Connu et accepté (non corrigé)** : changer la devise d'affichage
+  (`target_currency`) redéclenche un calcul complet
+  (`compute_all_with_vies`, ~2.4s) car `_cache_key` (app.py) inclut cette
+  valeur — nécessaire car le texte des notes OSS (seuil cumulé affiché en
+  devise locale) est actuellement calculé au moment du calcul et non de
+  l'affichage. Découpler proprement demanderait de toucher `engine.py`
+  (moteur fiscal) ; jugé trop risqué pour un gain marginal (coût ponctuel
+  par changement de devise, pas par rerun) — laissé tel quel.
 
 ### Correctifs & Expérience Utilisateur
 - **Persistance de l'upload** : Correction d'un bug où le changement de langue supprimait les fichiers chargés (stabilisation de l'identité du widget `st.file_uploader` via une clé explicite `main_file_uploader` indépendante du label traduit).

@@ -82,11 +82,21 @@ def timed(label: str, extra: str = ""):
         logger.info(_fmt(label, _elapsed, extra))
 
 
-def timeit(label: Optional[str] = None) -> Callable[[F], F]:
+def timeit(label: Optional[str] = None, min_ms: float = 0.0) -> Callable[[F], F]:
     """Décorateur : mesure et logue le temps d'exécution d'une fonction.
 
     Usage : @timeit() ou @timeit("mon_label"). Sans argument, utilise
     `module.qualname` de la fonction décorée.
+
+    `min_ms` : n'écrit une ligne de log que si l'appel a pris AU MOINS
+    `min_ms` millisecondes. Utile pour des fonctions appelées très souvent et
+    presque toujours triviales une fois le cache mémoire chaud (ex.
+    ecb_rates.get_rate, appelée des dizaines de fois par run, à 0.0 ms dès
+    que le taux est en cache L1) : sans ce filtre, ces lignes noient le
+    signal utile dans le bruit une fois le point déjà investigué/confirmé
+    (voir historique des investigations perf du 2026-08). Si l'appel
+    redevient lent un jour (nouvelle cause), il continue d'apparaître
+    normalement — seul le cas "rapide et répétitif" est masqué.
     """
     def _decorator(fn: F) -> F:
         _label = label or f"{fn.__module__}.{fn.__qualname__}"
@@ -100,6 +110,7 @@ def timeit(label: Optional[str] = None) -> Callable[[F], F]:
                 return fn(*args, **kwargs)
             finally:
                 _elapsed = (time.perf_counter() - _t0) * 1000
-                logger.info(_fmt(_label, _elapsed))
+                if _elapsed >= min_ms:
+                    logger.info(_fmt(_label, _elapsed))
         return _wrapper  # type: ignore[return-value]
     return _decorator

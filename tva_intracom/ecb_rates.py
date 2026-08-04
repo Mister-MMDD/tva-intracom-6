@@ -394,7 +394,7 @@ def _fetch_ecb_batch(
 # API publique
 # ------------------------------------------------------------------
 
-@timeit()
+@timeit(min_ms=20)  # filtre le bruit des hits L1 (0.0ms, des dizaines/run) ; garde les vrais accès DB/API
 def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     """Retourne le taux EUR/{currency} (unités de devise pour 1 EUR).
 
