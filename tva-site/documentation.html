@@ -88,59 +88,51 @@
                 <h3>Arborescence du dépôt</h3>
                 <pre>
 tva-intracom/
+├── .devcontainer/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                    Pipeline CI (pytest)
+├── data/
+├── schemas/                          Schémas XSD officiels (DGFIP/UE)
 ├── tests/                            Tests unitaires et d'intégration
 ├── tva_intracom/
 │   ├── i18n/                         Fichiers de traduction (7 langues)
 │   ├── parsers/
-│   │   └── amazon/                   Sous-package d'import Amazon (formats 1-5)
+│   │   ├── amazon/                   Import Amazon formats 1-5
+│   │   ├── aliexpress.py             Parser AliExpress
+│   │   ├── mirakl.py                 Parser Mirakl
+│   │   ├── shopify.py                Parser Shopify
+│   │   └── woocommerce.py            Parser WooCommerce
 │   ├── ui/                           Interface Streamlit modulaire
-│   │   ├── tabs/                     Modules d'onglets :
-│   │   │   ├── audit.py              Réconciliation Amazon & Écarts
-│   │   │   ├── declarations.py       Synthèse CA3, OSS & IOSS
-│   │   │   ├── detail_ventes.py      Analyse transactionnelle fine
-│   │   │   ├── telechargements.py    Génération des fichiers de sortie
-│   │   │   ├── vies_ui.py            Gestion B2B et overrides VIES
-│   │   │   └── visualisations.py     Graphiques et exposition fiscale
-│   │   ├── auth_flow.py              Flux de connexion & OAuth
-│   │   ├── background_calc.py        Calculs longs en thread séparé
-│   │   ├── billing_gate.py           Gating & téléchargements sécurisés
-│   │   ├── formatting.py             Utilitaires de formatage (Devises, Dates)
-│   │   ├── onboarding.py             Visite guidée interactive
-│   │   ├── rerun_utils.py            Gestion des reruns Streamlit
-│   │   ├── sidebar.py                Configuration (SIREN, Pays, Devises)
-│   │   └── theme.py                  Gestion du mode clair/sombre
-│   ├── __init__.py                   Initialisation du package
-│   ├── amazon_adapter.py             Passerelle compatibilité anciens modèles
-│   ├── auth.py                       Gestion des sessions (Supabase)
-│   ├── auth_supabase.py              Auth mot de passe & OAuth
-│   ├── billing.py                    Facturation Stripe (PAYG, Pro, Cabinet)
-│   ├── ca3_report.py                 Génération du rapport CA3 (HTML/Cerfa)
-│   ├── cli.py                        Interface en ligne de commande
-│   ├── config.py                     Configuration & Secrets
-│   ├── database.py                   Couche d'accès PostgreSQL (Pooler)
-│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque)
-│   ├── engine.py                     Cœur du moteur de classification fiscale
-│   ├── excel_report.py               Export Excel multi-onglets complet
-│   ├── fec_export.py                 Export comptable FEC (Journal des ventes)
-│   ├── historical_rates_widget.py    Alerte & tableau des changements de taux TVA
-│   ├── local_vat_report.py           Rapport HTML pour pays UE hors France
-│   ├── mem_utils.py                  Optimisation mémoire (Interning)
-│   ├── models.py                     Modèles de données (Pydantic)
-│   ├── oss_export.py                 Agrégation OSS & Export CSV URSSAF
-│   ├── oss_xml.py                    Génération XML OSS officiel (DGFiP)
-│   ├── rates.py                      Taux TVA historisés & Seuils EMEBI
-│   ├── report.py                     Générateur de rapports PDF/HTML
-│   ├── security.py                   Sécurité Amazon DPP (Chiffrement Fernet)
-│   ├── vies_certificate.py           Génération de certificat VIES en PDF
-│   └── vies_engine.py                Validation VIES avec historique d'audit
+│   │   ├── tabs/                     Modules d'onglets (OSS, Ventes, VIES...)
+│   │   ├── theme.py                  Thème et CSS
+│   │   ├── formatting.py             Helpers d'affichage
+│   │   ├── auth_flow.py              Flux d'authentification UI
+│   │   ├── sidebar.py                Barre latérale de configuration
+│   │   ├── billing_gate.py           Gating de facturation
+│   │   └── background_calc.py        Calculs longs en thread séparé
+│   ├── amazon_adapter.py             Passerelle de compatibilité modèles
+│   ├── auth_supabase.py              Authentification Supabase Auth
+│   ├── billing.py                    Facturation Stripe et quotas SIREN
+│   ├── ca3_report.py                 Rapport CA3 (HTML)
+│   ├── database.py                   Pooling Postgres centralisé
+│   ├── ecb_rates.py                  Taux BCE (cache multi-niveaux)
+│   ├── engine.py                     Moteur de classification fiscale
+│   ├── excel_report.py               Export Excel multi-onglets
+│   ├── fec_export.py                 Export comptable FEC
+│   ├── local_vat_report.py           Rapports TVA locaux UE
+│   ├── models.py                     Dataclasses (Pydantic)
+│   ├── oss_export.py                 Agrégation OSS et exports CSV
+│   ├── oss_xml.py                    Génération XML OSS officiel
+│   ├── rates.py                      Taux TVA historisés
+│   ├── security.py                   Sécurité Amazon DPP (Fernet)
+│   ├── vies_engine.py                Validation VIES avec cache Postgres
+│   └── vies_certificate.py           Génération de certificat VIES PDF
 │
-├── vercel_webhook/                   Webhook Stripe (Vercel serverless)
+├── vercel_webhook/                   Webhook Stripe (Vercel)
 ├── app.py                            Orchestrateur Streamlit principal
-├── Procfile                          Configuration déploiement (Railway/Heroku)
-├── pyproject.toml                    Configuration du projet et dépendances
+├── Procfile                          Configuration démarrage cloud
+├── pyproject.toml                    Dépendances et config projet
 └── README.md                         Documentation générale
                 </pre>
 
@@ -154,7 +146,7 @@ tva-intracom/
                         </tr>
                         <tr>
                             <td style="padding: 8px; border: 1px solid #ddd;"><strong>DOMESTIC</strong></td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Stock et acheteur dans le même pays UE.</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Stock et acheteur dans le même pays UE (ou B2B art. 194).</td>
                             <td style="padding: 8px; border: 1px solid #ddd;">TVA locale du pays.</td>
                         </tr>
                         <tr>
@@ -170,7 +162,7 @@ tva-intracom/
                         <tr>
                             <td style="padding: 8px; border: 1px solid #ddd;"><strong>DEEMED_SUPPLIER</strong></td>
                             <td style="padding: 8px; border: 1px solid #ddd;">Vendeur hors UE ou import ≤ 150€.</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Collecté par Amazon (Exonéré).</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Collecté par Amazon.</td>
                         </tr>
                         <tr>
                             <td style="padding: 8px; border: 1px solid #ddd;"><strong>EXPORT</strong></td>
@@ -197,21 +189,15 @@ tva-intracom/
 
                 <h3 style="margin-top: 20px;">Formats Amazon supportés</h3>
                 <ul style="font-size: 0.9rem;">
-                    <li><strong>Format 1-2</strong> : Anciens formats TSV/Activity Period.</li>
-                    <li><strong>Format 3-4</strong> : Formats 2024-2025 (Tax Collection Responsibility).</li>
+                    <li><strong>Format 1-2</strong> : Anciens formats TSV.</li>
+                    <li><strong>Format 3-4</strong> : Formats 2024-2025.</li>
                     <li><strong>Format 5</strong> : Rapport fiscal détaillé V5 (Multi-juridictions).</li>
                 </ul>
 
-                <h3 style="margin-top: 20px;">Roadmap & Évolutions</h3>
+                <h3 style="margin-top: 20px;">Roadmap</h3>
                 <ul style="font-size: 0.9rem;">
-                    <li>✅ Certificats de validité VIES en PDF (Preuve de bonne foi).</li>
-                    <li>✅ Gestion multi-pays d'origine (Home Country).</li>
-                    <li>✅ Taux BCE de clôture OSS automatisés (Règl. UE 2020/194) et correction des écarts d'arrondis.</li>
-                    <li>✅ Protection brute-force (DPP) et optimisation du pool de connexions.</li>
-                    <li>✅ Correction automatique des soldes OSS négatifs.</li>
-                    <li>✅ Optimisation RAM High-Load (Internage, Lazy Loading).</li>
-                    <li>✅ Export comptable FEC (Journal des ventes).</li>
-                    <li>⏳ Intégration directe EDI-TVA (Dépôt automatique).</li>
+                    <li>⏳ Intégration directe EDI-TVA (Télédéclaration automatique Cerfa).</li>
+                    <li>🔄 Amélioration des corrections OSS pour les avoirs complexes.</li>
                 </ul>
             </div>
             <button class="toggle-button">Afficher les spécifications complètes</button>
