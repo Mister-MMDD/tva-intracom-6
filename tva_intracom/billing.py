@@ -25,7 +25,6 @@ from typing import Optional
 import psycopg2
 import psycopg2.pool
 import threading
-from .perf_log import timeit
 
 # IMPORTANT : streamlit n'est PAS installé dans l'environnement serverless
 # Vercel qui charge ce module isolément pour le webhook Stripe (voir
@@ -357,7 +356,6 @@ class SubscriptionStatus:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-@timeit()
 def get_subscription_status(user_id: str) -> SubscriptionStatus:
     def _fn(conn, cur):
         cur.execute(
@@ -390,7 +388,6 @@ def has_active_subscription_direct(user_id: str) -> bool:
     return get_subscription_status(user_id).active
 
 
-@timeit()
 def has_export_credit(user_id: str, period_label: str) -> bool:
     if has_active_subscription_direct(user_id):
         return True
@@ -463,7 +460,6 @@ def _purge_expired_siren_removals(user_id: str) -> None:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-@timeit()
 def list_registered_sirens(user_id: str) -> list[dict]:
     """Mis en cache (TTL 60s, même pattern que get_subscription_status) :
     mesuré en prod à ~830 ms par appel (requête réseau réelle vers Supabase,
@@ -529,14 +525,12 @@ class SirenQuotaStatus:
         return self.over_quota_by > 0
 
 
-@timeit()
 def get_siren_quota_status(user_id: str) -> SirenQuotaStatus:
     quota = get_siren_quota(user_id)
     count = len(list_registered_sirens(user_id))
     return SirenQuotaStatus(registered_count=count, quota=quota, over_quota_by=max(0, count - quota))
 
 
-@timeit()
 def can_register_new_siren(user_id: str) -> tuple[bool, str]:
     """Vérifie si le compte peut enregistrer un SIREN supplémentaire (celui-ci
     n'étant pas déjà dans sa liste). Ne s'applique pas à un SIREN déjà
@@ -636,9 +630,7 @@ def cancel_siren_removal(user_id: str, siren: str) -> None:
 # nouvel utilisateur de la même structure.
 
 
-@timeit()
 @st.cache_data(ttl=60, show_spinner=False)
-@timeit()
 def get_siren_links_for_identifiers(scope_id: str, identifiers) -> dict[str, str]:
     """Mis en cache (TTL 60s, même pattern que list_registered_sirens) :
     mesuré en prod à ~400-1240 ms par appel (requête réseau réelle), appelée
@@ -723,7 +715,6 @@ def _stripe_customer_has_paid_before(customer_id: str) -> bool:
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-@timeit()
 def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
     """Liste les codes promotionnels actifs configurés côté Stripe (Dashboard),
     avec leurs conditions d'utilisation, sans jamais les recopier en dur ici.
@@ -867,7 +858,6 @@ def list_available_promotions(user_id: Optional[str] = None) -> list[dict]:
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-@timeit()
 def get_pricing_grid(user_id: Optional[str] = None) -> dict:
     """Récupère la grille tarifaire réelle depuis l'API Stripe (source de
     vérité — jamais recopiée en dur ici, pour ne jamais diverger de ce qui

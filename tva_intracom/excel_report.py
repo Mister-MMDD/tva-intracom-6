@@ -20,7 +20,6 @@ from .oss_export import aggregate_oss_results
 from .parsers.amazon.detect import parse_date as _parse_amz_date
 from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
 from .report import ReportSummary, build_report
-from .perf_log import timeit
 
 _COUNTRY_NAMES_XL = COUNTRY_NAMES
 
@@ -318,7 +317,6 @@ def _oss_period_totals(
     return ht_brut, ht_remb, vat_brut, vat_remb
 
 
-@timeit()
 def _write_recap(
         ws,
         summary: ReportSummary,
@@ -525,7 +523,6 @@ def _write_recap(
         ])
 
 
-@timeit()
 def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bool = False, display_currency: str = "EUR") -> None:
     ws.title = tab_title
 
@@ -643,7 +640,6 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
     _width_tracker.apply(ws)
 
 
-@timeit()
 def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None, display_currency: str = "EUR") -> None:
     """Onglet Audit — deux sections :
 
@@ -795,7 +791,6 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     _width_tracker.apply(ws)
 
 
-@timeit()
 def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
     """Onglet Historique VIES : piste d'audit de chaque vérification effectuée."""
     from .vies_engine import get_vies_history_bulk
@@ -838,7 +833,6 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
     _width_tracker.apply(ws)
 
 
-@timeit()
 def _write_intrastat_tab(
         ws,
         all_fc_transfers: list,
@@ -1039,7 +1033,6 @@ def _deadline_oss(ref_date: _date) -> _date:
         return _date(year, q_end_month + 1, last_day)
 
 
-@timeit()
 def _write_calendar_tab(
         ws,
         results: list,
@@ -1311,7 +1304,6 @@ def _build_asin_avg_price(results: list) -> dict[str, Decimal]:
     }
 
 
-@timeit()
 def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
     """Onglet Mouvements Stock FBA — détail de chaque transfert."""
     ws.title = i18n_("xl_tab_fba")
@@ -1342,7 +1334,6 @@ def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
     _width_tracker.apply(ws)
 
 
-@timeit()
 def _write_fba_aic_tab(
         ws,
         all_fc_transfers: list,
@@ -1609,7 +1600,6 @@ def _write_section_group_row(ws, month_start_col: int, n_months: int, total_star
     return row_cells
 
 
-@timeit()
 def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
                    results: list | None = None, refund_results: list | None = None,
                    period: str = "") -> None:
@@ -1741,7 +1731,6 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
 
 
 
-@timeit()
 def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None, seller_country: str = "FR", display_currency: str = "EUR") -> None:
     """Onglet TVA locale par pays (immatriculation locale hors OSS) : mois par
     mois (net) puis Brut / Remboursements / Net (total période) et statut."""
@@ -1888,7 +1877,6 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     _width_tracker.apply(ws)
 
 
-@timeit()
 def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
     """Onglet INVOICE / CREDIT_NOTE."""
     ws.title = i18n_("xl_tab_invoice_cn")
@@ -1949,7 +1937,6 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
     _width_tracker.apply(ws)
 
 
-@timeit()
 def export_xlsx(
         results: List[VatResult],
         output_path: str | Path,

@@ -68,7 +68,6 @@ from typing import List, Dict, Optional
 
 from tva_intracom.i18n import _
 from tva_intracom.models import VatResult, Scenario, Channel
-from .perf_log import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +139,6 @@ def _compute_aic_from_fc_transfers(
 # Calcul des lignes Cerfa
 # ---------------------------------------------------------------------------
 
-@timeit()
 def compute_ca3_lines_v2(
         results: List[VatResult],
         refund_results: Optional[List[VatResult]] = None,
@@ -303,7 +301,6 @@ def compute_ca3_lines_v2(
 # Génération HTML
 # ---------------------------------------------------------------------------
 
-@timeit()
 def generate_ca3_html_report_v2(
         results: List[VatResult],
         company_name: str,

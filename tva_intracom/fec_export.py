@@ -39,7 +39,6 @@ from typing import Iterable
 
 from .i18n import _
 from .models import Collector, Scenario, VatResult
-from .perf_log import timeit
 
 # ---------------------------------------------------------------------------
 # Plan comptable — comptes génériques paramétrables.
@@ -191,7 +190,6 @@ def _scenario_label(scenario: Scenario) -> str:
     }.get(scenario, scenario.value)
 
 
-@timeit()
 def build_fec_rows(
     results: Iterable[VatResult],
     period: str,
@@ -284,7 +282,6 @@ def build_fec_rows(
     return rows
 
 
-@timeit()
 def generate_fec_bytes(
     results: Iterable[VatResult],
     period: str,

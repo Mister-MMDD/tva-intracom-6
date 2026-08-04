@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 
 from .constants import safe_decimal
-from ...perf_log import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,6 @@ def _aggregate_group(rows: list[dict]) -> dict:
     return aggregated
 
 
-@timeit()
 def preaggregate_v5(
     raw_rows: list[dict],
     parser,   # _Format5Parser — évite l'import circulaire

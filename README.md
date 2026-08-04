@@ -838,17 +838,13 @@ conversion devise dans l'export Excel (`tests/test_excel_currency_conversion.py`
 - **Stripe** : La session du portail de facturation (Billing Portal) est désormais créée uniquement au clic, au lieu d'être pré-générée à chaque rerun Streamlit.
 - **Filtrage UI (`_render_filter_bar`)** : Optimisation par scan concaténé unique avec gestion robuste des valeurs nulles (évite les lignes vides en recherche).
 
-### Instrumentation perf_log (analyse de logs de production, 2026-08)
-Module `tva_intracom/perf_log.py` : décorateur `@timeit()` / context manager
-`timed()`, logging pur (aucun thread/timer — sans impact sur le scale-to-zero
-Railway). Activable/désactivable via `PERF_LOG_ENABLED` (défaut `1`), seuil
-`[LENT]` via `PERF_LOG_SLOW_MS` (défaut 1000ms). `@timeit(min_ms=N)` permet
-de masquer le bruit d'un point déjà investigué et confirmé stable (voir
-`ecb_rates.get_rate`, filtré à 20ms — des dizaines d'appels/run à 0.0ms une
-fois le cache mémoire L1 chaud).
-
-Corrections trouvées par analyse itérative de logs réels (avant/après
-redéploiement, comparaison statistique) :
+### Historique des optimisations perf (2026-08)
+Une instrumentation temporaire (`tva_intracom/perf_log.py`, décorateur
+`@timeit()` / context manager `timed()`) a été ajoutée début août 2026 pour
+identifier les points lents via analyse de logs de production réels
+(avant/après redéploiement, comparaison statistique), puis retirée une fois
+l'investigation terminée — les correctifs de code ci-dessous, eux,
+restent :
 - **VIES (`vies_engine.py`)** : connexion DB mise en cache par thread
   (`cache_connection=True`, comme auth/billing/ecb_rates) au lieu d'une
   connexion neuve par requête batch — aucun appel DB n'a lieu depuis les

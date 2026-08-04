@@ -33,7 +33,6 @@ from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate
 from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES, oss_threshold_in_currency, OSS_THRESHOLD_FIXED_EQUIVALENTS
 from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
-from .perf_log import timeit
 
 
 def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
@@ -672,7 +671,6 @@ def _run_oss_loop(
     return results, oss_summary
 
 
-@timeit()
 def compute_all_with_vies(
     sales: list[Sale],
     scope_id: str,

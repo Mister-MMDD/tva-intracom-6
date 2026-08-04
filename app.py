@@ -16,7 +16,6 @@ from datetime import datetime
 import pandas as pd
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
 from tva_intracom.i18n import _, init_i18n, language_selector
-from tva_intracom.perf_log import timed
 
 # Initialisation I18N
 init_i18n()
@@ -102,8 +101,7 @@ language_selector()
 
 st.title(f"🇪🇺 {_('title')}")
 
-with timed("app.run_auth_flow"):
-    _auth_ctx = run_auth_flow(cookie_manager)
+_auth_ctx = run_auth_flow(cookie_manager)
 if _auth_ctx is None:
     st.stop()
 
@@ -343,7 +341,6 @@ if uploaded_files:
         parse_progress_ph = st.empty()
 
         for uploaded_file in uploaded_files:
-          with timed(f"app.parse_file[{uploaded_file.name}]", extra=f"{uploaded_file.size} bytes"):
             _ext = Path(uploaded_file.name).suffix or ".csv"
             with tempfile.NamedTemporaryFile(delete=False, suffix=_ext, mode="wb") as tmp:
                 tmp.write(uploaded_file.getvalue())
@@ -574,36 +571,34 @@ if uploaded_files:
                 return _results, _vies_summary, _oss_summary, _refund_results, _summary
 
             if _is_big_file:
-                with timed("app.calc_full[background_job]", extra=f"{total_rows_sum} lignes"):
-                    _job_id = "calc_" + str(abs(hash(_cache_key)))
-                    start_background_job(_job_id, _run_full_calc)
-                    with calc_progress_ph.container():
-                        st.caption(_("calc_bg_running_caption", rows=f"{total_rows_sum:,}".replace(",", " ")))
-                        render_job_progress(_job_id, label=_("calc_progress_vies"))
-                    _job_state = get_job_state(_job_id)
-                    with _job_state.lock:
-                        _job_done, _job_error = _job_state.done, _job_state.error
-                    if not _job_done:
-                        # Le fragment ci-dessus continue de se rafraîchir tout
-                        # seul (run_every=0.4s) sans ré-exécuter le reste du
-                        # script : on s'arrête ici pour CE rerun, la sidebar et
-                        # les widgets déjà rendus plus haut restent utilisables.
-                        st.stop()
-                    if _job_error is not None:
-                        clear_job(_job_id)
-                        st.error(_("processing_error", error=_job_error))
-                        raise _job_error
-                    results, vies_summary, oss_summary, refund_results, summary = _job_state.result
+                _job_id = "calc_" + str(abs(hash(_cache_key)))
+                start_background_job(_job_id, _run_full_calc)
+                with calc_progress_ph.container():
+                    st.caption(_("calc_bg_running_caption", rows=f"{total_rows_sum:,}".replace(",", " ")))
+                    render_job_progress(_job_id, label=_("calc_progress_vies"))
+                _job_state = get_job_state(_job_id)
+                with _job_state.lock:
+                    _job_done, _job_error = _job_state.done, _job_state.error
+                if not _job_done:
+                    # Le fragment ci-dessus continue de se rafraîchir tout
+                    # seul (run_every=0.4s) sans ré-exécuter le reste du
+                    # script : on s'arrête ici pour CE rerun, la sidebar et
+                    # les widgets déjà rendus plus haut restent utilisables.
+                    st.stop()
+                if _job_error is not None:
                     clear_job(_job_id)
-                    calc_progress_ph.empty()
+                    st.error(_("processing_error", error=_job_error))
+                    raise _job_error
+                results, vies_summary, oss_summary, refund_results, summary = _job_state.result
+                clear_job(_job_id)
+                calc_progress_ph.empty()
             else:
-                with timed("app.calc_full[sync]", extra=f"{total_rows_sum} lignes"):
-                    with calc_progress_ph.container():
-                        _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
-                        results, vies_summary, oss_summary, refund_results, summary = _run_full_calc(
-                            lambda p, t: _vies_bar.progress(p, text=t or _("calc_progress_vies"))
-                        )
-                    calc_progress_ph.empty()
+                with calc_progress_ph.container():
+                    _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
+                    results, vies_summary, oss_summary, refund_results, summary = _run_full_calc(
+                        lambda p, t: _vies_bar.progress(p, text=t or _("calc_progress_vies"))
+                    )
+                calc_progress_ph.empty()
 
             st.session_state["_calc_key"]       = _cache_key
             st.session_state["_results"]        = results
@@ -925,18 +920,12 @@ if uploaded_files:
         # Voir la docstring de render_detail_ventes() pour le détail complet.
         st.session_state["_tab_ctx"] = _tab_ctx
 
-        with timed("app.render_tab[declarations]"):
-            with tab_decl: render_declarations(_tab_ctx)
-        with timed("app.render_tab[detail_ventes]"):
-            with tab_detail: render_detail_ventes()
-        with timed("app.render_tab[vies]"):
-            with tab_vies: render_vies(_tab_ctx)
-        with timed("app.render_tab[audit]"):
-            with tab_audit: render_audit()
-        with timed("app.render_tab[telechargements]"):
-            with tab_dl: render_telechargements()
-        with timed("app.render_tab[visualisations]"):
-            with tab_viz: render_visualisations()
+        with tab_decl: render_declarations(_tab_ctx)
+        with tab_detail: render_detail_ventes()
+        with tab_vies: render_vies(_tab_ctx)
+        with tab_audit: render_audit()
+        with tab_dl: render_telechargements()
+        with tab_viz: render_visualisations()
 
         # BUGFIX : la sidebar a été dessinée en tout début de run avec
         # `_period_label_shown_by_sidebar` (voir plus haut), potentiellement

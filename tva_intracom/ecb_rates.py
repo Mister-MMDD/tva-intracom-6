@@ -40,7 +40,6 @@ import psycopg2.pool
 
 from .config import get_secret
 from .database import NonPoolingConnectionPool
-from .perf_log import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +156,6 @@ def _init_schema(pool: "NonPoolingConnectionPool") -> None:
         pool.putconn(conn)
 
 
-@timeit()
 def _db_get_rates_batch(currency_dates: list[tuple[str, date]]) -> dict[tuple[str, date], Decimal]:
     """Récupère plusieurs taux depuis la base de données en une seule requête.
     
@@ -263,7 +261,6 @@ _FETCH_MAX_ATTEMPTS = 3
 _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
 
 
-@timeit()
 def _request_ecb(url: str, description: str) -> Optional[dict]:
     """Effectue une requête à l'API BCE avec gestion des retries."""
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -291,7 +288,6 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
     return None
 
 
-@timeit()
 def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
     """Interroge l'API ECB pour EUR/{currency} à une date donnée.
 
@@ -325,7 +321,6 @@ def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
         return None
 
 
-@timeit()
 def _fetch_ecb_batch(
     currencies: list[str], start_date: date, end_date: date
 ) -> dict[str, dict[date, Decimal]]:
@@ -394,7 +389,6 @@ def _fetch_ecb_batch(
 # API publique
 # ------------------------------------------------------------------
 
-@timeit(min_ms=20)  # filtre le bruit des hits L1 (0.0ms, des dizaines/run) ; garde les vrais accès DB/API
 def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     """Retourne le taux EUR/{currency} (unités de devise pour 1 EUR).
 
@@ -420,38 +414,6 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
             _rate_cache[key] = db_rate
         return db_rate
 
-    # Cache DB également manqué (pas seulement L1) : un live-fetch ECB va
-    # être déclenché (coûteux : ~700-800ms de requête réseau réelle, voir
-    # _fetch_ecb_rate). Si ce site d'appel n'est pas passé par prefetch_rates()
-    # au préalable (voir prefetch_rates(), qui batch ces requêtes), ça
-    # signale un point non batché à investiguer — on logue l'appelant exact
-    # (frame juste au-dessus de get_rate) pour le retrouver facilement dans
-    # les prochains logs sans avoir à deviner/grep tout le codebase à chaque
-    # fois (voir investigation du 2026-08-03 : ~8.8s cumulés sur 5 devises
-    # pour un site d'appel non identifié avec certitude).
-    import inspect
-    import os as _os
-    _perf_log_file = _os.path.normpath(__file__).replace("ecb_rates.py", "perf_log.py")
-    _caller = None
-    for _frame_info in inspect.stack()[1:]:
-        # Ignore les frames appartenant à perf_log.py (le wrapper @timeit qui
-        # décore get_rate lui-même) pour remonter jusqu'au VRAI appelant
-        # métier — sans ce filtre, on obtient toujours "perf_log.py:100
-        # (_wrapper)", ce qui n'identifie rien (voir investigation ratée du
-        # 2026-08-03, log_test_5.txt ligne 259).
-        if _os.path.normpath(_frame_info.filename) != _perf_log_file:
-            _caller = _frame_info
-            break
-    _caller_desc = (
-        f"{_caller.filename.split('/')[-1]}:{_caller.lineno} ({_caller.function})"
-        if _caller is not None else "inconnu"
-    )
-    logger.info(
-        "get_rate(%s, %s) : cache DB manqué, live-fetch ECB déclenché — "
-        "appelant : %s",
-        currency, target_date, _caller_desc,
-    )
-
     # Requête HTTP hors du lock pour ne pas bloquer les autres threads.
     rate = _fetch_ecb_rate(currency, target_date)
 
@@ -463,7 +425,6 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     return rate
 
 
-@timeit()
 def prefetch_rates(
     currency_dates: list[tuple[str, date]],
     max_workers: int = 8,

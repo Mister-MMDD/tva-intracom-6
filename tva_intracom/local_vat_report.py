@@ -38,7 +38,6 @@ from typing import Dict, List, Optional
 from tva_intracom.i18n import _
 from tva_intracom.models import VatResult
 from tva_intracom.rates import COUNTRY_FISCAL_META, COUNTRY_NAMES, LOCAL_VAT_BOX_CODES
-from .perf_log import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,6 @@ def _round(amount: Decimal) -> Decimal:
     return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-@timeit()
 def compute_local_vat_lines(
     results: List[VatResult],
     refund_results: Optional[List[VatResult]],
@@ -111,7 +109,6 @@ def compute_local_vat_lines(
     }
 
 
-@timeit()
 def generate_local_vat_html_report(
     results: List[VatResult],
     refund_results: Optional[List[VatResult]],
