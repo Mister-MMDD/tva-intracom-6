@@ -788,7 +788,8 @@ La suite couvre actuellement : classification des scénarios moteur, taux par
 catégorie produit, cache VIES, seuil OSS multi-année, parsing des formats Amazon 1–5,
 conversion BCE, isolation thread-safe du pool de connexions DB (`cache_connection=True`,
 voir `tests/test_connection_pool_threading.py`), pré-chargement batch des taux BCE
-pour l'export OSS (`tests/test_oss_rate_prefetch.py`).
+pour l'export OSS (`tests/test_oss_rate_prefetch.py`), parité numérique de la
+conversion devise dans l'export Excel (`tests/test_excel_currency_conversion.py`).
 
 ---
 
@@ -875,6 +876,18 @@ redéploiement, comparaison statistique) :
   comme seule origine des lookups BCE en direct (un par devise d'affichage
   jamais choisie ce jour-là ; comportement normal et déjà mis en cache par
   session, coût ponctuel non récurrent).
+- **Export Excel (`excel_report._write_details_tab`)** : décomposition de
+  `export_xlsx` par onglet (`@timeit()` sur chaque `_write_*_tab`) a révélé
+  que `_write_details_tab` (~1.7s pour 7172 lignes) et
+  `_write_vies_history_tab` (~2.1s, requête déjà indexée et batchée —
+  proportionnel au volume réel d'historique, pas une inefficacité) étaient
+  les deux principaux postes. Pour `_write_details_tab` : le taux de
+  conversion vers `display_currency` était recalculé intégralement
+  (`convert_to_currency`->`convert_to_eur`+`get_rate`, avec une string
+  `_info` formatée puis jetée) à CHAQUE cellule (3 conversions/ligne), alors
+  que la devise et la date de conversion sont fixes pour tout l'onglet — le
+  taux est maintenant calculé une seule fois avant la boucle (parité
+  numérique vérifiée dans `tests/test_excel_currency_conversion.py`).
 - **Connu et accepté (non corrigé)** : changer la devise d'affichage
   (`target_currency`) redéclenche un calcul complet
   (`compute_all_with_vies`, ~2.4s) car `_cache_key` (app.py) inclut cette

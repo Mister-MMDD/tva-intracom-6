@@ -532,8 +532,22 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
     _fmt_curr = _currency_format(display_currency)
     _conv_date = _date.today()
 
+    # Optimisation (voir investigation perf du 2026-08-04, log_test_7.txt) :
+    # _to_home_currency()->convert_to_currency()->convert_to_eur()+get_rate()
+    # refait un aller-retour complet (avec formatage d'une string `_info`
+    # jetée) à CHAQUE appel — or display_currency/_conv_date ne changent
+    # jamais pendant cette boucle. Sur 7172 lignes × 3 conversions/ligne
+    # (montant HT, TVA calculée, TVA Amazon), ça mesurait ~1.7s. On calcule
+    # le taux UNE SEULE fois ici, et _conv() ne fait plus qu'une
+    # multiplication + arrondi directs (même résultat, cf. _to_home_currency
+    # pour le détail des cas EUR/HRK/taux indisponible qu'on reproduit ici).
+    _is_eur = not display_currency or display_currency.upper() == "EUR"
+    _rate_to_display = None if _is_eur else ecb_rates.get_rate(display_currency, _conv_date)
+
     def _conv(amount: Decimal) -> float:
-        return float(_to_home_currency(amount, display_currency, _conv_date))
+        if _is_eur or _rate_to_display is None:
+            return float(amount)
+        return float(_round(amount * _rate_to_display))
 
     headers = [
         i18n_("xl_col_tx_id"), i18n_("xl_col_date"), i18n_("xl_col_from"), i18n_("xl_col_to"), i18n_("xl_col_buyer_type"),
