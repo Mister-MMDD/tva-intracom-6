@@ -928,6 +928,7 @@ def compute_all_with_vies(
                 reason="Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
                 display_id=getattr(sale, "display_id", ""),
                 stock_country=sale.stock_country,
+                is_national_tax_id=True,
             ))
             if sale.national_tax_id not in national_ids_seen:
                 national_ids_seen.add(sale.national_tax_id)

@@ -177,6 +177,11 @@ class ViesReclassification:
     is_domestic_reverse_charge: bool = False
     display_id: str = ""
     stock_country: str = ""
+    # True : NIF/identifiant fiscal national (ES NIF/CIF, IT codice fiscale, etc.)
+    # — jamais un vrai n° de TVA intracommunautaire, jamais envoyé à VIES. À ne
+    # JAMAIS afficher sous "N° TVA rejeté" : ce n'est pas un rejet VIES, juste
+    # un identifiant d'un autre type que Amazon place dans la même colonne.
+    is_national_tax_id: bool = False
     # True  : TVA due au pays de depart (Art.31 — n° TVA acheteur invalide,
     #         y compris quand l'art.194 etait a tort applique en cross-border).
     # False : TVA due au pays d'arrivee (destination) — pays n'ayant pas

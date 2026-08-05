@@ -275,20 +275,27 @@ def render_vies(ctx: TabContext) -> None:
 
         # Reclassifications VIES
         if vies_summary.reclassifications:
-            avec_delta = [r for r in vies_summary.reclassifications if r.vat_delta > 0]
-            dom_rc     = [r for r in vies_summary.reclassifications if getattr(r, "is_domestic_reverse_charge", False)]
-            dom_taxe   = [r for r in vies_summary.reclassifications if r.vat_delta <= 0 and not getattr(r, "is_domestic_reverse_charge", False)]
+            # Les NIF/identifiants fiscaux nationaux ne sont PAS des n° de TVA
+            # rejetés par VIES — ce n'est même pas un numéro qui a été soumis
+            # à VIES. On les sépare du tableau "N° TVA rejeté" pour ne pas
+            # induire en erreur (cf. is_national_tax_id sur ViesReclassification).
+            true_rejections = [r for r in vies_summary.reclassifications if not getattr(r, "is_national_tax_id", False)]
+            national_ids = [r for r in vies_summary.reclassifications if getattr(r, "is_national_tax_id", False)]
+
+            avec_delta = [r for r in true_rejections if r.vat_delta > 0]
+            dom_rc     = [r for r in true_rejections if getattr(r, "is_domestic_reverse_charge", False)]
+            dom_taxe   = [r for r in true_rejections if r.vat_delta <= 0 and not getattr(r, "is_domestic_reverse_charge", False)]
             st.success(_("vies_success_reclassified", count=len(avec_delta), amount=_fmt(float(vies_summary.fraud_avoided_amount))))
             if dom_rc:
                 st.info(_("vies_info_reverse_charge", count=len(dom_rc)))
             if dom_taxe:
                 st.info(_("vies_info_zero_impact", count=len(dom_taxe)))
-            if vies_summary.national_id_count:
+            if national_ids:
                 # Ces numéros ne sont PAS des n° de TVA intracommunautaire et
                 # ne sont jamais envoyés à VIES — affichés à part pour ne pas
                 # être confondus avec les vraies vérifications VIES (valid/
                 # invalid/inconclusive) ci-dessus.
-                st.info(_("vies_info_national_id", count=vies_summary.national_id_count))
+                st.info(_("vies_info_national_id", count=len(national_ids)))
 
             def _vies_statut(r):
                 if getattr(r, "is_domestic_reverse_charge", False): return _("vies_status_reverse_charge")
@@ -308,7 +315,7 @@ def render_vies(ctx: TabContext) -> None:
                 _("vies_col_dest"): _country_label(r.buyer_country), _("vies_col_ht"): float(r.amount_ht),
                 _("vies_col_recovered_vat"): float(r.vat_avoided),
                 _("vies_col_status"): _vies_statut(r), _("vies_col_expl"): _vies_explication(r)}
-                for r in vies_summary.reclassifications]
+                for r in true_rejections]
 
             filtre = st.radio(_("vies_filter_label"), [_("vies_filter_all"), _("vies_filter_recovered"), _("vies_filter_reverse_charge"), _("vies_filter_zero_impact")], horizontal=True)
             if filtre == _("vies_filter_recovered"):   display = [d for d in fraud_data if _("vies_status_recovered") in d[_("vies_col_status")]]
@@ -324,6 +331,17 @@ def render_vies(ctx: TabContext) -> None:
                 note_cols=[_("vies_col_rejected_vat"), _("vies_col_id"), _("vies_col_expl")])
             _gated_preview_table(_fraud_df_filt, _can_export, column_config=_fraud_cfg, total_count=len(_fraud_df_filt),
                                  exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")])
+
+            if national_ids:
+                with st.expander(_("vies_national_id_expander", count=len(national_ids))):
+                    _nat_data = [{
+                        _("vies_col_id"): (getattr(r, "display_id", "") or r.sale_id),
+                        _("vies_col_national_id"): r.buyer_vat_number,
+                        _("vies_col_origin"): _country_label(getattr(r, "stock_country", "")),
+                        _("vies_col_dest"): _country_label(r.buyer_country),
+                        _("vies_col_ht"): float(r.amount_ht),
+                    } for r in national_ids]
+                    st.dataframe(pd.DataFrame(_nat_data), width="stretch", hide_index=True)
 
             if avec_delta:
                 by_c = {}
