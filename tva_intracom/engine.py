@@ -760,7 +760,15 @@ def compute_all_with_vies(
     vat_to_sale_ids: dict[str, list[str]] = {}  # full_vat -> [sale_id, ...]
 
     for sale in all_items_sorted:
-        if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number:
+        # buyer_vat_valid=False dès classify.py signale un NIF/identifiant fiscal
+        # national (pas un vrai n° de TVA intracom, cf. is_national_tax_id) — que
+        # ce soit un cas domestique (buyer_vat_number conservé pour l'autoliquidation
+        # art.194) ou cross-border (déjà écarté plus haut via national_tax_id).
+        # On ne l'envoie JAMAIS à VIES : ce n'est pas un numéro interrogeable, et
+        # l'autoliquidation domestique ne dépend pas de sa validité (engine.py
+        # ligne ~375). Sans ce filtre, ces NIF apparaissent à tort dans la liste
+        # "N° TVA rejeté" alors qu'ils n'ont jamais été un numéro de TVA valide.
+        if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number and sale.buyer_vat_valid:
             full_vat = _normalize_full_vat(sale.buyer_vat_number, sale.buyer_country)
             sale_vat_index[(sale.sale_id, sale.buyer_vat_number)] = full_vat
             if full_vat:
@@ -928,7 +936,7 @@ def compute_all_with_vies(
             _vies_state["last_classified_sale_id"] = sale.sale_id
             return sale
 
-        if not (sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number):
+        if not (sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number and sale.buyer_vat_valid):
             return sale
         full_vat = sale_vat_index.get((sale.sale_id, sale.buyer_vat_number), "")
         vies_res = checked_vats.get(full_vat) if full_vat else None
