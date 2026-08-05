@@ -623,6 +623,9 @@ if uploaded_files:
 
         if vies_summary and vies_summary.total_inconclusive > 0:
             st.error(_("vies_inconclusive_error", count=vies_summary.total_inconclusive))
+            if st.button(_("vies_reverify_btn"), key="retry_vies_error_banner"):
+                st.session_state["_vies_retry_nonce"] = _vies_retry_nonce + 1
+                preserve_upload_rerun()
 
         # Segmentation écarts pour KPI
         _vies_ids_kpi     = getattr(vies_summary, 'vies_affected_sale_ids', set()) if vies_summary else set()

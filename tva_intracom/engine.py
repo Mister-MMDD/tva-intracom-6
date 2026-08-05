@@ -711,14 +711,9 @@ def compute_all_with_vies(
     )
 
     def _is_uncertain(vr) -> bool:
-        """Un résultat VIES est "incertain" (à traiter comme B2C par sécurité,
-        avec motif affiché) s'il est soit une erreur transitoire classique
-        (_vies_is_unreliable), soit un repli sur une entrée de cache déjà
-        expirée utilisée uniquement parce que VIES était indisponible
-        (ViesResult.stale_fallback) — un tel résultat n'est PAS une
-        confirmation automatique fraîche, même si sa valeur `valid` d'origine
-        est True."""
-        return _vies_is_unreliable(vr) or bool(getattr(vr, "stale_fallback", False))
+        """Un résultat VIES est \"incertain\" (à traiter comme B2C par sécurité,
+        avec motif affiché) s'il s'agit d'une erreur transitoire explicite."""
+        return _vies_is_unreliable(vr)
 
     vies_summary = ViesValidationSummary()
 
@@ -852,26 +847,12 @@ def compute_all_with_vies(
     #     pas une vérification automatique — comptée à part, jamais fusionnée
     #     avec valid_count/invalid_count pour ne pas gonfler artificiellement
     #     le taux de vérification automatique affiché.
-    #   - stale_fallback_count : repli sur une entrée de cache déjà expirée,
-    #     utilisée uniquement parce que VIES était indisponible au moment du
-    #     calcul — traité comme inconclusif (voir is_inconclusive plus bas),
-    #     jamais comme une confirmation automatique.
     #   - inconclusive_count : aucun résultat exploitable du tout (ni cache
-    #     frais, ni override, ni repli périmé disponible).
+    #     frais, ni override disponible).
     vies_summary.total_checked = len(vat_seen)
     for fv, vr in checked_vats.items():
         if getattr(vr, "is_manual_override", False):
             vies_summary.manual_override_count += 1
-        elif getattr(vr, "stale_fallback", False):
-            vies_summary.stale_fallback_count += 1
-            vies_summary.inconclusive_vats.append(fv)
-            vies_summary.inconclusive_vat_details.append({
-                "vat": fv,
-                "country": fv[:2] if len(fv) >= 2 and fv[:2].isalpha() else "",
-                "sale_ids": vat_to_sale_ids.get(fv, []),
-                "checked_at": getattr(vr, "checked_at", ""),
-                "reason": "stale_fallback",
-            })
         elif getattr(vr, "valid", False):
             vies_summary.valid_count += 1
         elif _vies_is_unreliable(vr):
@@ -934,15 +915,12 @@ def compute_all_with_vies(
             return sale
         full_vat = sale_vat_index.get((sale.sale_id, sale.buyer_vat_number), "")
         vies_res = checked_vats.get(full_vat) if full_vat else None
-        _is_stale = bool(getattr(vies_res, "stale_fallback", False)) if vies_res else False
-        # Un repli sur cache périmé n'est jamais une confirmation B2B fiable,
-        # même si le résultat mis en cache était historiquement `valid=True` :
-        # traité comme incertain (B2C par sécurité), au même titre qu'un
-        # inconclusif classique (voir _is_uncertain plus haut).
-        is_valid = (getattr(vies_res, "valid", False) if vies_res else False) and not _is_stale
+        
+        # Un résultat VIES n'est valide que si valid=True.
+        is_valid = bool(getattr(vies_res, "valid", False)) if vies_res else False
         is_inconclusive = (
             vies_res is not None and not is_valid
-            and (_vies_is_unreliable(vies_res) or _is_stale)
+            and _vies_is_unreliable(vies_res)
         )
 
         if is_valid:
@@ -953,14 +931,7 @@ def compute_all_with_vies(
             # On l'ajoute à la liste des anomalies VIES pour affichage dans l'onglet VIES,
             # même si on ne change pas forcément le type en B2C.
             reason = "Numéro invalide ou introuvable"
-            if _is_stale:
-                _checked_at = getattr(vies_res, "checked_at", "") or "date inconnue"
-                reason = (
-                    f"Service VIES indisponible — dernière vérification connue "
-                    f"({'valide' if getattr(vies_res, 'valid', False) else 'invalide'}) "
-                    f"le {_checked_at}, à revérifier"
-                )
-            elif is_inconclusive:
+            if is_inconclusive:
                 reason = "Service VIES indisponible (incertain)"
             
             vies_summary.reclassifications.append(ViesReclassification(

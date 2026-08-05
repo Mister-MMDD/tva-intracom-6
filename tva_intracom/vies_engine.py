@@ -48,7 +48,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, replace as _dc_replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -64,7 +64,7 @@ VIES_REST_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-n
 DEFAULT_TIMEOUT = 10
 
 # TTL du cache : durée en jours avant qu'un numéro soit revalidé auprès de VIES.
-# Valeur par défaut : 90 jours, utilisée pour le cache global mutualisé (non
+# Valeur par défaut : 7 jours, utilisée pour le cache global mutualisé (non
 # scopé, partagé entre tous les comptes) et comme fallback pour tout scope
 # n'ayant jamais appelé set_cache_ttl().
 #
@@ -76,7 +76,7 @@ DEFAULT_TIMEOUT = 10
 # tous les autres. _SCOPE_TTL_DAYS stocke donc le TTL par scope_id ; le cache
 # global mutualisé (vies_global_cache), lui, n'est jamais scopé et utilise
 # toujours DEFAULT_CACHE_TTL_DAYS, non modifiable depuis l'UI.
-DEFAULT_CACHE_TTL_DAYS: int = 30
+DEFAULT_CACHE_TTL_DAYS: int = 7
 _SCOPE_TTL_DAYS: dict[str, int] = {}
 
 
@@ -1208,14 +1208,8 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
         res = check_vat_with_retry(cc, num, timeout=timeout)
 
         if _is_unreliable(res):
-            fallback = cached if cached is not None else global_cached
-            if fallback is not None:
-                logger.info(
-                    "VIES instable pour %s — repli sur cache périmé (marqué non-fiable, "
-                    "dernière vérification connue : %s).",
-                    _mask_vat(norm), fallback.checked_at or "date inconnue",
-                )
-                return _dc_replace(fallback, stale_fallback=True)
+            # On ne fait plus de repli sur le cache périmé même si VIES est
+            # indisponible (décision : sécurité B2C par défaut).
             return res
 
         if cached is not None and _is_downgrade(cached, res):
@@ -1309,8 +1303,8 @@ def validate_vat_numbers_parallel(
         global_entry = global_cache_map.get(norm)
         if global_entry is not None:
             # BUGFIX : Si l'utilisateur a réduit son TTL (ex: 1 jour), on ne doit 
-            # pas utiliser une entrée du cache global qui a 80 jours (même si 
-            # elle est considérée "fraîche" par le défaut global de 90j).
+            # pas utiliser une entrée du cache global qui a 6 jours (même si 
+            # elle est considérée "fraîche" par le défaut global de 7j).
             # On vérifie la fraîcheur par rapport au TTL du SCOPE.
             if not _is_expired(global_entry[0].checked_at, scope_id):
                 results[vat_id] = global_entry[0]
@@ -1358,20 +1352,13 @@ def validate_vat_numbers_parallel(
             orig_id = to_fetch[norm_id]
 
             if _is_unreliable(result):
-                fb = fallback_cache.get(norm_id)
-                if fb is not None:
-                    logger.info(
-                        "VIES instable pour %s — repli sur cache périmé (marqué non-fiable, "
-                        "dernière vérification connue : %s).",
-                        norm_id, fb.checked_at or "date inconnue",
-                    )
-                    results[orig_id] = _dc_replace(fb, stale_fallback=True)
-                else:
-                    results[orig_id] = ViesResult(
-                        valid=False, country_code=result.country_code,
-                        vat_number=result.vat_number,
-                        error=result.error or "Réponse VIES non concluante (à revérifier)",
-                    )
+                # On ne fait plus de repli sur le cache périmé même si VIES est
+                # indisponible (décision : sécurité B2C par défaut).
+                results[orig_id] = ViesResult(
+                    valid=False, country_code=result.country_code,
+                    vat_number=result.vat_number,
+                    error=result.error or "Réponse VIES non concluante (à revérifier)",
+                )
                 continue
 
             prev = fallback_cache.get(norm_id)

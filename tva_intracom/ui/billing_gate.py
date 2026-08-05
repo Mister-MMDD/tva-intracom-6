@@ -248,11 +248,11 @@ class BillingGate:
         # Priorité 3 : Affichage du bouton de téléchargement (avec warning VIES éventuel)
         #
         # Le compteur affiché reflète tout ce qui N'EST PAS une vérification
-        # automatique fraîche (VIES ou cache dans le TTL) : overrides manuels,
-        # replis sur cache périmé pendant une panne VIES, et inconclusifs purs.
+        # automatique fraîche (VIES ou cache dans le TTL) : overrides manuels
+        # et inconclusifs purs.
         # Avant ce correctif, seuls les inconclusifs purs étaient comptés —
-        # les overrides manuels et les replis sur cache périmé étaient
-        # silencieusement traités comme des vérifications automatiques.
+        # les overrides manuels étaient silencieusement traités comme des
+        # vérifications automatiques.
         if self.vies_summary and self.vies_summary.total_not_auto_verified > 0:
             st.warning(
                 _(
@@ -261,7 +261,6 @@ class BillingGate:
                     auto_verified=self.vies_summary.total_auto_verified,
                     total=self.vies_summary.total_checked,
                     manual=self.vies_summary.manual_override_count,
-                    stale=self.vies_summary.stale_fallback_count,
                     inconclusive=self.vies_summary.inconclusive_count,
                 )
             )
