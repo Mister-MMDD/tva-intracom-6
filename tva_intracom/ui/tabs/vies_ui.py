@@ -278,11 +278,17 @@ def render_vies(ctx: TabContext) -> None:
             avec_delta = [r for r in vies_summary.reclassifications if r.vat_delta > 0]
             dom_rc     = [r for r in vies_summary.reclassifications if getattr(r, "is_domestic_reverse_charge", False)]
             dom_taxe   = [r for r in vies_summary.reclassifications if r.vat_delta <= 0 and not getattr(r, "is_domestic_reverse_charge", False)]
-            st.success(_("vies_success_reclassified", count=len(vies_summary.reclassifications), amount=_fmt(float(vies_summary.fraud_avoided_amount))))
+            st.success(_("vies_success_reclassified", count=len(avec_delta), amount=_fmt(float(vies_summary.fraud_avoided_amount))))
             if dom_rc:
                 st.info(_("vies_info_reverse_charge", count=len(dom_rc)))
             if dom_taxe:
                 st.info(_("vies_info_zero_impact", count=len(dom_taxe)))
+            if vies_summary.national_id_count:
+                # Ces numéros ne sont PAS des n° de TVA intracommunautaire et
+                # ne sont jamais envoyés à VIES — affichés à part pour ne pas
+                # être confondus avec les vraies vérifications VIES (valid/
+                # invalid/inconclusive) ci-dessus.
+                st.info(_("vies_info_national_id", count=vies_summary.national_id_count))
 
             def _vies_statut(r):
                 if getattr(r, "is_domestic_reverse_charge", False): return _("vies_status_reverse_charge")

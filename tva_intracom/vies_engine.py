@@ -972,6 +972,16 @@ _TRANSIENT_ERRORS = {
     "global_max_concurrent_req", "timeout", "erreur de connexion",
     "erreur http 500", "erreur http 502", "erreur http 503", "erreur http 504",
     "non concluante",
+    # Coupures réseau/DB brutes (ex: connexion Supabase/Postgres fermée par le
+    # serveur en cours d'écriture cache, sous forte concurrence des 25 workers
+    # du ThreadPoolExecutor). Ces erreurs remontent SANS le préfixe "Erreur de
+    # connexion / Timeout" car elles surviennent hors de l'appel HTTP VIES lui
+    # même (dans check_vat_raw, autour des accès cache), via le except générique.
+    # Elles ne signifient rien sur la validité du n° TVA — à traiter comme
+    # inconclusive_count, jamais comme invalid_count.
+    "remote end closed connection", "connection reset by peer",
+    "broken pipe", "connection aborted", "server closed the connection",
+    "could not connect", "connection refused",
 }
 
 

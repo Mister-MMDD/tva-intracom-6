@@ -744,6 +744,9 @@ def compute_all_with_vies(
     # ------------------------------------------------------------------------
     vats_to_check = []
     vat_seen = set()
+    # NIF/identifiants fiscaux nationaux vus (dédupliqués), pour compter des
+    # numéros uniques comme vat_seen et non un par vente.
+    national_ids_seen = set()
     # Clé composite (sale_id, buyer_vat_number) → full_vat normalisé.
     # sale_id seul n'est pas unique (commandes multi-articles / avoirs partagent
     # le même identifiant) ; l'ajout du numéro TVA brut garantit l'unicité de
@@ -918,6 +921,9 @@ def compute_all_with_vies(
                 display_id=getattr(sale, "display_id", ""),
                 stock_country=sale.stock_country,
             ))
+            if sale.national_tax_id not in national_ids_seen:
+                national_ids_seen.add(sale.national_tax_id)
+                vies_summary.national_id_count += 1
             vies_summary.vies_affected_sale_ids.add(_sale_key(sale))
             _vies_state["last_classified_sale_id"] = sale.sale_id
             return sale

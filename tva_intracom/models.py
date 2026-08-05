@@ -199,6 +199,11 @@ class ViesValidationSummary:
     # uniquement parce que VIES était indisponible au moment du calcul —
     # traités comme incertains (B2C par sécurité), jamais comme fiables.
     stale_fallback_count: int = 0
+    # NIF/identifiants fiscaux nationaux (ex: NIF/NIE espagnol) sans préfixe
+    # pays EU. Ne sont JAMAIS envoyés à VIES (buyer_vat_number est vide par
+    # construction) — comptés à part pour ne pas être confondus avec les
+    # vraies vérifications VIES (valid/invalid/inconclusive).
+    national_id_count: int = 0
     inconclusive_vats: list[str] = field(default_factory=list)
     inconclusive_vat_details: list[dict[str, Any]] = field(default_factory=list)
     vat_to_display_ids: dict[str, list[str]] = field(default_factory=dict)
@@ -215,6 +220,8 @@ class ViesValidationSummary:
     def total_manual_override(self) -> int: return self.manual_override_count
     @property
     def total_stale_fallback(self) -> int: return self.stale_fallback_count
+    @property
+    def total_national_id(self) -> int: return self.national_id_count
     @property
     def total_not_auto_verified(self) -> int:
         """Total des numéros qui ne sont PAS le résultat d'une vérification

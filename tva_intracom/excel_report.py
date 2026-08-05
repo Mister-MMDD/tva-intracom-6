@@ -793,7 +793,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
 
 def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
     """Onglet Historique VIES : piste d'audit de chaque vérification effectuée."""
-    from .vies_engine import get_vies_history_bulk
+    from .vies_engine import get_vies_history_bulk, normalize_full_vat
 
     ws.title = i18n_("xl_tab_vies")
     _width_tracker = _ColumnWidthTracker()
@@ -807,22 +807,39 @@ def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
     ws.row_dimensions[1].height = 22
     _width_tracker.observe_row(_headers)
 
+    # IMPORTANT (fix onglet vide/incomplet) : vies_check_history.vat_id stocke
+    # le numéro NORMALISE (préfixe pays ajouté si absent, cf. normalize_full_vat
+    # — la même fonction canonique utilisée par engine.py avant l'appel VIES).
+    # buyer_vat_number, lui, est la valeur BRUTE saisie par l'acheteur (ex:
+    # "B71547129" sans "ES" pour un NIF espagnol). Interroger l'historique
+    # avec la valeur brute ne matche donc que les numéros où l'acheteur avait
+    # déjà tapé le préfixe pays complet — tous les autres étaient absents de
+    # cet onglet alors qu'ils étaient bel et bien en cache/historique.
     seen_vats: set[str] = set()
+    display_by_full_vat: dict[str, str] = {}
     for r in results:
         vat = getattr(r.sale, "buyer_vat_number", "")
-        if vat:
-            seen_vats.add(vat)
+        if not vat:
+            continue
+        full_vat = normalize_full_vat(vat, getattr(r.sale, "buyer_country", ""))
+        if not full_vat:
+            continue
+        seen_vats.add(full_vat)
+        # On garde le numéro tel que saisi pour l'affichage (plus lisible /
+        # cohérent avec les autres onglets), la clé de recherche reste full_vat.
+        display_by_full_vat.setdefault(full_vat, vat)
 
     history_by_vat = get_vies_history_bulk(scope_id, sorted(seen_vats))
 
     row = 2
-    for vat in sorted(seen_vats):
-        history = history_by_vat.get(vat, [])
+    for full_vat in sorted(seen_vats):
+        history = history_by_vat.get(full_vat, [])
         if not history:
             continue
+        _display_vat = display_by_full_vat.get(full_vat, full_vat)
         for entry in history:
             _status = i18n_("xl_vies_status_valid") if entry["valid"] else i18n_("xl_vies_status_invalid")
-            _vals = [vat, entry["checked_at"], _status, entry["country_code"], entry["name"], entry["error"]]
+            _vals = [_display_vat, entry["checked_at"], _status, entry["country_code"], entry["name"], entry["error"]]
             ws.append([_wcell(ws, v) for v in _vals])
             ws.row_dimensions[row].height = 16
             _width_tracker.observe_row(_vals)
