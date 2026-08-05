@@ -717,19 +717,30 @@ def compute_all_with_vies(
 
     vies_summary = ViesValidationSummary()
 
-    # Un seul tri chronologique global (ventes + avoirs) : sorted_sales (ventes
-    # uniquement, pour l'index VIES) en est dérivé par un simple filtrage O(N)
-    # qui préserve l'ordre, plutôt que par un second sorted() O(N log N)
-    # redondant sur les mêmes clés.
+    # Un seul tri chronologique global (ventes + avoirs).
     refund_ids: set[int] = {id(r) for r in (refunds or [])}
     all_items = list(sales) + list(refunds or [])
     all_items_sorted = sorted(all_items, key=_chronological_sort_key)
-    sorted_sales = [it for it in all_items_sorted if id(it) not in refund_ids]
 
     # ------------------------------------------------------------------------
     # PREPARATION : normalisation des numéros TVA + index sale_id -> full_vat
     # On construit l'index ici pour éviter de recalculer full_vat dans la boucle
     # principale (source du bug de non-matching).
+    #
+    # IMPORTANT (fix comptage VIES) : on parcourt all_items_sorted (ventes +
+    # avoirs), PAS uniquement les ventes. Avant ce correctif, un numéro de TVA
+    # présent UNIQUEMENT sur un avoir (ex: remboursement d'une vente d'une
+    # période antérieure non présente dans l'import courant) n'était jamais
+    # ajouté à vats_to_check ici : il n'était donc jamais compté dans
+    # vies_summary (le total "vérifiés" affiché à l'écran), alors même qu'il
+    # était bel et bien interrogé et écrit en cache (vies_scope_cache) par le
+    # second appel dédié aux avoirs dans app.py (compute_all_with_vies(refunds,
+    # ...)) — d'où l'écart observé entre le compteur affiché et le certificat
+    # PDF (qui lit, lui, TOUT le cache scope via get_scope_vies_snapshot()).
+    # Le fait de checker les avoirs ici ne casse pas le compteur OSS cumulatif
+    # (_run_oss_loop reste inchangé : is_from_refunds continue d'exclure les
+    # avoirs de `results` et de la note OSS) — on ne touche qu'à la collecte
+    # des numéros à vérifier / au comptage, pas à la boucle de calcul.
     # ------------------------------------------------------------------------
     vats_to_check = []
     vat_seen = set()
@@ -745,7 +756,7 @@ def compute_all_with_vies(
 
     vat_to_sale_ids: dict[str, list[str]] = {}  # full_vat -> [sale_id, ...]
 
-    for sale in sorted_sales:
+    for sale in all_items_sorted:
         if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number:
             full_vat = _normalize_full_vat(sale.buyer_vat_number, sale.buyer_country)
             sale_vat_index[(sale.sale_id, sale.buyer_vat_number)] = full_vat
