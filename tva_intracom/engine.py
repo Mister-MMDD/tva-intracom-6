@@ -862,21 +862,39 @@ def compute_all_with_vies(
 
     # Compteurs sur numéros UNIQUES (pas par vente)
     #
-    # Quatre catégories distinctes (voir ViesValidationSummary) :
-    #   - valid_count / invalid_count : vérification AUTOMATIQUE fraîche
-    #     (VIES ou cache non expiré), seule catégorie fiable à 100%.
-    #   - manual_override_count : classification saisie par l'utilisateur,
-    #     pas une vérification automatique — comptée à part, jamais fusionnée
-    #     avec valid_count/invalid_count pour ne pas gonfler artificiellement
-    #     le taux de vérification automatique affiché.
-    #   - inconclusive_count : aucun résultat exploitable du tout (ni cache
-    #     frais, ni override disponible).
+    # Trois catégories affichées à l'utilisateur (exhaustives, somme = total_checked) :
+    #   - valid_count   : exonération autorisée (vérif. VIES fraîche OK, cache
+    #                     valide, OU override manuel confirmé valide — un
+    #                     override manuel est une décision définitive au même
+    #                     titre qu'une vérification automatique réussie).
+    #   - invalid_count : exonération refusée, le système a confirmé le numéro
+    #                     faux (VIES fraîche KO, OU override manuel confirmé
+    #                     invalide).
+    #   - inconclusive_count : aucune réponse exploitable du serveur VIES
+    #                     (timeout, coupure réseau, service indisponible) —
+    #                     exonération refusée par précaution, MAIS le numéro
+    #                     n'est pas officiellement invalide.
+    #
+    # manual_valid_count / manual_invalid_count restent trackés séparément
+    # (sous-ensemble de valid_count/invalid_count) à seule fin d'audit —
+    # pour savoir combien de décisions viennent d'une saisie manuelle plutôt
+    # que d'une vérification VIES automatique fraîche.
     vies_summary.total_checked = len(vat_seen)
     for fv, vr in checked_vats.items():
-        if getattr(vr, "is_manual_override", False):
-            vies_summary.manual_override_count += 1
-        elif getattr(vr, "valid", False):
+        is_override = getattr(vr, "is_manual_override", False)
+        is_valid = getattr(vr, "valid", False)
+        if is_override:
+            if is_valid:
+                vies_summary.manual_valid_count += 1
+            else:
+                vies_summary.manual_invalid_count += 1
+
+        if is_valid:
             vies_summary.valid_count += 1
+        elif is_override:
+            # Override manuel invalide : décision définitive, jamais "non
+            # vérifié" même si un précédent check VIES avait été incertain.
+            vies_summary.invalid_count += 1
         elif _vies_is_unreliable(vr):
             vies_summary.inconclusive_count += 1
             vies_summary.inconclusive_vats.append(fv)
@@ -1019,6 +1037,12 @@ def compute_all_with_vies(
             display_id=reclass.display_id,
             stock_country=reclass.stock_country,
             taxed_at_departure=taxed_at_departure,
+            # Reconstruction complète ci-dessus (pas dataclasses.replace) :
+            # tout champ posé à la création et absent d'ici retombe VITE et
+            # SILENCIEUSEMENT à sa valeur par défaut. is_national_tax_id en a
+            # fait les frais (tous les NIF réétiquetés "Invalide" à cette
+            # étape) — recopié explicitement pour ne plus reproduire ce bug.
+            is_national_tax_id=reclass.is_national_tax_id,
         )
 
     return results, vies_summary, oss_summary

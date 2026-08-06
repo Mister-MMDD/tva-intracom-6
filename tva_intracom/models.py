@@ -197,9 +197,13 @@ class ViesValidationSummary:
     valid_count: int = 0
     invalid_count: int = 0
     inconclusive_count: int = 0
-    # Classifications saisies manuellement par l'utilisateur (jamais une
-    # vérification automatique fraîche) — comptées à part.
-    manual_override_count: int = 0
+    # Classifications saisies manuellement par l'utilisateur — sous-ensembles
+    # de valid_count/invalid_count (une décision manuelle est définitive au
+    # même titre qu'une vérification VIES automatique réussie), trackés à part
+    # uniquement à des fins d'audit (savoir combien viennent d'une saisie
+    # manuelle plutôt que d'un contrôle VIES automatique frais).
+    manual_valid_count: int = 0
+    manual_invalid_count: int = 0
     # Replis sur une entrée de cache déjà expirée (TTL dépassé), utilisée
     # uniquement parce que VIES était indisponible au moment du calcul —
     # traités comme incertains (B2C par sécurité), jamais comme fiables.
@@ -222,24 +226,37 @@ class ViesValidationSummary:
     @property
     def total_inconclusive(self) -> int: return self.inconclusive_count
     @property
-    def total_manual_override(self) -> int: return self.manual_override_count
+    def total_manual_override(self) -> int: return self.manual_valid_count + self.manual_invalid_count
     @property
     def total_stale_fallback(self) -> int: return self.stale_fallback_count
     @property
     def total_national_id(self) -> int: return self.national_id_count
     @property
+    def total_verified(self) -> int:
+        """'Numéros vérifiés' : Valides + Invalides uniquement (décision
+        automatique OU manuelle, peu importe — les deux sont définitives).
+        Exclut explicitement les non-vérifiés (inconclusive_count, aucune
+        réponse exploitable du serveur) et les NIF/identifiants nationaux
+        (jamais envoyés à VIES). Par construction :
+        total_verified + inconclusive_count == somme des numéros soumis."""
+        return self.valid_count + self.invalid_count
+    @property
     def total_not_auto_verified(self) -> int:
-        """Total des numéros qui ne sont PAS le résultat d'une vérification
-        automatique fraîche (VIES ou cache non expiré) : override manuel +
-        repli sur cache périmé + inconclusif pur. C'est ce total, et non
-        `inconclusive_count` seul, qui doit être communiqué à l'utilisateur
-        pour refléter fidèlement la part de l'export non auto-vérifiée."""
-        return self.manual_override_count + self.stale_fallback_count + self.inconclusive_count
+        """Total des numéros dont le statut valide/invalide vient d'une
+        saisie manuelle plutôt que d'une vérification VIES fraîche, + repli
+        sur cache périmé + non-vérifiés (serveur indisponible). Sert à
+        nuancer la fiabilité de total_verified, sans changer valid_count/
+        invalid_count qui restent la source de vérité pour l'exonération."""
+        return self.manual_valid_count + self.manual_invalid_count + self.stale_fallback_count + self.inconclusive_count
     @property
     def total_auto_verified(self) -> int:
         """Numéros dont le statut vient d'une vérification automatique
-        fraîche (VIES ou cache dans le TTL) — seule catégorie fiable à 100%."""
-        return self.valid_count + self.invalid_count
+        fraîche (VIES ou cache dans le TTL), à l'exclusion des décisions
+        manuelles — utilisé uniquement pour le message de fiabilité de la
+        billing gate, PAS pour valid_count/invalid_count qui restent la
+        source de vérité pour l'exonération (une décision manuelle y est
+        incluse, cf. commentaire plus haut)."""
+        return self.valid_count + self.invalid_count - self.manual_valid_count - self.manual_invalid_count
     @property
     def fraud_avoided_amount(self) -> Decimal:
         return sum((r.vat_avoided for r in self.reclassifications), Decimal("0.00"))

@@ -128,8 +128,17 @@ def render_vies(ctx: TabContext) -> None:
                     # scope — ne garder que les n° de TVA B2B présents dans
                     # les ventes actuellement chargées, pas tout l'historique
                     # du compte/cabinet.
+                    # Ventes + avoirs : un n° de TVA peut n'apparaître que sur un
+                    # avoir (remboursement d'une vente d'une période antérieure
+                    # non présente dans le lot importé aujourd'hui). Sans les
+                    # avoirs ici, ce numéro est écarté du certificat en mode
+                    # "Fichier" alors qu'il est bien compté dans le KPI affiché
+                    # à l'écran (engine.py, vies_summary.total_checked, qui lui
+                    # boucle sur ventes + avoirs) et bien présent dans le cache
+                    # scope (mode "Compte") — même correctif que
+                    # excel_report.py::_write_vies_history_tab.
                     _file_vat_ids = set()
-                    for _r in ctx.results:
+                    for _r in ctx.results + (ctx.refund_results or []):
                         _bvn = getattr(_r.sale, "buyer_vat_number", None)
                         if _bvn:
                             _file_vat_ids.add(normalize_full_vat(_bvn, _r.sale.buyer_country))
@@ -142,6 +151,7 @@ def render_vies(ctx: TabContext) -> None:
                     scope_id=_vies_scope_id,
                     period_label=period_label if _cert_scope == "file" else _("vies_certificate_full_history"),
                     country_label_fn=_country_label,
+                    translator=_,
                 )
                 st.session_state["_vies_certificate_pdf"] = _pdf_bytes
                 st.session_state["_vies_certificate_scope"] = _cert_scope

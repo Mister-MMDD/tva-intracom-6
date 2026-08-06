@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date as _date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -20,6 +21,8 @@ from .oss_export import aggregate_oss_results
 from .parsers.amazon.detect import parse_date as _parse_amz_date
 from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
 from .report import ReportSummary, build_report
+
+logger = logging.getLogger(__name__)
 
 _COUNTRY_NAMES_XL = COUNTRY_NAMES
 
@@ -1294,10 +1297,16 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
             t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or ""
     ).strip().upper()
     # Quantité
+    raw_qty = t.get("QTY") or t.get("qty") or 1
     try:
-        qty = int(float(t.get("QTY") or t.get("qty") or 1))
+        qty = int(float(raw_qty))
     except (ValueError, TypeError):
         qty = 1
+        logger.warning(
+            "Intrastat/EMEBI : QTY illisible ('%s') pour ASIN=%s, transfert %s→%s "
+            "(tx_id=%s) — quantité forcée à 1, seuil EMEBI potentiellement faussé.",
+            raw_qty, asin or "?", dep, arr, tx_id or "?",
+        )
 
     return tx_id, date_str, asin, str(designation), dep, arr, qty
 

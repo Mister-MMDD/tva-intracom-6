@@ -105,7 +105,8 @@ def render_audit() -> None:
             # boucle parcourt TOUS les résultats (pas seulement les écarts),
             # coûteux à refaire à chaque interaction sans rapport (filtre,
             # changement de sous-onglet FBA...).
-            _audit_cache_key = (ctx.calc_key, _target_currency, enable_vies)
+            _lang = st.session_state.get("language", "fr")
+            _audit_cache_key = (ctx.calc_key, _target_currency, enable_vies, _lang)
             if ctx.calc_key is not None and st.session_state.get("_audit_cats_cache_key") == _audit_cache_key:
                 (ecarts_vies_tab, ecarts_b2b_dom_tab, ecarts_gb_tab,
                  ecarts_autres_tab, ecarts_amz_manquante_tab, nb_arrondis) = st.session_state["_audit_cats_cache_val"]
@@ -117,15 +118,19 @@ def render_audit() -> None:
                     tva_moteur = float(r.vat_amount)
                     if tva_amazon==0 and tva_moteur==0: continue
                     ecart = tva_amazon - tva_moteur
-                    row_d = {"ID":(r.sale.display_id or r.sale.sale_id),
-                             "Stock→Dest":f"{r.sale.stock_country}→{r.sale.buyer_country}",
-                             "Dest": r.sale.buyer_country,
-                             "Scénario":r.scenario.value, _lbl_ht:float(r.sale.amount_ht),
-                             _lbl_tva_amz:round(tva_amazon,2), _lbl_tva_mot:round(tva_moteur,2),
-                             _lbl_gap:round(ecart,2),
-                             "Taux Amazon (%)":round(tva_amazon/float(r.sale.amount_ht)*100,2) if r.sale.amount_ht else 0,
-                             "Taux moteur (%)":float(r.vat_rate),
-                             "Canal": r.channel.value}
+                    row_d = {
+                        _("vies_col_id"): (r.sale.display_id or r.sale.sale_id),
+                        _("col_stock_dest"): f"{r.sale.stock_country}→{r.sale.buyer_country}",
+                        _("col_dest"): r.sale.buyer_country,
+                        _("col_scenario"): r.scenario.value,
+                        _lbl_ht: float(r.sale.amount_ht),
+                        _lbl_tva_amz: round(tva_amazon, 2),
+                        _lbl_tva_mot: round(tva_moteur, 2),
+                        _lbl_gap: round(ecart, 2),
+                        _("col_vat_rate_amazon"): round(tva_amazon / float(r.sale.amount_ht) * 100, 2) if r.sale.amount_ht else 0,
+                        _("col_vat_rate_engine"): float(r.vat_rate),
+                        _("col_channel"): r.channel.value
+                    }
                     if abs(ecart)<=0.05:
                         if abs(ecart)>0: nb_arrondis+=1
                         continue
@@ -214,7 +219,7 @@ def render_audit() -> None:
                     _buf2 = _io2.StringIO(); _w2 = _csv2.writer(_buf2, delimiter=";")
                     _w2.writerow([_("vies_col_id"),_("col_stock_dest"),_("col_scenario"),_lbl_ht,_lbl_tva_amz,_lbl_tva_mot,_lbl_gap])
                     for _rw in ecarts_amz_manquante_tab:
-                        _w2.writerow([_rw["ID"],_rw[_("col_stock_dest")],_rw[_("col_scenario")],
+                        _w2.writerow([_rw[_("vies_col_id")],_rw[_("col_stock_dest")],_rw[_("col_scenario")],
                                       str(_rw[_lbl_ht]).replace(".",","),str(_rw[_lbl_tva_amz]).replace(".",","),
                                       str(_rw[_lbl_tva_mot]).replace(".",","),str(_rw[_lbl_gap]).replace(".",",")])
                     _gated_download(_("audit_dl_manquante_btn"),

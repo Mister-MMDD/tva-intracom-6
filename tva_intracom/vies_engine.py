@@ -221,14 +221,24 @@ def _is_expired(checked_at, scope_id: Optional[str] = None) -> bool:
     return _now_utc() - checked_at > timedelta(days=_get_ttl_days(scope_id))
 
 
-def _parse_flexible_date(s: str) -> datetime:
+def _parse_flexible_date(s: str) -> Optional[datetime]:
     """Parse 'YYYY-MM-DD' ou une date ISO complète en datetime UTC tz-aware.
 
     Une date seule ('YYYY-MM-DD') est interprétée comme minuit UTC ce jour-là,
     pour retrouver le comportement de get_vies_status_as_of() : « statut connu
     strictement avant cette date » quand seule la date de vente est fournie.
+
+    Retourne None si `s` est vide ou ne peut pas être parsée — NE JAMAIS
+    replier silencieusement sur "maintenant" : get_vies_status_as_of() sert
+    à reconstituer le statut VIES connu à la date d'une vente pour justifier
+    une exonération B2B en cas de contrôle fiscal (art. 262 ter I CGI). Un
+    repli sur "maintenant" y ferait remonter à tort une validation VIES
+    postérieure à la vente.
     """
     s = (s or "").strip()
+    if not s:
+        logger.warning("_parse_flexible_date : date vide fournie, aucun repli sur la date du jour.")
+        return None
     try:
         if len(s) == 10:
             return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -237,7 +247,10 @@ def _parse_flexible_date(s: str) -> datetime:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt
     except ValueError:
-        return _now_utc()
+        logger.warning(
+            "_parse_flexible_date : date '%s' non parsable, aucun repli sur la date du jour.", s,
+        )
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -631,8 +644,11 @@ def get_vies_status_as_of(scope_id: str, full_vat: str, as_of_date_iso: str) -> 
     """Statut VIES tel que connu par CE scope à une date donnée (ex: date
     d'une vente), pour justifier une exonération B2B lors d'un contrôle
     fiscal. Retourne None si ce scope n'avait aucune vérification
-    antérieure à cette date."""
+    antérieure à cette date, OU si `as_of_date_iso` est vide/non parsable
+    (dans ce dernier cas, un warning est loggé — voir _parse_flexible_date)."""
     as_of = _parse_flexible_date(as_of_date_iso)
+    if as_of is None:
+        return None
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT checked_at, valid, country_code, vat_number, name, address, error
@@ -882,7 +898,6 @@ def get_scope_vies_snapshot(scope_id: str) -> list[dict]:
 
     snapshot.sort(key=lambda d: d["vat_id"])
     return snapshot
-
 
 def purge_malformed_entries() -> int:
     """Purge administrative, une fois par session (appelée depuis app.py) :

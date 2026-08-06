@@ -971,6 +971,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             scope_id=_vies_scope_id,
                             period_label=_("vies_certificate_full_history"),
                             country_label_fn=COUNTRY_NAMES.get,
+                            translator=_,
                         )
                         st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes
                         if not _snapshot:

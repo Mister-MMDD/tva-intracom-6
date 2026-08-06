@@ -260,7 +260,7 @@ class BillingGate:
                     label=label,
                     auto_verified=self.vies_summary.total_auto_verified,
                     total=self.vies_summary.total_checked,
-                    manual=self.vies_summary.manual_override_count,
+                    manual=self.vies_summary.total_manual_override,
                     inconclusive=self.vies_summary.inconclusive_count,
                 )
             )

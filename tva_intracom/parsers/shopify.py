@@ -71,6 +71,11 @@ def _safe_decimal(value: str | None) -> Decimal:
     try:
         return Decimal(cleaned)
     except InvalidOperation:
+        logger.warning(
+            "Montant illisible ('%s', nettoye en '%s') -- traite comme 0. "
+            "La ligne source devrait etre corrigee, ou sera exclue en aval si le total de la vente est nul.",
+            value, cleaned,
+        )
         return Decimal("0")
 
 

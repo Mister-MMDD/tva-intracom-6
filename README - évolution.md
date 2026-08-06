@@ -927,11 +927,16 @@ restent :
     est corrigée → TVA due au pays de **départ** (Art. 31 Directive
     2006/112/CE), collectée par le vendeur (`Scenario.DOMESTIC`).
   - Pays de destination **non couvert** : aucune exonération à corriger ici
-    — la vente est simplement reclassifiée B2C (n° TVA invalide = pas de
-    preuve de statut assujetti) et suit le régime normal des ventes à
-    distance (Art. 33), taxée au pays de **destination** via **OSS**
-    (`Scenario.OSS_B2C`) — l'art. 194 n'a plus sa place dans ce second cas,
-    qui ne l'a jamais concerné.
+    — la vente **reste classée B2B** (`buyer_vat_valid=False`, on ne
+    reclassifie plus en B2C depuis une correction ultérieure — cf. entrée
+    ci-dessous) et suit le régime normal des ventes à distance (Art. 33),
+    taxée au pays de **destination** via **OSS** (`Scenario.OSS_B2C`) —
+    l'art. 194 n'a plus sa place dans ce second cas, qui ne l'a jamais
+    concerné. *(Le paragraphe original de cette entrée parlait à tort de
+    reclassification B2C ; corrigé le 06/08/2026 pour matcher le
+    comportement réel d'`engine.py`, qui a changé depuis la rédaction
+    initiale — cf. commentaire `IMPORTANT` juste avant l'ajout à
+    `reclassifications` dans `engine.py`.)*
 
   Par ailleurs, les ventes dont le n° fourni est un identifiant fiscal
   national sans préfixe pays (codice fiscale IT, NIF ES, NIP PL…) —
@@ -1079,6 +1084,65 @@ automatique sur le portail DGFIP) reste non implémenté à ce jour.
     l'entrée du crédit précédent)
     ⚠️ Le module suppose un vendeur établi en France MÉTROPOLITAINE — le cas
     DOM (taux 8,5 %/2,1 %, lignes 10/11) n'est pas géré.
+
+- ~~Vérification VIES : périmètre, fiabilité et lisibilité~~ **Corrigé
+  (06/08/2026, session de réconciliation avec un cabinet comptable)** :
+  série de correctifs suite à un écart observé entre le compteur
+  `invalid_count` de l'app et une liste de numéros extraite manuellement du
+  tableau des reclassifications.
+  - **NIF/identifiants fiscaux nationaux domestiques envoyés à VIES par
+    accident** : `classify.py` conserve `buyer_vat_number` (non vidé) pour
+    les ventes domestiques (ES→ES etc.) afin de détecter l'autoliquidation
+    art.194, mais la boucle de collecte VIES (`engine.py`) n'avait aucun
+    filtre domestique/cross-border et les envoyait quand même à VIES,
+    gonflant `invalid_count` et polluant la liste "N° TVA rejeté" de faux
+    positifs. Corrigé en filtrant sur `sale.buyer_vat_valid` (déjà posé à
+    `False` par `classify.py` pour tout NIF nationaux, domestique ou
+    cross-border) avant tout envoi VIES et avant tout ajout aux
+    reclassifications — un NIF n'est *jamais* un numéro de TVA à vérifier,
+    qu'il soit domestique ou transfrontalier.
+  - **Onglet Excel "Historique VIES" quasi vide** : `_write_vies_history_tab`
+    interrogeait le cache avec le numéro *brut* saisi par l'acheteur au lieu
+    du numéro *normalisé* (préfixe pays ajouté) utilisé comme clé en base —
+    seuls les numéros où l'acheteur avait déjà tapé le préfixe complet
+    remontaient. Corrigé en normalisant via `normalize_full_vat()` avant la
+    requête, comme le fait déjà `engine.py` avant l'appel VIES.
+  - **Coupures réseau/DB comptées comme invalidité confirmée** :
+    `check_vat_raw` peut lever une exception générique (ex: connexion
+    Supabase coupée pendant l'écriture cache, sous la charge des 25 workers
+    du `ThreadPoolExecutor`) qui ne portait pas le préfixe habituel des
+    erreurs VIES et n'était donc jamais reconnue par `_is_transient()` —
+    ces accidents d'infrastructure tombaient dans `invalid_count` au lieu de
+    `inconclusive_count`. Motifs de coupure réseau bruts ajoutés à
+    `_TRANSIENT_ERRORS`.
+  - **Trois compteurs distincts et exhaustifs** exposés dans l'onglet 🛡️
+    VIES : `total_verified` (Valides + Invalides, décision automatique OU
+    manuelle — une décision manuelle est définitive) / `valid_count` /
+    `invalid_count` / `inconclusive_count` ("Non vérifiés — erreur serveur",
+    exonération refusée par précaution mais pas officiellement invalide).
+    Les décisions manuelles (`ViesValidationSummary.manual_valid_count` /
+    `manual_invalid_count`) rejoignent désormais valid_count/invalid_count
+    au lieu d'être comptées à part comme avant — un override manuel est une
+    décision définitive, pas une zone grise.
+  - **Certificat VIES incluait des overrides manuels** comme s'ils étaient
+    une preuve de vérification VIES officielle. `generate_vies_certificate_pdf`
+    filtre désormais sur `source == "VIES"` (le snapshot fusionne toujours
+    overrides et vérifications automatiques pour l'affichage app, mais le
+    certificat — pièce à valeur légale — ne doit contenir que les secondes).
+  - **Tableau "N° TVA rejeté"** : nouvelle colonne "Vérification VIES" à 3
+    valeurs exhaustives et mutuellement exclusives par ligne — `❌ VIES
+    Invalide (confirmé par le serveur)`, `⚠️ VIES non vérifié`, `🪪 NIF
+    détecté / pas de VIES` (`ViesReclassification.is_national_tax_id`) — au
+    lieu de tout étiqueter indistinctement sous "TVA récupérée". Piège
+    rencontré en cours de route : le post-traitement qui recalcule le
+    montant réel de TVA récupérée après `compute_vat()` **reconstruit** un
+    `ViesReclassification` neuf plutôt qu'un `dataclasses.replace()` — tout
+    champ non explicitement recopié y retombe silencieusement à sa valeur
+    par défaut (`is_national_tax_id` en a fait les frais une première fois,
+    remis à `False` pour tous). À surveiller pour tout futur champ ajouté à
+    `ViesReclassification` : bien le recopier explicitement à cette étape
+    (ligne ~1028 `engine.py`), `dataclasses.replace()` serait plus sûr pour
+    une prochaine refonte de cette fonction.
 
 - ~~Robustesse des connexions VIES~~ **Corrigé** : `vies_engine.py` utilise un pool à connexion fraîche par appel (nécessaire pour le `ThreadPoolExecutor` parallèle) avec résolution intelligente de la portée et retry exponentiel.
 

@@ -96,4 +96,8 @@ def language_selector():
     
     if new_lang != current_lang:
         st.session_state["language"] = new_lang
-        st.rerun()
+        try:
+            from tva_intracom.ui.rerun_utils import preserve_upload_rerun
+            preserve_upload_rerun()
+        except ImportError:
+            st.rerun()

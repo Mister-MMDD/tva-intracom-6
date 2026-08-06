@@ -48,6 +48,7 @@ def generate_vies_certificate_pdf(
     scope_id: str,
     period_label: str = "",
     country_label_fn=None,
+    translator=None,
 ) -> bytes:
     """Construit le certificat PDF à partir de `get_scope_vies_snapshot()`.
 
@@ -61,7 +62,9 @@ def generate_vies_certificate_pdf(
         country_label_fn: callback optionnel pour libeller un code pays ISO2
                   (ex: tva_intracom.ui.formatting._country_label) ; sinon le
                   code brut est utilisé.
+        translator: callback optionnel pour traduire les libellés (ex: st.session_state._)
     """
+    _ = translator or (lambda k, **kwargs: k)
     buf = BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
@@ -73,26 +76,31 @@ def generate_vies_certificate_pdf(
     section_style = ParagraphStyle("CertSection", parent=styles["Heading2"], fontSize=11, spaceBefore=10, spaceAfter=4)
     normal = styles["Normal"]
     small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+    label_style = ParagraphStyle("CertLabel", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold")
+    value_style = ParagraphStyle("CertValue", parent=styles["Normal"], fontSize=9)
 
     generated_at = datetime.now(timezone.utc)
     _country = country_label_fn or (lambda c: c)
 
     elements = []
-    elements.append(Paragraph("Certificat de Validité des Numéros de TVA Intracommunautaire", title_style))
-    elements.append(Paragraph("Justificatif de vérification VIES (Système d'échange d'informations sur la TVA — Commission européenne)", subtitle_style))
+    elements.append(Paragraph(_("vies_certificate_title"), title_style))
+    elements.append(Paragraph(_("vies_certificate_subtitle"), subtitle_style))
     elements.append(Spacer(1, 10 * mm))
 
     header_rows = [
-        ["Entreprise", company_name or "—"],
-        ["SIREN", siren or "—"],
-        ["Période couverte", period_label or "Historique complet"],
-        ["Date de génération du certificat", generated_at.strftime("%d/%m/%Y à %H:%M")+" UTC"],
-        ["Nombre de numéros de TVA vérifiés", str(len(snapshot))],
+        [Paragraph(_("vies_certificate_company"), label_style), Paragraph(company_name or "—", value_style)],
+        [Paragraph(_("vies_certificate_siren"), label_style), Paragraph(siren or "—", value_style)],
+        [Paragraph(_("vies_certificate_period"), label_style), Paragraph(period_label or _("vies_certificate_full_history"), value_style)],
+        [Paragraph(_("vies_certificate_generated_at"), label_style), Paragraph(generated_at.strftime("%d/%m/%Y à %H:%M")+" UTC", value_style)],
+        # Ne compter que les vérifications automatiques VIES — une décision
+        # manuelle n'est pas une preuve de vérification opposable au même
+        # titre : elle n'a pas sa place dans un certificat de bonne foi VIES.
+        [Paragraph(_("vies_certificate_count"), label_style),
+         Paragraph(str(sum(1 for row in snapshot if row.get("source", "VIES") == "VIES")), value_style)],
     ]
-    header_table = Table(header_rows, colWidths=[65 * mm, 105 * mm])
+    header_table = Table(header_rows, colWidths=[90 * mm, 80 * mm])
     header_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("LINEBELOW", (0, 0), (-1, -1), 0.3, colors.lightgrey),
@@ -100,22 +108,26 @@ def generate_vies_certificate_pdf(
     elements.append(header_table)
     elements.append(Spacer(1, 8 * mm))
 
-    elements.append(Paragraph("Détail des vérifications", section_style))
-    elements.append(Paragraph(
-        "Ce tableau liste, pour chaque numéro de TVA intracommunautaire d'un client B2B, "
-        "le statut retenu par le moteur de calcul TVA, tel que connu à la date de "
-        "génération de ce document, ainsi que les dates de première et dernière "
-        "vérification effectuées via le service VIES de la Commission européenne.",
-        normal,
-    ))
+    elements.append(Paragraph(_("vies_certificate_detail_header"), section_style))
+    elements.append(Paragraph(_("vies_certificate_detail_desc"), normal))
     elements.append(Spacer(1, 4 * mm))
 
-    table_data = [["Numéro TVA", "Pays", "Statut", "1ère vérif.", "Dernière vérif.", "Nb vérif.", "Source"]]
+    table_data = [[
+        _("vies_certificate_col_vat"), _("vies_certificate_col_country"), 
+        _("vies_certificate_col_status"), _("vies_certificate_col_first"), 
+        _("vies_certificate_col_last"), _("vies_certificate_col_nb"), _("vies_certificate_col_source")
+    ]]
     for row in snapshot:
+        # Exclusion des overrides manuels : ce certificat atteste d'une
+        # vérification VIES automatique, pas d'une décision interne du
+        # cabinet/vendeur — les deux ne doivent jamais être confondues dans
+        # une pièce présentée comme preuve de bonne foi en cas de contrôle.
+        if row.get("source", "VIES") != "VIES":
+            continue
         table_data.append([
             row["vat_id"],
             _country(row["country_code"]),
-            "✅ Valide" if row["valid"] else "❌ Invalide",
+            _("vies_certificate_valide") if row["valid"] else _("vies_certificate_invalide"),
             _fmt_dt(row["first_checked_at"]),
             _fmt_dt(row["last_checked_at"]),
             str(row.get("nb_checks", "") or "—"),
@@ -123,7 +135,7 @@ def generate_vies_certificate_pdf(
         ])
 
     if len(table_data) == 1:
-        elements.append(Paragraph("Aucun numéro de TVA B2B n'a été vérifié pour ce compte.", normal))
+        elements.append(Paragraph(_("vies_certificate_empty_info"), normal))
     else:
         cert_table = Table(table_data, colWidths=[32 * mm, 20 * mm, 22 * mm, 24 * mm, 24 * mm, 18 * mm, 20 * mm], repeatRows=1)
         _style = [
@@ -136,33 +148,26 @@ def generate_vies_certificate_pdf(
             ("TOPPADDING", (0, 0), (-1, -1), 3),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ]
-        for _i, row in enumerate(snapshot, start=1):
+        for _i, row in enumerate([r for r in snapshot if r.get("source","VIES")=="VIES"], start=1):
             if not row["valid"]:
                 _style.append(("TEXTCOLOR", (2, _i), (2, _i), colors.HexColor("#d62728")))
         cert_table.setStyle(TableStyle(_style))
         elements.append(cert_table)
 
     elements.append(Spacer(1, 10 * mm))
-    elements.append(Paragraph("Traçabilité et intégrité du document", section_style))
+    elements.append(Paragraph(_("vies_certificate_traceability_header"), section_style))
 
     _scope_hash = hashlib.sha256(scope_id.encode("utf-8")).hexdigest()[:16]
     _content_hash = hashlib.sha256(
         "|".join(f"{r['vat_id']}:{r['valid']}:{r['last_checked_at']}" for r in snapshot).encode("utf-8")
     ).hexdigest()[:16]
     elements.append(Paragraph(
-        f"Identifiant de portée (scope) : <font face='Courier'>{_scope_hash}</font> — "
-        f"Empreinte du contenu (SHA-256, 16 premiers caractères) : "
+        f"{_('vies_certificate_scope_id')} : <font face='Courier'>{_scope_hash}</font> — "
+        f"{_('vies_certificate_content_hash')} (SHA-256, 16 premiers caractères) : "
         f"<font face='Courier'>{_content_hash}</font>",
         small,
     ))
-    elements.append(Paragraph(
-        "Ce document est généré automatiquement à partir de la piste d'audit conservée "
-        "par l'outil (durée de conservation légale : 365 jours). Il ne constitue pas à lui "
-        "seul une preuve d'exonération de TVA intracommunautaire, mais un élément "
-        "justificatif de la diligence de vérification effectuée par le vendeur au moment "
-        "de la transaction.",
-        small,
-    ))
+    elements.append(Paragraph(_("vies_certificate_footer_desc"), small))
 
     doc.build(elements)
     return buf.getvalue()

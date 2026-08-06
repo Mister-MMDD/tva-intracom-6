@@ -113,6 +113,13 @@ def _compute_aic_from_fc_transfers(
     base_aic  = Decimal("0.00")
     tva_aic   = Decimal("0.00")
 
+    # Compteurs de dégradation : une ligne AIC affectée par l'un de ces deux
+    # cas contribue un montant potentiellement faux (qty forcée à 1, ou base
+    # à 0 faute de prix ASIN connu) sans qu'aucune erreur ne soit levée —
+    # on logge donc pour que ce ne soit jamais silencieux.
+    n_qty_malformed = 0
+    n_asin_unpriced = 0
+
     for t in all_fc_transfers:
         dep = (t.get("DEPARTURE_COUNTRY") or t.get("departure_country") or
                t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or "").strip().upper()
@@ -121,16 +128,38 @@ def _compute_aic_from_fc_transfers(
         if arr != seller_country.upper() or dep == arr:
             continue
         asin = (t.get("ASIN") or t.get("asin") or "").strip()
+        raw_qty = t.get("QTY") or t.get("qty") or 1
         try:
-            qty = int(float(t.get("QTY") or t.get("qty") or 1))
+            qty = int(float(raw_qty))
         except (ValueError, TypeError):
             qty = 1
+            n_qty_malformed += 1
+            logger.warning(
+                "AIC/CA3 : QTY illisible ('%s') pour ASIN=%s, transfert %s→%s — "
+                "quantité forcée à 1 (base AIC potentiellement sous/sur-évaluée).",
+                raw_qty, asin or "?", dep, arr,
+            )
+        if asin not in avg_price:
+            n_asin_unpriced += 1
+            logger.warning(
+                "AIC/CA3 : ASIN=%s absent des ventes connues (aucun prix moyen calculable) "
+                "pour un transfert %s→%s — ligne comptée à 0 € de base AIC, "
+                "transfert probablement sous-évalué dans la CA3.",
+                asin or "?", dep, arr,
+            )
         avg = avg_price.get(asin, Decimal("0"))
         ligne_base = _round(Decimal(str(qty)) * avg)
         taux = _vat_rate(seller_country, "STANDARD") if seller_country in STANDARD_VAT_RATES else Decimal("20")
         ligne_tva  = _round(ligne_base * taux / Decimal("100"))
         base_aic  += ligne_base
         tva_aic   += ligne_tva
+
+    if n_qty_malformed or n_asin_unpriced:
+        logger.warning(
+            "AIC/CA3 : %d ligne(s) avec QTY illisible, %d ligne(s) avec ASIN sans prix "
+            "connu (contribution 0 €) — base AIC estimée à considérer avec prudence.",
+            n_qty_malformed, n_asin_unpriced,
+        )
 
     return _round(base_aic), _round(tva_aic)
 

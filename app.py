@@ -398,13 +398,13 @@ if uploaded_files:
                     total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
                     _parse_results.append(parse_result)
                     file_summaries.append({
-                        _("col_file"): uploaded_file.name, _("col_source"): platform,
-                        _("col_sales"): len(parse_result.sales), _("col_refunds"): len(parse_result.refunds),
-                        _("col_fba_trans"): len(parse_result.fc_transfers),
-                        _("col_phys_returns"): getattr(parse_result, "return_rows", 0),
-                        _("col_invoices"): getattr(parse_result, "invoice_rows", 0),
-                        _("col_credit_notes"): getattr(parse_result, "credit_note_rows", 0),
-                        _("col_rows_read"): parse_result.total_rows, _("col_ignored"): parse_result.skipped_rows
+                        "file": uploaded_file.name, "source": platform,
+                        "sales": len(parse_result.sales), "refunds": len(parse_result.refunds),
+                        "fba_trans": len(parse_result.fc_transfers),
+                        "phys_returns": getattr(parse_result, "return_rows", 0),
+                        "invoices": getattr(parse_result, "invoice_rows", 0),
+                        "credit_notes": getattr(parse_result, "credit_note_rows", 0),
+                        "rows_read": parse_result.total_rows, "ignored": parse_result.skipped_rows
                     })
             except Exception as e:
                 st.error(f"Erreur sur **{uploaded_file.name}** : {e}")
@@ -450,11 +450,22 @@ if uploaded_files:
 
     if len(uploaded_files) == 1:
         fs = file_summaries[0]
-        st.info(_("import_summary_single", platform=platform_name, sales=fs[_('col_sales')], refunds=fs[_('col_refunds')], fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part))
+        st.info(_("import_summary_single", platform=platform_name, sales=fs["sales"], refunds=fs["refunds"], fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part))
     else:
         st.success(_("import_summary_multi", count=len(uploaded_files), sales=len(all_sales), refunds=len(all_refunds), fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part, total_rows=total_rows_sum))
         with st.expander(_("file_detail_expander", count=len(uploaded_files))):
-            st.table(file_summaries)
+            # Traduction des clés à la volée pour l'affichage tableau
+            _display_summaries = []
+            _key_map = {
+                "file": _("col_file"), "source": _("col_source"),
+                "sales": _("col_sales"), "refunds": _("col_refunds"),
+                "fba_trans": _("col_fba_trans"), "phys_returns": _("col_phys_returns"),
+                "invoices": _("col_invoices"), "credit_notes": _("col_credit_notes"),
+                "rows_read": _("col_rows_read"), "ignored": _("col_ignored")
+            }
+            for _fs in file_summaries:
+                _display_summaries.append({_key_map.get(k, k): v for k, v in _fs.items()})
+            st.table(_display_summaries)
         if len(unique_platforms) > 1:
             st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
     if all_warnings:

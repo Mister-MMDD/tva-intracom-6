@@ -1,0 +1,217 @@
+diff --git a/tva_intracom/ca3_report.py b/tva_intracom/ca3_report.py
+index f7b4ac3..7faf395 100644
+--- a/tva_intracom/ca3_report.py
++++ b/tva_intracom/ca3_report.py
+@@ -113,6 +113,13 @@ def _compute_aic_from_fc_transfers(
+     base_aic  = Decimal("0.00")
+     tva_aic   = Decimal("0.00")
+ 
++    # Compteurs de dégradation : une ligne AIC affectée par l'un de ces deux
++    # cas contribue un montant potentiellement faux (qty forcée à 1, ou base
++    # à 0 faute de prix ASIN connu) sans qu'aucune erreur ne soit levée —
++    # on logge donc pour que ce ne soit jamais silencieux.
++    n_qty_malformed = 0
++    n_asin_unpriced = 0
++
+     for t in all_fc_transfers:
+         dep = (t.get("DEPARTURE_COUNTRY") or t.get("departure_country") or
+                t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or "").strip().upper()
+@@ -121,10 +128,25 @@ def _compute_aic_from_fc_transfers(
+         if arr != seller_country.upper() or dep == arr:
+             continue
+         asin = (t.get("ASIN") or t.get("asin") or "").strip()
++        raw_qty = t.get("QTY") or t.get("qty") or 1
+         try:
+-            qty = int(float(t.get("QTY") or t.get("qty") or 1))
++            qty = int(float(raw_qty))
+         except (ValueError, TypeError):
+             qty = 1
++            n_qty_malformed += 1
++            logger.warning(
++                "AIC/CA3 : QTY illisible ('%s') pour ASIN=%s, transfert %s→%s — "
++                "quantité forcée à 1 (base AIC potentiellement sous/sur-évaluée).",
++                raw_qty, asin or "?", dep, arr,
++            )
++        if asin not in avg_price:
++            n_asin_unpriced += 1
++            logger.warning(
++                "AIC/CA3 : ASIN=%s absent des ventes connues (aucun prix moyen calculable) "
++                "pour un transfert %s→%s — ligne comptée à 0 € de base AIC, "
++                "transfert probablement sous-évalué dans la CA3.",
++                asin or "?", dep, arr,
++            )
+         avg = avg_price.get(asin, Decimal("0"))
+         ligne_base = _round(Decimal(str(qty)) * avg)
+         taux = _vat_rate(seller_country, "STANDARD") if seller_country in STANDARD_VAT_RATES else Decimal("20")
+@@ -132,6 +154,13 @@ def _compute_aic_from_fc_transfers(
+         base_aic  += ligne_base
+         tva_aic   += ligne_tva
+ 
++    if n_qty_malformed or n_asin_unpriced:
++        logger.warning(
++            "AIC/CA3 : %d ligne(s) avec QTY illisible, %d ligne(s) avec ASIN sans prix "
++            "connu (contribution 0 €) — base AIC estimée à considérer avec prudence.",
++            n_qty_malformed, n_asin_unpriced,
++        )
++
+     return _round(base_aic), _round(tva_aic)
+ 
+ 
+diff --git a/tva_intracom/excel_report.py b/tva_intracom/excel_report.py
+index c9db2cb..03195ef 100644
+--- a/tva_intracom/excel_report.py
++++ b/tva_intracom/excel_report.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import logging
+ import re
+ from datetime import date as _date, timedelta
+ from decimal import Decimal, ROUND_HALF_UP
+@@ -21,6 +22,8 @@ from .parsers.amazon.detect import parse_date as _parse_amz_date
+ from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
+ from .report import ReportSummary, build_report
+ 
++logger = logging.getLogger(__name__)
++
+ _COUNTRY_NAMES_XL = COUNTRY_NAMES
+ 
+ _CENT = Decimal("0.01")
+@@ -1294,10 +1297,16 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
+             t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or ""
+     ).strip().upper()
+     # Quantité
++    raw_qty = t.get("QTY") or t.get("qty") or 1
+     try:
+-        qty = int(float(t.get("QTY") or t.get("qty") or 1))
++        qty = int(float(raw_qty))
+     except (ValueError, TypeError):
+         qty = 1
++        logger.warning(
++            "Intrastat/EMEBI : QTY illisible ('%s') pour ASIN=%s, transfert %s→%s "
++            "(tx_id=%s) — quantité forcée à 1, seuil EMEBI potentiellement faussé.",
++            raw_qty, asin or "?", dep, arr, tx_id or "?",
++        )
+ 
+     return tx_id, date_str, asin, str(designation), dep, arr, qty
+ 
+diff --git a/tva_intracom/parsers/aliexpress.py b/tva_intracom/parsers/aliexpress.py
+index 9c76367..448b36f 100644
+--- a/tva_intracom/parsers/aliexpress.py
++++ b/tva_intracom/parsers/aliexpress.py
+@@ -81,6 +81,11 @@ def _safe_decimal(value: str | None) -> Decimal:
+     try:
+         return Decimal(cleaned)
+     except InvalidOperation:
++        logger.warning(
++            "Montant illisible ('%s', nettoye en '%s') -- traite comme 0. "
++            "La ligne source devrait etre corrigee, ou sera exclue en aval si le total de la vente est nul.",
++            value, cleaned,
++        )
+         return Decimal("0")
+ 
+ 
+diff --git a/tva_intracom/parsers/mirakl.py b/tva_intracom/parsers/mirakl.py
+index 815ee8f..9f91ab2 100644
+--- a/tva_intracom/parsers/mirakl.py
++++ b/tva_intracom/parsers/mirakl.py
+@@ -73,6 +73,11 @@ def _safe_decimal(value: str | None) -> Decimal:
+     try:
+         return Decimal(cleaned)
+     except InvalidOperation:
++        logger.warning(
++            "Montant illisible ('%s', nettoye en '%s') -- traite comme 0. "
++            "La ligne source devrait etre corrigee, ou sera exclue en aval si le total de la vente est nul.",
++            value, cleaned,
++        )
+         return Decimal("0")
+ 
+ 
+diff --git a/tva_intracom/parsers/shopify.py b/tva_intracom/parsers/shopify.py
+index b320d8f..1e39177 100644
+--- a/tva_intracom/parsers/shopify.py
++++ b/tva_intracom/parsers/shopify.py
+@@ -71,6 +71,11 @@ def _safe_decimal(value: str | None) -> Decimal:
+     try:
+         return Decimal(cleaned)
+     except InvalidOperation:
++        logger.warning(
++            "Montant illisible ('%s', nettoye en '%s') -- traite comme 0. "
++            "La ligne source devrait etre corrigee, ou sera exclue en aval si le total de la vente est nul.",
++            value, cleaned,
++        )
+         return Decimal("0")
+ 
+ 
+diff --git a/tva_intracom/parsers/woocommerce.py b/tva_intracom/parsers/woocommerce.py
+index 30fa36c..68c2e4a 100644
+--- a/tva_intracom/parsers/woocommerce.py
++++ b/tva_intracom/parsers/woocommerce.py
+@@ -91,6 +91,11 @@ def _safe_decimal(value: str | None) -> Decimal:
+     try:
+         return Decimal(cleaned)
+     except InvalidOperation:
++        logger.warning(
++            "Montant illisible ('%s', nettoye en '%s') -- traite comme 0. "
++            "La ligne source devrait etre corrigee, ou sera exclue en aval si le total de la vente est nul.",
++            value, cleaned,
++        )
+         return Decimal("0")
+ 
+ 
+diff --git a/tva_intracom/vies_engine.py b/tva_intracom/vies_engine.py
+index 314dabb..73935b9 100644
+--- a/tva_intracom/vies_engine.py
++++ b/tva_intracom/vies_engine.py
+@@ -221,14 +221,24 @@ def _is_expired(checked_at, scope_id: Optional[str] = None) -> bool:
+     return _now_utc() - checked_at > timedelta(days=_get_ttl_days(scope_id))
+ 
+ 
+-def _parse_flexible_date(s: str) -> datetime:
++def _parse_flexible_date(s: str) -> Optional[datetime]:
+     """Parse 'YYYY-MM-DD' ou une date ISO complète en datetime UTC tz-aware.
+ 
+     Une date seule ('YYYY-MM-DD') est interprétée comme minuit UTC ce jour-là,
+     pour retrouver le comportement de get_vies_status_as_of() : « statut connu
+     strictement avant cette date » quand seule la date de vente est fournie.
++
++    Retourne None si `s` est vide ou ne peut pas être parsée — NE JAMAIS
++    replier silencieusement sur "maintenant" : get_vies_status_as_of() sert
++    à reconstituer le statut VIES connu à la date d'une vente pour justifier
++    une exonération B2B en cas de contrôle fiscal (art. 262 ter I CGI). Un
++    repli sur "maintenant" y ferait remonter à tort une validation VIES
++    postérieure à la vente.
+     """
+     s = (s or "").strip()
++    if not s:
++        logger.warning("_parse_flexible_date : date vide fournie, aucun repli sur la date du jour.")
++        return None
+     try:
+         if len(s) == 10:
+             return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+@@ -237,7 +247,10 @@ def _parse_flexible_date(s: str) -> datetime:
+             dt = dt.replace(tzinfo=timezone.utc)
+         return dt
+     except ValueError:
+-        return _now_utc()
++        logger.warning(
++            "_parse_flexible_date : date '%s' non parsable, aucun repli sur la date du jour.", s,
++        )
++        return None
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -631,8 +644,11 @@ def get_vies_status_as_of(scope_id: str, full_vat: str, as_of_date_iso: str) ->
+     """Statut VIES tel que connu par CE scope à une date donnée (ex: date
+     d'une vente), pour justifier une exonération B2B lors d'un contrôle
+     fiscal. Retourne None si ce scope n'avait aucune vérification
+-    antérieure à cette date."""
++    antérieure à cette date, OU si `as_of_date_iso` est vide/non parsable
++    (dans ce dernier cas, un warning est loggé — voir _parse_flexible_date)."""
+     as_of = _parse_flexible_date(as_of_date_iso)
++    if as_of is None:
++        return None
+     with _conn() as conn, conn.cursor() as cur:
+         cur.execute("""
+             SELECT checked_at, valid, country_code, vat_number, name, address, error
