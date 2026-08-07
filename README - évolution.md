@@ -396,22 +396,22 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
   Stripe. Les erreurs de traitement sont loggées côté serveur (logs Vercel),
   jamais renvoyées dans la réponse HTTP.
 *   **Base de données partagée** : Postgres (Supabase), accessible à la fois depuis
-  Streamlit Cloud (lecture des crédits/abonnements) et depuis la fonction serverless
-  Vercel (écriture après paiement confirmé) — un SQLite local ne conviendrait pas
-  puisque les deux environnements ne partagent aucun disque. La gestion des
-  connexions est centralisée dans `database.py`
-  (`NonPoolingConnectionPool` + `run_with_retry()`), consommée par `auth.py`,
-  `billing.py` et `ecb_rates.py` en mode `cache_connection=True` : une seule
-  connexion est ouverte et réutilisée par exécution (run) Streamlit (cache par
-  thread via `threading.local()`), puis fermée au début du run suivant sur le
-  même thread. C'est optimal pour Streamlit (1 thread = 1 session) tout en
-  restant compatible avec PgBouncer — et volontairement **pas** un vrai pool
-  persistant (`psycopg2.pool.ThreadedConnectionPool`), qui garderait une
-  connexion TCP ouverte en permanence et empêcherait Railway de détecter
-  l'inactivité et de mettre l'app en veille (scale-to-zero). `vies_engine.py`
-  utilise le même module en mode `cache_connection=False` (connexion fraîche
-  par appel) pour supporter son exécution parallèle (`ThreadPoolExecutor` à 25
-  workers).
+    Streamlit Cloud (lecture des crédits/abonnements) et depuis la fonction serverless
+    Vercel (écriture après paiement confirmé) — un SQLite local ne conviendrait pas
+    puisque les deux environnements ne partagent aucun disque. La gestion des
+    connexions est centralisée dans `database.py`
+    (`NonPoolingConnectionPool` + `run_with_retry()`), consommée par `auth.py`,
+    `billing.py` et `ecb_rates.py` en mode `cache_connection=True` : une seule
+    connexion est ouverte et réutilisée par exécution (run) Streamlit (cache par
+    thread via `threading.local()`), puis fermée au début du run suivant sur le
+    même thread. C'est optimal pour Streamlit (1 thread = 1 session) tout en
+    restant compatible avec PgBouncer — et volontairement **pas** un vrai pool
+    persistant (`psycopg2.pool.ThreadedConnectionPool`), qui garderait une
+    connexion TCP ouverte en permanence et empêcherait Railway de détecter
+    l'inactivité et de mettre l'app en veille (scale-to-zero). `vies_engine.py`
+    utilise le même module en mode `cache_connection=False` (connexion fraîche
+    par appel) pour supporter son exécution parallèle (`ThreadPoolExecutor` à 25
+    workers).
 
 ---
 
@@ -927,16 +927,11 @@ restent :
     est corrigée → TVA due au pays de **départ** (Art. 31 Directive
     2006/112/CE), collectée par le vendeur (`Scenario.DOMESTIC`).
   - Pays de destination **non couvert** : aucune exonération à corriger ici
-    — la vente **reste classée B2B** (`buyer_vat_valid=False`, on ne
-    reclassifie plus en B2C depuis une correction ultérieure — cf. entrée
-    ci-dessous) et suit le régime normal des ventes à distance (Art. 33),
-    taxée au pays de **destination** via **OSS** (`Scenario.OSS_B2C`) —
-    l'art. 194 n'a plus sa place dans ce second cas, qui ne l'a jamais
-    concerné. *(Le paragraphe original de cette entrée parlait à tort de
-    reclassification B2C ; corrigé le 06/08/2026 pour matcher le
-    comportement réel d'`engine.py`, qui a changé depuis la rédaction
-    initiale — cf. commentaire `IMPORTANT` juste avant l'ajout à
-    `reclassifications` dans `engine.py`.)*
+    — la vente est simplement reclassifiée B2C (n° TVA invalide = pas de
+    preuve de statut assujetti) et suit le régime normal des ventes à
+    distance (Art. 33), taxée au pays de **destination** via **OSS**
+    (`Scenario.OSS_B2C`) — l'art. 194 n'a plus sa place dans ce second cas,
+    qui ne l'a jamais concerné.
 
   Par ailleurs, les ventes dont le n° fourni est un identifiant fiscal
   national sans préfixe pays (codice fiscale IT, NIF ES, NIP PL…) —
@@ -1085,65 +1080,6 @@ automatique sur le portail DGFIP) reste non implémenté à ce jour.
     ⚠️ Le module suppose un vendeur établi en France MÉTROPOLITAINE — le cas
     DOM (taux 8,5 %/2,1 %, lignes 10/11) n'est pas géré.
 
-- ~~Vérification VIES : périmètre, fiabilité et lisibilité~~ **Corrigé
-  (06/08/2026, session de réconciliation avec un cabinet comptable)** :
-  série de correctifs suite à un écart observé entre le compteur
-  `invalid_count` de l'app et une liste de numéros extraite manuellement du
-  tableau des reclassifications.
-  - **NIF/identifiants fiscaux nationaux domestiques envoyés à VIES par
-    accident** : `classify.py` conserve `buyer_vat_number` (non vidé) pour
-    les ventes domestiques (ES→ES etc.) afin de détecter l'autoliquidation
-    art.194, mais la boucle de collecte VIES (`engine.py`) n'avait aucun
-    filtre domestique/cross-border et les envoyait quand même à VIES,
-    gonflant `invalid_count` et polluant la liste "N° TVA rejeté" de faux
-    positifs. Corrigé en filtrant sur `sale.buyer_vat_valid` (déjà posé à
-    `False` par `classify.py` pour tout NIF nationaux, domestique ou
-    cross-border) avant tout envoi VIES et avant tout ajout aux
-    reclassifications — un NIF n'est *jamais* un numéro de TVA à vérifier,
-    qu'il soit domestique ou transfrontalier.
-  - **Onglet Excel "Historique VIES" quasi vide** : `_write_vies_history_tab`
-    interrogeait le cache avec le numéro *brut* saisi par l'acheteur au lieu
-    du numéro *normalisé* (préfixe pays ajouté) utilisé comme clé en base —
-    seuls les numéros où l'acheteur avait déjà tapé le préfixe complet
-    remontaient. Corrigé en normalisant via `normalize_full_vat()` avant la
-    requête, comme le fait déjà `engine.py` avant l'appel VIES.
-  - **Coupures réseau/DB comptées comme invalidité confirmée** :
-    `check_vat_raw` peut lever une exception générique (ex: connexion
-    Supabase coupée pendant l'écriture cache, sous la charge des 25 workers
-    du `ThreadPoolExecutor`) qui ne portait pas le préfixe habituel des
-    erreurs VIES et n'était donc jamais reconnue par `_is_transient()` —
-    ces accidents d'infrastructure tombaient dans `invalid_count` au lieu de
-    `inconclusive_count`. Motifs de coupure réseau bruts ajoutés à
-    `_TRANSIENT_ERRORS`.
-  - **Trois compteurs distincts et exhaustifs** exposés dans l'onglet 🛡️
-    VIES : `total_verified` (Valides + Invalides, décision automatique OU
-    manuelle — une décision manuelle est définitive) / `valid_count` /
-    `invalid_count` / `inconclusive_count` ("Non vérifiés — erreur serveur",
-    exonération refusée par précaution mais pas officiellement invalide).
-    Les décisions manuelles (`ViesValidationSummary.manual_valid_count` /
-    `manual_invalid_count`) rejoignent désormais valid_count/invalid_count
-    au lieu d'être comptées à part comme avant — un override manuel est une
-    décision définitive, pas une zone grise.
-  - **Certificat VIES incluait des overrides manuels** comme s'ils étaient
-    une preuve de vérification VIES officielle. `generate_vies_certificate_pdf`
-    filtre désormais sur `source == "VIES"` (le snapshot fusionne toujours
-    overrides et vérifications automatiques pour l'affichage app, mais le
-    certificat — pièce à valeur légale — ne doit contenir que les secondes).
-  - **Tableau "N° TVA rejeté"** : nouvelle colonne "Vérification VIES" à 3
-    valeurs exhaustives et mutuellement exclusives par ligne — `❌ VIES
-    Invalide (confirmé par le serveur)`, `⚠️ VIES non vérifié`, `🪪 NIF
-    détecté / pas de VIES` (`ViesReclassification.is_national_tax_id`) — au
-    lieu de tout étiqueter indistinctement sous "TVA récupérée". Piège
-    rencontré en cours de route : le post-traitement qui recalcule le
-    montant réel de TVA récupérée après `compute_vat()` **reconstruit** un
-    `ViesReclassification` neuf plutôt qu'un `dataclasses.replace()` — tout
-    champ non explicitement recopié y retombe silencieusement à sa valeur
-    par défaut (`is_national_tax_id` en a fait les frais une première fois,
-    remis à `False` pour tous). À surveiller pour tout futur champ ajouté à
-    `ViesReclassification` : bien le recopier explicitement à cette étape
-    (ligne ~1028 `engine.py`), `dataclasses.replace()` serait plus sûr pour
-    une prochaine refonte de cette fonction.
-
 - ~~Robustesse des connexions VIES~~ **Corrigé** : `vies_engine.py` utilise un pool à connexion fraîche par appel (nécessaire pour le `ThreadPoolExecutor` parallèle) avec résolution intelligente de la portée et retry exponentiel.
 
 - ~~Correction automatique des soldes OSS négatifs dans le XML~~ **Implémenté
@@ -1215,6 +1151,136 @@ automatique sur le portail DGFIP) reste non implémenté à ce jour.
   détaillé. Un repli vers l'ancien comportement (taux du jour de vente)
   subsiste pour les appels ne fournissant pas `results`/`refund_results`
   (usage bibliothèque hors `app.py`).
+
+---
+
+## Audit systématique « bugs silencieux » (08/2026)
+
+Suite à la découverte répétée d'écarts non signalés, revue fonction par
+fonction des modules cœur (`engine.py`, `rates.py`, `ca3_report.py`,
+`oss_export.py`, `excel_report.py`, `vies_engine.py`, parsers marketplace)
+à la recherche spécifique de tout `except`/fallback qui masque un montant
+faux sans log ni trace utilisateur. 12 points trouvés, 10 corrigés :
+
+- ~~Statut VIES reconstitué "à la date de vente" retombant sur "maintenant"
+  si date illisible~~ **Corrigé** : `vies_engine.py::_parse_flexible_date()`
+  retournait `_now_utc()` en cas d'échec de parsing. Utilisée par
+  `get_vies_status_as_of()` pour reconstituer le statut VIES connu à la
+  date d'une vente (justificatif d'exonération B2B en cas de contrôle
+  fiscal, Art. 262 ter I CGI), une date de vente malformée faisait
+  silencieusement remonter le statut *actuel* au lieu de celui *à la
+  date des faits* — pouvant justifier à tort une exonération. Retourne
+  désormais `None` (+ log warning), propagé proprement par l'appelant.
+
+- ~~Base AIC (transferts FC) dégradée sans trace~~ **Corrigé** :
+  `ca3_report.py::_compute_aic_from_fc_transfers()` forçait silencieusement
+  `qty=1` si la colonne QTY d'un transfert FC était illisible, et
+  `prix_moyen=0` si l'ASIN transféré n'apparaissait dans aucune vente
+  connue — dans les deux cas sans log ni compteur, base AIC (ligne 08
+  CA3, art. 83 CGI) potentiellement fausse de façon invisible. Compteurs
+  + logs détaillés ajoutés, avec warning de synthèse en fin de calcul.
+    Même correctif appliqué à `excel_report.py::_parse_fc_transfer()`
+    (onglet Intrastat/EMEBI, qui dupliquait le même bug QTY).
+
+- ~~Montants marketplace illisibles silencieusement à 0~~ **Corrigé** :
+  `_safe_decimal()`/`safe_decimal()` (Mirakl, AliExpress, WooCommerce,
+  Shopify, Amazon) retournait `Decimal("0")` sans log pour tout montant
+  HT non parsable (symbole monétaire non nettoyé, séparateur inattendu…).
+  Ces lignes étaient déjà exclues en aval (`skipped_rows`) donc pas de
+  vente fantôme à 0 €, mais le compteur mélangeait sans distinction un
+  montant *légitimement* nul (avoir, échantillon) et un montant *non
+  parsable* (fichier source à corriger). Log ajouté sur le cas non
+  parsable dans les 5 fichiers pour distinguer les deux causes.
+
+- ~~Avoirs calculés sans le contexte de la vente d'origine~~ **Corrigé
+  (bug structurel)** : dans `app.py`, le second appel à
+  `compute_all_with_vies()` dédié aux avoirs omettait `asin_to_category`
+  et `apply_fr_under_threshold`, pourtant transmis au premier appel
+  (ventes). Un vendeur sous le seuil OSS (10 000 €, régime domestique
+  FR) ou avec des produits à taux réduit voyait ses avoirs recalculés à
+  un taux et/ou un pays de TVA différents de la vente qu'ils étaient
+  censés annuler — écart silencieux entre CA3 et OSS, visible seulement
+  en réconciliant les deux déclarations. `cli.py` n'était pas concerné
+  (n'expose pas `apply_fr_under_threshold`, ne passe pas
+  `asin_to_category` aux deux appels par cohérence).
+
+- ~~Indexation par `sale_id` seul dans le calcul de TVA évitée~~ **Corrigé** :
+  `engine.py::compute_all_with_vies()` reconstruisait
+  `result_by_sale_id` par simple `sale_id`, alors que le reste de la
+  fonction utilise explicitement des clés composites (`_sale_key()`,
+  `sale_vat_index`) car un `sale_id` seul n'est pas unique (commande
+  multi-articles, avoir partageant l'identifiant de sa vente). Une
+  collision écrasait silencieusement un résultat, pouvant attribuer un
+  montant de TVA évitée erroné dans l'onglet reclassifications VIES.
+  Remplacé par une indexation `_sale_key()` (sale_id + montant HT
+  signé), cohérente avec le reste de la fonction.
+
+- ~~Distinction VIES/NIF perdue dans les reclassifications~~ **Corrigé
+  (régression détectée en test utilisateur)** : la reconstruction de
+  `ViesReclassification` dans `engine.py` (post-traitement du montant de
+  TVA évitée, voir point précédent) omettait le champ
+  `is_national_tax_id` — présent dans le code d'origine avant cet audit,
+  mais rendu plus visible par la correction de l'indexation ci-dessus
+  (davantage de lignes correctement matchées = davantage de pertes du
+  flag). Un identifiant fiscal national (NIF/codice fiscale, jamais
+  interrogé sur VIES par construction) retombait donc silencieusement en
+  "N° TVA rejeté par VIES" dans le tableau — deux catégories bien
+  distinctes fiscalement, mélangées à l'affichage. Champ restauré dans
+  la reconstruction.
+
+- ~~Onglet Audit Ecarts Amazon sans les avoirs~~ **Corrigé (évolution
+  demandée suite à l'audit)** : `excel_report.py::_write_audit_tab()`
+  ne recevait que `results` (ventes), jamais `refund_results` — un écart
+  Amazon/moteur portant sur un avoir n'apparaissait jamais dans la
+  réconciliation, contrairement à l'onglet Historique VIES qui fusionne
+  bien les deux. `refund_results` désormais transmis et fusionné ; une
+  colonne **Type** (Vente/Remboursement) a été ajoutée aux deux sections
+  (agrégée et détail) pour ne pas mélanger les deux dans l'affichage,
+  y compris dans la clé d'agrégation des sous-totaux.
+
+- ~~Overrides manuels VIES perdus en silence si la base est indisponible~~
+  **Corrigé (double avalage d'exception)** : `vies_engine.py::get_manual_overrides()`
+  retournait `{}` sur toute exception DB (`except Exception: return {}`),
+  sans log. Or `engine.py` (appelant unique) a un `try/except` englobant
+  spécifiquement écrit pour logger un warning explicite dans ce cas
+  précis — qui ne se déclenchait donc **jamais**, l'exception ne
+  remontant jamais jusqu'à lui. Une panne DB passagère faisait ainsi
+  disparaître silencieusement toutes les classifications manuelles VIES
+  du compte pour le calcul en cours, sans trace nulle part. La fonction
+  logue désormais explicitement avant de relancer l'exception.
+
+- ~~Taux de change contaminé par une date de transaction illisible~~
+  **Corrigé (bug dupliqué 7×)** : `parsers/amazon/classify.py::convert_currency()`
+  retombait silencieusement sur la date du jour de génération du rapport
+  pour choisir le taux BCE, si la date de transaction ne parsait pas —
+  écart de change potentiellement significatif sur des ventes en devise
+  étrangère, invisible. Même pattern strictement dupliqué dans
+  `mirakl.py` (×2, CSV et XLSX), `aliexpress.py`, `woocommerce.py`,
+  `shopify.py`. Log/warning ajouté aux 7 occurrences (`result.warnings`
+  pour les 4 parsers marketplace génériques, `logger.warning` pour
+  Amazon). `parsers/amazon/constants.py::safe_decimal()` aligné par la
+  même occasion avec le log déjà ajouté aux 4 autres parsers (montant
+  non parsable).
+
+Points de vigilance identifiés mais **non corrigés** (données insuffisantes
+pour trancher sans risquer un mauvais calcul de substitution) :
+
+- **Remboursements partiels WooCommerce/AliExpress** : `_CANCELLED_STATUSES`
+  traite tout statut "refunded"/"remboursé" comme une exclusion totale de
+  la ligne (ni vente ni avoir comptabilisé) — correct pour un
+  remboursement intégral, silencieusement faux pour un remboursement
+  partiel (TVA due sur la part non remboursée disparaîtrait du calcul).
+  Aucune colonne de montant remboursé reconnue dans `_AMOUNT_COLS` pour
+  ces deux formats. Commentaire de vigilance laissé dans le code aux deux
+  endroits ; à trancher si des exports avec remboursements partiels sont
+  un jour rencontrés.
+- **Mirakl sans détection de remboursement** : `mirakl.py` ne lit aucune
+  colonne de statut (contrairement à WooCommerce/AliExpress/Shopify). Si
+  un export Mirakl représente un avoir via un statut plutôt que via un
+  montant déjà négatif, la ligne serait actuellement traitée comme une
+  vente normale (double comptage de TVA). Non traité faute de cas réel
+  disponible au moment de l'audit — commentaire de vigilance laissé dans
+  le code.
 
 ---
 

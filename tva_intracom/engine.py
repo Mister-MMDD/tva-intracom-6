@@ -112,13 +112,13 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     if sale.buyer_country == "MC":
         mc_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
         mc_amount = _vat_amount(sale.amount_ht, mc_rate)
-        
+
         if sale.stock_country == "FR":
             # Si le vendeur est établi en France, c'est du domestique FR_DOMESTIC
             # Sinon, c'est du LOCAL_REGISTRATION en France.
             is_home = sale.stock_country == sale.seller_country
             channel = Channel.FR_DOMESTIC if is_home else Channel.LOCAL_REGISTRATION
-            
+
             return VatResult(
                 sale=sale,
                 scenario=Scenario.DOMESTIC,
@@ -160,12 +160,12 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # On traite ce cas EN PREMIER pour éviter d'interroger vat_rate inutilement
     # ------------------------------------------------------------------
     if not buyer_eu:
-        # On affine la note selon que le pays est hors-UE ou s'il s'agit d'un 
+        # On affine la note selon que le pays est hors-UE ou s'il s'agit d'un
         # territoire d'un pays membre exclu du territoire fiscal (ex: Canaries).
         is_excl_territory = is_eu(sale.buyer_country) and is_non_fiscal_eu(sale.buyer_country, sale.arrival_post_code)
         prefix_note = (
-            "Territoire exclu du territoire fiscal de l'UE" 
-            if is_excl_territory 
+            "Territoire exclu du territoire fiscal de l'UE"
+            if is_excl_territory
             else "Exportation hors UE"
         )
         return VatResult(
@@ -197,11 +197,11 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # le guichet IOSS en propre.
     # ------------------------------------------------------------------
     if (
-        sale.buyer_type == BuyerType.B2C
-        and buyer_eu
-        and not stock_eu
-        and sale.amount_ht <= IOSS_THRESHOLD
-        and sale.ioss_number
+            sale.buyer_type == BuyerType.B2C
+            and buyer_eu
+            and not stock_eu
+            and sale.amount_ht <= IOSS_THRESHOLD
+            and sale.ioss_number
     ):
         return VatResult(
             sale=sale,
@@ -353,13 +353,13 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
                 "engine_note_oss_b2c", lang=lang, country=sale.buyer_country, rate=tax_rate,
             )
-    )
+        )
 
     # ------------------------------------------------------------------
     # Fin de fonction : Différenciation Vente Locale / Importation
     # ------------------------------------------------------------------
     is_domestic = sale.stock_country == sale.buyer_country
-    
+
     if is_domestic:
         # is_home : le stock est dans le pays d'origine (établissement) du
         # vendeur — sale.seller_country, pas littéralement "FR" (réglage de
@@ -382,8 +382,8 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
         #        sur une vente domestique indique un professionnel assujetti local.
         #        Le cabinet comptable ne taxe pas ces ventes (autoliquidation nationale).
         is_b2b_domestic = (
-            sale.buyer_type == BuyerType.B2B
-            or (sale.buyer_type == BuyerType.B2C and bool(sale.buyer_vat_number))
+                sale.buyer_type == BuyerType.B2B
+                or (sale.buyer_type == BuyerType.B2C and bool(sale.buyer_vat_number))
         )
         if is_b2b_domestic and not is_fr and sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
             return VatResult(
@@ -443,7 +443,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                     f"immatriculation TVA locale requise en {sale.buyer_country}."
                 ),
                 "engine_note_ddp_import", lang=lang, country=sale.buyer_country, rate=tax_rate, home=sale.seller_country,
-            )
+                )
             return VatResult(
                 sale=sale,
                 scenario=Scenario.IMPORT_SELLER_AS_IMPORTER,
@@ -483,16 +483,16 @@ def _oss_eligible(sale: Sale) -> bool:
     Les avoirs (amount_ht < 0) sont éligibles et réduisent le cumul.
     """
     return (
-        sale.buyer_type == BuyerType.B2C
-        and is_eu(sale.stock_country)
-        and is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None)
-        and sale.stock_country != sale.buyer_country
+            sale.buyer_type == BuyerType.B2C
+            and is_eu(sale.stock_country)
+            and is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None)
+            and sale.stock_country != sale.buyer_country
     )
 
 
 def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbol: str = "€") -> tuple[str, str, str]:
-    """Cumul et seuil OSS à afficher dans la note. 
-    Les paramètres currency et symbol doivent être passés par l'appelant 
+    """Cumul et seuil OSS à afficher dans la note.
+    Les paramètres currency et symbol doivent être passés par l'appelant
     pour éviter d'accéder à st.session_state dans un thread d'arrière-plan.
     """
     if not currency or currency.upper() == "EUR":
@@ -606,22 +606,22 @@ def _chronological_sort_key(sale: Sale) -> str:
 
 
 def _run_oss_loop(
-    sorted_items: list[Sale],
-    refund_ids: set[int],
-    marketplace_name: str,
-    asin_to_category: dict[str, str],
-    apply_fr_under_threshold: bool,
-    effective_sale_fn=None,
-    lang: str = "fr",
-    currency: str = "EUR",
-    symbol: str = "€"
+        sorted_items: list[Sale],
+        refund_ids: set[int],
+        marketplace_name: str,
+        asin_to_category: dict[str, str],
+        apply_fr_under_threshold: bool,
+        effective_sale_fn=None,
+        lang: str = "fr",
+        currency: str = "EUR",
+        symbol: str = "€"
 ) -> tuple[list[VatResult], OssThresholdSummary]:
     """Boucle chronologique OSS."""
     results: list[VatResult] = []
     cumulative_oss_ht = Decimal("0.00")
     current_year = ""
     oss_ht_by_year: dict[str, Decimal] = {}
-    
+
     # On utilise les paramètres passés plutôt que _resolve_lang() pour le thread-safety
     _lang = lang
 
@@ -629,8 +629,8 @@ def _run_oss_loop(
         is_from_refunds = id(sale) in refund_ids
         product_asin = getattr(sale, "asin", "")
         product_category = (
-            asin_to_category.get(product_asin, "")
-            or asin_to_category.get(product_asin.upper(), "STANDARD")
+                asin_to_category.get(product_asin, "")
+                or asin_to_category.get(product_asin.upper(), "STANDARD")
         )
 
         year = _year_of(sale)
@@ -653,7 +653,7 @@ def _run_oss_loop(
             if not is_from_refunds:
                 res = _build_oss_note(
                     res, cumulative_oss_ht, Decimal("10000.00"),
-                    effective_sale, product_category, apply_fr_under_threshold, 
+                    effective_sale, product_category, apply_fr_under_threshold,
                     lang=_lang, currency=currency, symbol=symbol
                 )
 
@@ -672,21 +672,21 @@ def _run_oss_loop(
 
 
 def compute_all_with_vies(
-    sales: list[Sale],
-    scope_id: str,
-    asin_to_category: dict[str, str] = None,
-    on_invalid: str = "reclassify",
-    marketplace_name: str = "Amazon",
-    check_vies_func=None,  # Conservé pour ne pas faire planter app.py
-    apply_fr_under_threshold: bool = False,
-    refunds: list[Sale] | None = None,
-    vies_progress_callback=None,
-    lang: str = "fr",
-    currency: str = "EUR",
-    symbol: str = "€",
+        sales: list[Sale],
+        scope_id: str,
+        asin_to_category: dict[str, str] = None,
+        on_invalid: str = "reclassify",
+        marketplace_name: str = "Amazon",
+        check_vies_func=None,  # Conservé pour ne pas faire planter app.py
+        apply_fr_under_threshold: bool = False,
+        refunds: list[Sale] | None = None,
+        vies_progress_callback=None,
+        lang: str = "fr",
+        currency: str = "EUR",
+        symbol: str = "€",
 ) -> tuple[list[VatResult], ViesValidationSummary, OssThresholdSummary]:
     """Calcule la TVA avec validation VIES en gérant le seuil de 10 000 € OSS.
-    
+
     Args:
         scope_id: portée de cache VIES du compte appelant (voir
                   vies.resolve_scope_id) — isole le cache et l'historique
@@ -698,7 +698,7 @@ def compute_all_with_vies(
         refunds: liste des remboursements (montants négatifs). S'ils sont fournis,
                  leur montant OSS-éligible est déduit du cumul pour que le seuil
                  affiché reflète le CA OSS net (conformément à l'art. 59 ter directive TVA).
-        lang, currency, symbol: contexte de présentation passé explicitement pour 
+        lang, currency, symbol: contexte de présentation passé explicitement pour
                  éviter les appels à st.session_state dans les threads.
     """
     if asin_to_category is None:
@@ -833,8 +833,8 @@ def compute_all_with_vies(
             # désormais en cache comme telle, protégée par _is_downgrade contre une
             # vraie dégradation silencieuse d'un numéro précédemment valide).
             _is_failed = (
-                _current_res is None
-                or _is_uncertain(_current_res)
+                    _current_res is None
+                    or _is_uncertain(_current_res)
             )
 
             if _fv in vat_seen and _is_failed:
@@ -862,39 +862,21 @@ def compute_all_with_vies(
 
     # Compteurs sur numéros UNIQUES (pas par vente)
     #
-    # Trois catégories affichées à l'utilisateur (exhaustives, somme = total_checked) :
-    #   - valid_count   : exonération autorisée (vérif. VIES fraîche OK, cache
-    #                     valide, OU override manuel confirmé valide — un
-    #                     override manuel est une décision définitive au même
-    #                     titre qu'une vérification automatique réussie).
-    #   - invalid_count : exonération refusée, le système a confirmé le numéro
-    #                     faux (VIES fraîche KO, OU override manuel confirmé
-    #                     invalide).
-    #   - inconclusive_count : aucune réponse exploitable du serveur VIES
-    #                     (timeout, coupure réseau, service indisponible) —
-    #                     exonération refusée par précaution, MAIS le numéro
-    #                     n'est pas officiellement invalide.
-    #
-    # manual_valid_count / manual_invalid_count restent trackés séparément
-    # (sous-ensemble de valid_count/invalid_count) à seule fin d'audit —
-    # pour savoir combien de décisions viennent d'une saisie manuelle plutôt
-    # que d'une vérification VIES automatique fraîche.
+    # Quatre catégories distinctes (voir ViesValidationSummary) :
+    #   - valid_count / invalid_count : vérification AUTOMATIQUE fraîche
+    #     (VIES ou cache non expiré), seule catégorie fiable à 100%.
+    #   - manual_override_count : classification saisie par l'utilisateur,
+    #     pas une vérification automatique — comptée à part, jamais fusionnée
+    #     avec valid_count/invalid_count pour ne pas gonfler artificiellement
+    #     le taux de vérification automatique affiché.
+    #   - inconclusive_count : aucun résultat exploitable du tout (ni cache
+    #     frais, ni override disponible).
     vies_summary.total_checked = len(vat_seen)
     for fv, vr in checked_vats.items():
-        is_override = getattr(vr, "is_manual_override", False)
-        is_valid = getattr(vr, "valid", False)
-        if is_override:
-            if is_valid:
-                vies_summary.manual_valid_count += 1
-            else:
-                vies_summary.manual_invalid_count += 1
-
-        if is_valid:
+        if getattr(vr, "is_manual_override", False):
+            vies_summary.manual_override_count += 1
+        elif getattr(vr, "valid", False):
             vies_summary.valid_count += 1
-        elif is_override:
-            # Override manuel invalide : décision définitive, jamais "non
-            # vérifié" même si un précédent check VIES avait été incertain.
-            vies_summary.invalid_count += 1
         elif _vies_is_unreliable(vr):
             vies_summary.inconclusive_count += 1
             vies_summary.inconclusive_vats.append(fv)
@@ -932,10 +914,10 @@ def compute_all_with_vies(
         # compute_vat. On l'enregistre quand même dans les reclassifications
         # pour qu'elle apparaisse dans l'onglet VIES (sinon invisible).
         if (
-            sale.buyer_type == BuyerType.B2B
-            and not sale.buyer_vat_number
-            and getattr(sale, "national_tax_id", "")
-            and sale.stock_country != sale.buyer_country
+                sale.buyer_type == BuyerType.B2B
+                and not sale.buyer_vat_number
+                and getattr(sale, "national_tax_id", "")
+                and sale.stock_country != sale.buyer_country
         ):
             vies_summary.reclassifications.append(ViesReclassification(
                 sale_id=sale.sale_id,
@@ -959,12 +941,12 @@ def compute_all_with_vies(
             return sale
         full_vat = sale_vat_index.get((sale.sale_id, sale.buyer_vat_number), "")
         vies_res = checked_vats.get(full_vat) if full_vat else None
-        
+
         # Un résultat VIES n'est valide que si valid=True.
         is_valid = bool(getattr(vies_res, "valid", False)) if vies_res else False
         is_inconclusive = (
-            vies_res is not None and not is_valid
-            and _vies_is_unreliable(vies_res)
+                vies_res is not None and not is_valid
+                and _vies_is_unreliable(vies_res)
         )
 
         if is_valid:
@@ -977,7 +959,7 @@ def compute_all_with_vies(
             reason = "Numéro invalide ou introuvable"
             if is_inconclusive:
                 reason = "Service VIES indisponible (incertain)"
-            
+
             vies_summary.reclassifications.append(ViesReclassification(
                 sale_id=sale.sale_id, buyer_vat_number=sale.buyer_vat_number,
                 buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
@@ -1011,19 +993,25 @@ def compute_all_with_vies(
 
     # Mise à jour des montants TVA évités dans les reclassifications
     # (on ne peut le faire qu'après compute_vat, donc en post-processing sur results).
-    result_by_sale_id: dict[str, VatResult] = {r.sale.sale_id: r for r in results}
+    # Indexé par _sale_key() (sale_id + montant), PAS par sale_id seul : un
+    # sale_id seul n'est pas unique (commande multi-articles, ou avoir
+    # partageant le même identifiant que sa vente d'origine — voir _sale_key
+    # et sale_vat_index plus haut). Indexer par sale_id seul écraserait
+    # silencieusement les résultats en cas de doublon et attribuerait un
+    # montant de TVA évitée à la mauvaise ligne dans l'onglet reclassifications VIES.
+    result_by_key: dict[tuple[str, str], VatResult] = {_sale_key(r.sale): r for r in results}
     for i, reclass in enumerate(vies_summary.reclassifications):
-        res = result_by_sale_id.get(reclass.sale_id)
+        res = result_by_key.get((reclass.sale_id, str(reclass.amount_ht)))
         if res is None:
             continue
         is_cross_border = res.sale.stock_country != res.sale.buyer_country
         real_vat_avoided = res.vat_amount if is_cross_border else Decimal("0.00")
         is_dom_rc = (
-            not is_cross_border
-            and res.sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES
+                not is_cross_border
+                and res.sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES
         )
         taxed_at_departure = (
-            is_cross_border and res.vat_country == res.sale.stock_country
+                is_cross_border and res.vat_country == res.sale.stock_country
         )
         vies_summary.reclassifications[i] = ViesReclassification(
             sale_id=reclass.sale_id,
@@ -1037,11 +1025,6 @@ def compute_all_with_vies(
             display_id=reclass.display_id,
             stock_country=reclass.stock_country,
             taxed_at_departure=taxed_at_departure,
-            # Reconstruction complète ci-dessus (pas dataclasses.replace) :
-            # tout champ posé à la création et absent d'ici retombe VITE et
-            # SILENCIEUSEMENT à sa valeur par défaut. is_national_tax_id en a
-            # fait les frais (tous les NIF réétiquetés "Invalide" à cette
-            # étape) — recopié explicitement pour ne plus reproduire ce bug.
             is_national_tax_id=reclass.is_national_tax_id,
         )
 

@@ -6,8 +6,11 @@ partout sans risque de cycle.
 
 from __future__ import annotations
 
+import logging
 import re
 from decimal import Decimal, InvalidOperation
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Types de transactions
@@ -244,4 +247,9 @@ def safe_decimal(value: str | None) -> Decimal:
     try:
         return Decimal(cleaned)
     except InvalidOperation:
+        logger.warning(
+            "safe_decimal (Amazon) : montant illisible ('%s', nettoyé en '%s') -- "
+            "traité comme 0. Vérifier la ligne source si le résultat semble décalé.",
+            value, cleaned,
+        )
         return Decimal("0")

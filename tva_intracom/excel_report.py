@@ -291,7 +291,7 @@ class _RowDimEntry:
 
 
 def _oss_period_totals(
-    results: list, refund_results: list | None, period: str
+        results: list, refund_results: list | None, period: str
 ) -> tuple[Decimal, Decimal, Decimal, Decimal]:
     """Totaux OSS agrégés (HT brut, HT remb, TVA brut, TVA remb), recalculés
     au taux BCE de clôture de période (art. 5 bis Règl. UE 2020/194) plutôt
@@ -332,9 +332,9 @@ def _write_recap(
 ) -> None:
     ws.title = i18n_("xl_tab_recap")
 
-    # Application forcée des largeurs : on le fait au début pour désactiver le 
+    # Application forcée des largeurs : on le fait au début pour désactiver le
     # tracker automatique qui se fait piéger par les formules (Excel affiche
-    # un montant long "1 234,56 EUR" alors que la valeur stockée est une 
+    # un montant long "1 234,56 EUR" alors que la valeur stockée est une
     # formule courte "=B4+C4").
     if hasattr(ws, "apply_column_widths"):
         ws.apply_column_widths({
@@ -424,7 +424,7 @@ def _write_recap(
         _hr_f = float(_conv(ht_remb))
         _vb_f = float(_conv(vat_brut))
         _vr_f = float(_conv(vat_remb))
-        
+
         # Lignes HT uniquement : CA global (0), B2B exonéré (6), Export (7)
         is_ht_only_row = idx in (0, 6, 7)
 
@@ -643,12 +643,20 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
     _width_tracker.apply(ws)
 
 
-def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None, display_currency: str = "EUR") -> None:
+def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None,
+                     display_currency: str = "EUR", refund_results: list | None = None) -> None:
     """Onglet Audit — deux sections :
 
-    1. Réconciliation agrégée : sous-totaux par (nature, pays destination) avec
-       écart absolu et % — identifie les catégories systématiquement décalées.
-    2. Détail ligne par ligne : chaque vente avec écart > 0.05 € (ou flux GB).
+    1. Réconciliation agrégée : sous-totaux par (nature, pays destination, type)
+       avec écart absolu et % — identifie les catégories systématiquement décalées.
+       Type = Vente/Remboursement, pour ne pas masquer un écart qui ne
+       porterait que sur les avoirs (voir 2.).
+    2. Détail ligne par ligne : chaque vente ou avoir avec écart > 0.05 € (ou flux GB).
+
+    Ventes et avoirs sont fusionnés dans cette réconciliation (refund_results) :
+    un écart Amazon/moteur sur un avoir serait resté invisible si seules les
+    ventes étaient auditées, alors que l'avoir a le même impact déclaratif
+    qu'une vente sur le montant net dû.
     """
     from collections import defaultdict
 
@@ -689,12 +697,16 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     ws.append([])
     ws.row_dimensions[3].height = 8
 
-    agg: dict[tuple[str, str], dict] = defaultdict(lambda: {
+    agg: dict[tuple[str, str, str], dict] = defaultdict(lambda: {
         "n": 0, "ht": Decimal("0"), "amz": Decimal("0"), "mot": Decimal("0")
     })
     detail_rows = []
 
-    for r in results:
+    _label_vente = i18n_("xl_audit_type_sale")
+    _label_remb  = i18n_("xl_audit_type_refund")
+    _tagged_rows = [(r, _label_vente) for r in results] + [(r, _label_remb) for r in (refund_results or [])]
+
+    for r, _type_label in _tagged_rows:
         dep = getattr(r.sale, "stock_country", "")
         arr = getattr(r.sale, "buyer_country", "")
         tva_amz = Decimal(str(round(float(getattr(r.sale, "amazon_vat_amount", Decimal("0"))), 2)))
@@ -704,14 +716,14 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         nat     = _nature(r)
 
         if is_gb or abs(float(ecart)) > 0.05:
-            agg[(nat, arr)]["n"]   += 1
-            agg[(nat, arr)]["ht"]  += r.sale.amount_ht
-            agg[(nat, arr)]["amz"] += tva_amz
-            agg[(nat, arr)]["mot"] += tva_mot
-            detail_rows.append((r, nat, dep, arr, tva_amz, tva_mot, ecart))
+            agg[(nat, arr, _type_label)]["n"]   += 1
+            agg[(nat, arr, _type_label)]["ht"]  += r.sale.amount_ht
+            agg[(nat, arr, _type_label)]["amz"] += tva_amz
+            agg[(nat, arr, _type_label)]["mot"] += tva_mot
+            detail_rows.append((r, nat, dep, arr, tva_amz, tva_mot, ecart, _type_label))
 
     _headers_1 = [
-        i18n_("xl_audit_col_nature"), i18n_("xl_audit_col_dest"),
+        i18n_("xl_audit_col_nature"), i18n_("xl_audit_col_dest"), i18n_("xl_audit_col_type"),
         i18n_("xl_audit_col_count"), i18n_("xl_audit_col_ca_ht"),
         i18n_("xl_audit_col_vat_amz"), i18n_("xl_audit_col_vat_mot"),
         i18n_("xl_audit_col_gap_abs"), i18n_("xl_audit_col_gap_pct"), i18n_("xl_audit_col_risk"),
@@ -723,7 +735,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     _width_tracker.observe_row(_headers_1)
 
     row = 5
-    for (nat, arr), d in sorted(agg.items()):
+    for (nat, arr, type_label), d in sorted(agg.items()):
         ecart_abs = d["amz"] - d["mot"]
         pct = (ecart_abs / d["mot"] * 100) if d["mot"] != 0 else Decimal("0")
         risque = (i18n_("xl_risk_high") if abs(float(pct)) > 10
@@ -733,9 +745,9 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         _ht_f, _amz_f, _mot_f, _ecart_f, _pct_f = (
             float(d["ht"]), float(d["amz"]), float(d["mot"]), float(ecart_abs), float(_round(pct))
         )
-        _vals1 = [nat, _dest_label, d["n"], _ht_f, _amz_f, _mot_f, _ecart_f, _pct_f, risque]
+        _vals1 = [nat, _dest_label, type_label, d["n"], _ht_f, _amz_f, _mot_f, _ecart_f, _pct_f, risque]
         ws.append([
-            _wcell(ws, nat), _wcell(ws, _dest_label), _wcell(ws, d["n"]),
+            _wcell(ws, nat), _wcell(ws, _dest_label), _wcell(ws, type_label), _wcell(ws, d["n"]),
             _wcell(ws, _conv(d["ht"]), number_format=_fmt_curr),
             _wcell(ws, _conv(d["amz"]), number_format=_fmt_curr),
             _wcell(ws, _conv(d["mot"]), number_format=_fmt_curr),
@@ -760,7 +772,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     ws.row_dimensions[row].height = 20
     row += 1
     _headers_2 = [
-        i18n_("xl_detail_col_sale_id"), i18n_("xl_detail_col_nature"), i18n_("xl_detail_col_flow"),
+        i18n_("xl_detail_col_sale_id"), i18n_("xl_detail_col_nature"), i18n_("xl_audit_col_type"), i18n_("xl_detail_col_flow"),
         i18n_("xl_detail_col_scenario"), i18n_("xl_detail_col_ht"),
         i18n_("xl_detail_col_vat_amz"), i18n_("xl_detail_col_vat_mot"), i18n_("xl_detail_col_gap"),
     ]
@@ -771,14 +783,14 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     _width_tracker.observe_row(_headers_2)
     row += 1
 
-    for r, nat, dep, arr, tva_amz, tva_mot, ecart in detail_rows:
+    for r, nat, dep, arr, tva_amz, tva_mot, ecart, type_label in detail_rows:
         _flow = f"{dep}→{arr}"
         _vals2 = [
-            str(getattr(r.sale, "display_id", "") or r.sale.sale_id), nat, _flow,
+            str(getattr(r.sale, "display_id", "") or r.sale.sale_id), nat, type_label, _flow,
             str(r.scenario.value), float(r.sale.amount_ht), float(tva_amz), float(tva_mot), float(ecart),
         ]
         ws.append([
-            _wcell(ws, _vals2[0]), _wcell(ws, nat), _wcell(ws, _flow), _wcell(ws, _vals2[3]),
+            _wcell(ws, _vals2[0]), _wcell(ws, nat), _wcell(ws, type_label), _wcell(ws, _flow), _wcell(ws, _vals2[4]),
             _wcell(ws, _conv(r.sale.amount_ht), number_format=_fmt_curr),
             _wcell(ws, _conv(tva_amz), number_format=_fmt_curr),
             _wcell(ws, _conv(tva_mot), number_format=_fmt_curr),
@@ -1306,7 +1318,7 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
             "Intrastat/EMEBI : QTY illisible ('%s') pour ASIN=%s, transfert %s→%s "
             "(tx_id=%s) — quantité forcée à 1, seuil EMEBI potentiellement faussé.",
             raw_qty, asin or "?", dep, arr, tx_id or "?",
-        )
+                     )
 
     return tx_id, date_str, asin, str(designation), dep, arr, qty
 
@@ -2087,7 +2099,8 @@ def export_xlsx(
 
     # 8. Onglet Audit Ecarts Amazon
     ws_audit = _SequentialSheetWriter(wb.create_sheet("Audit Ecarts Amazon"))
-    _write_audit_tab(ws_audit, results, vies_affected_sale_ids, vies_summary=vies_summary, display_currency=_currency)
+    _write_audit_tab(ws_audit, results, vies_affected_sale_ids, vies_summary=vies_summary,
+                     display_currency=_currency, refund_results=refund_results)
     ws_audit.finalize()
 
     # 8bis. Onglet Historique VIES (piste d'audit — preuve de bonne foi)

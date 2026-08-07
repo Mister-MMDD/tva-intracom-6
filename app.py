@@ -74,10 +74,10 @@ from tva_intracom import vies_engine as _tva_vies_engine
 
 if not any_job_running():
     for _close_fn in (
-        tva_auth.close_idle_connections,
-        _tva_ecb_rates.close_idle_connections,
-        _tva_billing.close_idle_connections,
-        _tva_vies_engine.close_idle_connections,
+            tva_auth.close_idle_connections,
+            _tva_ecb_rates.close_idle_connections,
+            _tva_billing.close_idle_connections,
+            _tva_vies_engine.close_idle_connections,
     ):
         try:
             _close_fn()
@@ -398,13 +398,13 @@ if uploaded_files:
                     total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
                     _parse_results.append(parse_result)
                     file_summaries.append({
-                        "file": uploaded_file.name, "source": platform,
-                        "sales": len(parse_result.sales), "refunds": len(parse_result.refunds),
-                        "fba_trans": len(parse_result.fc_transfers),
-                        "phys_returns": getattr(parse_result, "return_rows", 0),
-                        "invoices": getattr(parse_result, "invoice_rows", 0),
-                        "credit_notes": getattr(parse_result, "credit_note_rows", 0),
-                        "rows_read": parse_result.total_rows, "ignored": parse_result.skipped_rows
+                        _("col_file"): uploaded_file.name, _("col_source"): platform,
+                        _("col_sales"): len(parse_result.sales), _("col_refunds"): len(parse_result.refunds),
+                        _("col_fba_trans"): len(parse_result.fc_transfers),
+                        _("col_phys_returns"): getattr(parse_result, "return_rows", 0),
+                        _("col_invoices"): getattr(parse_result, "invoice_rows", 0),
+                        _("col_credit_notes"): getattr(parse_result, "credit_note_rows", 0),
+                        _("col_rows_read"): parse_result.total_rows, _("col_ignored"): parse_result.skipped_rows
                     })
             except Exception as e:
                 st.error(f"Erreur sur **{uploaded_file.name}** : {e}")
@@ -450,22 +450,11 @@ if uploaded_files:
 
     if len(uploaded_files) == 1:
         fs = file_summaries[0]
-        st.info(_("import_summary_single", platform=platform_name, sales=fs["sales"], refunds=fs["refunds"], fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part))
+        st.info(_("import_summary_single", platform=platform_name, sales=fs[_('col_sales')], refunds=fs[_('col_refunds')], fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part))
     else:
         st.success(_("import_summary_multi", count=len(uploaded_files), sales=len(all_sales), refunds=len(all_refunds), fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part, total_rows=total_rows_sum))
         with st.expander(_("file_detail_expander", count=len(uploaded_files))):
-            # Traduction des clés à la volée pour l'affichage tableau
-            _display_summaries = []
-            _key_map = {
-                "file": _("col_file"), "source": _("col_source"),
-                "sales": _("col_sales"), "refunds": _("col_refunds"),
-                "fba_trans": _("col_fba_trans"), "phys_returns": _("col_phys_returns"),
-                "invoices": _("col_invoices"), "credit_notes": _("col_credit_notes"),
-                "rows_read": _("col_rows_read"), "ignored": _("col_ignored")
-            }
-            for _fs in file_summaries:
-                _display_summaries.append({_key_map.get(k, k): v for k, v in _fs.items()})
-            st.table(_display_summaries)
+            st.table(file_summaries)
         if len(unique_platforms) > 1:
             st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
     if all_warnings:
@@ -572,9 +561,17 @@ if uploaded_files:
                     lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread)
 
                 report(0.9, _("calc_progress_vat", lang=_lang_for_thread))
-                # VIES obligatoire aussi sur les avoirs
+                # VIES obligatoire aussi sur les avoirs. On repasse asin_to_category
+                # et apply_fr_under_threshold : sans eux, un avoir retombe sur la
+                # catégorie STANDARD (taux potentiellement différent du produit
+                # réellement remboursé) et sur le régime OSS destination même si
+                # la vente d'origine a été calculée en régime domestique FR sous
+                # le seuil OSS — l'avoir ne matcherait alors ni le taux ni le pays
+                # de TVA de la vente qu'il est censé annuler.
                 _refund_results = compute_all_with_vies(
                     refunds, scope_id=_vies_scope_id, marketplace_name=platform_name,
+                    asin_to_category=asin_to_category,
+                    apply_fr_under_threshold=apply_fr_under_threshold,
                     lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread
                 )[0] if refunds else []
                 _summary = build_report(_results, refund_results=_refund_results or None, lang=_lang_for_thread)
@@ -719,7 +716,7 @@ if uploaded_files:
                         _used_rates_info.add((_r.sale.original_currency.upper(), _rate_date))
                     except Exception:
                         pass
-            
+
             if _used_rates_info:
                 _all_dates = sorted({d for c, d in _used_rates_info})
                 with st.expander(_("bce_rates_title", count=len(_used_rates_info))):
@@ -742,7 +739,7 @@ if uploaded_files:
                             _oss_rate = _ecb_get_rate(_ccy, _d)
                         except Exception:
                             _oss_rate = None
-                        
+
                         _date_suffix = f" ({_d.strftime('%d/%m/%Y')})" if len(_all_dates) > 1 else ""
                         if _oss_rate is not None:
                             st.caption(f"**{_ccy}** : 1 EUR = {float(_oss_rate):.4f} {_ccy}{_date_suffix}")

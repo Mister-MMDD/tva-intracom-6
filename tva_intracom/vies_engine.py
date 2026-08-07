@@ -899,6 +899,7 @@ def get_scope_vies_snapshot(scope_id: str) -> list[dict]:
     snapshot.sort(key=lambda d: d["vat_id"])
     return snapshot
 
+
 def purge_malformed_entries() -> int:
     """Purge administrative, une fois par session (appelée depuis app.py) :
     supprime les entrées vat_id mal préfixées par un bug historique (double
@@ -1502,8 +1503,19 @@ def get_manual_overrides(scope_id: str, include_expired: bool = False) -> dict[s
                 (scope_id,),
             )
             rows = cur.fetchall()
-    except Exception:
-        return {}
+    except Exception as exc:
+        # NE PAS avaler silencieusement : engine.py (ligne ~856) a un
+        # try/except englobant spécifiquement pour logger un warning quand le
+        # chargement des overrides échoue — mais ce warning ne se déclenche
+        # jamais si on renvoie {} ici sans relancer, puisqu'aucune exception
+        # ne remonte alors jusqu'à lui. Une panne DB passagère ferait alors
+        # disparaître silencieusement TOUTES les classifications manuelles du
+        # compte pour ce calcul, sans aucune trace nulle part.
+        logger.warning(
+            "get_manual_overrides [%s] : échec de lecture des overrides manuels (%s) — "
+            "aucune classification manuelle appliquée à ce calcul.", scope_id, exc,
+        )
+        raise
     if include_expired:
         return {r[0]: bool(r[1]) for r in rows}
     result: dict[str, bool] = {}

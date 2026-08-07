@@ -34,16 +34,16 @@ class BuyerClassification:
     buyer_type: object     # BuyerType.B2C ou BuyerType.B2B
     buyer_vat_valid: bool  # présence d'un numéro (pas validation VIES)
     national_tax_id: str = ""  # NIF national brut conservé même si buyer_vat est vidé
-                                 # (cross-border sans préfixe EU, cf. Cas 2) — pour
-                                 # traçabilité dans le rapport VIES (jamais envoyé à VIES).
+    # (cross-border sans préfixe EU, cf. Cas 2) — pour
+    # traçabilité dans le rapport VIES (jamais envoyé à VIES).
 
 
 def classify_buyer(
-    raw_vat: str,
-    arrival: str,
-    departure: str,
-    normalize_fn,   # _normalize_vat_id_vies depuis vies.py
-    BuyerType,      # enum injecté pour éviter l'import circulaire
+        raw_vat: str,
+        arrival: str,
+        departure: str,
+        normalize_fn,   # _normalize_vat_id_vies depuis vies.py
+        BuyerType,      # enum injecté pour éviter l'import circulaire
 ) -> BuyerClassification:
     """Classifie l'acheteur (B2B/B2C) et nettoie le numéro TVA.
 
@@ -112,14 +112,14 @@ class CurrencyResult:
 
 
 def convert_currency(
-    amount_ht: Decimal,
-    currency: str,
-    tx_date_str: str,
-    tx_type: str,
-    fmt: int,
-    row: dict,
-    convert_currencies: bool,
-    target_currency: str = "EUR",
+        amount_ht: Decimal,
+        currency: str,
+        tx_date_str: str,
+        tx_type: str,
+        fmt: int,
+        row: dict,
+        convert_currencies: bool,
+        target_currency: str = "EUR",
 ) -> CurrencyResult:
     """Convertit le montant vers la devise cible (EUR par défaut) si nécessaire.
 
@@ -162,7 +162,12 @@ def convert_currency(
             parts = tx_date_str.split("-")
             tx_date = _date(int(parts[0]), int(parts[1]), int(parts[2]))
         except (ValueError, IndexError):
-            pass
+            logger.warning(
+                "convert_currency : date de transaction illisible ('%s') — "
+                "taux BCE du jour de génération du rapport utilisé à la place "
+                "du taux réel de la date de vente (écart de change possible).",
+                tx_date_str,
+            )
     if tx_date is None:
         tx_date = _date.today()
 
@@ -182,9 +187,9 @@ def convert_currency(
 
 
 def convert_amazon_vat(
-    amazon_vat_raw: Decimal,
-    exchange_rate: Decimal,
-    tx_type: str,
+        amazon_vat_raw: Decimal,
+        exchange_rate: Decimal,
+        tx_type: str,
 ) -> Decimal:
     """Convertit la TVA Amazon dans la même devise/taux que amount_ht.
 

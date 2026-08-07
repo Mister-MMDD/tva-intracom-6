@@ -138,7 +138,7 @@ def _compute_aic_from_fc_transfers(
                 "AIC/CA3 : QTY illisible ('%s') pour ASIN=%s, transfert %s→%s — "
                 "quantité forcée à 1 (base AIC potentiellement sous/sur-évaluée).",
                 raw_qty, asin or "?", dep, arr,
-            )
+                         )
         if asin not in avg_price:
             n_asin_unpriced += 1
             logger.warning(
@@ -146,7 +146,7 @@ def _compute_aic_from_fc_transfers(
                 "pour un transfert %s→%s — ligne comptée à 0 € de base AIC, "
                 "transfert probablement sous-évalué dans la CA3.",
                 asin or "?", dep, arr,
-            )
+                )
         avg = avg_price.get(asin, Decimal("0"))
         ligne_base = _round(Decimal(str(qty)) * avg)
         taux = _vat_rate(seller_country, "STANDARD") if seller_country in STANDARD_VAT_RATES else Decimal("20")
