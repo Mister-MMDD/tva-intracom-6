@@ -1328,17 +1328,22 @@ def _build_asin_avg_price(results: list) -> dict[str, Decimal]:
 
     Utilisé comme approximation de la base imposable AIC (valeur d'achat inconnue).
     Seules les ventes avec montant > 0 sont prises en compte (exclut remboursements).
+
+    Implémentation en (somme, compteur) plutôt qu'en liste de Decimal par ASIN :
+    évite de conserver un objet Decimal par vente en mémoire (jusqu'à 100k
+    objets superflus sur les gros volumes) juste pour calculer une moyenne.
     """
-    totals: dict[str, list[Decimal]] = {}
+    totals: dict[str, tuple[Decimal, int]] = {}
     for r in results:
         asin = getattr(r.sale, "asin", "").strip()
         amt  = r.sale.amount_ht
         if asin and amt > Decimal("0"):
-            totals.setdefault(asin, []).append(amt)
+            prev_sum, prev_count = totals.get(asin, (Decimal("0"), 0))
+            totals[asin] = (prev_sum + amt, prev_count + 1)
     return {
-        asin: sum(amounts, Decimal("0")) / Decimal(str(len(amounts)))
-        for asin, amounts in totals.items()
-        if amounts
+        asin: total / Decimal(count)
+        for asin, (total, count) in totals.items()
+        if count
     }
 
 

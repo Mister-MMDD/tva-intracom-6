@@ -314,10 +314,22 @@ if uploaded_files:
     # un gros fichier. On ne ré-analyse que si les fichiers ou les options
     # d'import (pays d'origine, encodage, conversion devise, format,
     # catalogue ASIN) ont réellement changé.
+    #
+    # Le catalogue ASIN peut compter des dizaines de milliers d'entrées.
+    # `_parse_catalog_bytes` est déjà @st.cache_data côté sidebar, mais
+    # Streamlit renvoie une COPIE du dict à chaque appel (pour éviter les
+    # bugs de mutation de cache) : l'id() de asin_to_category change donc
+    # d'un rerun à l'autre même si le contenu est identique, et
+    # tuple(sorted(dict.items())) devait auparavant retrier tout le
+    # catalogue (O(n log n)) à *chaque* rerun (changement de filtre,
+    # d'onglet...), pas seulement à l'upload. On remplace par un hash sur
+    # un frozenset (O(n), pas de tri, et un simple int à comparer au rerun
+    # suivant au lieu d'un tuple de 20k éléments).
+    _asin_catalog_sig = hash(frozenset(asin_to_category.items())) if asin_to_category else None
     _parse_cache_key = (
         tuple(sorted((f.name, f.size) for f in uploaded_files)),
         home_country, encoding, convert_fx, file_format,
-        tuple(sorted(asin_to_category.items())) if asin_to_category else None,
+        _asin_catalog_sig,
     )
 
     if st.session_state.get("_parse_cache_key") == _parse_cache_key:

@@ -566,12 +566,14 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
 def _sale_key(sale: Sale) -> tuple[str, str]:
     """Clé composite (sale_id, montant_ht) identifiant une ligne de façon stable.
 
-    Remplace id(sale) : un id() Python n'est valable que tant que l'objet
-    Sale d'origine reste physiquement le même jusqu'au point de lecture
-    (aucune copie/recréation via dataclasses.replace entre-temps) — une
-    contrainte fragile et invisible pour quiconque retouche ce chemin plus
-    tard. Le montant (avec son signe : positif=vente, négatif=avoir) évite
-    toute collision avec un remboursement partageant le même sale_id.
+    Utilisée partout à la place de id(sale) (y compris pour refund_keys et
+    is_from_refunds dans _run_oss_loop / _effective_sale_with_vies) : un
+    id() Python n'est valable que tant que l'objet Sale d'origine reste
+    physiquement le même jusqu'au point de lecture (aucune copie/recréation
+    via dataclasses.replace entre-temps) — une contrainte fragile et
+    invisible pour quiconque retouche ce chemin plus tard. Le montant (avec
+    son signe : positif=vente, négatif=avoir) évite toute collision avec un
+    remboursement partageant le même sale_id.
     """
     return (sale.sale_id, str(sale.amount_ht))
 
@@ -607,7 +609,7 @@ def _chronological_sort_key(sale: Sale) -> str:
 
 def _run_oss_loop(
         sorted_items: list[Sale],
-        refund_ids: set[int],
+        refund_keys: set[tuple[str, str]],
         marketplace_name: str,
         asin_to_category: dict[str, str],
         apply_fr_under_threshold: bool,
@@ -626,7 +628,7 @@ def _run_oss_loop(
     _lang = lang
 
     for sale in sorted_items:
-        is_from_refunds = id(sale) in refund_ids
+        is_from_refunds = _sale_key(sale) in refund_keys
         product_asin = getattr(sale, "asin", "")
         product_category = (
                 asin_to_category.get(product_asin, "")
@@ -718,7 +720,7 @@ def compute_all_with_vies(
     vies_summary = ViesValidationSummary()
 
     # Un seul tri chronologique global (ventes + avoirs).
-    refund_ids: set[int] = {id(r) for r in (refunds or [])}
+    refund_keys: set[tuple[str, str]] = {_sale_key(r) for r in (refunds or [])}
     all_items = list(sales) + list(refunds or [])
     all_items_sorted = sorted(all_items, key=_chronological_sort_key)
 
@@ -902,7 +904,7 @@ def compute_all_with_vies(
     def _effective_sale_with_vies(sale: Sale, product_category: str) -> Sale:
         """Applique la classification VIES sur la vente et retourne l'objet effectif."""
         # Les avoirs ne passent pas par VIES (leur numéro a déjà été traité).
-        if id(sale) in refund_ids:
+        if _sale_key(sale) in refund_keys:
             return sale
 
         product_asin = getattr(sale, "asin", "")
@@ -985,7 +987,7 @@ def compute_all_with_vies(
     _lang, _curr, _sym = lang, currency, symbol
 
     results, oss_summary = _run_oss_loop(
-        all_items_sorted, refund_ids, marketplace_name,
+        all_items_sorted, refund_keys, marketplace_name,
         asin_to_category, apply_fr_under_threshold,
         effective_sale_fn=_effective_sale_with_vies,
         lang=_lang, currency=_curr, symbol=_sym
