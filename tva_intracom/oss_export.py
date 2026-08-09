@@ -93,6 +93,19 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
 def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggType:
     """Agrège les VatResult OSS_B2C par pays de départ puis pays d'arrivée.
 
+    ⚠️ CORRECTIF 2026-08-09 : ne traite PLUS Scenario.IOSS_DIRECT (voir
+    aggregate_ioss_results() ci-dessous, ajoutée séparément). OSS et IOSS
+    sont deux régimes distincts avec des périodicités différentes
+    (trimestrielle pour l'OSS, mensuelle pour l'IOSS — art. 369a-k vs.
+    art. 369l-x dir. 2006/112/CE) et des numéros d'identification distincts.
+    Les mélanger dans une même agrégation produisait un double problème :
+    un total OSS trimestriel incluant à tort des montants IOSS mensuels
+    dans l'Excel/CSV URSSAF, ET une disparition SILENCIEUSE des montants
+    IOSS dans le XML officiel (oss_xml.py filtre les pays de départ hors UE,
+    qui est systématiquement le cas pour l'IOSS — import depuis un pays
+    tiers). Voir aggregate_ioss_results() + build_ioss_excel/build_ioss_csv
+    pour l'export IOSS désormais séparé.
+
     Structure retournée (utilisée par oss_xml.py pour le XML officiel et
     par oss_export.py pour l'Excel/CSV URSSAF) :
 
@@ -125,6 +138,35 @@ def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggT
             reconnu, on retombe sur `sale.amount_ht`/`res.vat_amount` tels
             quels (comportement historique).
     """
+    return _aggregate_by_scenario(results, period, scenarios=(Scenario.OSS_B2C,))
+
+
+def aggregate_ioss_results(results: list[VatResult], period: str = "") -> OssAggType:
+    """Agrège les VatResult IOSS_DIRECT — pendant de aggregate_oss_results()
+    pour le régime IOSS (import ≤150€, guichet unique séparé, déclaration
+    MENSUELLE, art. 369l-x dir. 2006/112/CE). Même structure de retour
+    (départ → arrivée → taux) — le "départ" est ici systématiquement un
+    pays tiers (hors UE), conservé pour cohérence structurelle même si
+    l'IOSS ne segmente pas par pays de départ dans sa déclaration officielle
+    (un seul numéro IOSS, ventilation uniquement par pays de consommation
+    et taux — voir build_ioss_excel/build_ioss_csv qui aplatissent cette
+    dimension à l'export).
+
+    Args:
+        period: période IOSS déclarée, typiquement mensuelle (ex: "2026-03"),
+            PAS trimestrielle comme pour l'OSS — voir get_oss_rate_date/
+            convert_ht_tva_for_oss_period qui savent gérer un format de
+            période non reconnu (repli sur sale.amount_ht tel quel).
+    """
+    return _aggregate_by_scenario(results, period, scenarios=(Scenario.IOSS_DIRECT,))
+
+
+def _aggregate_by_scenario(
+    results: list[VatResult], period: str, scenarios: tuple[Scenario, ...],
+) -> OssAggType:
+    """Factorisation commune à aggregate_oss_results() et
+    aggregate_ioss_results() — même logique d'agrégation départ→arrivée→taux,
+    ne diffère que par le filtre de scénario retenu."""
     aggregated: OssAggType = {}
 
     # Pré-batch des taux BCE nécessaires : sans ça, convert_ht_tva_for_oss_period
@@ -140,7 +182,7 @@ def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggT
     if period:
         _needed_pairs: set[tuple[str, _date]] = set()
         for _res in results:
-            if _res.scenario not in (Scenario.OSS_B2C, Scenario.IOSS_DIRECT):
+            if _res.scenario not in scenarios:
                 continue
             _src_ccy = _res.sale.original_currency
             if not _src_ccy or _src_ccy == "EUR":
@@ -154,7 +196,7 @@ def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggT
             prefetch_rates(sorted(_needed_pairs))
 
     for res in results:
-        if res.scenario not in (Scenario.OSS_B2C, Scenario.IOSS_DIRECT):
+        if res.scenario not in scenarios:
             continue
 
         departure = res.sale.stock_country   # MemberStateOfSupply (pour OSS) ou Pays tiers (pour IOSS)
@@ -565,9 +607,21 @@ def _total_cell(ws, value, fmt: str = None, alignment: Alignment = None):
     )
 
 
-def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
-    ws = wb.create_sheet("OSS_Résumé")
+def _build_oss_resume(
+        wb: Workbook, data: OssExportData, period: str,
+        sheet_name: str = "OSS_Résumé",
+        title_key: str = "oss_export_title", subtitle_key: str = "oss_export_subtitle",
+        total_label_key: str = "oss_total_countries", footer_key: str = "oss_footer_note",
+        lines: List["OssCountryLine"] | None = None,
+):
+    """Construit l'onglet Résumé pays/taux — factorisé pour être réutilisé
+    tel quel par _build_ioss_resume() (même structure, juste les clés i18n/
+    nom d'onglet qui changent). `lines` permet de passer une autre liste
+    que `data.oss_by_country` (ex: `data.ioss_by_country`) sans dupliquer
+    tout le corps de la fonction."""
+    ws = wb.create_sheet(sheet_name)
     ws.sheet_view.showGridLines = False
+    _lines = lines if lines is not None else data.oss_by_country
 
     # Largeurs de colonnes : DOIVENT être fixées avant le tout premier
     # `append` (vérifié empiriquement en write_only — contrairement au mode
@@ -579,7 +633,7 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     # Titre
     ws.row_dimensions[1].height = 28
     t = _wcell(
-        ws, _("oss_export_title", period=period),
+        ws, _(title_key, period=period),
         font=Font(bold=True, size=13, color=_WHITE, name="Arial"),
         fill=PatternFill("solid", start_color=_BLUE_HEADER),
         alignment=Alignment(horizontal="center", vertical="center"),
@@ -588,7 +642,7 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     _merge(ws, "A1:J1")
 
     sub = _wcell(
-        ws, _("oss_export_subtitle"),
+        ws, _(subtitle_key),
         font=Font(italic=True, size=9, color="595959", name="Arial"),
         alignment=Alignment(horizontal="center"),
     )
@@ -607,7 +661,7 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
     ws.append([_hdr_cell(ws, h, _BLUE_LIGHT, fg="1F4E79", size=9) for h in headers])
 
     # Données
-    for i, line in enumerate(data.oss_by_country):
+    for i, line in enumerate(_lines):
         r = i + 4
         zebra = i % 2 == 1
         ws.row_dimensions[r].height = 16
@@ -625,12 +679,12 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
         ])
 
     # Ligne total
-    n = len(data.oss_by_country)
+    n = len(_lines)
     total_row = n + 4
     ws.row_dimensions[total_row].height = 18
     ws.append([
         _total_cell(ws, _("TOTAL"), alignment=Alignment(horizontal="center", vertical="center")),
-        _total_cell(ws, _("oss_total_countries", count=n)),
+        _total_cell(ws, _(total_label_key, count=n)),
         _total_cell(ws, ""),
         _total_cell(ws, f"=SUM(D4:D{total_row-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
         _total_cell(ws, f"=SUM(E4:E{total_row-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
@@ -643,7 +697,7 @@ def _build_oss_resume(wb: Workbook, data: OssExportData, period: str):
 
     # Note de bas de page
     note_row = total_row + 2
-    n_cell = _wcell(ws, _("oss_footer_note"), font=Font(italic=True, size=8, color="C00000", name="Arial"))
+    n_cell = _wcell(ws, _(footer_key), font=Font(italic=True, size=8, color="C00000", name="Arial"))
     # Ligne intermédiaire vide (note_row = total_row + 2 dans l'original,
     # donc une ligne blanche entre le total et la note).
     ws.append([])
@@ -772,6 +826,178 @@ def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
     ws.append([])
     ws.append([n_cell])
     _merge(ws, f"A{note_row}:F{note_row}")
+
+
+@dataclass
+class IossExportData:
+    """Pendant de OssExportData pour le régime IOSS (import ≤150€, guichet
+    séparé, déclaration MENSUELLE — voir aggregate_ioss_results)."""
+    ioss_by_country: List[OssCountryLine]
+    ioss_details: List[tuple]   # (VatResult, ht_converti, tva_converti)
+    period: str
+    total_ioss_ht: Decimal = _ZERO
+    total_ioss_vat: Decimal = _ZERO
+
+
+def _aggregate_ioss(results: List[VatResult], period: str = "") -> IossExportData:
+    """Pendant de _aggregate() pour l'IOSS — s'appuie sur
+    aggregate_ioss_results() (Scenario.IOSS_DIRECT uniquement, jamais
+    OSS_B2C). period attendu au format mensuel (ex: "2026-03"), pas
+    trimestriel."""
+    ioss_agg = aggregate_ioss_results(results, period=period)
+
+    country_map: dict[tuple[str, Decimal], dict] = {}
+    for departure, destinations in ioss_agg.items():
+        for arrival, rates in destinations.items():
+            for rate, amounts in rates.items():
+                key = (arrival, rate)
+                if key not in country_map:
+                    country_map[key] = {
+                        "country": arrival,
+                        "country_name": COUNTRY_NAMES.get(arrival, arrival),
+                        "vat_rate": rate,
+                        "base_ht": _ZERO,
+                        "vat_amount": _ZERO,
+                        "base_ht_vente": _ZERO,
+                        "vat_vente": _ZERO,
+                        "base_ht_remb": _ZERO,
+                        "vat_remb": _ZERO,
+                        "nb": 0,
+                    }
+                country_map[key]["base_ht"]       += amounts["ht"]
+                country_map[key]["vat_amount"]     += amounts["tva"]
+                country_map[key]["base_ht_vente"]  += amounts["ht_vente"]
+                country_map[key]["vat_vente"]      += amounts["tva_vente"]
+                country_map[key]["base_ht_remb"]   += amounts["ht_remb"]
+                country_map[key]["vat_remb"]       += amounts["tva_remb"]
+                country_map[key]["nb"]             += amounts["nb"]
+
+    ioss_detail_results = [
+        (r, *convert_ht_tva_for_oss_period(r, period))
+        for r in results if r.scenario == Scenario.IOSS_DIRECT
+    ]
+
+    ioss_lines = [
+        OssCountryLine(
+            country=v["country"],
+            country_name=v["country_name"],
+            vat_rate=v["vat_rate"],
+            base_ht=v["base_ht"],
+            vat_amount=v["vat_amount"],
+            nb_transactions=v["nb"],
+            base_ht_vente=v["base_ht_vente"],
+            vat_vente=v["vat_vente"],
+            base_ht_remb=v["base_ht_remb"],
+            vat_remb=v["vat_remb"],
+        )
+        for v in sorted(country_map.values(), key=lambda x: x["country"])
+    ]
+
+    return IossExportData(
+        ioss_by_country=ioss_lines,
+        ioss_details=ioss_detail_results,
+        period="",
+        total_ioss_ht=sum((l.base_ht for l in ioss_lines), _ZERO),
+        total_ioss_vat=sum((l.vat_amount for l in ioss_lines), _ZERO),
+    )
+
+
+def _build_ioss_resume(wb: Workbook, data: IossExportData, period: str):
+    _build_oss_resume(
+        wb, data, period,
+        sheet_name="IOSS_Résumé",
+        title_key="ioss_export_title", subtitle_key="ioss_export_subtitle",
+        total_label_key="oss_total_countries", footer_key="ioss_footer_note",
+        lines=data.ioss_by_country,
+    )
+
+
+def _build_ioss_detail(wb: Workbook, data: IossExportData):
+    ws = wb.create_sheet("IOSS_Détail")
+    ws.sheet_view.showGridLines = False
+
+    widths = [20, 14, 10, 14, 16, 16, 11, 14]
+    for col, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    ws.row_dimensions[1].height = 25
+    t = _wcell(
+        ws, _("ioss_detail_title"),
+        font=Font(bold=True, size=12, color=_WHITE, name="Arial"),
+        fill=PatternFill("solid", start_color=_ORANGE_HDR),
+        alignment=Alignment(horizontal="center", vertical="center"),
+    )
+    ws.append([t])
+    _merge(ws, "A1:H1")
+
+    headers = [
+        _("oss_detail_col_id"), _("oss_detail_col_date"), _("oss_detail_col_stock"),
+        _("oss_detail_col_dest"), _("oss_detail_col_dest_name"),
+        _("oss_detail_col_base_ht"), _("oss_detail_col_vat_rate"), _("oss_detail_col_vat_amount")
+    ]
+    ws.row_dimensions[2].height = 18
+    ws.append([_hdr_cell(ws, h, _ORANGE_LIGHT, fg=_ORANGE_HDR, size=9) for h in headers])
+
+    for i, (r, ht, tva) in enumerate(data.ioss_details):
+        row = i + 3
+        zebra = i % 2 == 1
+        ws.row_dimensions[row].height = 15
+        ws.append([
+            _data_cell(ws, (getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra),
+            _data_cell(ws, r.sale.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, r.sale.stock_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, r.sale.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, COUNTRY_NAMES.get(r.sale.buyer_country, r.sale.buyer_country), zebra=zebra),
+            _data_cell(ws, float(ht), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _data_cell(ws, float(r.vat_rate) / 100, fmt="0.0%", zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+            _data_cell(ws, float(tva), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+        ])
+
+    n = len(data.ioss_details)
+    tr = n + 3
+    ws.append([
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, ""),
+        _total_cell(ws, _("TOTAL")),
+        _total_cell(ws, f"=SUM(F3:F{tr-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, ""),
+        _total_cell(ws, f"=SUM(H3:H{tr-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+    ])
+
+
+def build_ioss_excel(results: List[VatResult], output_path: str, period: str = "") -> None:
+    """Export IOSS dédié (mensuel) — pendant de build_oss_excel() pour le
+    régime IOSS. ⚠️ Ce n'est PAS un XML officiel homologué (contrairement à
+    generate_oss_xml pour l'OSS union scheme) : le format XML IOSS (import
+    scheme, Règl. UE 2020/194 art. 8 bis et s.) n'est pas implémenté ici,
+    faute de spécification technique disponible au moment de ce correctif.
+    Cet export permet au moins de ne plus PERDRE les montants IOSS collectés
+    (silencieusement exclus du XML OSS avant ce correctif) et de préparer la
+    déclaration IOSS mensuelle manuellement en attendant une implémentation
+    XML dédiée."""
+    data = _aggregate_ioss(results, period=period)
+    wb = Workbook(write_only=True)
+    _build_ioss_resume(wb, data, period)
+    _build_ioss_detail(wb, data)
+    wb.save(output_path)
+
+
+def build_ioss_csv(results: List[VatResult], period: str = "") -> str:
+    """Export CSV IOSS (mensuel), format FR (virgule décimale, ';' séparateur)
+    — même convention que build_oss_csv()."""
+    data = _aggregate_ioss(results, period=period)
+    lines = ["Pays;Nom pays;Taux TVA;Base HT ventes;TVA ventes;Base HT avoirs;TVA avoirs;Base HT nette;TVA nette;Nb transactions"]
+    for line in data.ioss_by_country:
+        lines.append(";".join([
+            line.country, line.country_name, _fmt_dec(line.vat_rate),
+            _fmt_dec(line.base_ht_vente), _fmt_dec(line.vat_vente),
+            _fmt_dec(line.base_ht_remb), _fmt_dec(line.vat_remb),
+            _fmt_dec(line.base_ht), _fmt_dec(line.vat_amount),
+            str(line.nb_transactions),
+        ]))
+    return "\n".join(lines)
 
 
 def _fmt_dec(value: Optional[Decimal]) -> str:

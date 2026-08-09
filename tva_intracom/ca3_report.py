@@ -232,6 +232,7 @@ def compute_ca3_lines_v2(
     lines: Dict[str, Decimal] = {
         "B2_base_ht":   Decimal("0.00"),   # AIC — base (cadre A, case B2)
         "L17_tva_aic":  Decimal("0.00"),   # AIC — mémo TVA (Ligne 17)
+        "L18_tva_mc":   Decimal("0.00"),   # Mémo TVA sur opérations à destination de Monaco (Ligne 18, case 0038)
         # Déductions (saisies)
         "L19_tva_ded":  _round(tva_deductible_immos),
         "L20_tva_ded":  _round(tva_deductible_autres),   # + AIC déductible ajouté plus bas
@@ -285,6 +286,14 @@ def compute_ca3_lines_v2(
                 bucket = "L08"
             lines[f"{bucket}_base_{suffix}"] += amt
             lines[f"{bucket}_tva_{suffix}"]  += tva
+
+            # Ligne 18 (case 0038) : mémo "Dont TVA sur opérations à
+            # destination de Monaco" — sur le même principe que le mémo AIC
+            # (Ligne 17) : un sous-total informatif, déjà inclus dans le
+            # montant principal (A1/L08 etc. ci-dessus), à ne PAS additionner
+            # une deuxième fois dans le total de TVA due.
+            if res.sale.buyer_country == "MC":
+                lines["L18_tva_mc"] += tva
 
         elif res.scenario == Scenario.B2B_REVERSE_CHARGE and stock_from_seller:
             lines[f"F2_base_{suffix}"] += res.sale.amount_ht
@@ -380,6 +389,7 @@ def generate_ca3_html_report_v2(
     )
 
     has_aic  = lines["B2_base_ht"] > 0
+    has_mc   = lines["L18_tva_mc"] > 0
     has_l09  = lines["L09_base_ht"] != 0 or lines["L09_base_vente"] != 0 or lines["L09_base_remb"] != 0
     has_lt6  = lines["LT6_base_ht"] != 0 or lines["LT6_base_vente"] != 0 or lines["LT6_base_remb"] != 0
     has_l9b  = lines["L9B_base_ht"] != 0 or lines["L9B_base_vente"] != 0 or lines["L9B_base_remb"] != 0
@@ -515,6 +525,18 @@ def generate_ca3_html_report_v2(
                 <td class="tr">{_fmt(lines['B2_base_ht'])}</td>
                 <td class="tr">{_fmt(lines['L17_tva_aic'])}</td>
             </tr>""" if has_aic else ""
+
+    L18_MEMO_ROW = f"""
+            <tr>
+                <td class="tc"><span class="cb">{_("ca3_line_prefix")} 18</span></td>
+                <td><strong>{_("ca3_row_l18_label")}</strong></td>
+                <td class="tr">—</td>
+                <td class="tr">—</td>
+                <td class="tr">—</td>
+                <td class="tr">—</td>
+                <td class="tr">—</td>
+                <td class="tr">{_fmt(lines['L18_tva_mc'])}</td>
+            </tr>""" if has_mc else ""
 
     DED_SECTION = ""
     if has_ded or has_aic:
@@ -659,7 +681,7 @@ def generate_ca3_html_report_v2(
             </tr>
         </thead>
         <tbody>
-            {L08_ROW}{L09_ROW}{LT6_ROW}{L9B_ROW}{L17_MEMO_ROW}
+            {L08_ROW}{L09_ROW}{LT6_ROW}{L9B_ROW}{L17_MEMO_ROW}{L18_MEMO_ROW}
             <tr class="tot">
                 <td class="tc">—</td>
                 <td>{_("ca3_total_aic_included")}</td>

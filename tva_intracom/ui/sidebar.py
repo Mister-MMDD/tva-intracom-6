@@ -68,6 +68,7 @@ class SidebarResult:
     siren_quota_status: Any = None
     home_country: str = "FR"
     display_currency: str = "DEFAULT"
+    ioss_own_number_active: bool = False
 
 
 def _oss_limit_label(home_country: str) -> str:
@@ -135,8 +136,21 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
     st.markdown("---")
     ioss_number = st.text_input(_("ioss_number_label"), placeholder="ex: IM1234567890", key="ioss_new",
                                 help=_("ioss_help"))
+    ioss_own_number_active = False
+    if ioss_number.strip():
+        ioss_own_number_active = st.toggle(
+            _("ioss_own_number_active_label"), value=False, key="ioss_own_active_new",
+            help=_("ioss_own_number_active_help", platform="Amazon"),
+        )
     seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new")
     apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=False, key="oss_thr_new")
+    oss_threshold_exceeded_prev_year = st.toggle(
+        _("oss_threshold_prev_year_label"), value=False, key="oss_thr_prevyear_new",
+        help=_("oss_threshold_prev_year_help"),
+    )
+    if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
+        st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
+        apply_fr_under_threshold = False
     countries_with_vat = st.multiselect(_("local_vat_countries_label"),
                                         options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
 
@@ -169,7 +183,9 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
                     seller_is_importer=seller_is_importer,
                     apply_fr_under_threshold=apply_fr_under_threshold,
                     countries_with_vat=",".join(countries_with_vat),
-                    vat_numbers_json=json.dumps(local_vat_numbers)
+                    vat_numbers_json=json.dumps(local_vat_numbers),
+                    oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
+                    ioss_own_number_active=ioss_own_number_active,
                 )
                 st.success(_("siren_save_success"))
                 _invalidate_db_cache(f"sirens_{current_user.id}")
@@ -215,8 +231,23 @@ def _edit_siren_form_fragment(
                                            placeholder="ex: IM1234567890", key="ioss_edit",
                                            help=_("ioss_help"))
 
+    _draft_ioss_own_number_active = match.get("ioss_own_number_active") or False if match else False
+    if _draft_ioss_number.strip():
+        _draft_ioss_own_number_active = st.toggle(
+            _("ioss_own_number_active_label"), value=_draft_ioss_own_number_active, key="ioss_own_active_edit",
+            help=_("ioss_own_number_active_help", platform="Amazon"),
+        )
+
     _draft_seller_is_importer = st.toggle(_("ddp_label"), value=match.get("seller_is_importer") or False if match else False, key="ddp_edit")
     _draft_apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=match.get("apply_fr_under_threshold") or False if match else False, key="oss_thr_edit")
+    _draft_oss_threshold_exceeded_prev_year = st.toggle(
+        _("oss_threshold_prev_year_label"),
+        value=match.get("oss_threshold_exceeded_prev_year") or False if match else False,
+        key="oss_thr_prevyear_edit", help=_("oss_threshold_prev_year_help"),
+    )
+    if _draft_oss_threshold_exceeded_prev_year and _draft_apply_fr_under_threshold:
+        st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
+        _draft_apply_fr_under_threshold = False
 
     _draft_countries_with_vat = st.multiselect(_("local_vat_countries_label"),
                                                options=sorted(list(EU_COUNTRIES)), default=default_vat_countries, key="vat_countries_edit")
@@ -253,7 +284,9 @@ def _edit_siren_form_fragment(
                     seller_is_importer=_draft_seller_is_importer,
                     apply_fr_under_threshold=_draft_apply_fr_under_threshold,
                     countries_with_vat=",".join(_draft_countries_with_vat),
-                    vat_numbers_json=json.dumps(_draft_local_vat_numbers)
+                    vat_numbers_json=json.dumps(_draft_local_vat_numbers),
+                    oss_threshold_exceeded_prev_year=_draft_oss_threshold_exceeded_prev_year,
+                    ioss_own_number_active=_draft_ioss_own_number_active,
                 )
                 st.success(_("update_success"))
                 _invalidate_db_cache(f"sirens_{current_user.id}")
@@ -394,6 +427,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         ioss_number = ""
         seller_is_importer = False
         apply_fr_under_threshold = False
+        ioss_own_number_active = False
         countries_with_vat = ["FR"]
         nom_entreprise = ""
         siren_entreprise = ""
@@ -520,6 +554,9 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     ioss_number = _registered_sirens[0].get("ioss_number") or ""
                     seller_is_importer = _registered_sirens[0].get("seller_is_importer") or False
                     apply_fr_under_threshold = _registered_sirens[0].get("apply_fr_under_threshold") or False
+                    ioss_own_number_active = _registered_sirens[0].get("ioss_own_number_active") or False
+                    if _registered_sirens[0].get("oss_threshold_exceeded_prev_year"):
+                        apply_fr_under_threshold = False
                     _countries_raw = _registered_sirens[0].get("countries_with_vat") or "FR"
                     countries_with_vat = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
                     try:
@@ -534,6 +571,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                     # déclenche un rerun complet de toute la page.
                     nom_entreprise, siren_entreprise, tva_fr = "", "", ""
                     ioss_number, seller_is_importer, apply_fr_under_threshold = "", False, False
+                    ioss_own_number_active = False
                     countries_with_vat, local_vat_numbers = ["FR"], {}
 
                     _new_siren_form_fragment(
@@ -571,6 +609,9 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 ioss_number = _ioss_val
                 seller_is_importer = _match.get("seller_is_importer") or False if _match else False
                 apply_fr_under_threshold = _match.get("apply_fr_under_threshold") or False if _match else False
+                ioss_own_number_active = _match.get("ioss_own_number_active") or False if _match else False
+                if _match and _match.get("oss_threshold_exceeded_prev_year"):
+                    apply_fr_under_threshold = False
                 countries_with_vat = list(_default_vat_countries)
                 tva_fr = _tva_fr_fixed
                 local_vat_numbers = dict(_existing_vats)
@@ -1105,4 +1146,5 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         siren_quota_status=_siren_quota_status,
         home_country=home_country,
         display_currency=display_currency,
+        ioss_own_number_active=ioss_own_number_active,
     )

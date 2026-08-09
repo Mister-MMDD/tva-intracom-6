@@ -68,10 +68,33 @@ _CLOSE_FNS = (
 _active_jobs_lock = threading.Lock()
 _active_jobs_count = 0
 
+# Plafond de gros calculs (VIES + moteur TVA sur > 20k lignes, voir
+# app.py/_BIG_FILE_ROW_THRESHOLD) exécutés SIMULTANÉMENT, tous utilisateurs
+# confondus sur ce process. Chaque job garde en RAM la totalité des Sale +
+# VatResult du fichier (potentiellement plusieurs dizaines de Mo pour un
+# fichier de 100 Mo) pendant toute sa durée de vie -- un TTL/cache_data ne
+# peut rien faire ici : ce sont des utilisateurs ACTIFS en cours de calcul,
+# pas des entrées obsolètes à évincer. Le seul levier réel pour borner le pic
+# mémoire face à plusieurs gros uploads concurrents est de plafonner ce
+# nombre de jobs simultanés. Valeur conservatrice, ajustable selon la RAM
+# réellement disponible sur l'instance Railway.
+MAX_CONCURRENT_BIG_JOBS = 3
+
 
 def any_job_running() -> bool:
     with _active_jobs_lock:
         return _active_jobs_count > 0
+
+
+def can_start_big_job() -> bool:
+    """True si un nouveau job "gros fichier" peut démarrer sans dépasser
+    MAX_CONCURRENT_BIG_JOBS. Purement informatif/best-effort (pas de réservation
+    de slot) : deux appels concurrents peuvent en théorie tous les deux voir
+    de la marge et démarrer, auquel cas le compteur dépasse temporairement le
+    plafond de 1. Accepté comme compromis simple plutôt que d'introduire un
+    verrou tenu entre la vérification et le démarrage effectif du thread."""
+    with _active_jobs_lock:
+        return _active_jobs_count < MAX_CONCURRENT_BIG_JOBS
 
 
 @dataclass

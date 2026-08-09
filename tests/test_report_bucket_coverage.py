@@ -171,7 +171,11 @@ class TestBucketLabelExhaustiveCoverage:
 
     @pytest.mark.parametrize("case_name,sale,expected_label", _CASES, ids=[c[0] for c in _CASES])
     def test_bucket_label_matches_expected(self, case_name, sale, expected_label):
-        result = compute_vat(sale)
+        # ioss_own_number_active=True : ce test vise la couverture des labels
+        # de bucket pour chaque scénario, pas le comportement par défaut
+        # sécurisé de IOSS_DIRECT (couvert séparément dans test_engine.py::
+        # test_ioss_number_present_but_not_activated_falls_to_deemed).
+        result = compute_vat(sale, ioss_own_number_active=True)
         label = _bucket_label(result)
         assert label != _UNCLASSIFIED, (
             f"Scénario '{case_name}' (scenario={result.scenario}, "

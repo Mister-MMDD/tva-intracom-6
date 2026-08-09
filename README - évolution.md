@@ -25,7 +25,7 @@ en France opérant sur des places de marché (Amazon FBA, formats 1 à 5).
 | **B2B_REVERSE_CHARGE** | B2B intra-UE avec n° TVA VIES valide | Exonération, autoliquidation acheteur | Acheteur | EXONERATION (autoliquidation) |
 | **EXPORT** | Acheteur hors UE | Exonéré | — | EXONERATION (export) |
 | **IMPORT_STANDARD** | Import > 150 € hors UE, B2C | TVA d'importation (douane) | Importateur | EXONERATION (douane) |
-| **IOSS_DIRECT** | Import ≤ 150 €, vendeur avec son propre numéro IOSS | Vendeur collecte via IOSS | Vendeur | Guichet IOSS |
+| **IOSS_DIRECT** | Import ≤ 150 €, vendeur ayant explicitement activé son propre numéro IOSS (`ioss_own_number_active`, sinon `DEEMED_SUPPLIER` par défaut — voir audit 08/2026 ci-dessous) | Vendeur collecte via IOSS | Vendeur | Guichet **IOSS** (mensuel, déclaration et export **séparés** de l'OSS depuis l'audit 08/2026) |
 | **IMPORT_SELLER_AS_IMPORTER** | Import > 150 €, vendeur = importateur officiel (DDP) | Vente domestique dans le pays de destination | Vendeur | CA3 (FR) ou immatriculation locale |
 
 **Cas FBA (stocks hors FR) :** tout pays UE distinct de FR où réside du stock Amazon
@@ -902,6 +902,110 @@ restent :
   - **Visualisations** : Amélioration de la légende des cartes (marge droite `r=90`, fond semi-opaque et bordure fixe) pour garantir la lisibilité sur petits écrans et en mode sombre.
 
 ---
+
+## Audit conformité TVA (08/2026)
+
+Audit réglementaire ciblé (sources : EUR-Lex, Legifrance, BOFiP, douane.gouv.fr,
+puis n-lex.europa.eu + portails nationaux ES/PL/CZ pour le point sur
+l'autoliquidation domestique), portant sur `engine.py`, `rates.py`,
+`oss_export.py`, `oss_xml.py`, `ca3_report.py`, `local_vat_report.py`,
+`fec_export.py`. 5 points trouvés, 4 corrigés, 1 documenté sans correction
+(décision explicite) :
+
+- ~~Seuil OSS 10 000 € sans rattachement à l'année N-1~~ **Corrigé** :
+  `_run_oss_loop()` réinitialisait le cumul OSS à zéro à chaque nouvelle
+  année civile, sans savoir si le seuil avait déjà été dépassé l'année
+  précédente — or l'art. 59 quater dir. 2006/112/CE (CGI art. 258 B)
+  apprécie le seuil sur l'année en cours **et** l'année précédente : un
+  dépassement en N interdit le régime "sous seuil" dès le 1er janvier de
+  N+1, quel que soit le nouveau cumul. Nouveau réglage compte
+  `oss_threshold_exceeded_prev_year` (sidebar), déclaratif utilisateur
+  (l'outil ne voit pas forcément tout le CA multi-canal de N-1) : si coché,
+  force `apply_fr_under_threshold=False` pour l'année de traitement en
+  cours, indépendamment du cumul recalculé sur les seules données importées.
+
+- ~~Numéro IOSS activant automatiquement IOSS_DIRECT~~ **Corrigé** : dès
+  qu'un n° IOSS était renseigné sur le compte, **toute** vente B2C import
+  ≤ 150 € basculait en `IOSS_DIRECT`, court-circuitant `DEEMED_SUPPLIER` —
+  alors que l'art. 14 bis dir. 2006/112/CE fait de la marketplace (Amazon)
+  le redevable présumé pour toute vente facilitée par une interface
+  électronique, indépendamment d'un n° IOSS propre au vendeur. Nouveau
+  toggle sidebar `ioss_own_number_active` (visible seulement si un n° IOSS
+  est saisi, défaut `False`) : le comportement par défaut devient
+  `DEEMED_SUPPLIER` (sécurisé), `IOSS_DIRECT` désormais un choix explicite.
+  ⚠️ Changement de comportement pour les comptes ayant déjà un n° IOSS
+  enregistré — à signaler individuellement après déploiement.
+
+- **`DOMESTIC_REVERSE_CHARGE_COUNTRIES` (ES, IT, PL, CZ, SK, HU, RO, BG, HR,
+  LT, LV) — réserve documentée, non corrigée (décision explicite)** : ce
+  `Set[str]` applique une autoliquidation domestique généralisée par pays,
+  alors que les mécanismes nationaux vérifiés (ES art. 84 Ley IVA, CZ
+  §92a–92f zVAT) sont en réalité sectoriels/plafonnés (BTP, déchets, or,
+  quotas CO2, électronique ≥ seuil) — jamais généraux à tout B2B domestique,
+  cohérent avec le cadre UE (art. 199/199 bis/199 ter dir. 2006/112/CE, qui
+  n'autorisent que des dérogations sectorielles encadrées). **PL en
+  particulier : le mécanisme cité (art. 17 uVAT, biens) est abrogé depuis le
+  01/11/2019**, remplacé par le split payment (qui n'est PAS une
+  autoliquidation — le vendeur collecte et déclare la TVA normalement).
+  Décision de Matthieu (2026-08-09) : le cabinet comptable valide le
+  comportement actuel pour le produit testé ("serrures" vendues en ES, TVA
+  ES domestique correcte en pratique) — fondement juridique précis non
+  identifié dans les catégories génériques de l'art. 84 relevées ici (à
+  confirmer par le cabinet, possible rattachement art. 84.Uno.2°f/ejecución
+  de obra, ou catégorisation produit différente). Aucune correction
+  appliquée ; refonte en `dict[str, set[str]]` (pays, catégorie) documentée
+  en commentaire dans `rates.py`, à reconsidérer si un nouveau produit/pays
+  pose problème.
+
+- ~~Ligne 18 CA3 (Monaco) jamais renseignée~~ **Corrigé** : le Cerfa
+  3310-CA3-SD officiel comporte une ligne mémo dédiée « Dont TVA sur
+  opérations à destination de Monaco » (case 0038), sur le même principe que
+  la ligne 17 pour l'AIC — les ventes Monaco étaient bien incluses dans le
+  montant principal (A1/Ligne 08, Monaco assimilé FR par la convention
+  fiscale franco-monégasque du 18/05/1963) mais ce mémo informatif restait
+  vide. Calculé et affiché dans `ca3_report.py`.
+
+- ~~OSS et IOSS mélangés dans le même export/XML~~ **Corrigé (bug le plus
+  impactant de cet audit)** : `aggregate_oss_results()` traitait
+  `Scenario.OSS_B2C` et `Scenario.IOSS_DIRECT` comme un seul flux — or ce
+  sont deux régimes distincts avec des périodicités différentes
+  (trimestrielle pour l'OSS, mensuelle pour l'IOSS, art. 369a-k vs.
+  art. 369l-x dir. 2006/112/CE) et des numéros d'identification distincts.
+  Conséquence concrète : dans l'Excel/CSV URSSAF, les montants IOSS étaient
+  mélangés à tort au total trimestriel OSS (`OSS_Résumé` les incluait,
+  `OSS_Détail` les excluait — incohérence interne visible entre les deux
+  onglets) ; dans le XML officiel (`oss_xml.py`), le filtre `is_eu` sur le
+  pays de départ (systématiquement hors UE pour l'IOSS, importé d'un pays
+  tiers) les faisait **disparaître silencieusement** — la TVA IOSS collectée
+  n'était donc déclarée nulle part via l'export automatisé. `fec_export.py`
+  distinguait déjà correctement les deux régimes (comptes 4457180 vs
+  4457190) — preuve que la bonne pratique était connue ailleurs dans le
+  code, non répliquée ici avant ce correctif.
+  Correctif : `aggregate_oss_results()` ne traite plus que `OSS_B2C` ;
+  nouvelle `aggregate_ioss_results()` dédiée à `IOSS_DIRECT` (factorisée
+  avec l'OSS via `_aggregate_by_scenario()` commune) ; nouvel export IOSS
+  séparé (`build_ioss_excel()`/`build_ioss_csv()`, onglets IOSS_Résumé/
+  IOSS_Détail, section dédiée dans l'onglet Téléchargements, mensuel).
+  ⚠️ **Limite assumée** : cet export IOSS est indicatif (Excel/CSV), **pas
+  un XML officiel homologué** — le format XML IOSS (Import Scheme, distinct
+  du XML OSS Union Scheme déjà généré par `oss_xml.py`) n'est pas implémenté
+  faute de spécification technique disponible au moment de ce correctif.
+  Progrès réel (plus de disparition silencieuse de TVA collectée) mais
+  implémentation XML IOSS dédiée à prévoir en roadmap si le volume le
+  justifie.
+
+Point identifié mais non corrigé, hors périmètre de ce patch (signalé pour
+suite) :
+
+- **`b2b_lines` (état récapitulatif B2B / DES intracommunautaire biens) sans
+  découpage mensuel** : `build_b2b_excel()`/`build_oss_csv()` agrège tout ce
+  qu'on lui donne sans notion de mois, alors que cet état est une
+  déclaration **mensuelle** (art. 289 B CGI) — contrairement à l'OSS
+  (trimestriel) sur lequel s'aligne le `period_label` utilisé ici. Si le
+  workflow traite les données par trimestre (cas courant OSS), l'export
+  produit un total agrégé sur 3 mois sans correspondre à aucune déclaration
+  réelle telle quelle. Chaque ligne garde `transaction_date` (splittable
+  manuellement) mais rien n'assiste ce découpage. Non corrigé dans ce patch.
 
 ## Roadmap
 

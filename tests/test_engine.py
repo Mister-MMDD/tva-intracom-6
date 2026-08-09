@@ -104,7 +104,7 @@ class TestIossDirect:
             amount_ht=Decimal("80.00"),
             ioss_number="IM1234567890",
         )
-        res = compute_vat(sale)
+        res = compute_vat(sale, ioss_own_number_active=True)
         assert res.scenario == Scenario.IOSS_DIRECT
         assert res.collector == Collector.SELLER
         assert res.channel == Channel.IOSS
@@ -119,7 +119,7 @@ class TestIossDirect:
             amount_ht=Decimal("150.00"),
             ioss_number="IM9999999999",
         )
-        res = compute_vat(sale)
+        res = compute_vat(sale, ioss_own_number_active=True)
         assert res.scenario == Scenario.IOSS_DIRECT
 
     def test_ioss_direct_above_150_falls_to_import(self):
@@ -150,8 +150,21 @@ class TestIossDirect:
             stock_country="CN", buyer_country="IT",
             amount_ht=Decimal("50"), ioss_number="IM0000000001",
         )
-        res = compute_vat(sale)
+        res = compute_vat(sale, ioss_own_number_active=True)
         assert "IM0000000001" in res.note
+
+    def test_ioss_number_present_but_not_activated_falls_to_deemed(self):
+        """Un n° IOSS renseigné sur le compte ne bascule PAS automatiquement
+        en IOSS_DIRECT : par défaut (ioss_own_number_active=False, valeur par
+        défaut du paramètre), Amazon reste redevable présumé — art. 14 bis
+        dir. 2006/112/CE. L'utilisateur doit explicitement opter pour
+        IOSS_DIRECT via ioss_own_number_active=True."""
+        sale = make_sale(
+            stock_country="CN", buyer_country="FR",
+            amount_ht=Decimal("80.00"), ioss_number="IM1234567890",
+        )
+        res = compute_vat(sale)  # ioss_own_number_active non passé -> défaut False
+        assert res.scenario == Scenario.DEEMED_SUPPLIER
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +501,7 @@ class TestImportSellerAsImporter:
             seller_is_importer=True,
             ioss_number="IM1234567890",
         )
-        res = compute_vat(sale)
+        res = compute_vat(sale, ioss_own_number_active=True)
         # IOSS_DIRECT est évalué avant le bloc import
         assert res.scenario == Scenario.IOSS_DIRECT
 

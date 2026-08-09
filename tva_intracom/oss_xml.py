@@ -273,10 +273,26 @@ def generate_oss_xml(
 
     # Niveau 1 : pays de DÉPART du stock (un bloc par stock_country)
     for departure_country, destinations in sorted(aggregated_data.items()):
-        # Union Scheme : seuls les pays de départ membres de l'UE sont déclarés
-        # dans ce bloc SupplyFromMemberState. L'IOSS (départ hors UE) suit une
-        # structure différente (IossGoodsSupplies) non supportée ici pour le moment.
+        # CORRECTIF 2026-08-09 : aggregate_oss_data (= aggregate_oss_results)
+        # ne contient plus QUE Scenario.OSS_B2C depuis ce correctif — l'IOSS
+        # (Scenario.IOSS_DIRECT) a son propre agrégat (aggregate_ioss_results,
+        # oss_export.py) et son propre export dédié (build_ioss_excel/csv),
+        # car c'est une déclaration MENSUELLE distincte, avec son propre
+        # numéro d'identification, séparée de l'OSS union scheme (trimestriel)
+        # généré ici. AVANT ce correctif, ce filtre `is_eu` faisait disparaître
+        # SILENCIEUSEMENT les montants IOSS de ce XML (départ toujours hors UE
+        # pour l'IOSS) sans qu'ils soient déclarés nulle part ailleurs — la TVA
+        # IOSS collectée n'était donc jamais reversée via cet outil. Le filtre
+        # est conservé ci-dessous par prudence défensive (aucun departure hors
+        # UE ne devrait plus jamais apparaître dans les données OSS_B2C pures),
+        # mais ne doit plus normalement être déclenché.
         if not is_eu(departure_country):
+            logger.warning(
+                "OSS XML : pays de départ hors UE (%s) inattendu dans "
+                "aggregate_oss_data (OSS_B2C uniquement depuis le correctif "
+                "du 2026-08-09) — ligne ignorée. Vérifier la source des "
+                "données en amont.", departure_country,
+            )
             continue
 
         supply_from = ET.SubElement(details, "SupplyFromMemberState")

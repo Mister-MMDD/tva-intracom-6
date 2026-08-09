@@ -27,6 +27,7 @@ from tva_intracom.models import Scenario
 from tva_intracom.oss_export import (
     aggregate_oss_results,
     build_b2b_excel,
+    build_ioss_excel,
     build_oss_excel,
     find_oss_negative_buckets,
 )
@@ -285,6 +286,42 @@ def render_telechargements() -> None:
                 _gated_download(_("dl_xlsx_oss_btn"), data=oss_xlsx_bytes, file_name=_("dl_xlsx_oss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             st.info(_("no_oss_sales_info"))
+
+        st.divider()
+
+        # 2 bis. Guichet Unique IOSS — export SÉPARÉ de l'OSS (correctif
+        # 2026-08-09 : ces ventes n'apparaissent plus jamais dans l'export
+        # OSS ci-dessus). Périodicité MENSUELLE, pas trimestrielle — le
+        # `period_label` affiché ici est celui de l'app (généralement
+        # trimestriel pour l'OSS) : à titre indicatif uniquement, l'utilisateur
+        # doit re-word/découper par mois s'il traite plusieurs mois à la fois.
+        st.markdown(_("dl_ioss_header"))
+        if any(r.scenario == Scenario.IOSS_DIRECT for r in results):
+            st.caption(_("dl_ioss_caption"))
+
+            def _build_ioss_xlsx():
+                ioss_xlsx_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as ioss_tmp:
+                        ioss_xlsx_path = ioss_tmp.name
+                    build_ioss_excel(_get_results_net(), ioss_xlsx_path, period=period_label)
+                    with open(ioss_xlsx_path, "rb") as f:
+                        return f.read()
+                finally:
+                    if ioss_xlsx_path and os.path.exists(ioss_xlsx_path):
+                        try:
+                            os.remove(ioss_xlsx_path)
+                        except Exception:
+                            pass
+                    gc.collect()
+
+            ioss_xlsx_bytes = _lazy_artifact("ioss_xlsx", _build_ioss_xlsx, label="dl_generate_ioss_xlsx_btn")
+            if not _can_export:
+                _gated_download(_("dl_xlsx_ioss_btn"), data=b"", file_name=_("dl_xlsx_ioss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            elif ioss_xlsx_bytes is not None:
+                _gated_download(_("dl_xlsx_ioss_btn"), data=ioss_xlsx_bytes, file_name=_("dl_xlsx_ioss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        else:
+            st.info(_("no_ioss_sales_info"))
 
         st.divider()
 

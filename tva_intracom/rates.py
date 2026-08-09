@@ -129,6 +129,9 @@ CURRENCY_SYMBOLS: Dict[str, str] = {
 # fluctuerait quotidiennement pour un seuil légal censé rester stable).
 # Devises de la zone euro (dont BGN historique, avant l'adoption de l'euro
 # par la Bulgarie) : seuil = 10 000, sans conversion.
+# Dernière vérification de CE BLOC spécifique : juin 2026 (ces montants sont
+# publiés par chaque État membre et peuvent en théorie être révisés — à
+# revérifier périodiquement, indépendamment du reste du fichier).
 OSS_THRESHOLD_FIXED_EQUIVALENTS: Dict[str, Decimal] = {
     "BGN": Decimal("19558"),
     "CZK": Decimal("256530"),
@@ -809,6 +812,41 @@ REDUCED_VAT_RATES: Dict[str, Dict[str, Decimal]] = {
 # taux réduits. EE exclu intentionnellement (adoption partielle uniquement :
 # biens d'occasion/déchets/matières premières forestières et métaux ferreux,
 # art. 41 KMSS).
+# AUDIT 2026-08-09 (Claude) : ce Set[str] par pays est un design structurellement
+# trop large. Vérifié sur ES, PL, CZ : les mécanismes d'autoliquidation nationaux
+# invoqués sont TOUJOURS sectoriels/plafonnés (BTP, déchets/ferraille, or, quotas
+# CO2, électronique ≥ seuil), jamais généraux à tout B2B domestique — cohérent
+# avec le cadre UE (art. 199/199 bis/199 ter dir. 2006/112/CE, qui n'autorisent
+# que des dérogations sectorielles encadrées, jamais une généralisation totale).
+# PL en particulier : le mécanisme cité (art. 17 uVAT, biens) est ABROGÉ depuis
+# le 01/11/2019, remplacé par le split payment (qui n'est PAS une autoliquidation
+# — le vendeur collecte et déclare la TVA normalement).
+# Appliquer ce flag tel quel à un catalogue de produits de consommation courante
+# Amazon produit très probablement une exonération à tort sur la quasi-totalité
+# des ventes B2B domestiques dans ces 11 pays.
+#
+# EXCEPTION CONNUE : "serrures" vendues en ES — autoliquidation domestique
+# actuellement appliquée et confirmée alignée avec le cabinet comptable
+# (montant de TVA ES en domestique correct). Fondement juridique précis non
+# retrouvé dans les catégories génériques de l'art. 84 Ley IVA identifiées ici
+# (ferraille/déchets, quotas CO2, or, téléphones/consoles/ordinateurs/tablettes
+# ≥ 10 000 €) — possible rattachement art. 84.Uno.2°f (ejecución de obra) si
+# vendu comme composant de travaux de bâtiment, ou catégorisation produit
+# différente. À faire confirmer explicitement par le cabinet avant de généraliser
+# ce traitement à d'autres produits de quincaillerie/serrurerie.
+#
+# Refonte recommandée : remplacer par un dict[str, set[str]] scope (pays, 
+# catégorie produit), validé ligne à ligne avec le cabinet — décision en attente
+# de Matthieu (2026-08-09).
+#
+# DÉCISION MATTHIEU (2026-08-09) : malgré la réserve structurelle ci-dessus
+# (Set[str] par pays, potentiellement trop large au regard du droit UE), le
+# cabinet comptable valide le comportement actuel pour le produit testé
+# ("serrures", TVA ES domestique correcte en pratique) et AUCUNE correction
+# n'est appliquée à DOMESTIC_REVERSE_CHARGE_COUNTRIES pour le moment. La
+# refonte en dict[str, set[str]] (pays, catégorie) reste une recommandation
+# documentée ici, à reconsidérer si un nouveau produit/pays pose problème ou
+# si le cabinet identifie une sur-application sur un autre article.
 DOMESTIC_REVERSE_CHARGE_COUNTRIES: Set[str] = {
     "ES",  # art. 84 Ley IVA
     "IT",  # art. 17 DPR 633/72

@@ -72,8 +72,18 @@ def _round(amount: Decimal) -> Decimal:
 def _vat_amount(base: Decimal, rate: Decimal) -> Decimal:
     return _round(base * (rate / Decimal("100")))
 
-def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: str = "", lang: str | None = None) -> VatResult:
-    """Calcule le regime et le montant de TVA d'une vente en prenant en compte la catégorie produit."""
+def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: str = "", lang: str | None = None,
+                 ioss_own_number_active: bool = False) -> VatResult:
+    """Calcule le regime et le montant de TVA d'une vente en prenant en compte la catégorie produit.
+
+    ioss_own_number_active : n'est pertinent que si sale.ioss_number est renseigné.
+        Par défaut à False (choix sécurisé) : même si un n° IOSS est présent sur le
+        compte, la vente reste traitée en DEEMED_SUPPLIER (le marketplace, ex. Amazon,
+        est redevable présumé — art. 14 bis dir. 2006/112/CE — pour toute vente
+        d'import ≤150€ facilitée par une interface électronique). Ce n'est QUE si
+        l'utilisateur active explicitement ce choix (ex. ventes hors marketplace,
+        site propre) que le n° IOSS du compte est utilisé pour le cas IOSS_DIRECT.
+    """
     # Résolu une seule fois par appel si l'appelant (ex: _run_oss_loop) ne l'a
     # pas déjà résolu pour tout le lot — évite un lookup Streamlit par vente
     # en usage isolé/bibliothèque, tout en restant rétro-compatible.
@@ -202,6 +212,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             and not stock_eu
             and sale.amount_ht <= IOSS_THRESHOLD
             and sale.ioss_number
+            and ioss_own_number_active
     ):
         return VatResult(
             sale=sale,
@@ -616,7 +627,8 @@ def _run_oss_loop(
         effective_sale_fn=None,
         lang: str = "fr",
         currency: str = "EUR",
-        symbol: str = "€"
+        symbol: str = "€",
+        ioss_own_number_active: bool = False,
 ) -> tuple[list[VatResult], OssThresholdSummary]:
     """Boucle chronologique OSS."""
     results: list[VatResult] = []
@@ -648,7 +660,8 @@ def _run_oss_loop(
             else sale
         )
 
-        res = compute_vat(effective_sale, marketplace_name, product_category=product_category, lang=_lang)
+        res = compute_vat(effective_sale, marketplace_name, product_category=product_category, lang=_lang,
+                          ioss_own_number_active=ioss_own_number_active)
 
         if _oss_eligible(effective_sale):
             cumulative_oss_ht += effective_sale.amount_ht
@@ -686,6 +699,7 @@ def compute_all_with_vies(
         lang: str = "fr",
         currency: str = "EUR",
         symbol: str = "€",
+        ioss_own_number_active: bool = False,
 ) -> tuple[list[VatResult], ViesValidationSummary, OssThresholdSummary]:
     """Calcule la TVA avec validation VIES en gérant le seuil de 10 000 € OSS.
 
@@ -702,6 +716,10 @@ def compute_all_with_vies(
                  affiché reflète le CA OSS net (conformément à l'art. 59 ter directive TVA).
         lang, currency, symbol: contexte de présentation passé explicitement pour
                  éviter les appels à st.session_state dans les threads.
+        ioss_own_number_active: voir docstring de compute_vat(). Défaut False
+                 (sécurisé) : un n° IOSS renseigné sur le compte ne fait PAS
+                 basculer automatiquement les ventes en IOSS_DIRECT tant que
+                 l'utilisateur n'a pas explicitement coché ce choix.
     """
     if asin_to_category is None:
         asin_to_category = {}
@@ -990,7 +1008,8 @@ def compute_all_with_vies(
         all_items_sorted, refund_keys, marketplace_name,
         asin_to_category, apply_fr_under_threshold,
         effective_sale_fn=_effective_sale_with_vies,
-        lang=_lang, currency=_curr, symbol=_sym
+        lang=_lang, currency=_curr, symbol=_sym,
+        ioss_own_number_active=ioss_own_number_active,
     )
 
     # Mise à jour des montants TVA évités dans les reclassifications

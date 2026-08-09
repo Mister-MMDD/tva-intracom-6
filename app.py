@@ -171,6 +171,7 @@ asin_to_category = _sb.asin_to_category
 ioss_number = _sb.ioss_number
 seller_is_importer = _sb.seller_is_importer
 apply_fr_under_threshold = _sb.apply_fr_under_threshold
+ioss_own_number_active = _sb.ioss_own_number_active
 countries_with_vat = _sb.countries_with_vat
 nom_entreprise = _sb.nom_entreprise
 siren_entreprise = _sb.siren_entreprise
@@ -570,7 +571,8 @@ if uploaded_files:
                     apply_fr_under_threshold=apply_fr_under_threshold,
                     refunds=refunds if refunds else None,
                     vies_progress_callback=_vies_progress_cb,
-                    lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread)
+                    lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
+                    ioss_own_number_active=ioss_own_number_active)
 
                 report(0.9, _("calc_progress_vat", lang=_lang_for_thread))
                 # VIES obligatoire aussi sur les avoirs. On repasse asin_to_category
@@ -584,7 +586,8 @@ if uploaded_files:
                     refunds, scope_id=_vies_scope_id, marketplace_name=platform_name,
                     asin_to_category=asin_to_category,
                     apply_fr_under_threshold=apply_fr_under_threshold,
-                    lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread
+                    lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
+                    ioss_own_number_active=ioss_own_number_active,
                 )[0] if refunds else []
                 _summary = build_report(_results, refund_results=_refund_results or None, lang=_lang_for_thread)
                 report(1.0, "")

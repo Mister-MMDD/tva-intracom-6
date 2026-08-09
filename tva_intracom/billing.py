@@ -475,7 +475,8 @@ def list_registered_sirens(user_id: str) -> list[dict]:
         cur.execute(
             """
             SELECT siren, company_name, tva_number, first_used_at, pending_removal_at,
-                   ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json
+                   ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json,
+                   oss_threshold_exceeded_prev_year, ioss_own_number_active
             FROM tva_siren_registrations
             WHERE user_id=%s
             ORDER BY first_used_at ASC
@@ -492,6 +493,8 @@ def list_registered_sirens(user_id: str) -> list[dict]:
             "ioss_number": r[5], "seller_is_importer": r[6],
             "apply_fr_under_threshold": r[7], "countries_with_vat": r[8],
             "vat_numbers_json": r[9],
+            "oss_threshold_exceeded_prev_year": r[10] if len(r) > 10 else False,
+            "ioss_own_number_active": r[11] if len(r) > 11 else False,
         }
         for r in rows
     ]
@@ -549,20 +552,36 @@ def register_siren(
         user_id: str, siren: str, company_name: str = "", tva_number: str = "",
         ioss_number: str = "", seller_is_importer: bool = False,
         apply_fr_under_threshold: bool = False, countries_with_vat: str = "",
-        vat_numbers_json: str = ""
+        vat_numbers_json: str = "",
+        oss_threshold_exceeded_prev_year: bool = False,
+        ioss_own_number_active: bool = False,
 ) -> None:
     """Enregistre un SIREN pour ce compte, ou met à jour ses métadonnées s'il
     est déjà enregistré. Le contrôle de quota (`can_register_new_siren`) doit
     être fait par l'appelant AVANT d'appeler cette fonction pour un nouveau
-    SIREN — cette fonction ne le revérifie pas elle-même."""
+    SIREN — cette fonction ne le revérifie pas elle-même.
+
+    oss_threshold_exceeded_prev_year : déclaratif utilisateur — le seuil OSS
+        de 10 000 € a-t-il été dépassé l'année civile précédente (tous canaux
+        confondus, hors périmètre de cet outil) ? Si vrai, le régime "sous
+        seuil" (apply_fr_under_threshold) ne doit PAS s'appliquer pour
+        l'année en cours, quel que soit le cumul recalculé par l'outil sur
+        les seules données importées ici (CGI art. 258 B / art. 59 quater
+        dir. 2006/112/CE : appréciation sur l'année en cours ET l'année N-1).
+        Concerne l'année de traitement en cours ; pour un import multi-années
+        dont le statut N-1 diffère selon l'année, traiter chaque année dans
+        un import séparé.
+    ioss_own_number_active : voir docstring engine.compute_vat().
+    """
     def _fn(conn, cur):
         cur.execute(
             """
             INSERT INTO tva_siren_registrations (
                 user_id, siren, company_name, tva_number, first_used_at,
-                ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json
+                ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json,
+                oss_threshold_exceeded_prev_year, ioss_own_number_active
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id, siren)
             DO UPDATE SET company_name = EXCLUDED.company_name,
                           tva_number = EXCLUDED.tva_number,
@@ -570,10 +589,13 @@ def register_siren(
                           seller_is_importer = EXCLUDED.seller_is_importer,
                           apply_fr_under_threshold = EXCLUDED.apply_fr_under_threshold,
                           countries_with_vat = EXCLUDED.countries_with_vat,
-                          vat_numbers_json = EXCLUDED.vat_numbers_json
+                          vat_numbers_json = EXCLUDED.vat_numbers_json,
+                          oss_threshold_exceeded_prev_year = EXCLUDED.oss_threshold_exceeded_prev_year,
+                          ioss_own_number_active = EXCLUDED.ioss_own_number_active
             """,
             (user_id, siren, _enc(company_name), tva_number, time.time(),
-             ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json),
+             ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json,
+             oss_threshold_exceeded_prev_year, ioss_own_number_active),
         )
         conn.commit()
 
