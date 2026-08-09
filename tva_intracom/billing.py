@@ -245,6 +245,8 @@ def _init_schema() -> None:
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS apply_fr_under_threshold BOOLEAN DEFAULT FALSE")
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS countries_with_vat TEXT")
         cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS vat_numbers_json TEXT")
+        cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS oss_threshold_exceeded_prev_year BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE tva_siren_registrations ADD COLUMN IF NOT EXISTS ioss_own_number_active BOOLEAN DEFAULT FALSE")
         # Liaison compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) <-> SIREN — anti-abus :
         # empêche d'exporter le fichier d'un client sous le SIREN payé d'un
         # autre. Scope_id = même portée que le cache VIES (vies_engine.resolve_scope_id) :
