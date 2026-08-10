@@ -11,6 +11,7 @@ liste de lignes agrégées (une par acte de vente).
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from .constants import safe_decimal
 
@@ -52,9 +53,17 @@ def _aggregate_group(rows: list[dict]) -> dict:
     )
 
     aggregated = dict(ref)
+    # Un seul passage sur `rows` : on accumule les 9 totaux en meme temps
+    # plutot que de refaire un sum() (donc une iteration complete de
+    # `rows`) par colonne. Sur un fichier V5 volumineux (une ligne par
+    # juridiction fiscale), ca evite 9x le cout d'iteration pour le meme
+    # resultat.
+    totals = {col: Decimal("0") for col in _AMOUNT_COLS}
+    for r in rows:
+        for col in _AMOUNT_COLS:
+            totals[col] += safe_decimal(r.get(col, ""))
     for col in _AMOUNT_COLS:
-        total = sum(safe_decimal(r.get(col, "")) for r in rows)
-        aggregated[col] = str(total)
+        aggregated[col] = str(totals[col])
     aggregated["_v5_row_count"] = str(len(rows))
     return aggregated
 
@@ -84,38 +93,34 @@ def preaggregate_v5(
         multi_asin_orders : frozenset des (order_id, tx_type) couvrant
                             plusieurs ASIN (pour construire le sale_id).
     """
-    # Pré-calcul : Order ID partagés entre plusieurs ASIN (même type tx)
-    # → sale_id sera "ORDER_ID (ASIN)" pour les distinguer
+    # Pré-calcul (Order ID partagés entre plusieurs ASIN, même type tx →
+    # sale_id sera "ORDER_ID (ASIN)" pour les distinguer) ET regroupement
+    # par clé, faits en UN SEUL passage sur raw_rows : les deux dépendent
+    # uniquement de la ligne courante, aucune raison de parcourir raw_rows
+    # deux fois pour ça (gain sensible sur un gros fichier V5, très
+    # verbeux par nature). Résultat strictement identique à l'ancienne
+    # version à deux boucles.
     order_tx_to_asins: dict[tuple, set] = {}
-    for row in raw_rows:
-        oid  = (row.get("order_id") or "").strip()
-        asin = (row.get("asin") or "").strip()
-        tx   = (row.get("transaction_type") or "").strip().upper()
-        if oid:
-            order_tx_to_asins.setdefault((oid, tx), set()).add(asin)
-
-    multi_asin_orders: frozenset = frozenset(
-        ot for ot, asins in order_tx_to_asins.items() if len(asins) > 1
-    )
-
-    # Regroupement par clé
     groups: dict[str, list[dict]] = {}
     line_order: list[str] = []
     line_no_by_key: dict[str, int] = {}
     fallback_counter = 0
 
     for line_no, row in enumerate(raw_rows, start=2):
+        oid = (row.get("order_id") or "").strip()
+        asin = (row.get("asin") or "").strip()
+        tx_type = (row.get("transaction_type") or "").strip().upper()
+        if oid:
+            order_tx_to_asins.setdefault((oid, tx_type), set()).add(asin)
+
         vat_invoice = (row.get("vat_invoice_number") or "").strip()
-        asin        = (row.get("asin") or "").strip()
-        tx_type     = (row.get("transaction_type") or "").strip().upper()
 
         # "N/A" = valeur littérale Amazon pour "pas de facture TVA"
         if vat_invoice and vat_invoice.upper() != "N/A":
             agg_key = f"{vat_invoice}|{asin}|{tx_type}"
         else:
-            order_id = (row.get("order_id") or "").strip()
-            if order_id:
-                agg_key = f"__NOINV__|{order_id}|{asin}|{tx_type}"
+            if oid:
+                agg_key = f"__NOINV__|{oid}|{asin}|{tx_type}"
             else:
                 fallback_counter += 1
                 agg_key = f"__NOINV__|L{line_no}|{fallback_counter}"
@@ -125,6 +130,10 @@ def preaggregate_v5(
             line_order.append(agg_key)
             line_no_by_key[agg_key] = line_no
         groups[agg_key].append(row)
+
+    multi_asin_orders: frozenset = frozenset(
+        ot for ot, asins in order_tx_to_asins.items() if len(asins) > 1
+    )
 
     rows_to_process = [
         (line_no_by_key[key], _aggregate_group(groups[key]))

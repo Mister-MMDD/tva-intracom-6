@@ -142,5 +142,58 @@ def test_compute_all_with_vies_valid_number(mock_check):
     assert vies_summary.fraud_avoided_amount == Decimal("0.00")
 
 
+@patch("tva_intracom.vies_engine.check_vat_raw")
+def test_compute_all_with_vies_refund_reclassified_like_sale(mock_check):
+    """Un avoir dont le n° TVA est invalide selon VIES doit etre reclassifie
+    B2C/OSS comme la vente qu'il annule (et non rester en Reverse Charge),
+    sans dupliquer d'entree dans vies_summary.reclassifications (deja
+    renseignee via la vente d'origine) — voir engine.py::_effective_sale_with_vies.
+    """
+    mock_check.return_value = ViesResult(
+        valid=False, country_code="DE", vat_number="000000000",
+        error="numero invalide"
+    )
+    sale = Sale(
+        sale_id="T3",
+        amount_ht=Decimal("200"),
+        buyer_type=BuyerType.B2B,
+        stock_country="FR",
+        buyer_country="DE",
+        buyer_vat_number="DE000000000",
+        buyer_vat_valid=True,
+    )
+    refund = Sale(
+        sale_id="T3",
+        amount_ht=Decimal("-200"),
+        buyer_type=BuyerType.B2B,
+        stock_country="FR",
+        buyer_country="DE",
+        buyer_vat_number="DE000000000",
+        buyer_vat_valid=True,
+    )
+    results, refund_results, vies_summary, _ = compute_all_with_vies(
+        [sale], scope_id="test", refunds=[refund],
+    )
+
+    assert len(results) == 1
+    assert len(refund_results) == 1
+
+    # La vente comme l'avoir doivent etre reclassifies B2C/OSS (pas de
+    # Reverse Charge cote avoir avec un n° invalide) pour rester coherents
+    # entre declaration OSS et CA3.
+    assert results[0].scenario == Scenario.OSS_B2C
+    assert refund_results[0].scenario == Scenario.OSS_B2C
+    assert results[0].vat_amount == Decimal("38.00")  # 200 * 19%
+    assert refund_results[0].vat_amount == Decimal("-38.00")
+
+    # Une seule entree dans le tableau VIES affiche (celle de la vente),
+    # l'avoir ne doit pas la dupliquer.
+    assert len(vies_summary.reclassifications) == 1
+    assert vies_summary.reclassifications[0].sale_id == "T3"
+    # Regression point 1 : vat_avoided doit refleter le vrai montant de TVA
+    # (et non rester a 0.00 a cause d'un mismatch str/Decimal dans le lookup).
+    assert vies_summary.reclassifications[0].vat_avoided == Decimal("38.00")
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

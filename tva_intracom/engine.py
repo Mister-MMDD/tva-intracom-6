@@ -1025,10 +1025,21 @@ def compute_all_with_vies(
     _vies_state = {"last_classified_sale_id": None}
 
     def _effective_sale_with_vies(sale: Sale, product_category: str) -> Sale:
-        """Applique la classification VIES sur la vente et retourne l'objet effectif."""
-        # Les avoirs ne passent pas par VIES (leur numéro a déjà été traité).
-        if _sale_key(sale) in refund_keys:
-            return sale
+        """Applique la classification VIES sur la vente et retourne l'objet effectif.
+
+        Les avoirs (refunds) passent par la MÊME classification VIES que les
+        ventes (leur numéro est bien vérifié, voir la boucle de collecte plus
+        haut qui itère sur all_items_sorted = chain(sales, refunds)). Avant
+        le 2026-08-11, un `return sale` précoce ici faisait qu'un avoir dont
+        le n° de TVA était invalide selon VIES restait taxé en Reverse Charge
+        (B2B) au lieu d'être reclassé B2C/OSS comme la vente qu'il annule,
+        créant un décalage entre la déclaration OSS et le CA3. On applique
+        donc désormais le même résultat effectif, mais SANS dupliquer
+        d'entrée dans vies_summary.reclassifications / vies_affected_sale_ids
+        (déjà renseignées via la vente d'origine) pour ne pas fausser les
+        compteurs affichés dans l'onglet VIES.
+        """
+        is_refund = _sale_key(sale) in refund_keys
 
         product_asin = getattr(sale, "asin", "")
 
@@ -1044,21 +1055,22 @@ def compute_all_with_vies(
                 and getattr(sale, "national_tax_id", "")
                 and sale.stock_country != sale.buyer_country
         ):
-            vies_summary.reclassifications.append(ViesReclassification(
-                sale_id=sale.sale_id,
-                buyer_vat_number=sale.national_tax_id,
-                buyer_country=sale.buyer_country,
-                amount_ht=sale.amount_ht,
-                vat_avoided=Decimal("0.00"),
-                reason="Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
-                display_id=getattr(sale, "display_id", ""),
-                stock_country=sale.stock_country,
-                is_national_tax_id=True,
-            ))
-            if sale.national_tax_id not in national_ids_seen:
-                national_ids_seen.add(sale.national_tax_id)
-                vies_summary.national_id_count += 1
-            vies_summary.vies_affected_sale_ids.add(_sale_key(sale))
+            if not is_refund:
+                vies_summary.reclassifications.append(ViesReclassification(
+                    sale_id=sale.sale_id,
+                    buyer_vat_number=sale.national_tax_id,
+                    buyer_country=sale.buyer_country,
+                    amount_ht=sale.amount_ht,
+                    vat_avoided=Decimal("0.00"),
+                    reason="Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
+                    display_id=getattr(sale, "display_id", ""),
+                    stock_country=sale.stock_country,
+                    is_national_tax_id=True,
+                ))
+                if sale.national_tax_id not in national_ids_seen:
+                    national_ids_seen.add(sale.national_tax_id)
+                    vies_summary.national_id_count += 1
+                vies_summary.vies_affected_sale_ids.add(_sale_key(sale))
             _vies_state["last_classified_sale_id"] = sale.sale_id
             return sale
 
@@ -1085,13 +1097,14 @@ def compute_all_with_vies(
             if is_inconclusive:
                 reason = "Service VIES indisponible (incertain)"
 
-            vies_summary.reclassifications.append(ViesReclassification(
-                sale_id=sale.sale_id, buyer_vat_number=sale.buyer_vat_number,
-                buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
-                vat_avoided=Decimal("0.00"), reason=reason,
-                display_id=getattr(sale, "display_id", ""),
-                stock_country=sale.stock_country,
-            ))
+            if not is_refund:
+                vies_summary.reclassifications.append(ViesReclassification(
+                    sale_id=sale.sale_id, buyer_vat_number=sale.buyer_vat_number,
+                    buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
+                    vat_avoided=Decimal("0.00"), reason=reason,
+                    display_id=getattr(sale, "display_id", ""),
+                    stock_country=sale.stock_country,
+                ))
 
             # IMPORTANT : Pour les ventes B2B cross-border dont le n° TVA est invalide,
             # on ne reclassifie PLUS en B2C. On garde BuyerType. B2B mais avec
@@ -1101,7 +1114,7 @@ def compute_all_with_vies(
             effective = _dc_replace(sale, buyer_vat_valid=False,
                                     product_category=product_category, asin=product_asin)
 
-            if sale.stock_country != sale.buyer_country:
+            if not is_refund and sale.stock_country != sale.buyer_country:
                 vies_summary.vies_affected_sale_ids.add(_sale_key(effective))
 
         _vies_state["last_classified_sale_id"] = sale.sale_id
@@ -1127,7 +1140,12 @@ def compute_all_with_vies(
     # montant de TVA évitée à la mauvaise ligne dans l'onglet reclassifications VIES.
     result_by_key: dict[tuple[str, Decimal], VatResult] = {_sale_key(r.sale): r for r in results}
     for i, reclass in enumerate(vies_summary.reclassifications):
-        res = result_by_key.get((reclass.sale_id, str(reclass.amount_ht)))
+        # ATTENTION : la clé DOIT être le Decimal brut (voir docstring de
+        # _sale_key()) — result_by_key est indexé par (sale_id, Decimal),
+        # pas (sale_id, str). Un str(reclass.amount_ht) ici ferait échouer
+        # ce .get() à tous les coups (bug corrigé le 2026-08-11 : vat_avoided
+        # restait systématiquement à 0.00 dans l'onglet VIES).
+        res = result_by_key.get((reclass.sale_id, reclass.amount_ht))
         if res is None:
             continue
         is_cross_border = res.sale.stock_country != res.sale.buyer_country
