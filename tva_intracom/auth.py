@@ -26,7 +26,8 @@ import psycopg2.pool
 import requests
 
 from .config import get_secret
-from .database import NonPoolingConnectionPool, run_with_retry
+from .database import NonPoolingConnectionPool, get_shared_pool, reset_shared_pool, run_with_retry
+from . import database as _database
 from .security import encrypt_data, decrypt_data
 
 logger = logging.getLogger(__name__)
@@ -42,55 +43,46 @@ MAGIC_LINK_TTL_SECONDS = 15 * 60
 # (?session_token=...) et ne doit jamais être envoyé par e-mail.
 SESSION_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 
-_pool: Optional["NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
+_schema_ready = False
 
 
 def _get_pool() -> "NonPoolingConnectionPool":
-    global _pool
-    if _pool is None:
+    """Retourne le pool PARTAGÉ (database.get_shared_pool) — voir database.py
+    pour la justification du partage entre auth.py/billing.py/ecb_rates.py/
+    vies_engine.py. `_init_schema()` reste propre à ce module et n'est jouée
+    qu'une fois (indépendamment du fait que le pool lui-même soit déjà
+    initialisé par un autre module)."""
+    global _schema_ready
+    dsn = get_secret("SUPABASE_DB_URL")
+    if not dsn:
+        raise RuntimeError(
+            "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
+            "d'authentification. Configurez ce secret côté Streamlit Cloud et Vercel."
+        )
+    pool = get_shared_pool(dsn)
+    if not _schema_ready:
         with _pool_lock:
-            if _pool is None:
-                dsn = get_secret("SUPABASE_DB_URL")
-
-                if not dsn:
-                    raise RuntimeError(
-                        "SUPABASE_DB_URL non définie — impossible de se connecter à la base "
-                        "d'authentification. Configurez ce secret côté Streamlit Cloud et Vercel."
-                    )
-                new_pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
-                _init_schema(new_pool)
-                _pool = new_pool
-    return _pool
+            if not _schema_ready:
+                _init_schema(pool)
+                _schema_ready = True
+    return pool
 
 
 def close_idle_connections() -> None:
     """Appelé par app.py au tout début de CHAQUE run, avant l'auth : ferme
-    la connexion que CE thread avait ouverte lors du run précédent (voir
-    docstring de `database.NonPoolingConnectionPool`). On garde volontairement
-    l'objet `_pool` lui-même en vie entre les runs (juste un wrapper léger,
-    sans état hormis le thread-local) pour ne pas relancer `_init_schema()`
-    à chaque run — seule la connexion réellement ouverte est fermée.
-    """
-    with _pool_lock:
-        _p = _pool
-    if _p is not None:
-        try:
-            _p.closeall()
-        except Exception:
-            logger.debug("Fermeture de connexion idle ignorée (déjà invalide).", exc_info=True)
+    la connexion partagée que CE thread avait ouverte lors du run précédent
+    (voir docstring de `database.NonPoolingConnectionPool`). Délègue au pool
+    partagé (database.close_idle_connections) — idempotent si billing.py/
+    ecb_rates.py/vies_engine.py l'ont déjà fermée dans le même run."""
+    _database.close_idle_connections()
 
 
 def _run(fn):
     """Exécute fn(conn, cur) avec une connexion prise dans le pool, avec un
     retry unique si la connexion s'avère fermée côté serveur.
     """
-    def _force_new_pool():
-        global _pool
-        with _pool_lock:
-            _pool = None  # force la recréation d'un pool neuf au prochain tour
-
-    return run_with_retry(_get_pool, fn, on_retry=_force_new_pool)
+    return run_with_retry(_get_pool, fn, on_retry=reset_shared_pool)
 
 
 def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:

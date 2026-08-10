@@ -6,6 +6,7 @@ import logging
 import re
 from datetime import date as _date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from itertools import chain
 from pathlib import Path
 from typing import Dict, List
 
@@ -680,7 +681,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         tva_moteur = float(r.vat_amount)
         if dep == "GB" or arr == "GB":
             return i18n_("xl_audit_nature_gb")
-        if (str(r.sale.sale_id), str(r.sale.amount_ht)) in vies_affected_sale_ids and tva_amazon == 0:
+        if (r.sale.sale_id, r.sale.amount_ht) in vies_affected_sale_ids and tva_amazon == 0:
             return i18n_("xl_audit_nature_vies")
         if sid in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):
             return i18n_("xl_audit_nature_art194")
@@ -806,8 +807,12 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     _width_tracker.apply(ws)
 
 
-def _write_vies_history_tab(ws, results: list, scope_id: str) -> None:
-    """Onglet Historique VIES : piste d'audit de chaque vérification effectuée."""
+def _write_vies_history_tab(ws, results, scope_id: str) -> None:
+    """Onglet Historique VIES : piste d'audit de chaque vérification effectuée.
+
+    `results` : itérable de VatResult (list ou itertools.chain — un seul
+    passage `for r in results` est fait ci-dessous, donc un itérateur
+    à usage unique convient)."""
     from .vies_engine import get_vies_history_bulk, normalize_full_vat
 
     ws.title = i18n_("xl_tab_vies")
@@ -2008,16 +2013,25 @@ def export_xlsx(
     if summary is None:
         summary = build_report(results)
 
-    # Calcul des Hash Totals (Contrôle d'intégrité technique)
-    all_rows = results + (refund_results or [])
+    # Calcul des Hash Totals (Contrôle d'intégrité technique).
+    # Une seule passe sur chain(results, refund_results or []) pour tout
+    # calculer (count, sommes, id_hash) au lieu de matérialiser
+    # `results + (refund_results or [])` puis de le reparcourir 4 fois
+    # (3x sum() + 1x for) : on économise à la fois l'allocation de la liste
+    # concaténée ET on repasse de 5 itérations complètes à 1 seule sur
+    # potentiellement 150k lignes.
     hash_totals = {
-        "count": len(all_rows),
-        "abs_ht": sum((abs(r.sale.amount_ht) for r in all_rows), Decimal("0.00")),
-        "vat": sum((abs(r.vat_amount) for r in all_rows), Decimal("0.00")),
+        "count": 0,
+        "abs_ht": Decimal("0.00"),
+        "vat": Decimal("0.00"),
         "id_hash": 0,
-        "net_ht_check": sum((r.sale.amount_ht for r in all_rows), Decimal("0.00")),
+        "net_ht_check": Decimal("0.00"),
     }
-    for r in all_rows:
+    for r in chain(results, refund_results or []):
+        hash_totals["count"] += 1
+        hash_totals["abs_ht"] += abs(r.sale.amount_ht)
+        hash_totals["vat"] += abs(r.vat_amount)
+        hash_totals["net_ht_check"] += r.sale.amount_ht
         # Somme numérique des IDs pour détecter les doublons ou omissions
         raw_id = re.sub(r"\D", "", str(r.sale.sale_id))
         if raw_id:
@@ -2110,7 +2124,7 @@ def export_xlsx(
 
     # 8bis. Onglet Historique VIES (piste d'audit — preuve de bonne foi)
     ws_vies_hist = _SequentialSheetWriter(wb.create_sheet("Historique VIES"))
-    _write_vies_history_tab(ws_vies_hist, results + (refund_results or []), scope_id)
+    _write_vies_history_tab(ws_vies_hist, chain(results, refund_results or []), scope_id)
     ws_vies_hist.finalize()
 
     # 9. Onglet Analyse AIC FBA (synthèse fiscale des transferts)

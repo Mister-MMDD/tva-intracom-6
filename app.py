@@ -679,7 +679,7 @@ if uploaded_files:
             if abs(_ecart_kpi) <= 0.05: continue
             if _r.sale.stock_country == 'GB' or _r.sale.buyer_country == 'GB': continue
             _sid_kpi = str(_r.sale.sale_id)
-            if _sid_kpi in _vies_rc_ids_kpi or (_sid_kpi, str(_r.sale.amount_ht)) in _vies_ids_kpi: continue
+            if _sid_kpi in _vies_rc_ids_kpi or (_sid_kpi, _r.sale.amount_ht) in _vies_ids_kpi: continue
             if _sid_kpi in _dom_rc_ids_kpi or (_r.sale.buyer_type == _BT_KPI.B2B and _r.sale.buyer_country in _DRC_KPI and _tva_mot == 0 and _tva_amz > 0): continue
             if _tva_amz == 0 and _tva_mot > 0: continue
             ecarts_autres.append((_r, _ecart_kpi))

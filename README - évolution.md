@@ -1033,19 +1033,19 @@ l'autoliquidation domestique), portant sur `engine.py`, `rates.py`,
   n'était donc déclarée nulle part via l'export automatisé. `fec_export.py`
   distinguait déjà correctement les deux régimes (comptes 4457180 vs
   4457190) — preuve que la bonne pratique était connue ailleurs dans le
-  code, non répliquée ici avant ce correctif.
-  Correctif : `aggregate_oss_results()` ne traite plus que `OSS_B2C` ;
-  nouvelle `aggregate_ioss_results()` dédiée à `IOSS_DIRECT` (factorisée
-  avec l'OSS via `_aggregate_by_scenario()` commune) ; nouvel export IOSS
-  séparé (`build_ioss_excel()`/`build_ioss_csv()`, onglets IOSS_Résumé/
-  IOSS_Détail, section dédiée dans l'onglet Téléchargements, mensuel).
-  ⚠️ **Limite assumée** : cet export IOSS est indicatif (Excel/CSV), **pas
-  un XML officiel homologué** — le format XML IOSS (Import Scheme, distinct
-  du XML OSS Union Scheme déjà généré par `oss_xml.py`) n'est pas implémenté
-  faute de spécification technique disponible au moment de ce correctif.
-  Progrès réel (plus de disparition silencieuse de TVA collectée) mais
-  implémentation XML IOSS dédiée à prévoir en roadmap si le volume le
-  justifie.
+           code, non répliquée ici avant ce correctif.
+           Correctif : `aggregate_oss_results()` ne traite plus que `OSS_B2C` ;
+           nouvelle `aggregate_ioss_results()` dédiée à `IOSS_DIRECT` (factorisée
+           avec l'OSS via `_aggregate_by_scenario()` commune) ; nouvel export IOSS
+           séparé (`build_ioss_excel()`/`build_ioss_csv()`, onglets IOSS_Résumé/
+           IOSS_Détail, section dédiée dans l'onglet Téléchargements, mensuel).
+           ⚠️ **Limite assumée** : cet export IOSS est indicatif (Excel/CSV), **pas
+           un XML officiel homologué** — le format XML IOSS (Import Scheme, distinct
+           du XML OSS Union Scheme déjà généré par `oss_xml.py`) n'est pas implémenté
+           faute de spécification technique disponible au moment de ce correctif.
+           Progrès réel (plus de disparition silencieuse de TVA collectée) mais
+           implémentation XML IOSS dédiée à prévoir en roadmap si le volume le
+           justifie.
 
 Point identifié mais non corrigé, hors périmètre de ce patch (signalé pour
 suite) :
@@ -1438,6 +1438,115 @@ pour trancher sans risquer un mauvais calcul de substitution) :
   vente normale (double comptage de TVA). Non traité faute de cas réel
   disponible au moment de l'audit — commentaire de vigilance laissé dans
   le code.
+
+---
+
+## Audit performance (08/2026) — pool DB, allocations, imports, clé de comparaison
+
+Revue de 6 pistes d'optimisation proposées en audit externe sur le moteur et
+les modules DB/export. Chaque point vérifié sur le code réel avant tout
+correctif, avec suite de tests complète (`pytest`) après chaque patch :
+baseline stable à 165 passed / 4 failed (échecs préexistants, liés à
+`SUPABASE_DB_URL` absente en environnement de test — sans rapport avec ces
+patchs). 4 points corrigés, 2 écartés après vérification :
+
+- **Pool DB dupliqué 4× (corrigé)** : `auth.py`, `billing.py`,
+  `vies_engine.py` et `ecb_rates.py` maintenaient chacun leur propre
+  instance de pool (même DSN partout) — un run touchant les 4 modules
+  ouvrait donc 4 connexions Postgres/Supabase distinctes par thread au lieu
+  d'une seule réutilisée. `database.py` expose désormais
+  `get_shared_pool()` / `close_idle_connections()` / `reset_shared_pool()` /
+  `has_shared_pool()` : un seul pool partagé entre les 4 modules, mode
+  `cache_connection=True` et fermeture en fin de run inchangés (aucun impact
+  sur le scale-to-zero Railway). Chaque module garde son propre flag
+  `_schema_ready` pour que ses tables restent initialisées indépendamment.
+  Le pattern anti-deadlock de `billing.py` (assigner l'état avant d'appeler
+  `_init_schema()`, à cause du rappel récursif `_run → _get_pool`) a été
+  reproduit à l'identique sur le nouveau flag. `tests/test_connection_pool_threading.py`
+  (3 tests) toujours au vert.
+
+- **Cache LRU sur le déchiffrement VIES (écarté après vérification)** :
+  l'idée — mettre en cache `decrypt_data()` pour l'export en masse de
+  l'historique VIES (noms/adresses souvent répétés pour un même n° de TVA)
+  — repose sur une prémisse fausse en production. `Fernet` (comme toute
+  construction AEAD sérieuse) inclut un IV aléatoire à chaque chiffrement :
+  vérifié empiriquement, `Fernet.encrypt(b"X") != Fernet.encrypt(b"X")` sur
+  deux appels successifs. Chaque ligne d'historique étant chiffrée
+  indépendamment à l'insertion, deux lignes portant le même nom en clair
+  ont des ciphertexts différents en base — un cache keyé sur le ciphertext
+  ne peut donc jamais matcher entre deux lignes distinctes, même
+  identiques en clair. Confirmé par micro-benchmark : 2000 déchiffrements
+  de 50 valeurs répétées → 0 hit, 100 % de cache-miss. Aucun patch livré ;
+  le coût CPU réel des déchiffrements en masse n'est pas réductible sans
+  changer d'architecture de chiffrement (déterministe type AES-SIV),
+  option écartée pour ne pas affaiblir les garanties de sécurité sur du
+  PII sous DPA Amazon.
+
+- **`itertools.chain` au lieu de `list(...) + list(...)` (corrigé)** :
+  - `engine.py` (tri chronologique ventes+avoirs) : `sorted()` construit de
+    toute façon sa propre liste de sortie ; les deux `list()` + la
+    concaténation intermédiaires étaient inutiles — remplacés par
+    `sorted(chain(sales, refunds or []), key=...)`.
+  - `excel_report.py::_write_vies_history_tab` : un seul passage sur les
+    données, `chain(...)` s'y substitue directement à `results + (refund_results or [])`.
+  - `excel_report.py` (hash totals de contrôle d'intégrité, section audit) :
+    ce site repassait sur la liste concaténée 5 fois (`len()` + 3×`sum()` +
+    1 boucle `for`) — un `chain` s'épuise après un seul passage, donc
+    insuffisant tel quel. Refactoré en **une seule boucle** calculant
+    `count`/`abs_ht`/`vat`/`net_ht_check`/`id_hash` en un passage unique sur
+    `chain(results, refund_results or [])` : plus économe que la
+    proposition initiale (1 itération au lieu de 5, aucune liste
+    intermédiaire).
+
+- **Imports inline dans les boucles chaudes (corrigé, gain marginal
+  confirmé)** : `models.py::__post_init__` (`Sale`, `VatResult`) faisait
+  `import sys` à chaque instanciation — déplacé en top-level (stdlib pure,
+  aucun risque). `engine.py::_note()` faisait `from .i18n import _ as _i18n`
+  à chaque appel en langue non-fr — **pas d'import top-level** ici
+  volontairement : `i18n.py` importe `streamlit` en top-level, et
+  `engine.py` doit rester chargeable sans dépendance dure à `streamlit`
+  (règle déjà en place, voir isolation documentée dans
+  `vercel_webhook/api/stripe_webhook.py` et le pattern déjà utilisé dans
+  `engine._resolve_lang()`). Remplacé par un cache paresseux
+  (`_get_i18n_translate()`) : import réel une seule fois au premier appel
+  non-fr, puis simple lookup de variable ensuite.
+
+- **Clé de comparaison `_sale_key()` en Decimal natif (corrigé, 3 sites
+  cachés trouvés et synchronisés)** : `(sale.sale_id, str(sale.amount_ht))`
+  remplacé par `(sale.sale_id, sale.amount_ht)` — `Decimal` est hashable et
+  son égalité/hash sont stables pour deux valeurs numériquement égales
+  écrites différemment (`Decimal("10.00") == Decimal("10.0")`, même hash),
+  ce qui est même plus robuste qu'une comparaison de string en plus d'être
+  plus rapide. Avant de patcher, recherche explicite de tout site
+  reconstruisant cette clé à la main plutôt que d'appeler `_sale_key()` —
+  **3 trouvés** (`excel_report.py::_write_audit_tab`,
+  `ui/tabs/audit.py` — onglet audit UI —, `app.py` — calcul des KPI
+  d'écarts), tous comparaient encore `str(amount_ht)` contre les clés
+  produites par `_sale_key()`. Sans cette vérification préalable, la
+  détection "vente affectée par une reclassification VIES" (nature
+  d'écart dans l'audit, export Excel, KPI de l'app) se serait cassée
+  silencieusement — plus aucun match, sans erreur ni warning. Les 3 sites
+  synchronisés ; annotation `vies_affected_sale_ids: set[int]`
+  (déjà incorrecte avant ce patch — le vrai type est un set de tuples)
+  corrigée en `set[tuple[str, Decimal]]` au passage.
+
+- **`Sale` en `dataclass` standard au lieu de Pydantic (écarté après
+  benchmark)** : gain mesuré réel mais nettement inférieur à l'estimation
+  initiale (×5-10 annoncés) — **×1.8** sur 100 000 instanciations
+  (1420 ms → 785 ms), avec le pattern d'appel exact du parser Amazon
+  (valeurs déjà typées en amont, aucune coercion réelle en jeu). Sur un
+  fichier réel de quelques milliers de lignes, l'écart tombe à quelques
+  dizaines de ms — négligeable face au reste du pipeline (VIES, I/O,
+  génération Excel). Risque identifié en creusant : `buyer_type` n'a
+  **aucune validation manuelle** dans `__post_init__` (contrairement à
+  `amount_ht`/`original_amount`/etc., qui repassent par `_to_decimal()`) —
+  c'est Pydantic seul qui garantit que ce champ reste un `BuyerType` valide.
+  Vérifié : `SalePydantic(buyer_type="TYPO", ...)` lève `ValidationError`,
+  l'équivalent en `dataclass` standard crée l'objet silencieusement avec
+  une simple string. `buyer_type` pilotant directement la branche B2B/B2C
+  du moteur de classification fiscale, une valeur corrompue passerait sans
+  aucune exception nulle part dans le pipeline. Rapport gain/risque
+  jugé défavorable — non corrigé.
 
 ---
 

@@ -138,7 +138,7 @@ def render_audit() -> None:
                     _dep = r.sale.stock_country; _arr = r.sale.buyer_country; _sid = str(r.sale.sale_id)
                     _is_b2b = (r.sale.buyer_type == _BT_APP.B2B)
                     if _dep == "GB" or _arr == "GB": ecarts_gb_tab.append(row_d)
-                    elif _sid in _vies_rc_ids_app or (_sid, str(r.sale.amount_ht)) in _vies_affected_ids: ecarts_vies_tab.append(row_d)
+                    elif _sid in _vies_rc_ids_app or (_sid, r.sale.amount_ht) in _vies_affected_ids: ecarts_vies_tab.append(row_d)
                     elif _sid in _dom_rc_ids_app or (_is_b2b and _arr in _DRC_APP and tva_moteur == 0 and tva_amazon > 0): ecarts_b2b_dom_tab.append(row_d)
                     elif tva_amazon == 0 and tva_moteur > 0: ecarts_amz_manquante_tab.append(row_d)
                     else: ecarts_autres_tab.append(row_d)

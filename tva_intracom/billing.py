@@ -75,7 +75,8 @@ try:
 except ImportError:
     stripe = None
 
-from .database import NonPoolingConnectionPool, run_with_retry
+from .database import NonPoolingConnectionPool, get_shared_pool, reset_shared_pool, run_with_retry
+from . import database as _database
 from .security import encrypt_data as _enc, decrypt_data as _dec
 from .config import get_secret
 
@@ -98,8 +99,8 @@ PRICE_PAYG_EXPORT = os.environ.get("STRIPE_PRICE_PAYG_EXPORT", "")
 _BUSINESS_SIREN_QUOTA = 1
 _CABINET_MIN_QUANTITY = 3
 
-_pool: Optional["NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
+_schema_ready = False
 
 
 def _safe_get(obj, key, default=None):
@@ -121,43 +122,38 @@ def _stripe_configured() -> bool:
 
 
 def _get_pool() -> "NonPoolingConnectionPool":
-    global _pool
-    if _pool is None:
+    """Retourne le pool PARTAGÉ (database.get_shared_pool) — voir database.py.
+    `_init_schema()` reste propre à billing.py et n'est jouée qu'une fois."""
+    global _schema_ready
+    dsn = _env("SUPABASE_DB_URL")
+    if not dsn:
+        raise RuntimeError(
+            "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
+        )
+    pool = get_shared_pool(dsn)
+    if not _schema_ready:
         with _pool_lock:
-            if _pool is None:
-                dsn = _env("SUPABASE_DB_URL")
-                if not dsn:
-                    raise RuntimeError(
-                        "SUPABASE_DB_URL non définie — impossible de se connecter à la base."
-                    )
-                # IMPORTANT : `_pool` DOIT être assigné AVANT l'appel à
-                # _init_schema() ci-dessous, pas après. _init_schema() appelle
-                # en interne _run(_fn), qui rappelle _get_pool() — si `_pool`
-                # est encore None à ce moment-là, cet appel récursif retente
-                # d'acquérir `_pool_lock` (déjà tenu par ce même thread) et
-                # provoque un DEADLOCK (threading.Lock n'est pas réentrant).
-                # En assignant `_pool` en premier, l'appel récursif le trouve
-                # déjà défini et ressort immédiatement sans repasser par le
-                # verrou. Bug vécu en production le 02/08/2026 (voir post-mortem).
-                _pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
+            if not _schema_ready:
+                # IMPORTANT : `_schema_ready` DOIT être mis à True AVANT
+                # l'appel à _init_schema() ci-dessous, pas après. _init_schema()
+                # appelle en interne _run(_fn), qui rappelle _get_pool() — si
+                # `_schema_ready` est encore False à ce moment-là, cet appel
+                # récursif retente d'acquérir `_pool_lock` (déjà tenu par ce
+                # même thread) et provoque un DEADLOCK (threading.Lock n'est
+                # pas réentrant). Même correctif que l'ancien bug pool-based
+                # vécu en production le 02/08/2026 (voir post-mortem), transposé
+                # au flag de schéma depuis le passage au pool partagé.
+                _schema_ready = True
                 _init_schema()
-    return _pool
-    return _pool
+    return pool
 
 
 def close_idle_connections() -> None:
     """Appelé par app.py au tout début de CHAQUE run, avant l'auth : ferme
-    la connexion que CE thread avait ouverte lors du run précédent. On garde
-    l'objet `_pool` en vie entre les runs (évite de relancer `_init_schema()`
-    à chaque run) — seule la connexion réellement ouverte est fermée.
-    """
-    with _pool_lock:
-        _p = _pool
-    if _p is not None:
-        try:
-            _p.closeall()
-        except Exception:
-            logger.debug("Fermeture de connexion idle ignorée (déjà invalide).", exc_info=True)
+    la connexion partagée que CE thread avait ouverte lors du run précédent.
+    Délègue au pool partagé (database.close_idle_connections) — idempotent
+    si auth.py/ecb_rates.py/vies_engine.py l'ont déjà fermée dans ce run."""
+    _database.close_idle_connections()
 
 
 def _run(fn):
@@ -170,12 +166,7 @@ def _run(fn):
     serveur — d'où `psycopg2.InterfaceError: connection already closed`
     après un moment d'inactivité. On jette le pool et on en recrée un neuf
     pour retenter une fois plutôt que de laisser planter la requête."""
-    def _force_new_pool():
-        global _pool
-        with _pool_lock:
-            _pool = None  # force la recréation d'un pool neuf au prochain tour
-
-    return run_with_retry(_get_pool, fn, on_retry=_force_new_pool)
+    return run_with_retry(_get_pool, fn, on_retry=reset_shared_pool)
 
 
 def _init_schema() -> None:

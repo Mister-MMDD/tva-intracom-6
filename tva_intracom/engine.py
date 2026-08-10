@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import replace as _dc_replace
 from decimal import ROUND_HALF_UP, Decimal
+from itertools import chain
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,29 @@ from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
 
 _NOTE_INTERN_CACHE: dict[str, str] = {}
+
+_i18n_translate = None  # cache paresseux, voir _get_i18n_translate()
+
+
+def _get_i18n_translate():
+    """Import paresseux ET mis en cache de `i18n._`.
+
+    Pas d'import top-level ici volontairement : `i18n.py` importe `streamlit`
+    en top-level, et engine.py doit rester chargeable sans dépendance dure à
+    streamlit (voir la note d'isolation dans vercel_webhook/api/stripe_webhook.py
+    — engine.py n'est aujourd'hui jamais chargé côté Vercel, mais on ne veut
+    pas introduire silencieusement ce couplage). On garde donc un import
+    paresseux comme avant, mais fait UNE seule fois (mis en cache dans
+    `_i18n_translate`) plutôt qu'à chaque appel de `_note()` — ça évite le
+    aller-retour `sys.modules` répété pour les runs en langue non-fr sans
+    réintroduire de dépendance dure au niveau du module.
+    """
+    global _i18n_translate
+    if _i18n_translate is None:
+        from .i18n import _ as _i18n
+        _i18n_translate = _i18n
+    return _i18n_translate
+
 
 def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
     """Texte de VatResult.note.
@@ -63,8 +87,7 @@ def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
     if lang == "fr":
         _text = fr_text
     else:
-        from .i18n import _ as _i18n
-        _text = _i18n(key, lang=lang, **kwargs)
+        _text = _get_i18n_translate()(key, lang=lang, **kwargs)
     return _NOTE_INTERN_CACHE.setdefault(_text, _text)
 
 
@@ -592,7 +615,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     return res
 
 
-def _sale_key(sale: Sale) -> tuple[str, str]:
+def _sale_key(sale: Sale) -> tuple[str, Decimal]:
     """Clé composite (sale_id, montant_ht) identifiant une ligne de façon stable.
 
     Utilisée partout à la place de id(sale) (y compris pour refund_keys et
@@ -603,8 +626,18 @@ def _sale_key(sale: Sale) -> tuple[str, str]:
     invisible pour quiconque retouche ce chemin plus tard. Le montant (avec
     son signe : positif=vente, négatif=avoir) évite toute collision avec un
     remboursement partageant le même sale_id.
+
+    Le montant est retourné en Decimal natif (pas str(Decimal)) : Decimal
+    est hashable et son égalité/hash sont stables pour deux valeurs
+    numériquement égales même écrites différemment (Decimal("10.00") ==
+    Decimal("10.0"), même hash) — plus robuste qu'une comparaison de string
+    qui distinguerait ces deux écritures, en plus d'éviter 100k allocations
+    de chaîne sur un gros fichier. ATTENTION : tout code qui reconstruit une
+    clé de comparaison à la main (au lieu d'appeler _sale_key()) doit utiliser
+    le Decimal brut, PAS str(amount_ht) — voir excel_report.py::_nature qui
+    doit rester synchronisé avec ce type de retour.
     """
-    return (sale.sale_id, str(sale.amount_ht))
+    return (sale.sale_id, sale.amount_ht)
 
 
 def _year_of(sale: Sale) -> str:
@@ -805,10 +838,14 @@ def compute_all_with_vies(
 
     vies_summary = ViesValidationSummary()
 
-    # Un seul tri chronologique global (ventes + avoirs).
-    refund_keys: set[tuple[str, str]] = {_sale_key(r) for r in (refunds or [])}
-    all_items = list(sales) + list(refunds or [])
-    all_items_sorted = sorted(all_items, key=_chronological_sort_key)
+    # Un seul tri chronologique global (ventes + avoirs). `itertools.chain`
+    # au lieu de `list(sales) + list(refunds or [])` : `sorted()` construit de
+    # toute façon sa propre liste de sortie en une passe, donc l'ancienne
+    # version payait deux `list()` + une concaténation intermédiaires pour
+    # rien — juste pour être immédiatement jetés après le tri (sur 100k+
+    # lignes, ~2 allocations de liste de pointeurs évitées).
+    refund_keys: set[tuple[str, Decimal]] = {_sale_key(r) for r in (refunds or [])}
+    all_items_sorted = sorted(chain(sales, refunds or []), key=_chronological_sort_key)
 
     # ------------------------------------------------------------------------
     # PREPARATION : normalisation des numéros TVA + index sale_id -> full_vat
@@ -1088,7 +1125,7 @@ def compute_all_with_vies(
     # et sale_vat_index plus haut). Indexer par sale_id seul écraserait
     # silencieusement les résultats en cas de doublon et attribuerait un
     # montant de TVA évitée à la mauvaise ligne dans l'onglet reclassifications VIES.
-    result_by_key: dict[tuple[str, str], VatResult] = {_sale_key(r.sale): r for r in results}
+    result_by_key: dict[tuple[str, Decimal], VatResult] = {_sale_key(r.sale): r for r in results}
     for i, reclass in enumerate(vies_summary.reclassifications):
         res = result_by_key.get((reclass.sale_id, str(reclass.amount_ht)))
         if res is None:

@@ -126,6 +126,68 @@ class NonPoolingConnectionPool:
             logger.debug("Fermeture d'une connexion déjà invalide (ignorée).", exc_info=True)
 
 
+_shared_pool: Optional["NonPoolingConnectionPool"] = None
+_shared_pool_lock = threading.Lock()
+
+
+def get_shared_pool(dsn: str) -> "NonPoolingConnectionPool":
+    """Pool Postgres partagé par auth.py, billing.py, ecb_rates.py et
+    vies_engine.py — les 4 modules pointent vers la même base
+    (SUPABASE_DB_URL) et n'ont donc aucune raison de maintenir chacun leur
+    propre connexion mise en cache par thread : avant ce partage, un run
+    Streamlit qui touchait aux 4 modules ouvrait 4 connexions TCP/TLS
+    distinctes vers Supabase au lieu d'une seule réutilisée par tous.
+
+    Le mode `cache_connection=True` et la politique de fermeture
+    (`close_idle_connections()` par module, voir plus bas) sont inchangés :
+    ce partage ne réintroduit PAS de connexion persistante entre les runs,
+    donc ne remet pas en cause le scale-to-zero Railway (voir docstring de
+    NonPoolingConnectionPool ci-dessus).
+    """
+    global _shared_pool
+    if _shared_pool is None:
+        with _shared_pool_lock:
+            if _shared_pool is None:
+                _shared_pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
+    return _shared_pool
+
+
+def has_shared_pool() -> bool:
+    """True si le pool partagé a déjà été créé (par n'importe quel module),
+    sans effet de bord — utilisé par ecb_rates.cache_info() pour restituer
+    exactement l'ancienne sémantique de `_pool is not None`."""
+    with _shared_pool_lock:
+        return _shared_pool is not None
+
+
+def reset_shared_pool() -> None:
+    """Force la recréation du pool partagé au prochain `get_shared_pool()`.
+
+    À appeler par le `on_retry` de n'importe lequel des 4 modules quand une
+    connexion s'avère cassée côté serveur — un seul reset suffit puisque le
+    pool est partagé (contrairement à avant, où chaque module réinitialisait
+    uniquement sa propre variable `_pool`).
+    """
+    global _shared_pool
+    with _shared_pool_lock:
+        _shared_pool = None
+
+
+def close_idle_connections() -> None:
+    """Ferme la connexion mise en cache par CE thread sur le pool partagé,
+    si elle existe. Idempotent et sans effet si le pool n'a pas encore été
+    créé (ex. module jamais utilisé dans ce run) — peut donc être appelé
+    sans risque même par un module qui n'a fait aucun accès DB.
+    """
+    with _shared_pool_lock:
+        _p = _shared_pool
+    if _p is not None:
+        try:
+            _p.closeall()
+        except Exception:
+            logger.debug("Fermeture de connexion partagée idle ignorée (déjà invalide).", exc_info=True)
+
+
 def run_with_retry(
     get_pool: Callable[[], "NonPoolingConnectionPool"],
     fn: Callable[..., T],

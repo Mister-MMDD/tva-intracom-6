@@ -39,7 +39,7 @@ import psycopg2.extras
 import psycopg2.pool
 
 from .config import get_secret
-from .database import NonPoolingConnectionPool
+from .database import NonPoolingConnectionPool, get_shared_pool, has_shared_pool, close_idle_connections as _database_close_idle
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +70,8 @@ _cache_lock = threading.Lock()
 # lors de retraitements de fichiers anciens.
 _RETENTION_DAYS = 3650
 
-_pool: Optional["NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
+_schema_ready = False
 # Sticky : évite de retenter une connexion Postgres à chaque appel si
 # SUPABASE_DB_URL n'est pas configuré (tests, dev local) ou si la base est
 # injoignable. Le cache BCE est un pur confort de performance/coût réseau,
@@ -84,52 +84,47 @@ def _cache_key(currency: str, d: date) -> str:
 
 
 def _get_pool() -> Optional["NonPoolingConnectionPool"]:
-    global _pool, _db_unavailable
+    """Retourne le pool PARTAGÉ (database.get_shared_pool) — voir database.py.
+    Contrairement à auth.py/billing.py/vies_engine.py, ce module dégrade
+    silencieusement vers `None` (cache mémoire uniquement) si SUPABASE_DB_URL
+    est absent ou la base injoignable : ce comportement sticky (`_db_unavailable`)
+    est conservé à l'identique, y compris avec le pool partagé."""
+    global _schema_ready, _db_unavailable
     if _db_unavailable:
         return None
-    if _pool is not None:
-        return _pool
-    with _pool_lock:
-        if _pool is not None:
-            return _pool
-        if _db_unavailable:
-            return None
-        dsn = get_secret("SUPABASE_DB_URL")
-        if not dsn:
-            logger.debug(
-                "SUPABASE_DB_URL non défini — cache BCE en mémoire uniquement "
-                "(pas de persistance inter-instances/redéploiements)."
-            )
-            _db_unavailable = True
-            return None
-        try:
-            pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
-            _init_schema(pool)
-        except Exception as exc:
-            logger.warning(
-                "Cache BCE : connexion Postgres indisponible (%s) — repli "
-                "mémoire uniquement pour cette session.", exc,
-            )
-            _db_unavailable = True
-            return None
-        _pool = pool
-        return _pool
+    dsn = get_secret("SUPABASE_DB_URL")
+    if not dsn:
+        logger.debug(
+            "SUPABASE_DB_URL non défini — cache BCE en mémoire uniquement "
+            "(pas de persistance inter-instances/redéploiements)."
+        )
+        _db_unavailable = True
+        return None
+    try:
+        pool = get_shared_pool(dsn)
+        if not _schema_ready:
+            with _pool_lock:
+                if not _schema_ready:
+                    _init_schema(pool)
+                    _schema_ready = True
+    except Exception as exc:
+        logger.warning(
+            "Cache BCE : connexion Postgres indisponible (%s) — repli "
+            "mémoire uniquement pour cette session.", exc,
+        )
+        _db_unavailable = True
+        return None
+    return pool
 
 
 def close_idle_connections() -> None:
     """Appelé par app.py au tout début de CHAQUE run, avant l'auth : ferme
-    la connexion que CE thread avait ouverte lors du run précédent. On garde
-    l'objet `_pool` en vie entre les runs (évite de relancer `_init_schema()`
-    et le test de disponibilité DB à chaque run) — seule la connexion
-    réellement ouverte est fermée.
-    """
-    with _pool_lock:
-        _p = _pool
-    if _p is not None:
-        try:
-            _p.closeall()
-        except Exception:
-            logger.debug("Fermeture de connexion idle ignorée (déjà invalide).", exc_info=True)
+    la connexion partagée que CE thread avait ouverte lors du run précédent.
+    Délègue au pool partagé (database.close_idle_connections) — idempotent
+    si auth.py/billing.py/vies_engine.py l'ont déjà fermée dans ce run.
+    Sans effet (pas d'erreur) si le pool partagé n'a jamais été créé, ex.
+    SUPABASE_DB_URL absent."""
+    _database_close_idle()
 
 
 def _init_schema(pool: "NonPoolingConnectionPool") -> None:
@@ -737,7 +732,7 @@ def cache_info() -> dict:
     info: dict = {
         "memory_entries": len(_rate_cache),
         "memory_currencies": sorted({k.split("|")[0] for k in _rate_cache}),
-        "db_configured": not _db_unavailable or _pool is not None,
+        "db_configured": not _db_unavailable or has_shared_pool(),
         "db_entries": None,
         "db_oldest_date": None,
         "db_retention_days": _RETENTION_DAYS,

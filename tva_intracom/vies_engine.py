@@ -258,64 +258,54 @@ def _parse_flexible_date(s: str) -> Optional[datetime]:
 # ---------------------------------------------------------------------------
 
 from .config import get_secret
-from .database import NonPoolingConnectionPool
+from .database import NonPoolingConnectionPool, get_shared_pool, close_idle_connections as _database_close_idle
 
-_pool: Optional["NonPoolingConnectionPool"] = None
 _pool_lock = threading.Lock()
+_schema_ready = False
 
 
 def _get_pool() -> "NonPoolingConnectionPool":
-    global _pool
-    if _pool is None:
+    """Retourne le pool Postgres PARTAGÉ (database.get_shared_pool) — même
+    base que auth.py/billing.py/ecb_rates.py. Depuis le partage, ce module
+    ne maintient plus sa propre connexion mise en cache : `cache_connection=True`
+    reste le mode utilisé par le pool partagé (voir database.py pour le
+    détail), la justification ci-dessous (pourquoi cache_connection=True est
+    sûr pour ce module précisément) reste valable telle quelle.
+
+    Aucune fonction DB de ce module n'est appelée DEPUIS les workers du
+    ThreadPoolExecutor (voir validate_vat_numbers_parallel : `_check_one()`
+    ne fait que l'appel HTTP VIES, jamais de requête SQL). Les deux requêtes
+    batch (_db_get_scope_batch / _db_get_global_batch) et les deux écritures
+    batch (_db_set_scope_batch / _db_set_global_batch) tournent toutes sur
+    le thread principal (script Streamlit, ou thread du job d'arrière-plan
+    pour les gros fichiers — voir ui/background_calc.py), jamais
+    concurremment entre elles.
+    """
+    global _schema_ready
+    dsn = get_secret("SUPABASE_DB_URL")
+    if not dsn:
+        raise RuntimeError(
+            "SUPABASE_DB_URL non définie — impossible de se connecter à la "
+            "base du cache VIES. Configurez ce secret côté Streamlit Cloud "
+            "(même valeur que pour auth.py / billing.py)."
+        )
+    pool = get_shared_pool(dsn)
+    if not _schema_ready:
         with _pool_lock:
-            if _pool is None:
-                dsn = get_secret("SUPABASE_DB_URL")
-                if not dsn:
-                    raise RuntimeError(
-                        "SUPABASE_DB_URL non définie — impossible de se connecter à la "
-                        "base du cache VIES. Configurez ce secret côté Streamlit Cloud "
-                        "(même valeur que pour auth.py / billing.py)."
-                    )
-                # cache_connection=True : contrairement à l'hypothèse initiale,
-                # aucune fonction DB de ce module n'est appelée DEPUIS les
-                # workers du ThreadPoolExecutor (voir validate_vat_numbers_parallel
-                # : `_check_one()` ne fait que l'appel HTTP VIES, jamais de
-                # requête SQL). Les deux requêtes batch (_db_get_scope_batch /
-                # _db_get_global_batch) et les deux écritures batch
-                # (_db_set_scope_batch / _db_set_global_batch) tournent toutes
-                # sur le thread principal (script Streamlit, ou thread du job
-                # d'arrière-plan pour les gros fichiers — voir
-                # ui/background_calc.py), jamais concurremment entre elles.
-                # `cache_connection=False` payait donc un handshake TCP+TLS
-                # Supabase neuf (~2 s mesurés en prod, voir retour perf du
-                # 2026-08-02) à CHAQUE requête batch, pour rien : measuré à
-                # ~4-6 s perdus par calcul (ventes + avoirs). Comme pour
-                # auth.py/billing.py/ecb_rates.py, `threading.local()` isole
-                # déjà naturellement chaque thread — donc chaque run (et
-                # chaque job en arrière-plan, qui tourne dans SON propre
-                # thread) obtient sa propre connexion mise en cache, sans
-                # risque de partage entre utilisateurs ou entre threads.
-                pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
+            if not _schema_ready:
+                _schema_ready = True
                 _init_schema(pool)
-                _pool = pool
-    return _pool
+    return pool
 
 
 def close_idle_connections() -> None:
-    """Ferme la connexion mise en cache par thread pour ce module, si elle
+    """Ferme la connexion partagée mise en cache par ce thread, si elle
     existe. À appeler par app.py en tout début de run (voir app.py), avant
     même run_auth_flow(), pour qu'une connexion ne survive jamais plus
-    longtemps qu'un seul run — indispensable maintenant que ce module utilise
-    `cache_connection=True` comme auth.py/billing.py/ecb_rates.py (voir
-    _get_pool() ci-dessus pour la justification du changement)."""
-    global _pool
-    with _pool_lock:
-        if _pool is not None:
-            try:
-                _pool.closeall()
-            except Exception:
-                logger.debug("Fermeture de pool VIES ignorée (déjà invalide).", exc_info=True)
-            _pool = None
+    longtemps qu'un seul run. Délègue au pool partagé
+    (database.close_idle_connections) — idempotent si auth.py/billing.py/
+    ecb_rates.py l'ont déjà fermée dans ce run."""
+    _database_close_idle()
 
 
 def _init_schema(pool: "NonPoolingConnectionPool") -> None:

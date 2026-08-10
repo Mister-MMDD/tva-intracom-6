@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import sys
 from dataclasses import field
 from decimal import Decimal
 from typing import Any
@@ -102,7 +103,6 @@ class Sale:
 
     def __post_init__(self) -> None:
         # Nettoyage et normalisation
-        import sys
         object.__setattr__(self, "stock_country", sys.intern((self.stock_country or "").upper()))
         object.__setattr__(self, "buyer_country", sys.intern((self.buyer_country or "").upper()))
         object.__setattr__(self, "seller_country", sys.intern((self.seller_country or "FR").upper()))
@@ -160,7 +160,6 @@ class VatResult:
     note: str
 
     def __post_init__(self) -> None:
-        import sys
         object.__setattr__(self, "vat_country", sys.intern((self.vat_country or "").upper()))
 
 
@@ -217,7 +216,12 @@ class ViesValidationSummary:
     inconclusive_vat_details: list[dict[str, Any]] = field(default_factory=list)
     vat_to_display_ids: dict[str, list[str]] = field(default_factory=dict)
     reclassifications: list[ViesReclassification] = field(default_factory=list)
-    vies_affected_sale_ids: set[int] = field(default_factory=set)
+    # Type réel : set[tuple[str, Decimal]] — clés produites par engine._sale_key()
+    # (sale_id, amount_ht). L'annotation `set[int]` était incorrecte avant ce
+    # correctif (aucun impact fonctionnel : pydantic ne valide qu'à la
+    # construction, et le set démarre vide — mais gardait une trace trompeuse
+    # pour quiconique relirait ce modèle).
+    vies_affected_sale_ids: set[tuple[str, Decimal]] = field(default_factory=set)
 
     @property
     def total_valid(self) -> int: return self.valid_count
