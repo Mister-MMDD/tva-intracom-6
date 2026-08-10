@@ -17,6 +17,7 @@ import pandas as pd
 import streamlit as st
 
 from tva_intracom.i18n import _
+from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.models import Channel
 from tva_intracom.oss_export import aggregate_oss_results
 from tva_intracom.ui.formatting import _country_label, _gated_preview_table, _money_col, \
@@ -26,7 +27,7 @@ from tva_intracom.ui.tabs.context import TabContext
 _ZERO = Decimal("0.00")
 
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _aggregate_declarations_raw(_results: list, _refund_results: list, calc_key) -> dict:
     """Agrégats bruts (Decimal, clés de code pays non traduites) pour les
     lignes CA3 domestique / IOSS / DDP / Fiscal local du récapitulatif.

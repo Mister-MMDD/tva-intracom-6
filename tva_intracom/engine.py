@@ -35,6 +35,8 @@ from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
 
+_NOTE_INTERN_CACHE: dict[str, str] = {}
+
 def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
     """Texte de VatResult.note.
 
@@ -43,11 +45,27 @@ def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
     
     IMPORTANT : 'lang' doit être passé explicitement pour éviter les appels 
     à st.session_state dans les threads d'arrière-plan.
+
+    Le texte final est passé par un cache d'interning (`_NOTE_INTERN_CACHE`) :
+    sur un fichier de 100k lignes, il n'existe en réalité qu'un nombre
+    restreint de combinaisons (pays de destination × taux × scénario), donc
+    la même chaîne est reconstruite des dizaines de milliers de fois par des
+    f-strings (jamais internées automatiquement par CPython, contrairement
+    aux littéraux). `dict.setdefault` renvoie la première instance vue pour
+    un texte donné, permettant à toutes les occurrences ultérieures de
+    partager le même objet str en mémoire plutôt que d'en allouer un
+    nouveau. `setdefault` sur un dict est atomique au niveau bytecode
+    (protégé par le GIL) : sûr même appelé depuis le thread de calcul
+    d'arrière-plan (voir background_calc.py). Le nombre de clés distinctes
+    reste borné par la combinatoire des scénarios fiscaux, pas par le
+    nombre de ventes — pas besoin d'éviction.
     """
     if lang == "fr":
-        return fr_text
-    from .i18n import _ as _i18n
-    return _i18n(key, lang=lang, **kwargs)
+        _text = fr_text
+    else:
+        from .i18n import _ as _i18n
+        _text = _i18n(key, lang=lang, **kwargs)
+    return _NOTE_INTERN_CACHE.setdefault(_text, _text)
 
 
 def _resolve_lang() -> str:
@@ -629,12 +647,36 @@ def _run_oss_loop(
         currency: str = "EUR",
         symbol: str = "€",
         ioss_own_number_active: bool = False,
-) -> tuple[list[VatResult], OssThresholdSummary]:
-    """Boucle chronologique OSS."""
+) -> tuple[list[VatResult], list[VatResult], OssThresholdSummary]:
+    """Boucle chronologique OSS.
+
+    Traite ventes ET avoirs en une seule passe (voir compute_all_with_vies).
+    Deux cumuls OSS distincts sont suivis, comme avant la fusion des deux
+    appels :
+      - `cumulative_oss_ht` : cumul NET partagé ventes+avoirs (un avoir
+        réduit le cumul), reset annuel commun. C'est lui qui alimente
+        `oss_summary` (seuil net, art. 59 ter) ET la note des VENTES —
+        comportement identique à l'ancien premier appel.
+      - `refund_cumulative_oss_ht` : cumul recalculé sur les avoirs SEULS
+        (reset annuel indépendant, repart de 0), utilisé uniquement pour
+        construire la note/le résultat des AVOIRS — reproduit à l'identique
+        le comportement de l'ancien second appel dédié
+        `compute_all_with_vies(refunds, ...)`, qui traitait les avoirs comme
+        une liste de "ventes" indépendante. Il n'alimente jamais
+        `oss_summary`.
+    """
     results: list[VatResult] = []
+    refund_results: list[VatResult] = []
     cumulative_oss_ht = Decimal("0.00")
     current_year = ""
     oss_ht_by_year: dict[str, Decimal] = {}
+
+    # Cumul indépendant pour la note des avoirs (mêmes règles de reset
+    # annuel que ci-dessus, mais jamais mélangé au cumul net ci-dessus ni
+    # à oss_summary).
+    refund_cumulative_oss_ht = Decimal("0.00")
+    refund_current_year = ""
+    refund_oss_ht_by_year: dict[str, Decimal] = {}
 
     # On utilise les paramètres passés plutôt que _resolve_lang() pour le thread-safety
     _lang = lang
@@ -653,6 +695,12 @@ def _run_oss_loop(
                 oss_ht_by_year[current_year] = cumulative_oss_ht
             current_year = year
             cumulative_oss_ht = oss_ht_by_year.get(year, Decimal("0.00"))
+        if is_from_refunds:
+            if year and year != refund_current_year:
+                if refund_current_year:
+                    refund_oss_ht_by_year[refund_current_year] = refund_cumulative_oss_ht
+                refund_current_year = year
+                refund_cumulative_oss_ht = refund_oss_ht_by_year.get(year, Decimal("0.00"))
 
         effective_sale = (
             effective_sale_fn(sale, product_category)
@@ -664,6 +712,8 @@ def _run_oss_loop(
                           ioss_own_number_active=ioss_own_number_active)
 
         if _oss_eligible(effective_sale):
+            # Cumul net partagé (ventes+avoirs) — inchangé par rapport à
+            # l'ancien premier appel : un avoir réduit bien le seuil net.
             cumulative_oss_ht += effective_sale.amount_ht
             if not is_from_refunds:
                 res = _build_oss_note(
@@ -671,19 +721,30 @@ def _run_oss_loop(
                     effective_sale, product_category, apply_fr_under_threshold,
                     lang=_lang, currency=currency, symbol=symbol
                 )
+            else:
+                refund_cumulative_oss_ht += effective_sale.amount_ht
+                res = _build_oss_note(
+                    res, refund_cumulative_oss_ht, Decimal("10000.00"),
+                    effective_sale, product_category, apply_fr_under_threshold,
+                    lang=_lang, currency=currency, symbol=symbol
+                )
 
         if not is_from_refunds:
             results.append(res)
+        else:
+            refund_results.append(res)
 
     if current_year:
         oss_ht_by_year[current_year] = cumulative_oss_ht
+    if refund_current_year:
+        refund_oss_ht_by_year[refund_current_year] = refund_cumulative_oss_ht
 
     oss_summary = OssThresholdSummary(
         total_oss_ht=cumulative_oss_ht,
         is_threshold_exceeded=any(v > Decimal("10000.00") for v in oss_ht_by_year.values()),
         oss_ht_by_year=oss_ht_by_year,
     )
-    return results, oss_summary
+    return results, refund_results, oss_summary
 
 
 def compute_all_with_vies(
@@ -700,8 +761,15 @@ def compute_all_with_vies(
         currency: str = "EUR",
         symbol: str = "€",
         ioss_own_number_active: bool = False,
-) -> tuple[list[VatResult], ViesValidationSummary, OssThresholdSummary]:
+) -> tuple[list[VatResult], list[VatResult], ViesValidationSummary, OssThresholdSummary]:
     """Calcule la TVA avec validation VIES en gérant le seuil de 10 000 € OSS.
+
+    Traite ventes ET avoirs (`refunds`) en une seule passe interne (tri
+    chronologique, normalisation TVA, lookup VIES, boucle OSS) — retourne
+    directement les deux listes de résultats séparément. Auparavant,
+    l'appelant devait faire un second appel complet avec `refunds` en tant
+    que `sales` pour obtenir les résultats des avoirs ; ce n'est plus
+    nécessaire et ce chemin ne doit plus être utilisé (voir app.py).
 
     Args:
         scope_id: portée de cache VIES du compte appelant (voir
@@ -1004,7 +1072,7 @@ def compute_all_with_vies(
 
     _lang, _curr, _sym = lang, currency, symbol
 
-    results, oss_summary = _run_oss_loop(
+    results, refund_results, oss_summary = _run_oss_loop(
         all_items_sorted, refund_keys, marketplace_name,
         asin_to_category, apply_fr_under_threshold,
         effective_sale_fn=_effective_sale_with_vies,
@@ -1049,4 +1117,4 @@ def compute_all_with_vies(
             is_national_tax_id=reclass.is_national_tax_id,
         )
 
-    return results, vies_summary, oss_summary
+    return results, refund_results, vies_summary, oss_summary

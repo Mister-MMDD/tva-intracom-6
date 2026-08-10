@@ -893,7 +893,60 @@ restent :
   (moteur fiscal) ; jugé trop risqué pour un gain marginal (coût ponctuel
   par changement de devise, pas par rerun) — laissé tel quel.
 
-### Correctifs & Expérience Utilisateur
+### Optimisations perf — audit calcul avoirs & réactivité UI (2026-08, suite)
+Audit externe ciblé sur trois pistes (latence CPU du calcul, RAM, réactivité
+UI) — deux corrigées avec gain réel mesuré, une écartée après vérification
+(le diagnostic initial la surestimait) :
+
+- **Double calcul des avoirs (`engine.py` / `app.py` / `cli.py`)** :
+  `compute_all_with_vies()` était appelé deux fois par calcul — une fois
+  pour les ventes (avec les avoirs passés en paramètre pour le seuil OSS
+  net), une seconde fois pour les avoirs seuls, refaisant intégralement le
+  tri chronologique, la normalisation TVA et le lookup VIES déjà effectués
+  en interne par le premier appel (`_run_oss_loop` calculait déjà le
+  `VatResult` de chaque avoir puis le jetait). `_run_oss_loop` et
+  `compute_all_with_vies()` retournent désormais `(results,
+  refund_results, vies_summary, oss_summary)` en un seul passage — le
+  second appel dédié aux avoirs est supprimé côté `app.py` et `cli.py`.
+  Deux cumuls OSS distincts sont maintenus en interne pour préserver
+  exactement le comportement fiscal existant : le cumul net partagé
+  ventes+avoirs (seuil affiché, notes des ventes) et un cumul recalculé
+  sur les avoirs seuls (bascule domestique d'un avoir sous le seuil, comme
+  avant). Non-régression vérifiée par comparaison bit-à-bit
+  ancien/nouveau chemin sur un cas déclenchant la bascule, + suite de
+  tests complète (165/169, les 4 échecs restants préexistants et sans
+  rapport — VIES DB indisponible en environnement de test, casse
+  `"amazon"`/`"Amazon"` dans un parser).
+- **Recompression gzip de l'upload à chaque rerun (`app.py`)** : les octets
+  uploadés (mis en cache compressés, voir plus haut) étaient recompressés
+  (`gzip.compress`) à *chaque* rerun Streamlit tant que les fichiers
+  restaient dans le widget — pas seulement au premier upload. Une
+  signature `{nom: taille}` est maintenant comparée à celle déjà en cache
+  avant de relancer la compression ; skip si identique (même convention de
+  déduplication `(name, size)` qu'ailleurs dans ce bloc).
+- **Interning des notes (`engine.py::_note`)** : le texte de
+  `VatResult.note` (référence légale, taux, pays — souvent identique
+  pour des milliers de lignes partageant le même scénario fiscal) est
+  construit par f-string, jamais interné automatiquement par CPython
+  (contrairement aux littéraux). Un cache `_NOTE_INTERN_CACHE`
+  (`dict.setdefault`, sûr sous GIL y compris depuis le thread de calcul
+  d'arrière-plan) fait partager le même objet `str` à toutes les
+  occurrences d'un texte identique. Vérifié : 5000 résultats identiques →
+  1 seul objet `str` en mémoire pour `.note` (contre 5000 avant).
+  Distinct de l'internage `sys.intern()` déjà en place sur les codes
+  pays/devises/catégories (champs courts) — ici le texte est long et
+  variable, d'où un cache dédié plutôt que `sys.intern()`.
+- **Triple stockage en session (écarté)** : un audit externe pointait
+  `all_sales`/`results`/`refund_results` référencés à la fois dans
+  `st.session_state` et dans `TabContext` comme une duplication mémoire
+  de "centaines de Mo" sur 100k lignes. Vérifié : ce sont des références
+  Python vers les mêmes objets (pas de copie), le coût réel est de
+  l'ordre de quelques Mo (conteneurs de pointeurs), et `TabContext.all_sales`
+  est un besoin fonctionnel réel (lu par l'onglet Audit, `@st.fragment`
+  séparé, sans accès direct à la variable locale de `app.py`). Rien
+  changé — le retirer aurait cassé l'onglet Audit pour un gain nul.
+
+
 - **Persistance de l'upload** : Correction d'un bug où le changement de langue supprimait les fichiers chargés (stabilisation de l'identité du widget `st.file_uploader` via une clé explicite `main_file_uploader` indépendante du label traduit).
 - **Certificat VIES** : Ajout d'une option de génération de certificat PDF global directement dans la sidebar, basée sur un snapshot complet du scope.
 - **Rendu des onglets** : Correction d'un blocage d'affichage lors du changement de pays d'origine (suppression d'un `st.rerun()` forcé qui interrompait le script avant le rendu).

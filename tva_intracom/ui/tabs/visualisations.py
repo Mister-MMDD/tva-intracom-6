@@ -13,12 +13,13 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from tva_intracom.i18n import _
+from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.rates import COUNTRY_ISO3
 from tva_intracom.ui.formatting import _country_label, _get_conversion_rate
 from tva_intracom.ui.tabs.context import TabContext
 
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _aggregate_viz_raw(_results: list, _refund_results: list, calc_key) -> dict:
     """Agrégats bruts (EUR, clés fixes non traduites) pour l'évolution
     mensuelle et la répartition par scénario de l'onglet Visualisations.
@@ -112,7 +113,7 @@ def _aggregate_viz_raw(_results: list, _refund_results: list, calc_key) -> dict:
 # ment inclus dans la clé de cache de chaque fonction.
 # ─────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _build_fig_bar(
     viz_data_by_country: dict, vat_net_by_country: dict,
     rate: float, currency_symbol: str, lang: str, calc_key=None,
@@ -165,7 +166,7 @@ def _build_fig_bar(
     return fig_bar
 
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _build_fig_pie(
     total_you_owe: float, amazon_vat: float, import_vat: float,
     rate: float, currency_symbol: str, platform_name: str, lang: str, calc_key=None,
@@ -189,7 +190,7 @@ def _build_fig_pie(
     return fig_pie
 
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _build_fig_map(vat_net_by_country: dict, rate: float, lang: str, calc_key=None) -> "go.Figure | None":
     """Construit la carte choroplèthe Europe."""
     map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt * rate}
@@ -227,7 +228,7 @@ def _build_fig_map(vat_net_by_country: dict, rate: float, lang: str, calc_key=No
     return fig_map
 
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _build_fig_time_scen(
     monthly_records: tuple, scen_data: tuple, scen_ht: dict,
     rate: float, currency_symbol: str, lang: str, calc_key=None,

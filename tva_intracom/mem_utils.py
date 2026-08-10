@@ -29,6 +29,55 @@ _jemalloc = None
 _load_attempted = False
 
 
+# ---------------------------------------------------------------------------
+# Registre auto-déclaratif des caches @st.cache_data "lourds"
+# ---------------------------------------------------------------------------
+#
+# Avant : release_memory() maintenait à la main une liste d'imports
+# (_parse_catalog_bytes, _aggregate_viz_raw, ...) qu'il fallait penser à
+# mettre à jour à chaque nouvel onglet/cache lourd ajouté ailleurs dans le
+# code -- un oubli = fuite mémoire silencieuse en prod (le cache reste vivant
+# process-wide jusqu'à expiration du ttl=1800s, ou indéfiniment si aucun ttl
+# n'est fixé).
+#
+# Maintenant : `heavy_cache_data` remplace `st.cache_data` à l'endroit où la
+# fonction est définie. Le décorateur s'auto-enregistre dans
+# `_HEAVY_CACHE_REGISTRY` au moment de l'import du module qui le définit --
+# release_memory() n'a donc plus besoin de connaître la liste des fonctions
+# concernées ni de les importer une par une : il lui suffit d'itérer le
+# registre. Un nouveau cache lourd est nettoyé automatiquement dès lors
+# qu'il utilise `@heavy_cache_data(...)` au lieu de `@st.cache_data(...)`.
+_HEAVY_CACHE_REGISTRY: list = []
+
+
+def heavy_cache_data(*args, **kwargs):
+    """Remplace `st.cache_data` pour les caches lourds en RAM (agrégats de
+    graphiques, DataFrames de détail, parsing de catalogues...).
+
+    Usage identique à `st.cache_data` :
+
+        @heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
+        def _aggregate_viz_raw(...): ...
+
+    La fonction décorée est automatiquement ajoutée à `_HEAVY_CACHE_REGISTRY`
+    et sera donc vidée par `release_memory()`, sans modification requise
+    dans ce fichier.
+
+    Import de `streamlit` fait ici (et non en tête de module) : `mem_utils`
+    ne doit pas devenir indisponible si jamais il finissait importé depuis un
+    contexte sans Streamlit (voir la règle équivalente déjà appliquée à
+    d'autres modules du projet pour Vercel/serverless).
+    """
+    import streamlit as st
+
+    def _decorator(func):
+        cached_func = st.cache_data(*args, **kwargs)(func)
+        _HEAVY_CACHE_REGISTRY.append(cached_func)
+        return cached_func
+
+    return _decorator
+
+
 def _get_libs():
     """Charge les bibliothèques système (paresseux)."""
     global _libc, _jemalloc, _load_attempted
@@ -72,44 +121,38 @@ def release_memory() -> None:
     # est appelée à ce moment-là), déclenchant une rafale d'appels Stripe à
     # chaque rerun. Constaté en prod le 02/08/2026 : on cible maintenant
     # explicitement les seules fonctions réellement lourdes en RAM.
-    _heavy_caches = []
-    try:
-        from .ui.sidebar import _parse_catalog_bytes
-        _heavy_caches.append(_parse_catalog_bytes)
-    except Exception:
-        pass
-    try:
-        from .ui.tabs.visualisations import (
-            _aggregate_viz_raw, _build_fig_bar, _build_fig_pie,
-            _build_fig_map, _build_fig_time_scen,
-        )
-        _heavy_caches += [_aggregate_viz_raw, _build_fig_bar, _build_fig_pie, _build_fig_map, _build_fig_time_scen]
-    except Exception:
-        pass
-    try:
-        from .ui.tabs.detail_ventes import _build_rows_df
-        _heavy_caches.append(_build_rows_df)
-    except Exception:
-        pass
-    try:
-        from .ui.tabs.declarations import _aggregate_declarations_raw
-        _heavy_caches.append(_aggregate_declarations_raw)
-    except Exception:
-        pass
-    try:
-        from .ui.tabs.audit import _aggregate_fba_local_sales
-        _heavy_caches.append(_aggregate_fba_local_sales)
-    except Exception:
-        pass
+    # Importe les modules définissant des caches lourds pour garantir que
+    # leurs décorateurs `@heavy_cache_data` se sont bien exécutés (donc
+    # enregistrés dans _HEAVY_CACHE_REGISTRY) au moins une fois, même si
+    # l'utilisateur n'a pas encore visité l'onglet correspondant pendant
+    # cette session. Si un onglet n'a jamais été importé, son cache n'a de
+    # toute façon aucune entrée à vider -- l'import ci-dessous est donc une
+    # simple garantie, pas une liste à tenir à jour manuellement : ajouter
+    # un nouveau module ici est optionnel, contrairement à l'ancienne liste
+    # de fonctions qui, elle, était obligatoire.
+    for _mod in (
+        "tva_intracom.ui.sidebar",
+        "tva_intracom.ui.tabs.visualisations",
+        "tva_intracom.ui.tabs.declarations",
+        "tva_intracom.ui.tabs.detail_ventes",
+        "tva_intracom.ui.tabs.audit",
+    ):
+        try:
+            __import__(_mod)
+        except Exception:
+            pass
 
     _cleared = 0
-    for _fn in _heavy_caches:
+    for _fn in _HEAVY_CACHE_REGISTRY:
         try:
             _fn.clear()
             _cleared += 1
         except Exception:
             pass
-    logger.info(f"Mémoire : {_cleared}/{len(_heavy_caches)} cache(s) @st.cache_data lourd(s) vidé(s) (caches billing/Stripe préservés).")
+    logger.info(
+        f"Mémoire : {_cleared}/{len(_HEAVY_CACHE_REGISTRY)} cache(s) @heavy_cache_data "
+        "vidé(s) (caches billing/Stripe préservés)."
+    )
 
     # 2. Vide les caches de traduction
     try:

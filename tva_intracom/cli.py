@@ -172,19 +172,18 @@ def main(argv: List[str] | None = None) -> int:
     # avec les scopes utilisateur/domaine de l'application web.
     _CLI_VIES_SCOPE_ID = "cli:local"
 
-    results, vies_summary, oss_summary = compute_all_with_vies(
-        sales, scope_id=_CLI_VIES_SCOPE_ID, refunds=refunds if refunds else None
+    # NOTE : l'appel ci-dessous traite ventes ET avoirs en une seule passe
+    # (voir compute_all_with_vies / _run_oss_loop) — le second appel dedie
+    # aux avoirs a ete supprime, il recalculait tout de zero pour rien.
+    # marketplace_name=platform s'applique desormais uniformement aux
+    # ventes et aux avoirs (l'ancien code utilisait "Amazon" par defaut
+    # pour les ventes mais `platform` pour les avoirs -- incoherence
+    # corrigee au passage, sans impact si platform == "Amazon", ce qui est
+    # le cas standard en CLI).
+    results, refund_results, vies_summary, oss_summary = compute_all_with_vies(
+        sales, scope_id=_CLI_VIES_SCOPE_ID, refunds=refunds if refunds else None,
+        marketplace_name=platform or "Amazon",
     )
-
-    # Recalcul des avoirs avec marketplace_name pour appliquer les bons taux reduits.
-    # asin_to_category indisponible en CLI : categories portees par le parser (product_category).
-    # VIES obligatoire aussi sur les avoirs (plus de distinction avec le calcul
-    # principal).
-    refund_results = compute_all_with_vies(
-        refunds,
-        scope_id=_CLI_VIES_SCOPE_ID,
-        marketplace_name=platform or "",
-    )[0] if refunds else []
 
     if args.details:
         print(render_details(results))

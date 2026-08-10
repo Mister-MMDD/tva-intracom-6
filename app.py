@@ -256,10 +256,23 @@ if uploaded_files:
         st.error(_("files_too_large_error", files=", ".join(f"`{n}`" for n in _OVERSIZED), max_mb=100))
         st.stop()
 
-    st.session_state["_last_uploaded_files_bytes"] = {
-        f.name: (gzip.compress(f.getvalue(), compresslevel=6), f.size)
-        for f in uploaded_files
+    # On ne recompresse que si le jeu de fichiers a réellement changé
+    # (nom + taille). Sans cette garde, Streamlit ré-exécute tout le script
+    # à chaque interaction (changement d'onglet, filtre, curseur...) tant
+    # que les fichiers restent dans le widget, et ce bloc gzip.compress()
+    # (coûteux en CPU sur de gros fichiers) tournait donc à chaque rerun
+    # pour rien, alors que le contenu déjà en cache est strictement
+    # identique la plupart du temps.
+    _new_signature = {f.name: f.size for f in uploaded_files}
+    _cached = st.session_state.get("_last_uploaded_files_bytes")
+    _cached_signature = {
+        _name: _size for _name, (_c, _size) in (_cached or {}).items()
     }
+    if _cached is None or _new_signature != _cached_signature:
+        st.session_state["_last_uploaded_files_bytes"] = {
+            f.name: (gzip.compress(f.getvalue(), compresslevel=6), f.size)
+            for f in uploaded_files
+        }
 elif _preserve_upload_this_run and st.session_state.get("_last_uploaded_files_bytes"):
     uploaded_files = [
         _CachedUploadedFile(_name, _compressed, _size)
@@ -565,7 +578,17 @@ if uploaded_files:
                         return
                     report(min(done / total, 0.85), _("calc_progress_vies_count", lang=_lang_for_thread, done=done, total=total))
 
-                _results, _vies_summary, _oss_summary = compute_all_with_vies(
+                # Ventes ET avoirs sont désormais calculés en un seul appel
+                # (voir compute_all_with_vies / _run_oss_loop dans engine.py) :
+                # le second appel dédié aux avoirs, qui refaisait entièrement
+                # le tri chronologique, la normalisation TVA et le lookup
+                # VIES pour rien (déjà fait en interne par le premier appel),
+                # a été supprimé. asin_to_category et apply_fr_under_threshold
+                # sont toujours transmis pour les mêmes raisons qu'avant (voir
+                # historique) : sans eux, un avoir retomberait sur la
+                # catégorie STANDARD et/ou ne matcherait pas le régime de la
+                # vente d'origine.
+                _results, _refund_results, _vies_summary, _oss_summary = compute_all_with_vies(
                     sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
                     on_invalid=on_invalid_behavior, marketplace_name=platform_name,
                     apply_fr_under_threshold=apply_fr_under_threshold,
@@ -575,20 +598,6 @@ if uploaded_files:
                     ioss_own_number_active=ioss_own_number_active)
 
                 report(0.9, _("calc_progress_vat", lang=_lang_for_thread))
-                # VIES obligatoire aussi sur les avoirs. On repasse asin_to_category
-                # et apply_fr_under_threshold : sans eux, un avoir retombe sur la
-                # catégorie STANDARD (taux potentiellement différent du produit
-                # réellement remboursé) et sur le régime OSS destination même si
-                # la vente d'origine a été calculée en régime domestique FR sous
-                # le seuil OSS — l'avoir ne matcherait alors ni le taux ni le pays
-                # de TVA de la vente qu'il est censé annuler.
-                _refund_results = compute_all_with_vies(
-                    refunds, scope_id=_vies_scope_id, marketplace_name=platform_name,
-                    asin_to_category=asin_to_category,
-                    apply_fr_under_threshold=apply_fr_under_threshold,
-                    lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
-                    ioss_own_number_active=ioss_own_number_active,
-                )[0] if refunds else []
                 _summary = build_report(_results, refund_results=_refund_results or None, lang=_lang_for_thread)
                 report(1.0, "")
                 return _results, _vies_summary, _oss_summary, _refund_results, _summary

@@ -75,7 +75,7 @@ def test_oss_threshold_exactly_10000():
     ]
     
     # Sans option "apply_fr_under_threshold", tout est en OSS destination
-    res_no_opt, _vies_no_opt, summary_no_opt = compute_all_with_vies(
+    res_no_opt, _refund_no_opt, _vies_no_opt, summary_no_opt = compute_all_with_vies(
         sales, scope_id="test", apply_fr_under_threshold=False)
     assert summary_no_opt.is_threshold_exceeded is True # 10000.01 > 10000
     assert res_no_opt[0].vat_country == "DE"
@@ -83,7 +83,7 @@ def test_oss_threshold_exactly_10000():
     assert res_no_opt[2].vat_country == "ES"
 
     # Avec option "apply_fr_under_threshold"
-    res_opt, _vies_opt, summary_opt = compute_all_with_vies(
+    res_opt, _refund_opt, _vies_opt, summary_opt = compute_all_with_vies(
         sales, scope_id="test", apply_fr_under_threshold=True)
     # S1 (9000) <= 10000 -> FR
     assert res_opt[0].vat_country == "FR"
@@ -102,7 +102,7 @@ def test_oss_threshold_multi_year():
         make_sale(sale_id="2024-1", amount_ht=Decimal("2000.00"), buyer_country="IT", transaction_date="2024-01-01"),
     ]
     
-    res, _vies_summary, summary = compute_all_with_vies(
+    res, _refund_res, _vies_summary, summary = compute_all_with_vies(
         sales, scope_id="test", apply_fr_under_threshold=True)
     
     assert summary.is_threshold_exceeded is False
@@ -123,7 +123,7 @@ def test_oss_returns_impact():
     # Vente suivante de 1000€ -> cumul remonte à 9500€ (toujours sous le seuil)
     sales.append(make_sale(sale_id="S2", amount_ht=Decimal("1000.00"), buyer_country="IT", transaction_date="2024-01-03"))
     
-    res, _vies_summary, summary = compute_all_with_vies(
+    res, _refund_res, _vies_summary, summary = compute_all_with_vies(
         sales, scope_id="test", refunds=refunds, apply_fr_under_threshold=True)
     
     assert summary.is_threshold_exceeded is False
@@ -141,7 +141,7 @@ def test_oss_returns_different_years():
         make_sale(sale_id="R1", amount_ht=Decimal("-5000.00"), buyer_country="DE", transaction_date="2024-01-01"),
     ]
     
-    res, _vies_summary, summary = compute_all_with_vies(
+    res, _refund_res, _vies_summary, summary = compute_all_with_vies(
         sales, scope_id="test", refunds=refunds, apply_fr_under_threshold=True)
     
     # En 2023, le seuil a été dépassé (12000 > 10000)

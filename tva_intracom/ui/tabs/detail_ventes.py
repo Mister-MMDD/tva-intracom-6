@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from tva_intracom.i18n import _
+from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.ui.formatting import _fmt, _gated_preview_table, _smart_money_df, \
     _render_filter_bar
 from tva_intracom.ui.tabs.context import TabContext
@@ -60,7 +61,7 @@ def _orig_currency_cols(r, target_currency: str) -> tuple[str, object]:
 # boucle Python ligne par ligne qu'elles remplacent.
 # ─────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _build_rows_df(_results: list, target_currency: str, calc_key, label: str) -> pd.DataFrame:
     """Construit le DataFrame brut (une ligne par vente, clés fixes non
     traduites) pour un ensemble de `VatResult` donné (ventes ou

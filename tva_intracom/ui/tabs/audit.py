@@ -12,12 +12,13 @@ import pandas as pd
 import streamlit as st
 
 from tva_intracom.i18n import _
+from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _render_filter_bar, \
     _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _aggregate_fba_local_sales(_all_sales: list, calc_key) -> dict:
     """Agrège les ventes locales hors pays d'origine (stock == destination,
     hors FR) par pays de stock : nombre de ventes + HT total.

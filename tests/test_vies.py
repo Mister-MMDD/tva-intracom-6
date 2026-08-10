@@ -99,7 +99,7 @@ def test_compute_all_with_vies_reclassifies_invalid(mock_check):
             buyer_vat_number="DE000000000",
         ),
     ]
-    results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")
+    results, _refund_results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")
     assert len(results) == 1
     r = results[0]
     # Reclassifie en B2C -> OSS (pas reverse charge).
@@ -130,7 +130,7 @@ def test_compute_all_with_vies_valid_number(mock_check):
             buyer_vat_number="DE123456789",
         ),
     ]
-    results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")
+    results, _refund_results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")
     assert len(results) == 1
     r = results[0]
     assert r.scenario == Scenario.B2B_REVERSE_CHARGE

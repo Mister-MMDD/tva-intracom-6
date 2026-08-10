@@ -34,6 +34,7 @@ from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom import billing as tva_billing
 from tva_intracom.i18n import _
+from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.rates import EU_COUNTRIES, COUNTRY_NAMES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
     oss_threshold_in_currency
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
@@ -303,7 +304,7 @@ def _edit_siren_form_fragment(
 _MAX_CATALOG_MB = 100
 
 
-@st.cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
     """Parse un catalogue ASIN → catégorie fiscale depuis son contenu brut.
 
