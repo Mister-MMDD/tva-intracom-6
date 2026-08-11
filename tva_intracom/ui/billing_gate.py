@@ -37,10 +37,9 @@ from typing import Any, Optional
 import streamlit as st
 
 from tva_intracom import billing as tva_billing
-from tva_intracom.i18n import _
+from tva_intracom.i18n import _, country_label
 from tva_intracom.models import Channel
 from tva_intracom.rates import is_eu
-from tva_intracom.ui.formatting import _country_label
 from tva_intracom.ui.sidebar import _cached_db_read
 from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
 
@@ -379,7 +378,7 @@ def build_billing_gate(
 
     for _ccode in sorted(required_local_vats):
         if _ccode and _ccode != home_country and not local_vat_numbers.get(_ccode):
-            missing_vats.append(f"{_country_label(_ccode)} ({_ccode})")
+            missing_vats.append(f"{country_label(_ccode)} ({_ccode})")
 
     _has_ioss_vendeur = any(r.channel == Channel.IOSS for r in results)
     ioss_missing = _has_ioss_vendeur and not ioss_number.strip()

@@ -323,6 +323,7 @@ def render_report(summary: ReportSummary, seller_country: str = "FR") -> str:
     """
     from .rates import COUNTRY_CURRENCIES
     from . import ecb_rates
+    from .i18n import country_label
     from datetime import date as _date
 
     currency = COUNTRY_CURRENCIES.get((seller_country or "FR").upper(), "EUR")
@@ -373,30 +374,34 @@ def render_report(summary: ReportSummary, seller_country: str = "FR") -> str:
 
     lines.append("--- Ce que VOUS devez reverser (net remboursements) ---")
 
-    home_label = "Fisc francais - TVA domestique (CA3)" if seller_country == "FR" else f"Fisc {seller_country} - TVA domestique"
+    _sc_label = country_label(seller_country)
+    if (seller_country or "FR").upper() == "FR":
+        home_label = f"Fisc {_sc_label} - TVA domestique (CA3)"
+    else:
+        home_label = f"Fisc {_sc_label} - TVA domestique"
     lines.append(f"{home_label} : {_f(summary.net_fr_domestic_vat)}")
 
     if summary.refund_fr_domestic_vat:
         lines.append(f"    dont remboursements : {_f(summary.refund_fr_domestic_vat)}")
 
     lines.append(
-        f"Fisc {seller_country if seller_country != 'FR' else 'francais'} - via guichet OSS (TVA pays destination) : "
+        f"Fisc {country_label(seller_country)} - via guichet OSS (TVA pays destination) : "
         f"{_f(summary.net_oss_total)}"
     )
     for country in sorted(summary.net_oss_by_country):
         net = summary.net_oss_by_country[country]
         refund = summary.refund_oss_by_country.get(country, _ZERO)
         suffix = f" (dont remboursements : {_f(refund)})" if refund else ""
-        lines.append(f"    dont {country} : {_f(net)}{suffix}")
+        lines.append(f"    dont {country_label(country)} : {_f(net)}{suffix}")
 
     if summary.ioss_vat:
-        lines.append(f"Fisc francais - via guichet IOSS (Import vendeur) : {_f(summary.ioss_vat)}")
+        lines.append(f"Fisc {country_label(seller_country)} - via guichet IOSS (Import vendeur) : {_f(summary.ioss_vat)}")
 
     if summary.net_local_by_country:
         lines.append("Fisc locaux - immatriculation TVA requise :")
         for country in sorted(summary.net_local_by_country):
             lines.append(
-                f"    {country} : {_f(summary.net_local_by_country[country])}"
+                f"    {country_label(country)} : {_f(summary.net_local_by_country[country])}"
             )
     else:
         lines.append("Fisc locaux - immatriculation TVA requise : aucune")

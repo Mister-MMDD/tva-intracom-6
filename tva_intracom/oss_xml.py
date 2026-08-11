@@ -80,10 +80,10 @@ def validate_oss_xml(xml_bytes: bytes, xsd_path: str | Path | None = None) -> tu
         return False, _("xml_validation_failed", msgs=" | ".join(err_msgs))
 
 from tva_intracom.models import VatResult
-from tva_intracom.i18n import _
+from tva_intracom.i18n import _, country_label
 from tva_intracom.rates import STANDARD_VAT_RATES, is_eu
 from tva_intracom.oss_export import (
-    aggregate_oss_results, find_oss_negative_buckets, COUNTRY_NAMES,
+    aggregate_oss_results, find_oss_negative_buckets,
     suggest_negative_bucket_corrections, NegativeBucketSuggestion,
 )
 
@@ -229,8 +229,8 @@ def generate_oss_xml(
                     matching_txt = _("xml_matching_none")
                 
                 details_list.append(_("xml_negative_detail_line", 
-                                      dep=COUNTRY_NAMES.get(b.bucket.departure, b.bucket.departure),
-                                      arr=COUNTRY_NAMES.get(b.bucket.arrival, b.bucket.arrival),
+                                      dep=country_label(b.bucket.departure),
+                                      arr=country_label(b.bucket.arrival),
                                       rate=b.bucket.vat_rate,
                                       ht=b.bucket.base_ht,
                                       tva=b.bucket.vat_amount,

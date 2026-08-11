@@ -16,16 +16,14 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from . import ecb_rates
-from .i18n import _ as i18n_
+from .i18n import _ as i18n_, country_label
 from .models import VatResult
 from .oss_export import aggregate_oss_results
 from .parsers.amazon.detect import parse_date as _parse_amz_date
-from .rates import COUNTRY_NAMES, COUNTRY_CURRENCIES
+from .rates import COUNTRY_CURRENCIES
 from .report import ReportSummary, build_report
 
 logger = logging.getLogger(__name__)
-
-_COUNTRY_NAMES_XL = COUNTRY_NAMES
 
 _CENT = Decimal("0.01")
 
@@ -61,10 +59,9 @@ def _to_home_currency(amount: Decimal, currency_code: str, conv_date: _date) -> 
 
 # Noms complets des pays pour l'affichage dans Excel
 def _get_country_name(code: str) -> str:
-    # On pourrait traduire COUNTRY_NAMES ici via i18n si on voulait
-    # mais pour l'instant on garde la logique existante ou on utilise i18n
-    # On va privilégier COUNTRY_NAMES qui est déjà complet.
-    return COUNTRY_NAMES.get(code.upper(), code)
+    """Nom localisé du pays (clé i18n `country_XX`).
+    Remplace l'ancien dict COUNTRY_NAMES codé en dur en français."""
+    return country_label(code)
 
 _HEADER_FONT_WHITE = Font(bold=True, size=11, color="FFFFFF")
 _TITLE_FONT = Font(bold=True, size=12, color="1F497D")
@@ -1505,8 +1502,8 @@ def _write_fba_aic_tab(
             flux_totaux[(dep, arr)]["base"] += base_aic
             flux_totaux[(dep, arr)]["tva"]  += tva_aic
 
-            _dep_lbl = f"{_COUNTRY_NAMES_XL.get(dep, dep)} ({dep})"
-            _arr_lbl = f"{_COUNTRY_NAMES_XL.get(arr, arr)} ({arr})"
+            _dep_lbl = f"{_get_country_name(dep)} ({dep})"
+            _arr_lbl = f"{_get_country_name(arr)} ({arr})"
             _desc80 = designation[:80]
             _avg_f, _base_f, _taux_f, _tva_f = float(avg_price), float(base_aic), float(taux_arr), float(tva_aic)
             _vals = [_dep_lbl, _arr_lbl, asin, _desc80, qty, _avg_f, _base_f, _taux_f, _tva_f, statut]
@@ -1546,7 +1543,7 @@ def _write_fba_aic_tab(
             tva   = flux_totaux[(dep, arr)]["tva"]
             ref   = f"AIC art. 17 dir. 2006/112/CE — déclarer en TVA {arr}"
             action = f"Inclure {float(tva):,.2f} € en TVA {arr} (autodéclaration)"
-            _flow_lbl = f"{_COUNTRY_NAMES_XL.get(dep, dep)} → {_COUNTRY_NAMES_XL.get(arr, arr)}"
+            _flow_lbl = f"{_get_country_name(dep)} → {_get_country_name(arr)}"
             _base_f, _tva_f = float(base), float(tva)
             _vals_sub = [_flow_lbl, nb_t, nb_a, _base_f, _tva_f, ref, action]
             ws.append([
@@ -1595,8 +1592,8 @@ def _write_fba_aic_tab(
                 obs = f"LIC à déclarer côté {dep} (case exonérations)"
             else:
                 obs = f"Vérifier immatriculation {arr}"
-            _dep_lbl2 = f"{_COUNTRY_NAMES_XL.get(dep, dep)} ({dep})"
-            _arr_lbl2 = f"{_COUNTRY_NAMES_XL.get(arr, arr)} ({arr})"
+            _dep_lbl2 = f"{_get_country_name(dep)} ({dep})"
+            _arr_lbl2 = f"{_get_country_name(arr)} ({arr})"
             _vals_inact = [_dep_lbl2, _arr_lbl2, nb_t, nb_a, imm_dep, imm_arr, obs]
             ws.append([_wcell(ws, v) for v in _vals_inact])
             ws.row_dimensions[current_row].height = 18

@@ -15,7 +15,7 @@ import streamlit as st
 from datetime import datetime
 import pandas as pd
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
-from tva_intracom.i18n import _, init_i18n, language_selector
+from tva_intracom.i18n import _, init_i18n, language_selector, country_label
 
 # Initialisation I18N
 init_i18n()
@@ -43,7 +43,6 @@ from tva_intracom.rates import (
 
 from tva_intracom.ui.theme import apply_theme
 from tva_intracom.ui.formatting import (
-    _country_label,
     _fmt,
 )
 
@@ -812,11 +811,11 @@ if uploaded_files:
                         icons += "🛃 "
                         reasons.append(_("action_reason_ddp"))
 
-                    st.markdown(f"- **{_country_label(c)} ({c})** : {icons} — *Raison : {' + '.join(reasons)}*")
+                    st.markdown(f"- **{country_label(c)} ({c})** : {icons} — *Raison : {' + '.join(reasons)}*")
 
                 critical_blocking = [c for c in registration_needed if c in ["DE", home_country]]
                 if critical_blocking:
-                    _c_list = " et ".join(f"**{_country_label(c)} ({c})**" for c in sorted(critical_blocking))
+                    _c_list = " et ".join(f"**{country_label(c)} ({c})**" for c in sorted(critical_blocking))
                     st.warning(_("amazon_blocking_warning", countries=_c_list))
 
         # =====================================================================

@@ -61,6 +61,13 @@ def get_text(key: str, lang: str | None = None, **kwargs) -> str:
 
 _ = get_text
 
+def country_label(code: str, lang: str | None = None) -> str:
+    """Retourne le nom localisé du pays à partir de son code ISO (ex: FR -> France)."""
+    if not code:
+        return ""
+    _c = str(code).upper().strip()
+    return _(f"country_{_c}", lang=lang)
+
 def init_i18n():
     """Initialise la langue dans la session."""
     if "language" not in st.session_state:

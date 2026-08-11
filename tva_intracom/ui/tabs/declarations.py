@@ -16,11 +16,11 @@ from decimal import Decimal
 import pandas as pd
 import streamlit as st
 
-from tva_intracom.i18n import _
+from tva_intracom.i18n import _, country_label
 from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.models import Channel
 from tva_intracom.oss_export import aggregate_oss_results
-from tva_intracom.ui.formatting import _country_label, _gated_preview_table, _money_col, \
+from tva_intracom.ui.formatting import _gated_preview_table, _money_col, \
     _smart_money_df, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
@@ -187,7 +187,7 @@ def render_declarations(ctx: TabContext) -> None:
     for country in sorted(_oss_country_totals):
         _c = _oss_country_totals[country]
         recap_data.append({
-            _("col_canal"): f"  → {_country_label(country)} ({country})",
+            _("col_canal"): f"  → {country_label(country)} ({country})",
             _("col_ca_ht_brut"): float(_c["ht_vente"]),
             _("col_ca_ht_remb"): float(_c["ht_remb"]) if _c["ht_remb"] else None,
             _("col_ca_ht_net"): float(_c["ht_net"]),
@@ -218,7 +218,7 @@ def render_declarations(ctx: TabContext) -> None:
             if _ccode == home_country:
                 _label = _("canal_ddp_fr") if home_country == "FR" else f"TVA DDP {home_country}"
             else:
-                _label = _("canal_ddp_local", country=_country_label(_ccode))
+                _label = _("canal_ddp_local", country=country_label(_ccode))
 
             recap_data.append({
                 _("col_canal"): f"📦 {_label}",
@@ -267,7 +267,7 @@ def render_declarations(ctx: TabContext) -> None:
             _tva_brute = summary.local_by_country[country]
             _tva_remb = float(getattr(summary, "refund_local_by_country", {}).get(country, 0))
             recap_data.append({
-                _("col_canal"): f"  → {_country_label(country)} ({country})",
+                _("col_canal"): f"  → {country_label(country)} ({country})",
                 _("col_ca_ht_brut"): float(_ht_brut),
                 _("col_ca_ht_remb"): float(_ht_remb) if _ht_remb else None,
                 _("col_ca_ht_net"): float(_ht_brut + _ht_remb),

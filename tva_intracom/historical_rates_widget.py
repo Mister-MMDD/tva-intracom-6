@@ -18,8 +18,8 @@ from typing import List
 import streamlit as st
 
 from .models import VatResult
+from .i18n import country_label
 from .rates import (
-    COUNTRY_NAMES,
     rate_periods_for_country,
     vat_rate_at_date,
 )
@@ -106,7 +106,7 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
     countries_in_rows: set[str] = set()
     for country in sorted(candidate_countries):
         periods = rate_periods_for_country(country)
-        country_name = COUNTRY_NAMES.get(country, country)
+        country_name = country_label(country)
 
         for period in periods:
             sale_dates = dates_by_country_category.get((country, period.category))
@@ -177,7 +177,7 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
     ):
         if countries_with_multiple_rates:
             names = ", ".join(
-                f"**{COUNTRY_NAMES.get(c, c)}**" for c in countries_with_multiple_rates
+                f"**{country_label(c)}**" for c in countries_with_multiple_rates
             )
             st.warning(
                 f"⚡ Changement de taux en cours de période détecté pour : {names}. "

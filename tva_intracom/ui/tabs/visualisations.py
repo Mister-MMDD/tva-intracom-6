@@ -12,10 +12,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from tva_intracom.i18n import _
+from tva_intracom.i18n import _, country_label
 from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.rates import COUNTRY_ISO3
-from tva_intracom.ui.formatting import _country_label, _get_conversion_rate
+from tva_intracom.ui.formatting import _get_conversion_rate
 from tva_intracom.ui.tabs.context import TabContext
 
 
@@ -139,7 +139,7 @@ def _build_fig_bar(
         if any(v != 0 for v in vals):
             fig_bar.add_trace(go.Bar(
                 name=t,
-                x=[_country_label(c) for c in sorted_countries],
+                x=[country_label(c) for c in sorted_countries],
                 y=vals,
                 customdata=totals,
                 # Une ligne pour le total pays, une ligne pour le canal
@@ -193,7 +193,7 @@ def _build_fig_pie(
 @heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _build_fig_map(vat_net_by_country: dict, rate: float, lang: str, calc_key=None) -> "go.Figure | None":
     """Construit la carte choroplèthe Europe."""
-    map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": _country_label(c), "tva": amt * rate}
+    map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": country_label(c), "tva": amt * rate}
                 for c, amt in vat_net_by_country.items() if c in COUNTRY_ISO3]
     if not map_data:
         return None

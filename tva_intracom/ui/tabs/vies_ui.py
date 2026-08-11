@@ -11,8 +11,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from tva_intracom.i18n import _
-from tva_intracom.ui.formatting import _country_label, _gated_preview_table, _smart_money_df, \
+from tva_intracom.i18n import _, country_label
+from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, \
     _render_filter_bar, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
@@ -150,7 +150,7 @@ def render_vies(ctx: TabContext) -> None:
                     siren=siren_entreprise,
                     scope_id=_vies_scope_id,
                     period_label=period_label if _cert_scope == "file" else _("vies_certificate_full_history"),
-                    country_label_fn=_country_label,
+                    country_label_fn=country_label,
                     translator=_,
                 )
                 st.session_state["_vies_certificate_pdf"] = _pdf_bytes
@@ -321,8 +321,8 @@ def render_vies(ctx: TabContext) -> None:
                 return _("vies_expl_cross_border_destination", country=r.buyer_country)
 
             fraud_data = [{_("vies_col_id"): (getattr(r, "display_id", "") or r.sale_id), _("vies_col_rejected_vat"): r.buyer_vat_number,
-                _("vies_col_origin"): _country_label(getattr(r, "stock_country", "")),
-                _("vies_col_dest"): _country_label(r.buyer_country), _("vies_col_ht"): float(r.amount_ht),
+                _("vies_col_origin"): country_label(getattr(r, "stock_country", "")),
+                _("vies_col_dest"): country_label(r.buyer_country), _("vies_col_ht"): float(r.amount_ht),
                 _("vies_col_recovered_vat"): float(r.vat_avoided),
                 _("vies_col_status"): _vies_statut(r), _("vies_col_expl"): _vies_explication(r)}
                 for r in true_rejections]
@@ -347,8 +347,8 @@ def render_vies(ctx: TabContext) -> None:
                     _nat_data = [{
                         _("vies_col_id"): (getattr(r, "display_id", "") or r.sale_id),
                         _("vies_col_national_id"): r.buyer_vat_number,
-                        _("vies_col_origin"): _country_label(getattr(r, "stock_country", "")),
-                        _("vies_col_dest"): _country_label(r.buyer_country),
+                        _("vies_col_origin"): country_label(getattr(r, "stock_country", "")),
+                        _("vies_col_dest"): country_label(r.buyer_country),
                         _("vies_col_ht"): float(r.amount_ht),
                     } for r in national_ids]
                     st.dataframe(pd.DataFrame(_nat_data), width="stretch", hide_index=True)
@@ -356,7 +356,7 @@ def render_vies(ctx: TabContext) -> None:
             if avec_delta:
                 by_c = {}
                 for r in avec_delta:
-                    _c_lbl = _country_label(r.buyer_country)
+                    _c_lbl = country_label(r.buyer_country)
                     by_c[_c_lbl] = by_c.get(_c_lbl,0) + float(r.vat_avoided)
                 fig_f = go.Figure(go.Bar(x=list(by_c.keys()), y=list(by_c.values()),
                     marker_color="#d62728", text=[f"{v:,.2f}€" for v in by_c.values()], textposition="auto"))
@@ -377,7 +377,7 @@ def render_vies(ctx: TabContext) -> None:
                 else:
                     statut_csv = _("vies_status_recovered")
                     expl_csv = _("vies_expl_cross_border_destination", country=r.buyer_country)
-                w.writerow([(getattr(r, "display_id", "") or r.sale_id), r.buyer_vat_number, _country_label(getattr(r, "stock_country", "")), _country_label(r.buyer_country),
+                w.writerow([(getattr(r, "display_id", "") or r.sale_id), r.buyer_vat_number, country_label(getattr(r, "stock_country", "")), country_label(r.buyer_country),
                     str(r.amount_ht).replace(".",","), str(r.vat_avoided).replace(".",","),
                     statut_csv, expl_csv])
             _gated_download(_("vies_dl_btn"),

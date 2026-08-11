@@ -33,9 +33,9 @@ import streamlit as st
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom import billing as tva_billing
-from tva_intracom.i18n import _
+from tva_intracom.i18n import _, country_label
 from tva_intracom.mem_utils import heavy_cache_data
-from tva_intracom.rates import EU_COUNTRIES, COUNTRY_NAMES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
+from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
     oss_threshold_in_currency
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 from tva_intracom.ui.theme import _PLATFORM_OPTIONS
@@ -373,7 +373,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             _("home_country_label"),
             options=_home_countries,
             index=_home_index,
-            format_func=lambda c: f"{COUNTRY_NAMES.get(c, c)} ({c})",
+            format_func=lambda c: f"{country_label(c)} ({c})",
             key="home_country_select",
             help=_("home_country_help"),
         )
@@ -1012,7 +1012,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             siren=siren_entreprise or "",
                             scope_id=_vies_scope_id,
                             period_label=_("vies_certificate_full_history"),
-                            country_label_fn=COUNTRY_NAMES.get,
+                            country_label_fn=country_label,
                             translator=_,
                         )
                         st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes

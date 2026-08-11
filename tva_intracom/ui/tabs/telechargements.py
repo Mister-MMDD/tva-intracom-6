@@ -21,7 +21,7 @@ import streamlit as st
 from tva_intracom.ca3_report import generate_ca3_html_report_v2
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.fec_export import generate_fec_bytes
-from tva_intracom.i18n import _
+from tva_intracom.i18n import _, country_label
 from tva_intracom.local_vat_report import generate_local_vat_html_report
 from tva_intracom.models import Scenario
 from tva_intracom.oss_export import (
@@ -33,7 +33,7 @@ from tva_intracom.oss_export import (
 )
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
-from tva_intracom.ui.formatting import _country_label, _fec_period_end_date, _fmt
+from tva_intracom.ui.formatting import _fec_period_end_date, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 
 
@@ -239,7 +239,7 @@ def render_telechargements() -> None:
                 if _any_matched:
                     with st.expander(_("dl_oss_negative_expander"), expanded=True):
                         for s in _suggestions:
-                            _lbl = f"{_country_label(s.bucket.departure)} → {_country_label(s.bucket.arrival)} ({s.bucket.vat_rate}%)"
+                            _lbl = f"{country_label(s.bucket.departure)} → {country_label(s.bucket.arrival)} ({s.bucket.vat_rate}%)"
                             if s.matched:
                                 _origins = ", ".join(sorted({m.origin_period for m in s.matched}))
                                 st.markdown(_("dl_oss_negative_matched", label=_lbl, count=len(s.matched), origins=_origins))
@@ -345,7 +345,7 @@ def render_telechargements() -> None:
             elif ca3_html_bytes is not None:
                 _gated_download(_("dl_ca3_html_btn"), data=ca3_html_bytes, file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html")
         else:
-            st.markdown(_("home_country_declaration_header", country=_country_label(home_country)))
+            st.markdown(_("home_country_declaration_header", country=country_label(home_country)))
             st.caption(_("home_country_declaration_caption"))
             def _build_home_html():
                 return generate_local_vat_html_report(
@@ -353,9 +353,9 @@ def render_telechargements() -> None:
                     company_name=nom_entreprise, siren=siren_entreprise,
                     period_label=period_label, seller_country=home_country,
                 ).encode("utf-8")
-            _home_html_bytes = _lazy_artifact("home_html", _build_home_html, label="dl_generate_home_html_btn", country=_country_label(home_country))
+            _home_html_bytes = _lazy_artifact("home_html", _build_home_html, label="dl_generate_home_html_btn", country=country_label(home_country))
             _home_filename = _("dl_local_html_filename", country=home_country, company=nom_entreprise, period=period_label)
-            _home_label = _("dl_local_html_btn", country=_country_label(home_country))
+            _home_label = _("dl_local_html_btn", country=country_label(home_country))
             if not _can_export:
                 _gated_download(_home_label, data=b"", file_name=_home_filename, mime="text/html")
             elif _home_html_bytes is not None:
@@ -395,19 +395,19 @@ def render_telechargements() -> None:
 
         # 5. Déclarations Locales (hors pays d'origine)
         st.markdown(_("local_declarations_header"))
-        st.caption(_("local_declarations_home_note", country=_country_label(home_country)))
+        st.caption(_("local_declarations_home_note", country=country_label(home_country)))
         _local_countries = sorted({r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country})
         if not _local_countries:
             st.info(_("no_local_sales_info"))
         else:
-            export_country = st.selectbox(_("dl_select_country_label"), _local_countries, format_func=lambda c: f"{_country_label(c)} ({c})", key="dl_country_select")
+            export_country = st.selectbox(_("dl_selectcountry_label"), _local_countries, format_func=lambda c: f"{country_label(c)} ({c})", key="dl_country_select")
 
             def _build_local_csv(country):
                 import io as _il, csv as _cl
                 from collections import defaultdict as _dd
                 buf = _il.StringIO(); w = _cl.writer(buf, delimiter=";")
                 period_lbl = period_label or "Periode non renseignee"
-                meta = COUNTRY_FISCAL_META.get(country, (f"Declaration TVA {_country_label(country)}", "Base HT", "TVA", "—", "—"))
+                meta = COUNTRY_FISCAL_META.get(country, (f"Declaration TVA {country_label(country)}", "Base HT", "TVA", "—", "—"))
                 decl_name, lbl_base, lbl_tax, rate_std, rate_red = meta
                 _res_net = _get_results_net()
                 country_results = [r for r in _res_net if r.vat_country == country and r.channel.value in ("LOCAL", "FR_DOMESTIC")]
@@ -417,7 +417,7 @@ def render_telechargements() -> None:
                     by_rate[str(r.vat_rate)]["tva"]  += r.vat_amount
                     by_rate[str(r.vat_rate)]["nb"]   += 1
                 w.writerow([f"{decl_name} — {period_lbl}"])
-                w.writerow([f"Pays : {_country_label(country)} ({country}) | Standard : {rate_std} | Reduit : {rate_red}"])
+                w.writerow([f"Pays : {country_label(country)} ({country}) | Standard : {rate_std} | Reduit : {rate_red}"])
                 w.writerow([])
                 fmt_map = LOCAL_VAT_BOX_CODES  # source unique — voir tva_intracom/rates.py
                 if country == home_country:
@@ -467,17 +467,17 @@ def render_telechargements() -> None:
             # l'onglet Déclarations (voir declarations.py, `locked_premium`).
             # On applique le même masquage ici, par cohérence : la valeur ne
             # doit être visible qu'une fois l'export réellement débloqué.
-            m1.metric(_("dl_local_vat_due_metric", country=_country_label(export_country)),
+            m1.metric(_("dl_local_vat_due_metric", country=country_label(export_country)),
                       _fmt(country_vat) if _can_export else _("locked_premium"))
             m2.metric(_("dl_standard_rate_metric"), meta_sel[3])
             m3.metric(_("dl_reduced_rate_metric"), meta_sel[4])
             c1, c2 = st.columns(2)
             with c1:
                 _local_csv_filename = _("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label)
-                _local_csv_label = _("dl_local_csv_btn", country=_country_label(export_country))
+                _local_csv_label = _("dl_local_csv_btn", country=country_label(export_country))
                 
                 # Performance : Utilisation du cache lazy pour le CSV local
-                csv_bytes = _lazy_artifact(f"local_csv_{export_country}", lambda: _build_local_csv(export_country), label="dl_generate_local_csv_btn", country=_country_label(export_country))
+                csv_bytes = _lazy_artifact(f"local_csv_{export_country}", lambda: _build_local_csv(export_country), label="dl_generate_local_csv_btn", country=country_label(export_country))
                 
                 if not _can_export:
                     _gated_download(_local_csv_label, data=b"", file_name=_local_csv_filename, mime="text/csv")
@@ -486,7 +486,7 @@ def render_telechargements() -> None:
             with c2:
                 if export_country != home_country:
                     _local_html_filename = _("dl_local_html_filename", country=export_country, company=nom_entreprise, period=period_label)
-                    _local_html_label = _("dl_local_html_btn", country=_country_label(export_country))
+                    _local_html_label = _("dl_local_html_btn", country=country_label(export_country))
                     
                     # Performance : Utilisation du cache lazy pour le HTML local
                     def _build_local_html():
@@ -496,7 +496,7 @@ def render_telechargements() -> None:
                             period_label=period_label, seller_country=home_country,
                         ).encode("utf-8")
                     
-                    html_bytes = _lazy_artifact(f"local_html_{export_country}", _build_local_html, label="dl_generate_local_html_btn", country=_country_label(export_country))
+                    html_bytes = _lazy_artifact(f"local_html_{export_country}", _build_local_html, label="dl_generate_local_html_btn", country=country_label(export_country))
                     
                     if not _can_export:
                         _gated_download(_local_html_label, data=b"", file_name=_local_html_filename, mime="text/html")

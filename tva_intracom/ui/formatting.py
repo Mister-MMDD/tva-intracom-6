@@ -186,14 +186,6 @@ def _fmt(value, symbol=None) -> str:
     return f"{v:,.2f} {symbol}".replace(",", " ")
 
 
-def _country_label(code: str) -> str:
-    """Retourne le nom complet du pays à partir de son code ISO (ex: FR -> France)."""
-    if not code:
-        return ""
-    _c = str(code).upper().strip()
-    return _(f"country_{_c}")
-
-
 # Helpers column_config réutilisables
 # ── Colonne monétaire : tri numérique conservé, affichage smart (0 déc. ou 2 déc.)
 def _money_col(label: str, help_txt: str = "", symbol=None, width="small") -> st.column_config.NumberColumn:

@@ -31,7 +31,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.cell_range import CellRange
 
 from .ecb_rates import convert_to_currency_for_oss, get_oss_rate_date, prefetch_rates
-from .i18n import _
+from .i18n import _, country_label
 from .models import Scenario, VatResult
 
 _CENT = Decimal("0.01")
@@ -413,24 +413,9 @@ _THIN = Side(style="thin", color="BFBFBF")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
 def _country_name(code: str) -> str:
-    """Nom localisé du pays (clé i18n `country_XX`, voir les 7 fichiers TOML
-    dans i18n/) à partir de son code ISO.
-
-    Remplace l'ancien dict COUNTRY_NAMES codé en dur en français : un
-    utilisateur non-francophone voyait "Autriche" au lieu de "Österreich"
-    dans son Excel OSS. `_()` retombe automatiquement sur `st.session_state
-    ["language"]` si aucun `lang` n'est passé explicitement (voir
-    tva_intracom/i18n/i18n.py::get_text), comme le reste de ce module qui
-    appelle déjà `_()` sans argument de langue pour les en-têtes de colonnes.
-    En l'absence de traduction pour un code (pays hors périmètre TVA UE, ou
-    clé manquante), on retombe sur le code pays brut plutôt qu'une chaîne
-    vide — identique au comportement `.get(code, code)` précédent.
-    """
-    if not code:
-        return code
-    _key = f"country_{str(code).upper().strip()}"
-    _label = _(_key)
-    return _label if _label != _key else code
+    """Nom localisé du pays (clé i18n `country_XX`).
+    Remplace l'ancien dict COUNTRY_NAMES codé en dur en français."""
+    return country_label(code)
 
 
 @dataclass
