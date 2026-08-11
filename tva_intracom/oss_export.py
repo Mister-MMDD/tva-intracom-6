@@ -412,15 +412,25 @@ _GREY_ROW    = "F2F2F2"
 _THIN = Side(style="thin", color="BFBFBF")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
-COUNTRY_NAMES = {
-    "AT": "Autriche", "BE": "Belgique", "BG": "Bulgarie", "HR": "Croatie",
-    "CY": "Chypre", "CZ": "Tchéquie", "DK": "Danemark", "EE": "Estonie",
-    "FI": "Finlande", "FR": "France", "DE": "Allemagne", "GR": "Grèce",
-    "HU": "Hongrie", "IE": "Irlande", "IT": "Italie", "LV": "Lettonie",
-    "LT": "Lituanie", "LU": "Luxembourg", "MT": "Malte", "NL": "Pays-Bas",
-    "PL": "Pologne", "PT": "Portugal", "RO": "Roumanie", "SK": "Slovaquie",
-    "SI": "Slovénie", "ES": "Espagne", "SE": "Suède",
-}
+def _country_name(code: str) -> str:
+    """Nom localisé du pays (clé i18n `country_XX`, voir les 7 fichiers TOML
+    dans i18n/) à partir de son code ISO.
+
+    Remplace l'ancien dict COUNTRY_NAMES codé en dur en français : un
+    utilisateur non-francophone voyait "Autriche" au lieu de "Österreich"
+    dans son Excel OSS. `_()` retombe automatiquement sur `st.session_state
+    ["language"]` si aucun `lang` n'est passé explicitement (voir
+    tva_intracom/i18n/i18n.py::get_text), comme le reste de ce module qui
+    appelle déjà `_()` sans argument de langue pour les en-têtes de colonnes.
+    En l'absence de traduction pour un code (pays hors périmètre TVA UE, ou
+    clé manquante), on retombe sur le code pays brut plutôt qu'une chaîne
+    vide — identique au comportement `.get(code, code)` précédent.
+    """
+    if not code:
+        return code
+    _key = f"country_{str(code).upper().strip()}"
+    _label = _(_key)
+    return _label if _label != _key else code
 
 
 @dataclass
@@ -480,7 +490,7 @@ def _aggregate(results: List[VatResult], period: str = "") -> OssExportData:
                 if key not in country_map:
                     country_map[key] = {
                         "country": arrival,
-                        "country_name": COUNTRY_NAMES.get(arrival, arrival),
+                        "country_name": _country_name(arrival),
                         "vat_rate": rate,
                         "base_ht": _ZERO,
                         "vat_amount": _ZERO,
@@ -529,7 +539,7 @@ def _aggregate(results: List[VatResult], period: str = "") -> OssExportData:
             sale_id=(getattr(r.sale, "display_id", "") or r.sale.sale_id),
             buyer_vat_number=r.sale.buyer_vat_number,
             buyer_country=r.sale.buyer_country,
-            country_name=COUNTRY_NAMES.get(r.sale.buyer_country, r.sale.buyer_country),
+            country_name=_country_name(r.sale.buyer_country),
             amount_ht=r.sale.amount_ht,
             transaction_date=r.sale.transaction_date,
         )
@@ -743,7 +753,7 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
             _data_cell(ws, r.sale.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, r.sale.stock_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, r.sale.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
-            _data_cell(ws, COUNTRY_NAMES.get(r.sale.buyer_country, r.sale.buyer_country), zebra=zebra),
+            _data_cell(ws, _country_name(r.sale.buyer_country), zebra=zebra),
             _data_cell(ws, float(ht), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
             _data_cell(ws, float(r.vat_rate) / 100, fmt="0.0%", zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, float(tva), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
@@ -854,7 +864,7 @@ def _aggregate_ioss(results: List[VatResult], period: str = "") -> IossExportDat
                 if key not in country_map:
                     country_map[key] = {
                         "country": arrival,
-                        "country_name": COUNTRY_NAMES.get(arrival, arrival),
+                        "country_name": _country_name(arrival),
                         "vat_rate": rate,
                         "base_ht": _ZERO,
                         "vat_amount": _ZERO,
@@ -947,7 +957,7 @@ def _build_ioss_detail(wb: Workbook, data: IossExportData):
             _data_cell(ws, r.sale.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, r.sale.stock_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, r.sale.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
-            _data_cell(ws, COUNTRY_NAMES.get(r.sale.buyer_country, r.sale.buyer_country), zebra=zebra),
+            _data_cell(ws, _country_name(r.sale.buyer_country), zebra=zebra),
             _data_cell(ws, float(ht), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
             _data_cell(ws, float(r.vat_rate) / 100, fmt="0.0%", zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, float(tva), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),

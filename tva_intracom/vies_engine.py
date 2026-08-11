@@ -83,10 +83,49 @@ _SCOPE_TTL_DAYS: dict[str, int] = {}
 def _get_ttl_days(scope_id: Optional[str] = None) -> int:
     """TTL effectif (en jours) pour ce scope, ou le défaut global si le
     scope n'a jamais personnalisé sa valeur (ou si scope_id est None, pour
-    le cache global mutualisé qui n'est délibérément pas personnalisable)."""
+    le cache global mutualisé qui n'est délibérément pas personnalisable).
+
+    `_SCOPE_TTL_DAYS` reste un simple dict en mémoire (process/run courant)
+    pour éviter un aller-retour DB à chaque appel — cette fonction est
+    invoquée pour CHAQUE ligne lors du calcul de fraîcheur du cache. Mais
+    ce dict n'est plus la SEULE source de vérité : au premier accès pour un
+    scope donné dans ce run, on tente une lecture en base (persistée par
+    set_cache_ttl) et on met le résultat en cache localement. Ainsi un TTL
+    personnalisé survit à un redémarrage du process (mise en veille
+    Railway, redéploiement) — voir set_cache_ttl et _load_ttl_from_db.
+    """
     if scope_id is None:
         return DEFAULT_CACHE_TTL_DAYS
-    return _SCOPE_TTL_DAYS.get(scope_id, DEFAULT_CACHE_TTL_DAYS)
+    if scope_id in _SCOPE_TTL_DAYS:
+        return _SCOPE_TTL_DAYS[scope_id]
+    _db_ttl = _load_ttl_from_db(scope_id)
+    _SCOPE_TTL_DAYS[scope_id] = _db_ttl if _db_ttl is not None else DEFAULT_CACHE_TTL_DAYS
+    return _SCOPE_TTL_DAYS[scope_id]
+
+
+def _load_ttl_from_db(scope_id: str) -> Optional[int]:
+    """Lit le TTL personnalisé du scope depuis vies_scope_settings.
+
+    Retourne None si aucune personnalisation n'existe pour ce scope, ou en
+    cas d'erreur DB (comportement identique aux autres lectures du module :
+    on log et on retombe sur le défaut plutôt que de faire planter le
+    calcul — voir la note existante sur les erreurs DB silencieuses dans
+    les fonctions de batching)."""
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ttl_days FROM vies_scope_settings WHERE scope_id=%s",
+                (scope_id,),
+            )
+            row = cur.fetchone()
+        return int(row[0]) if row else None
+    except Exception as exc:
+        logger.warning(
+            "Impossible de lire le TTL persisté pour le scope [%s] (%s) — "
+            "utilisation du défaut (%d j) pour ce run.",
+            scope_id, exc, DEFAULT_CACHE_TTL_DAYS,
+        )
+        return None
 
 # Retry backoff pour erreurs temporaires VIES (serveur UE instable)
 _RETRY_MAX_ATTEMPTS = 3
@@ -187,11 +226,37 @@ def set_cache_ttl(scope_id: str, days: int) -> None:
     """Modifie le TTL du cache VIES (en jours) pour CE scope uniquement.
 
     N'affecte jamais les autres comptes/domaines ni le cache global
-    mutualisé : le TTL est conservé dans un dict en mémoire indexé par
-    scope_id, jamais dans une variable partagée par tout le process.
+    mutualisé : le TTL reste tenu à jour dans un dict en mémoire indexé par
+    scope_id (pour un accès rapide sans aller-retour DB à chaque ligne),
+    jamais dans une variable partagée par tout le process.
+
+    Persisté en base (table vies_scope_settings) pour survivre à un
+    redémarrage du process — mise en veille Railway (scale-to-zero) ou
+    redéploiement — qui vidait auparavant silencieusement toute
+    personnalisation, ramenant l'utilisateur à 7 jours sans qu'il en soit
+    informé. En cas d'erreur DB, le TTL reste appliqué pour le run courant
+    (mémoire) mais la personnalisation ne survivra pas au redémarrage —
+    on log l'erreur plutôt que de faire planter l'UI pour ce geste mineur.
     """
-    _SCOPE_TTL_DAYS[scope_id] = max(1, int(days))
-    logger.info("Cache VIES [%s] : TTL mis à jour à %d jours.", scope_id, _SCOPE_TTL_DAYS[scope_id])
+    _days = max(1, int(days))
+    _SCOPE_TTL_DAYS[scope_id] = _days
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO vies_scope_settings (scope_id, ttl_days, updated_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (scope_id) DO UPDATE SET
+                    ttl_days=EXCLUDED.ttl_days, updated_at=EXCLUDED.updated_at
+            """, (scope_id, _days, _now_utc()))
+            conn.commit()
+    except Exception as exc:
+        logger.warning(
+            "TTL VIES [%s] appliqué pour ce run (%d j) mais non persisté en "
+            "base (%s) — reviendra au défaut après redémarrage du process.",
+            scope_id, _days, exc,
+        )
+        return
+    logger.info("Cache VIES [%s] : TTL mis à jour à %d jours (persisté).", scope_id, _days)
 
 
 def _now_utc() -> datetime:
@@ -367,6 +432,18 @@ def _init_schema(pool: "NonPoolingConnectionPool") -> None:
                     is_valid  BOOLEAN NOT NULL,
                     set_at    TIMESTAMPTZ NOT NULL,
                     PRIMARY KEY (scope_id, full_vat)
+                )
+            """)
+            # TTL du cache VIES personnalisé par scope (voir set_cache_ttl /
+            # _get_ttl_days) — persisté pour survivre à la mise en veille
+            # Railway (scale-to-zero) et aux redéploiements, qui vidaient
+            # auparavant _SCOPE_TTL_DAYS (dict en mémoire uniquement) et
+            # ramenaient silencieusement tous les scopes à 7 jours.
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS vies_scope_settings (
+                    scope_id   TEXT PRIMARY KEY,
+                    ttl_days   INTEGER NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
                 )
             """)
     finally:
