@@ -292,9 +292,9 @@ def render_vies(ctx: TabContext) -> None:
             true_rejections = [r for r in vies_summary.reclassifications if not getattr(r, "is_national_tax_id", False)]
             national_ids = [r for r in vies_summary.reclassifications if getattr(r, "is_national_tax_id", False)]
 
-            avec_delta = [r for r in true_rejections if r.vat_delta > 0]
-            dom_rc     = [r for r in true_rejections if getattr(r, "is_domestic_reverse_charge", False)]
-            dom_taxe   = [r for r in true_rejections if r.vat_delta <= 0 and not getattr(r, "is_domestic_reverse_charge", False)]
+            avec_delta = [r for r in vies_summary.reclassifications if r.vat_delta > 0]
+            dom_rc     = [r for r in vies_summary.reclassifications if getattr(r, "is_domestic_reverse_charge", False)]
+            dom_taxe   = [r for r in vies_summary.reclassifications if r.vat_delta <= 0 and not getattr(r, "is_domestic_reverse_charge", False)]
             st.success(_("vies_success_reclassified", count=len(avec_delta), amount=_fmt(float(vies_summary.fraud_avoided_amount))))
             if dom_rc:
                 st.info(_("vies_info_reverse_charge", count=len(dom_rc)))
@@ -350,8 +350,15 @@ def render_vies(ctx: TabContext) -> None:
                         _("vies_col_origin"): country_label(getattr(r, "stock_country", "")),
                         _("vies_col_dest"): country_label(r.buyer_country),
                         _("vies_col_ht"): float(r.amount_ht),
+                        _("vies_col_recovered_vat"): float(r.vat_avoided),
+                        _("vies_col_status"): _vies_statut(r),
+                        _("vies_col_expl"): _vies_explication(r),
                     } for r in national_ids]
-                    st.dataframe(pd.DataFrame(_nat_data), width="stretch", hide_index=True)
+                    _nat_df = pd.DataFrame(_nat_data)
+                    _nat_cfg = _smart_money_df(_nat_df,
+                        money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
+                        note_cols=[_("vies_col_national_id"), _("vies_col_id"), _("vies_col_expl")])
+                    st.dataframe(_nat_df, column_config=_nat_cfg, hide_index=True, use_container_width=True)
 
             if avec_delta:
                 by_c = {}
@@ -365,8 +372,10 @@ def render_vies(ctx: TabContext) -> None:
 
             import io as _io, csv as _csv
             buf = _io.StringIO(); w = _csv.writer(buf, delimiter=";")
-            w.writerow([_("vies_col_id"), _("vies_col_rejected_vat"), _("vies_col_origin"), _("vies_col_dest"), _("vies_col_ht"), _("vies_col_recovered_vat"), _("vies_col_status"), _("vies_col_expl")])
+            w.writerow([_("vies_col_id"), _("vies_col_type"), _("vies_col_rejected_vat"), _("vies_col_origin"), _("vies_col_dest"), _("vies_col_ht"), _("vies_col_recovered_vat"), _("vies_col_status"), _("vies_col_expl")])
             for r in vies_summary.reclassifications:
+                is_nif = getattr(r, "is_national_tax_id", False)
+                type_lbl = "NIF" if is_nif else "VIES"
                 if getattr(r, "is_domestic_reverse_charge", False):
                     statut_csv = _("vies_status_reverse_charge"); expl_csv = _("vies_expl_reverse_charge", country=r.buyer_country)
                 elif r.vat_delta <= 0:
@@ -377,7 +386,7 @@ def render_vies(ctx: TabContext) -> None:
                 else:
                     statut_csv = _("vies_status_recovered")
                     expl_csv = _("vies_expl_cross_border_destination", country=r.buyer_country)
-                w.writerow([(getattr(r, "display_id", "") or r.sale_id), r.buyer_vat_number, country_label(getattr(r, "stock_country", "")), country_label(r.buyer_country),
+                w.writerow([(getattr(r, "display_id", "") or r.sale_id), type_lbl, r.buyer_vat_number, country_label(getattr(r, "stock_country", "")), country_label(r.buyer_country),
                     str(r.amount_ht).replace(".",","), str(r.vat_avoided).replace(".",","),
                     statut_csv, expl_csv])
             _gated_download(_("vies_dl_btn"),

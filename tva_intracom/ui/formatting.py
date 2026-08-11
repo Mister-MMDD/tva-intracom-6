@@ -1,7 +1,7 @@
 """Helpers de formatage et d'affichage réutilisés par plusieurs onglets.
 
 Extraits tel quel de app.py (aucune modification de comportement) :
-  - _fmt / _country_label : formatage montant et libellé pays
+  - _fmt / country_label : formatage montant et libellé pays
   - _money_col / _pct_col : column_config Streamlit réutilisables
   - _smart_money_df       : column_config auto pour un DataFrame (montants + taux)
   - _gated_preview_table  : aperçu bridé tant que la période n'est pas débloquée

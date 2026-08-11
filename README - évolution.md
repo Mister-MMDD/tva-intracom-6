@@ -215,7 +215,7 @@ du script.
 | Module | Rôle |
 |---|---|
 | `ui/theme.py` | `apply_theme()` — configuration de page Streamlit (titre, icône, layout) et injection du CSS de marque |
-| `ui/formatting.py` | Helpers d'affichage partagés : `_fmt`, `_country_label`, `_money_col`, `_pct_col`, `_smart_money_df` (formatage vectorisé haute performance), `_gated_preview_table` (optimisé RAM, affichage du décompte total des lignes masquées, protection "tva"), `_fec_period_end_date`, tri numérique robuste, `_render_filter_bar` (scan optimisé) |
+| `ui/formatting.py` | Helpers d'affichage partagés : `_fmt`, `country_label`, `_money_col`, `_pct_col`, `_smart_money_df` (formatage vectorisé haute performance), `_gated_preview_table` (optimisé RAM, affichage du décompte total des lignes masquées, protection "tva"), `_fec_period_end_date`, tri numérique robuste, `_render_filter_bar` (scan optimisé) |
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
 | `ui/onboarding.py` | `maybe_show_sidebar_tour` / `maybe_show_tabs_tour` — Visite guidée de première connexion utilisant `st.dialog` et `st.fragment` |
 | `ui/rerun_utils.py` | `preserve_upload_rerun()` — Gestion fine des reruns pour éviter de perdre le fichier uploadé lors d'interactions sidebar |
@@ -1625,6 +1625,40 @@ gardé en roadmap) :
   `compute_vat()`/`_run_oss_loop()` dès le premier passage éviterait cette
   reconstruction, mais touche davantage de code partagé — reporté à une
   session dédiée plutôt que combiné à ce patch ciblé.
+
+---
+
+## Internationalisation des noms de pays (2026-08-11)
+
+Mise en place d'une localisation complète pour les noms de pays, éliminant les
+derniers résidus de texte français hardcodé dans le moteur et les exports.
+
+- **Centralisation i18n** : Ajout de la fonction `country_label(code)` dans
+  `tva_intracom/i18n/i18n.py` (exportée via le package). Elle remplace l'ancien
+  dictionnaire `COUNTRY_NAMES` (hardcodé en français dans `rates.py`) et les
+  multiples fonctions `_country_label` locales qui étaient dupliquées dans les
+  modules UI.
+- **Localisation complète des exports** :
+    - `excel_report.py` : Tous les onglets (Récapitulatif, Détail, Audit, AIC,
+      Intrastat) utilisent désormais les noms de pays traduits selon la langue
+      choisie par l'utilisateur.
+    - `oss_xml.py` : Les messages d'erreur de solde négatif incluent désormais
+      les noms localisés des pays de départ et de destination.
+    - `report.py` : Le rendu texte (utilisé pour les logs et la CLI) affiche
+      désormais les libellés traduits.
+    - `fec_export.py` : Les libellés d'écritures incluent le nom complet
+      localisé au lieu du code ISO brut, facilitant le travail des cabinets
+      comptables étrangers.
+- **Interface Utilisateur** :
+    - Mise à jour de `ui/formatting.py` pour déléguer systématiquement la
+      traduction à la fonction centrale.
+    - Synchronisation de tous les sélecteurs (sidebar, téléchargements) et de
+      la génération de certificats PDF VIES pour un affichage multilingue
+      cohérent.
+- **Données de traduction** : Les 7 fichiers TOML (`fr`, `en`, `de`, `es`,
+  `it`, `pl`, `pt`) ont été complétés pour couvrir l'intégralité des États
+  membres de l'UE et les pays tiers fréquents (63 clés `country_XX` par
+  fichier).
 
 ---
 > Il ne remplace pas un conseil fiscal professionnel.

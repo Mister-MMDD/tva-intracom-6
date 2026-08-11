@@ -60,7 +60,7 @@ def generate_vies_certificate_pdf(
                   pour traçabilité sans exposer l'adresse e-mail).
         period_label: période fiscale couverte (facultatif, affichage seul).
         country_label_fn: callback optionnel pour libeller un code pays ISO2
-                  (ex: tva_intracom.ui.formatting._country_label) ; sinon le
+                  (ex: tva_intracom.i18n.country_label) ; sinon le
                   code brut est utilisé.
         translator: callback optionnel pour traduire les libellés (ex: st.session_state._)
     """

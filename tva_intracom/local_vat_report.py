@@ -125,17 +125,17 @@ def generate_local_vat_html_report(
     vat_country = vat_country.upper()
     lines = compute_local_vat_lines(results, refund_results, vat_country)
 
-    country_label_val = country_label(vat_country)
+    c_label = country_label(vat_country)
     
     # Si c'est le pays d'origine, on adapte le titre
     if vat_country == seller_country:
-        main_title = _("local_vat_main_title", country=country_label_val) + f" ({_('home_country_label')})"
+        main_title = _("local_vat_main_title", country=c_label) + f" ({_('home_country_label')})"
     else:
-        main_title = _("local_vat_main_title", country=country_label_val)
+        main_title = _("local_vat_main_title", country=c_label)
 
     meta = COUNTRY_FISCAL_META.get(
         vat_country,
-        (f"Déclaration TVA — {country_label_val}", "Base imposable", "TVA", "—", "—"),
+        (f"Déclaration TVA — {c_label}", "Base imposable", "TVA", "—", "—"),
     )
     decl_name, lbl_base, lbl_tax, rate_std, rate_red = meta
     box_meta = LOCAL_VAT_BOX_CODES.get(vat_country)
@@ -170,7 +170,7 @@ def generate_local_vat_html_report(
     if not lines["has_data"]:
         rows_html = f"""
         <tr><td colspan="7" class="tc" style="color:#7f8c8d;padding:16px;">
-            {_("local_vat_no_data", country=country_label_val, period=period_label)}
+            {_("local_vat_no_data", country=c_label, period=period_label)}
         </td></tr>"""
 
     box_col_note = (
@@ -212,7 +212,7 @@ def generate_local_vat_html_report(
 <html>
 <head>
     <meta charset="utf-8">
-    <title>{_("local_vat_report_title", country=country_label_val, company=company_name, period=period_label)}</title>
+    <title>{_("local_vat_report_title", country=c_label, company=company_name, period=period_label)}</title>
     <style>{CSS}</style>
 </head>
 <body>
@@ -232,7 +232,7 @@ def generate_local_vat_html_report(
         </div>
         <div class="meta-r">
             <div class="ml">{_("ca3_meta_siren")}</div><div class="mv">{siren or "—"}</div>
-            <div class="ml">{_("local_vat_meta_country")}</div><div class="mv">{country_label_val} ({vat_country})</div>
+            <div class="ml">{_("local_vat_meta_country")}</div><div class="mv">{c_label} ({vat_country})</div>
         </div>
         <div class="meta-r">
             <div class="ml">{_("local_vat_meta_rate_std")}</div><div class="mv">{rate_std}</div>

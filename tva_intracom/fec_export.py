@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable
 
-from .i18n import _
+from .i18n import _, country_label
 from .models import Collector, Scenario, VatResult
 
 # ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ def build_fec_rows(
         net_vat = bucket.vat_amount
 
         scenario_lbl = _scenario_label(key.scenario)
-        country_lbl = key.vat_country or 'N/A'
+        country_lbl = country_label(key.vat_country) if key.vat_country else 'N/A'
         label = _("fec_entry_label", scenario=scenario_lbl, country=country_lbl, rate=key.vat_rate, period=period, count=bucket.count)
         num_str = str(ecriture_num)
 
