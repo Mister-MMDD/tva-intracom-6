@@ -1550,6 +1550,82 @@ patchs). 4 points corrigés, 2 écartés après vérification :
 
 ---
 
-> Ce projet est un outil d'aide au calcul et à la préparation des déclarations.
+## Audit externe — reclassifications VIES, avoirs, agrégation V5 (2026-08-11)
+
+Revue de 6 pistes d'amélioration proposées en audit externe sur `engine.py`
+et `parsers/amazon/aggregate.py`. 3 points corrigés (2 bugs, 1 optimisation),
+2 écartés après vérification (faux positif / gain marginal), 1 gardé en
+roadmap (refactor plus large). Suite de tests complète après chaque patch :
+baseline stable à 165 passed / 4 failed (échecs préexistants, liés à
+`SUPABASE_DB_URL` absente en environnement de test) → **166 passed / 4
+failed** après patch (nouveau test ajouté, aucune régression) :
+
+- ~~`vat_avoided` toujours à 0.00 dans l'onglet VIES (régression)~~
+  **Corrigé** : `engine.py::compute_all_with_vies()`, post-traitement des
+  reclassifications (ligne ~1130), utilisait `result_by_key.get((reclass.sale_id,
+  str(reclass.amount_ht)))` — or `result_by_key` est indexé par `_sale_key()`,
+  qui retourne `(sale_id, Decimal)` et non `(sale_id, str)` (voir le
+  correctif de l'audit performance précédent, section ci-dessus, qui avait
+  justement introduit `_sale_key()` en Decimal natif à cet endroit). Le
+  `str()` réintroduit ici faisait échouer le `.get()` à tous les coups
+  (`(id, Decimal("10.00")) != (id, "10.00")`), donc `vat_avoided` restait
+  systématiquement à `Decimal("0.00")` pour toutes les reclassifications
+  affichées dans l'onglet VIES — régression silencieuse sur un correctif
+  déjà livré. Le `str()` est retiré, commentaire d'avertissement ajouté à
+  l'appel pour éviter une réintroduction future.
+
+- ~~Avoirs ignorant leur propre résultat VIES~~ **Corrigé (bug structurel)** :
+  `engine.py::_effective_sale_with_vies()` retournait l'avoir tel quel dès
+  le début (`if _sale_key(sale) in refund_keys: return sale`), sans jamais
+  consulter le résultat VIES — alors que le numéro de TVA de l'avoir **est**
+  bien vérifié en amont (la boucle de collecte itère sur
+  `chain(sales, refunds)`). Un avoir dont le n° de TVA se révélait invalide
+  restait donc taxé en `B2B_REVERSE_CHARGE` au lieu d'être reclassé
+  `OSS_B2C` comme la vente qu'il annule, créant un décalage silencieux entre
+  la déclaration OSS et le CA3. Les avoirs passent désormais par le même
+  arbitrage VIES que les ventes, **sans** dupliquer d'entrée dans
+  `vies_summary.reclassifications` / `vies_affected_sale_ids` (déjà
+  renseignées via la vente d'origine), pour ne pas fausser les compteurs
+  affichés dans l'onglet VIES. Nouveau test dédié :
+  `tests/test_vies.py::test_compute_all_with_vies_refund_reclassified_like_sale`
+  (verrouille le comportement avoir + n° invalide → `OSS_B2C`, une seule
+  entrée dans le tableau, `vat_avoided` correctement calculé).
+
+- ~~Double itération + 9 sommes séparées en agrégation V5~~ **Corrigé
+  (optimisation, sans changement de comportement)** :
+  `parsers/amazon/aggregate.py::preaggregate_v5()` parcourait deux fois
+  `raw_rows` (pré-calcul des commandes multi-ASIN, puis regroupement par
+  clé) — fusionné en un seul passage, les deux calculs ne dépendant que de
+  la ligne courante. `_aggregate_group()` faisait 9 `sum()` séparés (un par
+  colonne de montant, donc 9 itérations complètes du même groupe) —
+  remplacé par une seule boucle accumulant les 9 totaux simultanément. Gain
+  sensible attendu sur les gros fichiers V5 (une ligne par juridiction
+  fiscale, donc très verbeux). Validé par test différentiel (ancienne vs
+  nouvelle version, 500 lignes synthétiques multi-juridictions/multi-ASIN) :
+  sortie strictement identique ligne à ligne.
+
+- **`asin_to_category` par défaut `None` mais typé `dict` (écarté, faux
+  positif)** : la fonction fait déjà `if asin_to_category is None:
+  asin_to_category = {}` en tout début de corps — aucun risque réel, le
+  typage sert uniquement de documentation pour l'appelant.
+
+- **`Sale` en `dataclass` Pydantic — cache LRU / micro-optimisations
+  périphériques proposées (écarté, gain marginal)** : cf. la remarque
+  équivalente déjà tranchée dans l'audit performance précédent (section
+  ci-dessus) ; pas de nouvelle piste creusée ici qui change ce constat.
+
+Point identifié mais **non corrigé dans ce patch** (refactor plus large,
+gardé en roadmap) :
+
+- **Reconstruction complète de `result_by_key` en post-traitement** :
+  `engine.py` reconstruit un dictionnaire de 100k tuples après le calcul
+  principal, uniquement pour faire correspondre les ventes à leurs
+  reclassifications VIES (quelques millisecondes de boucle). Passer la
+  référence de l'objet `ViesReclassification` directement dans
+  `compute_vat()`/`_run_oss_loop()` dès le premier passage éviterait cette
+  reconstruction, mais touche davantage de code partagé — reporté à une
+  session dédiée plutôt que combiné à ce patch ciblé.
+
+---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.
