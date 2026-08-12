@@ -187,6 +187,7 @@ class ViesReclassification:
     #         adopte l'art.194, vendeur immatricule/declare localement a
     #         destination (ou domestique FR).
     taxed_at_departure: bool = False
+    scenario: str = ""
 
 
 @dataclass(slots=True)

@@ -816,7 +816,7 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
     _width_tracker = _ColumnWidthTracker()
     _headers = [
         i18n_("xl_vies_col_vat"), i18n_("xl_vies_col_checked_at"), i18n_("xl_vies_col_status"),
-        i18n_("xl_vies_col_country"), i18n_("xl_vies_col_name"), i18n_("xl_vies_col_error")
+        i18n_("xl_vies_col_country"), i18n_("xl_vies_col_name"), i18n_("col_scenario"), i18n_("xl_vies_col_error")
     ]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                       alignment=Alignment(horizontal="center", vertical="center"))
@@ -834,6 +834,7 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
     # cet onglet alors qu'ils étaient bel et bien en cache/historique.
     seen_vats: set[str] = set()
     display_by_full_vat: dict[str, str] = {}
+    scenario_by_full_vat: dict[str, str] = {}
     for r in results:
         vat = getattr(r.sale, "buyer_vat_number", "")
         if not vat:
@@ -845,6 +846,9 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
         # On garde le numéro tel que saisi pour l'affichage (plus lisible /
         # cohérent avec les autres onglets), la clé de recherche reste full_vat.
         display_by_full_vat.setdefault(full_vat, vat)
+        # On capture le scénario fiscal associé à ce numéro
+        if hasattr(r, "scenario"):
+            scenario_by_full_vat.setdefault(full_vat, str(r.scenario.value))
 
     history_by_vat = get_vies_history_bulk(scope_id, sorted(seen_vats))
 
@@ -854,9 +858,10 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
         if not history:
             continue
         _display_vat = display_by_full_vat.get(full_vat, full_vat)
+        _scenario = scenario_by_full_vat.get(full_vat, "")
         for entry in history:
             _status = i18n_("xl_vies_status_valid") if entry["valid"] else i18n_("xl_vies_status_invalid")
-            _vals = [_display_vat, entry["checked_at"], _status, entry["country_code"], entry["name"], entry["error"]]
+            _vals = [_display_vat, entry["checked_at"], _status, entry["country_code"], entry["name"], _scenario, entry["error"]]
             ws.append([_wcell(ws, v) for v in _vals])
             ws.row_dimensions[row].height = 16
             _width_tracker.observe_row(_vals)

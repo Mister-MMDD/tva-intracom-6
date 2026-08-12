@@ -1170,6 +1170,7 @@ def compute_all_with_vies(
             stock_country=reclass.stock_country,
             taxed_at_departure=taxed_at_departure,
             is_national_tax_id=reclass.is_national_tax_id,
+            scenario=res.scenario.value if hasattr(res.scenario, "value") else str(res.scenario),
         )
 
     return results, refund_results, vies_summary, oss_summary
