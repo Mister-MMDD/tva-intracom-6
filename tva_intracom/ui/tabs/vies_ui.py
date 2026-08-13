@@ -362,7 +362,7 @@ def render_vies(ctx: TabContext) -> None:
                     _nat_cfg = _smart_money_df(_nat_df,
                         money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
                         note_cols=[_("vies_col_national_id"), _("vies_col_id"), _("col_scenario"), _("vies_col_expl")])
-                    st.dataframe(_nat_df, column_config=_nat_cfg, hide_index=True, use_container_width=True)
+                    st.dataframe(_nat_df, column_config=_nat_cfg, hide_index=True, width="stretch")
 
             if avec_delta:
                 by_c = {}
