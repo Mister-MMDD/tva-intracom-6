@@ -13,6 +13,7 @@ l'acheteur) pour determiner le regime applicable parmi les 4 cas principaux :
 from __future__ import annotations
 
 import logging
+import threading
 from collections import OrderedDict
 from dataclasses import replace as _dc_replace
 from decimal import ROUND_HALF_UP, Decimal
@@ -38,6 +39,16 @@ from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
 
 _NOTE_INTERN_CACHE: "OrderedDict[str, str]" = OrderedDict()
+# Verrou dédié protégeant les accès à _NOTE_INTERN_CACHE. Le GIL rend chaque
+# opération OrderedDict individuelle atomique, mais la séquence get() +
+# move_to_end() (ou le test de taille + popitem()) ne l'est pas : deux
+# threads de calcul concurrents (voir background_calc.py) peuvent s'entrelacer
+# entre ces appels. Dans le pire cas documenté ici avant correctif, une course
+# entre deux popitem(last=False) simultanés proches du plafond pouvait lever
+# un KeyError sur dict vide. Coût CPU du lock négligeable au regard du volume
+# d'appels (quelques dizaines de µs par vente) ; on l'ajoute pour fermer
+# définitivement le sujet plutôt que de compter sur la rareté du cas.
+_NOTE_INTERN_LOCK = threading.Lock()
 
 # Borne dure sur le cache d'interning des notes (voir `_note()` ci-dessous).
 # Pour l'immense majorité des notes, le nombre de clés distinctes est bien
@@ -104,27 +115,31 @@ def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
     répétition restent partagées, l'excédent à cardinalité élevée est
     simplement moins bien dédupliqué plutôt que de fuir indéfiniment.
 
-    Les opérations `OrderedDict` utilisées ici (lookup + move_to_end / pop
-    + insertion) sont sûres même appelées depuis le thread de calcul
-    d'arrière-plan (voir background_calc.py) : dans le pire cas d'une course
-    entre deux threads, le résultat est une légère perte d'efficacité du
-    cache (deux instances au lieu d'une pour une même chaîne), jamais une
-    incohérence — ce n'est qu'un cache mémoire, pas une source de vérité.
+    Les accès à `_NOTE_INTERN_CACHE` (lookup + move_to_end / test de taille +
+    popitem + insertion) sont protégés par `_NOTE_INTERN_LOCK` : ce cache est
+    partagé process-wide et peut être sollicité depuis le thread de calcul
+    d'arrière-plan (voir background_calc.py) en parallèle du thread principal.
+    Sans verrou, une course entre deux threads sur la séquence test-de-taille
+    puis `popitem(last=False)` pouvait, dans un cas limite, lever un
+    `KeyError` sur dict vide plutôt que la simple perte d'efficacité de
+    dédup initialement attendue. Le lock ferme ce cas ; son coût est
+    négligeable au regard du volume d'appels.
     """
     if lang == "fr":
         _text = fr_text
     else:
         _text = _get_i18n_translate()(key, lang=lang, **kwargs)
 
-    _cached = _NOTE_INTERN_CACHE.get(_text)
-    if _cached is not None:
-        _NOTE_INTERN_CACHE.move_to_end(_text)
-        return _cached
+    with _NOTE_INTERN_LOCK:
+        _cached = _NOTE_INTERN_CACHE.get(_text)
+        if _cached is not None:
+            _NOTE_INTERN_CACHE.move_to_end(_text)
+            return _cached
 
-    if len(_NOTE_INTERN_CACHE) >= _NOTE_INTERN_CACHE_MAXSIZE:
-        _NOTE_INTERN_CACHE.popitem(last=False)  # évince l'entrée la plus ancienne
-    _NOTE_INTERN_CACHE[_text] = _text
-    return _text
+        if len(_NOTE_INTERN_CACHE) >= _NOTE_INTERN_CACHE_MAXSIZE:
+            _NOTE_INTERN_CACHE.popitem(last=False)  # évince l'entrée la plus ancienne
+        _NOTE_INTERN_CACHE[_text] = _text
+        return _text
 
 
 def _resolve_lang() -> str:

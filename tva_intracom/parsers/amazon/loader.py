@@ -129,6 +129,13 @@ def _process_rows(
         progress_step: fréquence d'appel du callback, en nombre de lignes.
     """
     total = len(rows_to_process)
+    # Dernière date de transaction valide vue dans le fichier jusqu'ici —
+    # sert de repli à `convert_currency` quand une ligne a une date
+    # illisible, à la place de `date.today()` (voir classify.py). Maintenue
+    # de façon incrémentale (pas de pré-passe sur tout le fichier) pour ne
+    # pas revenir sur l'optimisation RAM ci-dessus qui consomme
+    # `rows_to_process` au fur et à mesure.
+    _last_valid_tx_date = None
     for processed in range(1, total + 1):
         idx = processed - 1
         line_no, row = rows_to_process[idx]
@@ -327,7 +334,10 @@ def _process_rows(
                 row=row,
                 convert_currencies=convert_currencies,
                 target_currency=target_currency,
+                last_valid_date=_last_valid_tx_date,
             )
+            if not fx.date_was_fallback and fx.transaction_date_used is not None:
+                _last_valid_tx_date = fx.transaction_date_used
         except ValueError as exc:
             result.warnings.append(
                 f"Ligne {line_no} : conversion {currency}→{target_currency} impossible ({exc}). "

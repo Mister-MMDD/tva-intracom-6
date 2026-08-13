@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import tempfile
 import gzip
+import hashlib
 import logging
 from typing import Optional, Callable
 from decimal import Decimal
@@ -245,6 +246,31 @@ class _CachedUploadedFile:
 
 _preserve_upload_this_run = consume_preserve_flag()
 
+
+def _upload_sig(f) -> tuple:
+    """Signature de contenu d'un fichier uploadé, utilisée partout où on
+    doit détecter un changement (cache de compression, dédup, cache de
+    parsing, cache de calcul TVA).
+
+    (name, size) seul ne suffit pas : deux versions d'un même fichier (ex.
+    correction d'une erreur dans le CSV, sans changer le nom) peuvent
+    partager la même taille en octets — plus fréquent qu'on ne le croit sur
+    de gros volumes. Dans ce cas l'app ne détectait pas le changement et
+    réutilisait silencieusement les anciennes données mises en cache
+    (bytes compressés, résultat de parsing, résultat de calcul TVA).
+
+    On ajoute un hash MD5 du DÉBUT du fichier seulement (128 Ko), pas du
+    fichier entier : cette signature est recalculée à CHAQUE rerun
+    Streamlit (chaque clic, changement de filtre...) pour détecter un
+    changement — hasher le fichier entier à chaque rerun réintroduirait,
+    pour les plus gros fichiers Amazon (jusqu'à 100 Mo), le coût CPU que le
+    design (name, size) cherchait justement à éviter. Un hash partiel sur
+    le début du fichier suffit à couvrir le cas réaliste (contenu modifié,
+    même taille) sans ce coût.
+    """
+    return (f.name, f.size, hashlib.md5(f.getvalue()[:131072]).hexdigest())
+
+
 if uploaded_files:
     # ── Vérification technique de la taille (100 Mo par fichier) ────────────
     # Streamlit limite l'upload au niveau serveur (config.toml), mais on
@@ -269,18 +295,18 @@ if uploaded_files:
     # deux disparaît (ou est remplacé par le contenu de l'autre) au premier
     # rerun interne (ex: changement de langue), voir _CachedUploadedFile
     # ci-dessous qui reconstruit uploaded_files à partir de ce cache.
-    _new_signature = {(f.name, f.size) for f in uploaded_files}
+    _new_signature = {_upload_sig(f) for f in uploaded_files}
     _cached = st.session_state.get("_last_uploaded_files_bytes")
     _cached_signature = set(_cached.keys()) if _cached else set()
     if _cached is None or _new_signature != _cached_signature:
         st.session_state["_last_uploaded_files_bytes"] = {
-            (f.name, f.size): gzip.compress(f.getvalue(), compresslevel=6)
+            _upload_sig(f): gzip.compress(f.getvalue(), compresslevel=6)
             for f in uploaded_files
         }
 elif _preserve_upload_this_run and st.session_state.get("_last_uploaded_files_bytes"):
     uploaded_files = [
         _CachedUploadedFile(_name, _compressed, _size)
-        for (_name, _size), _compressed in st.session_state["_last_uploaded_files_bytes"].items()
+        for (_name, _size, _hash), _compressed in st.session_state["_last_uploaded_files_bytes"].items()
     ]
 else:
     # Vrai retrait de fichier (ou aucun fichier n'a jamais été chargé) :
@@ -315,7 +341,7 @@ if uploaded_files:
     _deduped: list = []
     _dup_names: list = []
     for _f in uploaded_files:
-        _fkey = (_f.name, _f.size)
+        _fkey = _upload_sig(_f)
         if _fkey in _seen_file_keys:
             _dup_names.append(_f.name)
         else:
@@ -345,7 +371,7 @@ if uploaded_files:
     # suivant au lieu d'un tuple de 20k éléments).
     _asin_catalog_sig = hash(frozenset(asin_to_category.items())) if asin_to_category else None
     _parse_cache_key = (
-        tuple(sorted((f.name, f.size) for f in uploaded_files)),
+        tuple(sorted(_upload_sig(f) for f in uploaded_files)),
         home_country, encoding, convert_fx, file_format,
         _asin_catalog_sig,
     )
@@ -541,7 +567,7 @@ if uploaded_files:
         # === CALCUL (mis en cache dans session_state) ===
         _vies_retry_nonce = st.session_state.get("_vies_retry_nonce", 0)
         _cache_key = (
-            tuple(f.name + str(f.size) for f in uploaded_files),
+            tuple(_upload_sig(f) for f in uploaded_files),
             enable_vies, convert_fx, file_format,
             tuple(sorted(asin_to_category.items())),
             ioss_number, seller_is_importer,

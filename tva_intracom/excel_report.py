@@ -289,7 +289,8 @@ class _RowDimEntry:
 
 
 def _oss_period_totals(
-        results: list, refund_results: list | None, period: str
+        results: list, refund_results: list | None, period: str,
+        oss_agg: dict | None = None,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal]:
     """Totaux OSS agrégés (HT brut, HT remb, TVA brut, TVA remb), recalculés
     au taux BCE de clôture de période (art. 5 bis Règl. UE 2020/194) plutôt
@@ -304,10 +305,19 @@ def _oss_period_totals(
     que le taux du jour de la vente, pas celui de clôture de la période
     déclarée. Bug constaté en production le 02/08/2026 (écart de 1,29 € sur
     un fichier de test contenant des ventes SEK) — voir post-mortem.
+
+    `oss_agg` : agrégat déjà produit par `aggregate_oss_results()`, à passer
+    quand l'appelant (`export_xlsx`) l'a déjà calculé une fois pour tout
+    l'export — évite de refaire un passage complet sur `results` (jusqu'à
+    100k+ lignes) pour chaque onglet ayant besoin d'un total OSS. Si omis,
+    l'agrégat est recalculé ici (comportement historique, pour les
+    appelants isolés type CLI/tests qui n'ont pas cet agrégat sous la main).
     """
     _z = Decimal("0.00")
     ht_brut = ht_remb = vat_brut = vat_remb = _z
-    agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
+    agg = oss_agg if oss_agg is not None else aggregate_oss_results(
+        list(results) + list(refund_results or []), period=period
+    )
     for _departure, _by_arrival in agg.items():
         for _arrival, _by_rate in _by_arrival.items():
             for _bucket in _by_rate.values():
@@ -327,6 +337,7 @@ def _write_recap(
         results: list | None = None,
         refund_results: list | None = None,
         period: str = "",
+        oss_agg: dict | None = None,
 ) -> None:
     ws.title = i18n_("xl_tab_recap")
 
@@ -379,7 +390,7 @@ def _write_recap(
         # Même méthode que le dashboard / l'onglet OSS détaillé (taux de
         # clôture de période) — voir docstring de _oss_period_totals().
         oss_ht_brut, oss_ht_remb, oss_vat_brut, oss_vat_remb = _oss_period_totals(
-            results, refund_results, period
+            results, refund_results, period, oss_agg=oss_agg
         )
     else:
         # Comportement historique (fallback CLI / appels sans results) :
@@ -1652,7 +1663,7 @@ def _write_section_group_row(ws, month_start_col: int, n_months: int, total_star
 
 def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
                    results: list | None = None, refund_results: list | None = None,
-                   period: str = "") -> None:
+                   period: str = "", oss_agg: dict | None = None) -> None:
     """Onglet OSS détaillé : mois par mois (net) puis Brut / Remboursements / Net
     (total période) par pays de destination."""
     ws.title = i18n_("xl_tab_oss")
@@ -1690,7 +1701,13 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
     _period_tva_vente: Dict[str, Decimal] = {}
     _period_tva_remb: Dict[str, Decimal] = {}
     if results is not None:
-        _agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
+        # `oss_agg` : agrégat déjà calculé une fois par `export_xlsx()` et
+        # partagé avec `_write_recap()`, pour éviter de reparcourir tout
+        # `results` (jusqu'à 100k+ lignes) ici une seconde fois. Recalculé
+        # seulement si absent (appelants isolés, CLI/tests).
+        _agg = oss_agg if oss_agg is not None else aggregate_oss_results(
+            list(results) + list(refund_results or []), period=period
+        )
         for _departure, _by_arrival in _agg.items():
             for _arrival, _by_rate in _by_arrival.items():
                 for _bucket in _by_rate.values():
@@ -2057,11 +2074,22 @@ def export_xlsx(
     # manuelle d'une cellule pour déclencher le calcul.
     wb.calculation.fullCalcOnLoad = True
 
+    # Agrégat OSS calculé UNE SEULE fois pour tout l'export (taux BCE de
+    # clôture de période, art. 5 bis Règl. UE 2020/194) et partagé entre la
+    # page de synthèse et l'onglet OSS détaillé, qui en avaient chacun
+    # besoin séparément : sur un fichier de 100k lignes ça évite de refaire
+    # deux fois le même calcul (dates BCE + sommation complète). `results`
+    # peut être None (appels CLI historiques) : dans ce cas on ne calcule
+    # rien ici, chaque fonction retombe sur son comportement historique.
+    _oss_agg = None
+    if results is not None:
+        _oss_agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
+
     # 1. Page de synthèse
     ws_recap = _SequentialSheetWriter(wb.create_sheet())
     _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country,
                  display_currency=display_currency, results=results, refund_results=refund_results,
-                 period=period)
+                 period=period, oss_agg=_oss_agg)
     ws_recap.finalize()
 
     # 2. Séparation ventes / remboursements
@@ -2108,7 +2136,8 @@ def export_xlsx(
     if summary.oss_by_country or getattr(summary, "refund_oss_by_country", None):
         ws_oss = _SequentialSheetWriter(wb.create_sheet())
         _write_oss_tab(ws_oss, summary, display_currency=_currency,
-                       results=results, refund_results=refund_results, period=period)
+                       results=results, refund_results=refund_results, period=period,
+                       oss_agg=_oss_agg)
         ws_oss.finalize()
 
     # 7. Onglet TVA locale par pays

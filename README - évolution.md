@@ -1742,6 +1742,48 @@ Pistes identifiées mais **non corrigées dans ce patch** :
   possible actuellement (voir « Sur l'horizon » / travaux en cours sur
   l'export IOSS séparé).
 
+## Audit performance & Fiabilité — thread-safety, MD5 upload, dates de secours (2026-08-13, suite)
+
+Dernière salve de correctifs suite au checkup de performance approfondi, visant à
+stabiliser l'application en environnement multi-tenant (Streamlit Cloud/Railway)
+et à améliorer la robustesse du moteur.
+
+- **Thread-safety du cache de notes (`engine.py`)** : Ajout d'un verrou
+  `_NOTE_INTERN_LOCK` (`threading.Lock`) autour des opérations sur le cache
+  d'interning des notes (`_NOTE_INTERN_CACHE`). Bien que protégé par le GIL,
+  l'enchaînement des méthodes `OrderedDict` (lookup, `move_to_end`, `popitem`)
+  n'était pas atomique et pouvait théoriquement lever une `KeyError` sous forte
+  charge multi-utilisateur concurrent.
+
+- **Isolation des caches entre sessions (`mem_utils.py`)** : `release_memory()`
+  ne vide plus brutalement les caches `@heavy_cache_data` via `.clear()`
+  global au process. On laisse désormais l'éviction naturelle (TTL/max_entries)
+  opérer, afin d'éviter qu'une action d'un utilisateur (déconnexion, retrait
+  de fichier) ne pénalise la réactivité des autres sessions actives partageant
+  le même conteneur.
+
+- **Optimisation de l'agrégation OSS pour Excel (`excel_report.py`)** :
+  `aggregate_oss_results()` n'est plus appelée deux fois (une fois pour le
+  récapitulatif, une fois pour l'onglet détaillé). L'agrégat est calculé une
+  seule fois au début de `export_xlsx()` et transmis aux fonctions de rendu via
+  le paramètre `oss_agg`, divisant par deux le coût CPU de l'agrégation sur les
+  gros volumes (100k+ lignes).
+
+- **Signature d'upload robuste (`app.py`)** : Introduction de `_upload_sig()`,
+  une clé composite incluant le nom, la taille et un **hash MD5 des 128
+  premiers Ko** du fichier. Cette signature remplace le couple `(name, size)`
+  dans tous les caches (compression, dédoublonnement, parsing, calcul),
+  éliminant le risque de collision où un fichier modifié mais gardant la
+  même taille ne serait pas re-parsé.
+
+- **Fiabilité des taux de change historiques (`loader.py` / `classify.py`)** :
+  `convert_currency()` utilise désormais `last_valid_date` (dernière date de
+  transaction valide rencontrée chronologiquement dans le fichier) comme
+  repli avant `date.today()` en cas de date malformée. Ce suivi incrémental
+  garantit une meilleure précision fiscale pour les lignes corrompues au
+  sein d'un export ancien, sans impacter la consommation RAM (pas de
+  pré-passe sur le fichier).
+
 ---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.

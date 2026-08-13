@@ -109,6 +109,13 @@ class CurrencyResult:
     original_amount: Decimal
     exchange_rate: Decimal
     exchange_rate_source: str
+    # Date effectivement utilisée pour choisir le taux BCE, et si elle
+    # provient bien de la ligne (tx_date_str) ou d'un repli (voir
+    # `convert_currency` / `last_valid_date`). Permet à l'appelant
+    # (loader.py) de maintenir "la date valide la plus récente vue jusque là
+    # dans le fichier" sans avoir à reparser tx_date_str lui-même.
+    transaction_date_used: _date | None = None
+    date_was_fallback: bool = False
 
 
 def convert_currency(
@@ -120,11 +127,21 @@ def convert_currency(
         row: dict,
         convert_currencies: bool,
         target_currency: str = "EUR",
+        last_valid_date: _date | None = None,
 ) -> CurrencyResult:
     """Convertit le montant vers la devise cible (EUR par défaut) si nécessaire.
 
     Retourne un CurrencyResult avec les métadonnées de conversion pour
     traçabilité (source du taux, taux utilisé, montant original).
+
+    `last_valid_date` : dernière date de transaction valide rencontrée plus
+    haut dans le même fichier (maintenue par l'appelant, voir loader.py).
+    Utilisée comme repli si `tx_date_str` est illisible, à la place de
+    `date.today()` — un fichier de 2024 traité aujourd'hui ne doit pas faire
+    retomber une ligne malformée sur le taux BCE de 2026 (écart de change
+    potentiellement significatif). Si aucune date valide n'a encore été vue
+    dans le fichier (ex. toute première ligne malformée), on retombe sur
+    `date.today()` en dernier recours — il n'y a alors rien de mieux.
     """
     original_currency = currency
     original_amount   = amount_ht
@@ -157,6 +174,7 @@ def convert_currency(
 
     # Parsing de la date de transaction
     tx_date: _date | None = None
+    date_was_fallback = False
     if tx_date_str:
         try:
             parts = tx_date_str.split("-")
@@ -164,12 +182,14 @@ def convert_currency(
         except (ValueError, IndexError):
             logger.warning(
                 "convert_currency : date de transaction illisible ('%s') — "
-                "taux BCE du jour de génération du rapport utilisé à la place "
-                "du taux réel de la date de vente (écart de change possible).",
+                "taux BCE de la dernière date valide vue dans le fichier "
+                "utilisé à la place (repli sur date.today() uniquement si "
+                "aucune date valide n'a encore été vue).",
                 tx_date_str,
             )
     if tx_date is None:
-        tx_date = _date.today()
+        date_was_fallback = True
+        tx_date = last_valid_date or _date.today()
 
     # Conversion vers la devise cible via EUR
     converted, exchange_rate, exchange_rate_source = convert_to_currency(
@@ -183,6 +203,8 @@ def convert_currency(
         original_amount=original_amount,
         exchange_rate=exchange_rate,
         exchange_rate_source=exchange_rate_source,
+        transaction_date_used=tx_date,
+        date_was_fallback=date_was_fallback,
     )
 
 

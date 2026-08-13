@@ -108,50 +108,38 @@ def release_memory() -> None:
     (fichiers uploadés, résultats de calcul, DataFrames...) : à la
     déconnexion (logout) et lors du retrait de fichiers uploadés.
     """
-    # 1. Vide UNIQUEMENT les caches @st.cache_data "lourds" (agrégats de
-    # graphiques, DataFrames de détail — plusieurs dizaines de Mo par entrée).
+    # 1. On NE vide PLUS les caches @heavy_cache_data ici (ancien step 1 :
+    # boucle `_fn.clear()` sur `_HEAVY_CACHE_REGISTRY`).
     #
-    # IMPORTANT : on n'appelle PLUS st.cache_data.clear() (global). Ce clear
-    # global videait AUSSI les caches légers de tva_intracom.billing (grille
-    # tarifaire Stripe, codes promo, statut abonnement — @st.cache_data
-    # ttl=60-600s). Ceux-ci sont coûteux en LATENCE/appels API Stripe
-    # (Charge.list, PromotionCode.list, Coupon.retrieve, Price.retrieve x4)
-    # mais négligeables en mémoire — un clear global les invalidait
-    # inutilement à chaque ajout/retrait de fichier uploadé (release_memory()
-    # est appelée à ce moment-là), déclenchant une rafale d'appels Stripe à
-    # chaque rerun. Constaté en prod le 02/08/2026 : on cible maintenant
-    # explicitement les seules fonctions réellement lourdes en RAM.
-    # Importe les modules définissant des caches lourds pour garantir que
-    # leurs décorateurs `@heavy_cache_data` se sont bien exécutés (donc
-    # enregistrés dans _HEAVY_CACHE_REGISTRY) au moins une fois, même si
-    # l'utilisateur n'a pas encore visité l'onglet correspondant pendant
-    # cette session. Si un onglet n'a jamais été importé, son cache n'a de
-    # toute façon aucune entrée à vider -- l'import ci-dessous est donc une
-    # simple garantie, pas une liste à tenir à jour manuellement : ajouter
-    # un nouveau module ici est optionnel, contrairement à l'ancienne liste
-    # de fonctions qui, elle, était obligatoire.
-    for _mod in (
-        "tva_intracom.ui.sidebar",
-        "tva_intracom.ui.tabs.visualisations",
-        "tva_intracom.ui.tabs.declarations",
-        "tva_intracom.ui.tabs.detail_ventes",
-        "tva_intracom.ui.tabs.audit",
-    ):
-        try:
-            __import__(_mod)
-        except Exception:
-            pass
-
-    _cleared = 0
-    for _fn in _HEAVY_CACHE_REGISTRY:
-        try:
-            _fn.clear()
-            _cleared += 1
-        except Exception:
-            pass
+    # Pourquoi ce retrait : `_fn.clear()` sur un `st.cache_data` vide TOUTES
+    # les entrées de la fonction, tous utilisateurs/sessions confondus — même
+    # si les clés incluent déjà `calc_key` (voir audit.py/declarations.py/
+    # visualisations.py, qui composent leur clé de session avec `ctx.calc_key`).
+    # `release_memory()` est appelée sur des évènements PAR UTILISATEUR
+    # (retrait d'un fichier par l'utilisateur A dans app.py, logout de
+    # l'utilisateur B dans auth_flow.py) mais le process Streamlit est
+    # partagé entre sessions/threads : un `.clear()` ici vidait donc aussi
+    # les entrées valides d'autres utilisateurs actifs au même moment,
+    # provoquant un recalcul (graphiques, DataFrames détail) au clic suivant
+    # alors qu'ils n'avaient rien demandé. C'est exactement le problème déjà
+    # identifié et corrigé pour les caches billing/Stripe le 02/08/2026 (voir
+    # plus bas) — on applique maintenant le même principe aux caches lourds.
+    #
+    # À la place : on laisse le TTL et le `max_entries` déjà fixés sur chaque
+    # `@heavy_cache_data(..., ttl=..., max_entries=...)` faire le ménage
+    # naturellement. Ces caches sont déjà bornés en RAM par construction
+    # (Streamlit évince les entrées les plus anciennes au-delà de
+    # `max_entries`, et purge celles expirées par `ttl`) ; il n'est donc pas
+    # nécessaire de forcer un vidage global pour éviter une fuite mémoire
+    # long terme — seulement pour libérer immédiatement la RAM d'UN
+    # utilisateur qui vient de se déconnecter/retirer un fichier, ce qu'un
+    # clear ciblé par clé permettrait mais qu'un clear global ne doit plus
+    # faire.
     logger.info(
-        f"Mémoire : {_cleared}/{len(_HEAVY_CACHE_REGISTRY)} cache(s) @heavy_cache_data "
-        "vidé(s) (caches billing/Stripe préservés)."
+        f"Mémoire : {len(_HEAVY_CACHE_REGISTRY)} cache(s) @heavy_cache_data "
+        "laissé(s) intact(s) (nettoyage global supprimé — effet de bord "
+        "multi-utilisateur, voir commentaire ci-dessus ; TTL/max_entries "
+        "font le ménage par entrée)."
     )
 
     # 2. Vide les caches de traduction
