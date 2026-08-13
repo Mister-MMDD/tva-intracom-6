@@ -286,6 +286,24 @@ def _is_expired(checked_at, scope_id: Optional[str] = None) -> bool:
     return _now_utc() - checked_at > timedelta(days=_get_ttl_days(scope_id))
 
 
+def _parse_checked_at(checked_at_str: str) -> Optional[datetime]:
+    """Parse le `checked_at` ISO d'un ViesResult (voir _row_to_result) en
+    datetime UTC tz-aware, ou None si vide/invalide (l'appelant retombe
+    alors sur `_now_utc()` — voir `_db_set_scope`/`_db_set_scope_batch`).
+
+    Utilisée pour faire hériter la date de vérification D'ORIGINE lors
+    d'une copie cache global → cache scope, plutôt que de régénérer la
+    date de la copie (voir docstring de `_db_set_scope`).
+    """
+    if not checked_at_str:
+        return None
+    try:
+        _dt = datetime.fromisoformat(checked_at_str)
+    except ValueError:
+        return None
+    return _dt if _dt.tzinfo is not None else _dt.replace(tzinfo=timezone.utc)
+
+
 def _parse_flexible_date(s: str) -> Optional[datetime]:
     """Parse 'YYYY-MM-DD' ou une date ISO complète en datetime UTC tz-aware.
 
@@ -519,10 +537,26 @@ def _db_get_global(vat_id: str) -> tuple[Optional[ViesResult], bool]:
     return result, not _is_expired(row[6])
 
 
-def _db_set_scope(scope_id: str, vat_id: str, result: ViesResult, log_history: bool = True) -> None:
+def _db_set_scope(scope_id: str, vat_id: str, result: ViesResult, log_history: bool = True,
+                   checked_at: Optional[datetime] = None) -> None:
     """Écrit dans le cache PRIVÉ du scope et journalise dans son historique
-    d'audit. N'écrit jamais dans vies_global_cache (voir _db_set_global)."""
-    checked_at = _now_utc()
+    d'audit. N'écrit jamais dans vies_global_cache (voir _db_set_global).
+
+    `checked_at` : date de vérification à enregistrer. Par défaut (None),
+    utilise l'instant présent — cas normal d'une vérification fraîche
+    (résultat direct de l'API VIES). Lors d'une COPIE depuis le cache
+    global déjà frais (cascade scope → global → API, voir check_vat_raw),
+    l'appelant DOIT passer la date de vérification D'ORIGINE (celle
+    enregistrée dans vies_global_cache), et non l'instant de la copie :
+    sinon la fraîcheur du scope se prolonge artificiellement à chaque
+    copie, indépendamment de la dernière vérification réelle auprès de
+    VIES. Bug identifié le 13/08/2026 : un scope B copiant une entrée du
+    cache global vérifiée par un scope A le 6 août, copie effectuée le 9
+    août, obtenait un `checked_at` de scope = 9 août au lieu de 6 août —
+    le scope B passait alors pour "à jour" jusqu'au 16 août (9+7j) alors
+    que la vérification réelle contre VIES datait du 6 août.
+    """
+    checked_at = checked_at or _now_utc()
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("""
             INSERT INTO vies_scope_cache
@@ -609,14 +643,32 @@ def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool
     return out
 
 
-def _db_set_scope_batch(scope_id: str, items: list[tuple[str, ViesResult]], log_history: bool = True) -> None:
+def _db_set_scope_batch(scope_id: str, items: list[tuple[str, ViesResult]], log_history: bool = True,
+                         use_result_checked_at: bool = False) -> None:
     """Upsert en lot dans vies_scope_cache + insertion en lot dans
-    vies_check_history — un aller-retour réseau au lieu de N."""
+    vies_check_history — un aller-retour réseau au lieu de N.
+
+    `use_result_checked_at` : si True, chaque ligne utilise la date de
+    `result.checked_at` (déjà connue, ex : copiée depuis le cache global)
+    au lieu de l'instant présent — voir docstring de `_db_set_scope` pour
+    la justification (ne pas prolonger artificiellement la fraîcheur du
+    scope à chaque copie). Réservé aux appels qui copient un résultat déjà
+    frais (`validate_vat_numbers_parallel`, section "to_copy_from_global") ;
+    les écritures suivant une vraie vérification API (fresh check) doivent
+    conserver le comportement par défaut (False → `_now_utc()`).
+    """
     if not items:
         return
-    checked_at = _now_utc()
+    _now = _now_utc()
+
+    def _row_checked_at(r: ViesResult) -> datetime:
+        if not use_result_checked_at:
+            return _now
+        return _parse_checked_at(r.checked_at) or _now
+
     scope_rows = [
-        (scope_id, vat_id, r.valid, r.country_code, r.vat_number, _enc(r.name), _enc(r.address), r.error, checked_at)
+        (scope_id, vat_id, r.valid, r.country_code, r.vat_number, _enc(r.name), _enc(r.address), r.error,
+         _row_checked_at(r))
         for vat_id, r in items
     ]
     with _conn() as conn, conn.cursor() as cur:
@@ -1289,7 +1341,8 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
     #    pour CE scope (mutualisation, mais preuve d'audit propre au compte).
     global_cached, global_fresh = _db_get_global(norm)
     if global_cached is not None and global_fresh:
-        _db_set_scope(scope_id, norm, global_cached, log_history=True)
+        _db_set_scope(scope_id, norm, global_cached, log_history=True,
+                      checked_at=_parse_checked_at(global_cached.checked_at))
         return global_cached
 
     if cached is not None and not is_fresh:
@@ -1414,9 +1467,13 @@ def validate_vat_numbers_parallel(
         to_fetch[norm] = vat_id
 
     # Une seule requête pour copier tous les hits du cache global vers le scope
-    # (+ historique) au lieu d'une requête par numéro.
+    # (+ historique) au lieu d'une requête par numéro. use_result_checked_at=True :
+    # ces entrées sont des COPIES d'un cache déjà frais, pas des vérifications
+    # nouvelles — on hérite de leur date de vérification d'origine plutôt que de
+    # régénérer la date de copie (voir docstring de _db_set_scope).
     if to_copy_from_global:
-        _db_set_scope_batch(scope_id, to_copy_from_global, log_history=True)
+        _db_set_scope_batch(scope_id, to_copy_from_global, log_history=True,
+                            use_result_checked_at=True)
 
     # --- Phase 2 : requêtes réseau parallèles pour les numéros à revalider ---
     batch_results: dict[str, ViesResult] = {}
