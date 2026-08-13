@@ -165,7 +165,7 @@ def _vat_amount(base: Decimal, rate: Decimal) -> Decimal:
     return _round(base * (rate / Decimal("100")))
 
 def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: str = "", lang: str | None = None,
-                 ioss_own_number_active: bool = False) -> VatResult:
+                 ioss_own_number_active: bool = False, tx_date: _date | None = None) -> VatResult:
     """Calcule le regime et le montant de TVA d'une vente en prenant en compte la catégorie produit.
 
     ioss_own_number_active : n'est pertinent que si sale.ioss_number est renseigné.
@@ -175,6 +175,11 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
         d'import ≤150€ facilitée par une interface électronique). Ce n'est QUE si
         l'utilisateur active explicitement ce choix (ex. ventes hors marketplace,
         site propre) que le n° IOSS du compte est utilisé pour le cas IOSS_DIRECT.
+
+    tx_date : date de transaction déjà parsée par l'appelant (ex: `_run_oss_loop`,
+        qui en a aussi besoin pour `_build_oss_note`) — évite de reparser
+        `sale.transaction_date` ici si l'appelant l'a déjà fait. None par défaut
+        (rétro-compatible) : dans ce cas la date est parsée localement, comme avant.
     """
     # Résolu une seule fois par appel si l'appelant (ex: _run_oss_loop) ne l'a
     # pas déjà résolu pour tout le lot — évite un lookup Streamlit par vente
@@ -197,8 +202,8 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # Date de transaction (déplacée ici, avant le cas Monaco ET le cas export,
     # pour que les deux puissent appliquer un taux historique correct — ex:
     # changement de taux FR au fil du temps).
-    _tx_date: _date | None = None
-    if sale.transaction_date:
+    _tx_date: _date | None = tx_date
+    if _tx_date is None and sale.transaction_date:
         try:
             _tx_date = _date.fromisoformat(sale.transaction_date[:10])
         except ValueError:
@@ -635,7 +640,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                     sale: Sale, product_category: str,
                     apply_fr_under_threshold: bool, lang: str | None = None,
                     currency: str = "EUR", symbol: str = "€",
-                    oss_period: str = "") -> VatResult:
+                    oss_period: str = "", tx_date: _date | None = None) -> VatResult:
     """Applique la logique du seuil OSS à un VatResult déjà calculé.
 
     `oss_period` : période de déclaration (ex. "2024-Q1", ou "__auto__"/vide
@@ -643,6 +648,12 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     `_oss_threshold_display` pour que la date du taux BCE utilisée dans la
     note affichée soit alignée sur celle du calcul fiscal réel (voir
     ecb_rates.get_oss_rate_date / oss_export.py).
+
+    `tx_date` : date de transaction déjà parsée par l'appelant (`compute_vat`
+    la parse systématiquement pour ses propres besoins de taux historique,
+    voir `_tx_date` l.~200). On la réutilise ici au lieu de reparser
+    `sale.transaction_date` une seconde fois — `_date` est importée en
+    top-level de ce module, pas besoin d'import local.
     """
     if lang is None:
         lang = _resolve_lang()
@@ -653,11 +664,10 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
 
     if cumulative <= Decimal("10000.00"):
         origin_country = sale.seller_country
-        _oss_tx_date = None
-        if sale.transaction_date:
+        _oss_tx_date = tx_date
+        if _oss_tx_date is None and sale.transaction_date:
             try:
-                from datetime import date as _d
-                _oss_tx_date = _d.fromisoformat(sale.transaction_date[:10])
+                _oss_tx_date = _date.fromisoformat(sale.transaction_date[:10])
             except ValueError:
                 pass
         home_rate = vat_rate(origin_country, product_category, tx_date=_oss_tx_date)
@@ -819,8 +829,18 @@ def _run_oss_loop(
             else sale
         )
 
+        # Parsée une seule fois ici et réutilisée par compute_vat (taux
+        # historique) ET _build_oss_note (affichage seuil OSS) plus bas —
+        # évite de parser deux fois la même string ISO par vente.
+        _sale_tx_date: _date | None = None
+        if effective_sale.transaction_date:
+            try:
+                _sale_tx_date = _date.fromisoformat(effective_sale.transaction_date[:10])
+            except ValueError:
+                pass
+
         res = compute_vat(effective_sale, marketplace_name, product_category=product_category, lang=_lang,
-                          ioss_own_number_active=ioss_own_number_active)
+                          ioss_own_number_active=ioss_own_number_active, tx_date=_sale_tx_date)
 
         if _oss_eligible(effective_sale):
             # Cumul net partagé (ventes+avoirs) — inchangé par rapport à
@@ -831,6 +851,7 @@ def _run_oss_loop(
                     res, cumulative_oss_ht, Decimal("10000.00"),
                     effective_sale, product_category, apply_fr_under_threshold,
                     lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
+                    tx_date=_sale_tx_date,
                 )
             else:
                 refund_cumulative_oss_ht += effective_sale.amount_ht
@@ -838,6 +859,7 @@ def _run_oss_loop(
                     res, refund_cumulative_oss_ht, Decimal("10000.00"),
                     effective_sale, product_category, apply_fr_under_threshold,
                     lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
+                    tx_date=_sale_tx_date,
                 )
 
         if not is_from_refunds:

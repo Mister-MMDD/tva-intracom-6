@@ -48,6 +48,27 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Verrou global (process entier) bornant le nombre de requêtes HTTP VIES
+# réellement EN VOL simultanément, tous appels/utilisateurs confondus.
+#
+# Sans ça : chaque appel à validate_vat_numbers_parallel crée son propre
+# ThreadPoolExecutor(max_workers=25). MAX_CONCURRENT_BIG_JOBS (voir
+# background_calc.py) ne s'applique qu'aux fichiers > 20k lignes — un
+# fichier "moyen" (ex. 15k lignes, donc en dessous de ce seuil) passe à
+# travers ce garde-fou. Avec 4 utilisateurs en parallèle sur des fichiers
+# moyens, on peut se retrouver avec jusqu'à 100 threads réseau simultanés :
+# risque de saturation RAM (pile de threads) et surtout de bannissement
+# temporaire par l'API VIES (limite de requêtes concurrentes par IP source).
+#
+# Ce sémaphore ne remplace pas MAX_CONCURRENT_BIG_JOBS (qui borne le nombre
+# de CALCULS complets simultanés, RAM des Sale/VatResult incluse) : il borne
+# spécifiquement la charge réseau VIES, à un niveau plus bas et orthogonal.
+# Changement volontairement minimal : on ne touche ni à la taille des
+# ThreadPoolExecutor existants ni à leur cycle de vie (with-block par appel),
+# on ajoute juste un acquire/release autour de l'appel réseau lui-même.
+_VIES_GLOBAL_CONCURRENCY_LIMIT = 25
+_vies_global_semaphore = threading.BoundedSemaphore(_VIES_GLOBAL_CONCURRENCY_LIMIT)
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -1482,7 +1503,11 @@ def validate_vat_numbers_parallel(
         def _check_one(item: tuple[str, str]) -> tuple[str, ViesResult]:
             norm_id, orig = item
             country_code, number = _clean_vat_number(orig)
-            result = check_vat_with_retry(country_code, number, timeout=timeout)
+            # Le thread peut démarrer immédiatement (pas de limite sur
+            # max_workers ici), mais la requête réseau elle-même attend son
+            # tour derrière _vies_global_semaphore — voir sa docstring.
+            with _vies_global_semaphore:
+                result = check_vat_with_retry(country_code, number, timeout=timeout)
             return norm_id, result
 
         workers = min(max_workers, len(to_fetch))

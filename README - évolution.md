@@ -1784,6 +1784,95 @@ et à améliorer la robustesse du moteur.
   sein d'un export ancien, sans impacter la consommation RAM (pas de
   pré-passe sur le fichier).
 
+## Audit performance & Fiabilité — VIES, seuil OSS, formatage, nettoyage DB (2026-08-14)
+
+Suite du checkup performance : validation de chaque piste contre le code réel
+avant patch (certaines pistes de l'audit initial se sont révélées mal ciblées
+et n'ont pas été reprises telles quelles — voir plus bas).
+
+- **Sémaphore global VIES (`vies_engine.py`)** : `_check_one()` (appelée par
+  `validate_vat_numbers_parallel`) acquiert désormais un
+  `threading.BoundedSemaphore(25)` process-wide (`_vies_global_semaphore`)
+  autour de l'appel réseau `check_vat_with_retry`. Corrige un risque réel de
+  thread exhaustion : `MAX_CONCURRENT_BIG_JOBS` (background_calc.py) ne
+  s'applique qu'aux fichiers > 20k lignes, un fichier "moyen" (ex. 15k
+  lignes) le contourne. Sans ce sémaphore, 4 utilisateurs simultanés sur des
+  fichiers moyens pouvaient ouvrir jusqu'à 100 threads réseau, avec risque
+  de saturation RAM et de bannissement temporaire par l'API VIES (limite de
+  requêtes concurrentes par IP). N'a volontairement pas changé la taille des
+  `ThreadPoolExecutor` existants ni leur cycle de vie.
+
+- **Parsing de date dédupliqué (`engine.py`)** : `compute_vat()` et
+  `_build_oss_note()` acceptent désormais un paramètre `tx_date` optionnel.
+  La date de transaction est parsée **une seule fois** dans la boucle
+  appelante (`_run_oss_loop`) et réutilisée par les deux fonctions, au lieu
+  d'être reparsée une seconde fois dans `_build_oss_note` pour chaque vente
+  sous le seuil OSS. Suppression au passage d'un import local
+  `from datetime import date as _d` redondant (le module importe déjà
+  `date as _date` en top-level).
+
+- **Colonnes `category` dans le détail des ventes (`detail_ventes.py`)** :
+  `_build_rows_df()` type désormais `canal`, `scenario`, `vat_country` et
+  `collector` en dtype pandas `category`. Ces colonnes sont très répétitives
+  sur un fichier de plusieurs dizaines de milliers de lignes (quelques
+  dizaines de valeurs distinctes) — gain mémoire réel, comparaisons/tri
+  inchangés côté appelant.
+
+- **Formatage `Decimal`-safe (`ui/formatting.py`)** : `_fmt()` formate
+  désormais directement depuis un `Decimal` (via `quantize`) quand `symbol`
+  est fourni explicitement (pas de conversion FX nécessaire), au lieu de
+  systématiquement passer par `float`. Évite un écart d'arrondi possible de
+  0,01 € entre cet affichage et un total calculé ailleurs en `Decimal`. Le
+  passage par `float` reste nécessaire quand une conversion FX a lieu (taux
+  BCE lui-même en `float`).
+
+- **Nettoyage des connexions DB idle sans garde global (`app.py`)** : le
+  garde `if not any_job_running()` autour de l'appel aux 4
+  `close_idle_connections()` (auth, ecb_rates, billing, vies_engine) a été
+  retiré. Vérifié dans `database.py` : `close_idle_connections()` ne ferme
+  que la connexion mise en cache par `threading.local()` sur le **thread
+  appelant** (le thread principal du run Streamlit courant) — jamais celle
+  d'un job de calcul en cours, qui tourne dans son propre thread
+  (`background_calc.py`, thread `bgjob-*`). Le garde ne protégeait donc
+  rien : il retardait seulement, sans raison, le nettoyage des connexions
+  d'utilisateurs par ailleurs inactifs pendant qu'un job tournait n'importe
+  où sur le process. Import `any_job_running` retiré (devenu mort).
+
+- **`is_non_fiscal_eu()` optimisé (`rates.py`)** : ajout de
+  `_NON_FISCAL_EU_COUNTRY_CODES`, un `frozenset` aplati précalculé une seule
+  fois au chargement du module, pour le test d'appartenance direct (cas GL,
+  FO, CW, AW, SX, BQ, CY-NORTH, GB-SBA). Auparavant, la fonction reparcourait
+  les 9 règles de `NON_FISCAL_EU_POSTCODES` à chaque appel — pour un
+  dictionnaire pourtant statique. Comportement strictement identique validé
+  sur 48 521 cas de test avant bascule (0 écart). Gain mesuré sur benchmark
+  synthétique 50k lignes : ~75% sur la fonction isolée, ~10% sur le temps
+  de parsing total, ~8% sur le pipeline complet (parsing + `compute_vat`).
+
+**Pistes de l'audit initial examinées et non retenues :**
+
+- **Vectoriser en Polars les cas simples (EXPORT/DEEMED_SUPPLIER) avant
+  `to_dicts()`** (`loader.py`) : rejetée après profiling. `_process_rows`
+  construit un objet `Sale` pour 100% des lignes sans exception — il est
+  utilisé en aval par l'UI, les exports et `compute_vat`, impossible de le
+  sauter pour les cas "simples" sans casser ces usages. Le profiling a
+  montré que `to_dicts()` ne représente que ~9% du temps de parsing (le vrai
+  coût est la construction `Sale`/Pydantic, ~24%, et les lookups territoire
+  — d'où le fix `is_non_fiscal_eu` ci-dessus, qui cible le bon goulot).
+- **Batching VIES par chunks de 50** (écriture au fil de l'eau) : reporté,
+  à regrouper avec la migration DictCursor déjà différée sur les mêmes
+  zones de `vies_engine.py` plutôt que de toucher le fichier deux fois.
+- **Cache VIES local `st.session_state`** : rejeté. `validate_vat_numbers_parallel`
+  tourne dans le thread d'arrière-plan (`background_calc.py`) — y accéder à
+  `st.session_state` violerait le principe de thread-safety déjà en place
+  pour `lang` (transmis explicitement pour cette même raison).
+- **Signature MD5 catalogue ASIN au lieu de `frozenset(...)`** (`app.py`,
+  `_asin_catalog_sig`) : reporté. Le fichier catalogue uploadé n'est
+  disponible que dans `sidebar.py` (scope local) ; utiliser son hash
+  nécessiterait d'étendre l'interface `SidebarResult` pour le faire
+  remonter — pas un simple patch local. Sans lien avec `_upload_sig()`
+  (audit précédent, ci-dessus), qui couvre le fichier de transactions
+  principal, pas le catalogue ASIN.
+
 ---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.

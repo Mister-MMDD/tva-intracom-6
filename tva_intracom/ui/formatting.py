@@ -13,6 +13,7 @@ existants (`from tva_intracom.ui.formatting import _fmt, ...`).
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 from typing import Any
 
 import pandas as pd
@@ -162,9 +163,29 @@ def _fmt(value, symbol=None) -> str:
     tableaux de résultats).
     Si `symbol` EST fourni explicitement : aucune conversion n'est appliquée —
     utile pour afficher un montant déjà dans sa devise d'origine (ex. montant
-    de transaction non-EUR affiché tel quel dans la colonne "Montant orig.")."""
+    de transaction non-EUR affiché tel quel dans la colonne "Montant orig.").
+
+    Note précision : quand `symbol` est fourni (pas de conversion FX), une
+    valeur `Decimal` (calcul fiscal) est formatée directement depuis le
+    Decimal, sans passage par `float`, pour éviter un écart d'arrondi de
+    0.01€ possible entre cet affichage et un total calculé ailleurs en
+    Decimal (ex. tableau de bord vs graphique Plotly, qui lui doit rester
+    en float pour ses besoins internes). Quand une conversion FX est
+    nécessaire (`symbol is None`), le passage par float reste inévitable
+    (le taux BCE lui-même est un float)."""
     if value is None:
         return "—"
+
+    if symbol is not None and isinstance(value, Decimal):
+        if value.is_nan():
+            return "—"
+        if value.is_infinite():
+            return f"∞ {symbol}"
+        v_dec = value.quantize(Decimal("0.01"))
+        if v_dec == v_dec.to_integral_value():
+            return f"{int(v_dec):,} {symbol}".replace(",", " ")
+        return f"{v_dec:,.2f} {symbol}".replace(",", " ")
+
     try:
         v = float(value)
     except (ValueError, TypeError):

@@ -92,7 +92,18 @@ def _build_rows_df(_results: list, target_currency: str, calc_key, label: str) -
             "orig": orig,
             "note": r.note,
         })
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # Colonnes à faible cardinalité (Canal/Scénario/Pays TVA/Collecteur) très
+    # répétitives sur un fichier de plusieurs dizaines de milliers de lignes
+    # (ex: quelques dizaines de valeurs de scenario/collector distinctes pour
+    # 100k lignes) : le typage `category` ne stocke chaque chaîne qu'une
+    # seule fois en interne (dictionnaire de codes), au lieu d'un objet str
+    # Python par cellule. Comparaisons (==, !=) et `sort_values` restent
+    # inchangés pour l'appelant — pandas les gère nativement sur ce dtype.
+    for _col in ("canal", "scenario", "vat_country", "collector"):
+        if _col in df.columns:
+            df[_col] = df[_col].astype("category")
+    return df
 
 
 def _finalize_df(df_slice: pd.DataFrame, labels: dict, include_collector: bool) -> pd.DataFrame:
