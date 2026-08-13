@@ -202,22 +202,37 @@ def run_with_retry(
     `on_retry` est appelé entre les deux tentatives si l'appelant a besoin
     de forcer la recréation de son objet pool global (voir `_get_pool()`
     dans auth.py / billing.py / ecb_rates.py).
+
+    IMPORTANT : la connexion est TOUJOURS rendue au pool via `finally`, y
+    compris quand `fn` lève une exception autre que InterfaceError/
+    OperationalError (ex: erreur métier dans le code appelant avec
+    `cache_connection=False`, utilisé par VIES). Sans ce `finally`, une
+    telle exception sautait `pool.putconn(conn)` et laissait la connexion
+    ouverte côté serveur sans jamais être rendue au pool — fuite de
+    connexion pouvant saturer le quota Supabase lors de pics d'erreurs.
     """
     last_exc: Optional[Exception] = None
     for attempt in range(2):
         pool = get_pool()
         conn = pool.getconn()
+        close_conn = False
         try:
             with conn, conn.cursor() as cur:
                 result = fn(conn, cur)
-            pool.putconn(conn)
             return result
         except (psycopg2.InterfaceError, psycopg2.OperationalError) as exc:
             last_exc = exc
+            close_conn = True
             logger.warning(
                 "Connexion DB perdue (tentative %d/2) : %s", attempt + 1, exc
             )
-            pool.putconn(conn, close=True)
             if on_retry is not None:
                 on_retry()
+        finally:
+            # Rendue au pool dans tous les cas (succès, erreur retryable,
+            # ou toute autre exception levée par fn) : jamais de fuite.
+            # `close=True` uniquement pour les erreurs de connectivité
+            # (la connexion est probablement invalide côté serveur) ;
+            # sinon `close=False` pour préserver le pooling normal.
+            pool.putconn(conn, close=close_conn)
     raise last_exc

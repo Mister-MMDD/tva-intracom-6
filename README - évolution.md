@@ -1639,26 +1639,108 @@ derniers résidus de texte français hardcodé dans le moteur et les exports.
   multiples fonctions `_country_label` locales qui étaient dupliquées dans les
   modules UI.
 - **Localisation complète des exports** :
-    - `excel_report.py` : Tous les onglets (Récapitulatif, Détail, Audit, AIC,
-      Intrastat) utilisent désormais les noms de pays traduits selon la langue
-      choisie par l'utilisateur.
-    - `oss_xml.py` : Les messages d'erreur de solde négatif incluent désormais
-      les noms localisés des pays de départ et de destination.
-    - `report.py` : Le rendu texte (utilisé pour les logs et la CLI) affiche
-      désormais les libellés traduits.
-    - `fec_export.py` : Les libellés d'écritures incluent le nom complet
-      localisé au lieu du code ISO brut, facilitant le travail des cabinets
-      comptables étrangers.
+  - `excel_report.py` : Tous les onglets (Récapitulatif, Détail, Audit, AIC,
+    Intrastat) utilisent désormais les noms de pays traduits selon la langue
+    choisie par l'utilisateur.
+  - `oss_xml.py` : Les messages d'erreur de solde négatif incluent désormais
+    les noms localisés des pays de départ et de destination.
+  - `report.py` : Le rendu texte (utilisé pour les logs et la CLI) affiche
+    désormais les libellés traduits.
+  - `fec_export.py` : Les libellés d'écritures incluent le nom complet
+    localisé au lieu du code ISO brut, facilitant le travail des cabinets
+    comptables étrangers.
 - **Interface Utilisateur** :
-    - Mise à jour de `ui/formatting.py` pour déléguer systématiquement la
-      traduction à la fonction centrale.
-    - Synchronisation de tous les sélecteurs (sidebar, téléchargements) et de
-      la génération de certificats PDF VIES pour un affichage multilingue
-      cohérent.
+  - Mise à jour de `ui/formatting.py` pour déléguer systématiquement la
+    traduction à la fonction centrale.
+  - Synchronisation de tous les sélecteurs (sidebar, téléchargements) et de
+    la génération de certificats PDF VIES pour un affichage multilingue
+    cohérent.
 - **Données de traduction** : Les 7 fichiers TOML (`fr`, `en`, `de`, `es`,
   `it`, `pl`, `pt`) ont été complétés pour couvrir l'intégralité des États
   membres de l'UE et les pays tiers fréquents (63 clés `country_XX` par
   fichier).
+
+---
+
+## Audit externe — fuite connexion DB, collision upload, XML OSS invalide silencieux (2026-08-13)
+
+Revue de 4 pistes d'amélioration proposées en audit externe (performance,
+RAM, bugs, IOSS) sur `engine.py`, `formatting.py`, `mem_utils.py`,
+`database.py`, `app.py`, `telechargements.py`. 3 bugs confirmés et corrigés,
+1 déjà résolu par des correctifs antérieurs (faux positif), 2 pistes de
+performance/architecture identifiées mais reportées (gain incertain ou
+risque de régression défavorable). Suite de tests complète après chaque
+patch : baseline stable **166 passed / 4 failed** (échecs préexistants liés
+à `SUPABASE_DB_URL` absente en environnement de test), aucune régression.
+
+- ~~Fuite de connexion DB dans `run_with_retry`~~ **Corrigé (bug critique)** :
+  `database.py::run_with_retry()` ne rendait la connexion au pool
+  (`pool.putconn(conn)`) que sur le chemin de succès ou sur
+  `InterfaceError`/`OperationalError`. Toute autre exception levée par `fn`
+  (ex : erreur métier dans un appelant avec `cache_connection=False`, cas de
+  `vies_engine.py`) sortait de la fonction sans jamais restituer la
+  connexion — fuite pouvant saturer le quota de connexions Supabase lors de
+  pics d'erreurs. La restitution est déplacée dans un bloc `finally`,
+  garantissant `putconn()` dans tous les cas (succès, retry, ou exception
+  quelconque), avec `close=True` réservé aux seules erreurs de connectivité.
+
+- ~~Collision de fichiers homonymes dans le cache d'upload~~ **Corrigé
+  (bug)** : `app.py`, le cache `_last_uploaded_files_bytes` (octets
+  compressés gzip conservés pour survivre à un rerun interne, voir
+  `rerun_utils.py`) était indexé uniquement par `f.name`. Deux fichiers
+  différents partageant le même nom (ex : deux exports `rapport.csv` de
+  tailles différentes uploadés ensemble, `accept_multiple_files=True`)
+  s'écrasaient silencieusement dans ce cache — l'un des deux disparaissait
+  ou était remplacé par le contenu de l'autre au premier rerun interne
+  (changement de langue notamment). Clé de cache changée pour `(name,
+  size)`, cohérente avec la déduplication déjà appliquée plus loin dans le
+  même fichier.
+
+- ~~Masquage silencieux d'un solde OSS négatif non résolu dans le XML~~
+  **Corrigé (risque fiscal)** : `telechargements.py::_build_oss_xml()`
+  capturait la `ValueError` levée par `generate_oss_xml()` en cas de solde
+  négatif bloquant (avoir non rattaché à sa vente d'origine) et relançait
+  immédiatement l'appel avec `ignore_negatives=True`. Ce paramètre ne
+  filtre **pas** les montants négatifs restants — il désactive uniquement le
+  blocage — si bien que le XML généré contenait des `TaxableAmount`/
+  `VatAmountIssued` négatifs dans le corps principal de la déclaration,
+  techniquement produit mais fiscalement invalide et rejeté par le portail
+  OSS, sans que l'utilisateur soit informé qu'une correction avait été
+  ignorée. Nouveau comportement : `ignore_negatives` n'est plus jamais
+  invoqué depuis l'UI. En cas de solde bloquant après tentative de
+  rattachement automatique, **aucun XML n'est généré**, le détail de
+  l'erreur (pays/taux/montants concernés) s'affiche via `st.error()` et
+  reste visible tant que le point n'est pas résolu, y compris après un
+  rerun du fragment (persistance en `session_state`, purgée automatiquement
+  au changement de contexte de calcul comme les autres artefacts). Nouvelle
+  clé i18n `dl_oss_xml_blocked_error` ajoutée symétriquement dans les 7
+  fichiers TOML (1131 → 1132 clés partout, vérifié par parsing).
+
+- **Lookups `_get_conversion_rate()` répétés à chaque cellule dans
+  `detail_ventes.py` (écarté, déjà résolu)** : le point O(n) réel
+  (`_build_rows_df`, jusqu'à 100k lignes) stocke des `float` bruts sans
+  jamais appeler `_fmt()` — la conversion/formatage n'intervient qu'après,
+  sur le DataFrame déjà filtré/paginé (quelques dizaines de lignes). Aucune
+  modification nécessaire.
+
+Pistes identifiées mais **non corrigées dans ce patch** :
+
+- **Boucle `_run_oss_loop`/`compute_all_with_vies` non vectorisée** :
+  vectoriser en Polars les cas B2C simples apporterait un gain réel sur les
+  gros fichiers, mais la logique OSS a un cumul stateful (seuil 10 000 €,
+  reset annuel, distinction ventes/avoirs) qui ne se vectorise pas
+  trivialement — gros chantier à ROI incertain, reporté.
+- **Colonnes texte répétitives (`Canal`, `Scenario`, `Collector`, `Pays`)
+  non typées `category` dans le cache `_build_rows_df`** : gain mémoire
+  réel et risque faible, bonne candidate pour un prochain patch ciblé.
+- **Cache `@st.cache_data` process-wide partagé entre tenants** : le
+  compromis (un seul process Streamlit pour tous les utilisateurs) est déjà
+  assumé et partiellement mitigé (`release_memory()` cible désormais le
+  registre `_HEAVY_CACHE_REGISTRY`, pas un `clear()` global) — reste un
+  sujet d'architecture de fond, pas un bug isolé à corriger.
+- **Export IOSS sans XML dédié** : confirmé, seule la saisie manuelle est
+  possible actuellement (voir « Sur l'horizon » / travaux en cours sur
+  l'export IOSS séparé).
 
 ---
 > Il ne remplace pas un conseil fiscal professionnel.

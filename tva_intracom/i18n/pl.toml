@@ -371,6 +371,7 @@ dl_oss_negative_expander = "🔎 Wykryto automatyczne powiązanie not korygując
 dl_oss_negative_matched = "**{label}** — powiązano {count} notę(y) korygującą(e) (okres źródłowy: {origins})."
 dl_oss_negative_unmatched = "⚠️ **{label}** — {count} nota(y) korygująca(e) bez źródła (Netto {ht} €)."
 dl_oss_confirm_corrections = "✅ Uwzględnij blok automatycznej korekty w pliku XML"
+dl_oss_xml_blocked_error = "❌ **Generowanie pliku XML OSS zablokowane** — {detail}\n\nPlik XML **nie** został wygenerowany: żaden plik do pobrania nie zostanie zaproponowany, dopóki ta kwestia nie zostanie rozwiązana, aby uniknąć nieprawidłowego zgłoszenia podatkowego."
 dl_xml_oss_btn = "📥 Pobierz XML OSS (impots.gouv.fr)"
 dl_xml_oss_filename = "Deklaracja XML OSS - {company} - {period}.xml"
 dl_xlsx_oss_btn = "📊 Zestawienie podsumowujące OSS (.xlsx)"

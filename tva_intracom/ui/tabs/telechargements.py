@@ -247,15 +247,38 @@ def render_telechargements() -> None:
                                 st.markdown(_("dl_oss_negative_unmatched", label=_lbl, count=s.unmatched_count, ht=f"{float(s.unmatched_ht):,.2f}"))
                         _confirm_corrections = st.checkbox(_("dl_oss_confirm_corrections"), key="confirm_oss_corrections")
 
+            # BUGFIX (fiabilité fiscale) : auparavant, une ValueError levée par
+            # generate_oss_xml() pour solde négatif non résolu (voir garde-fou
+            # dans oss_xml.py) était capturée silencieusement et l'appel était
+            # immédiatement relancé avec ignore_negatives=True. Le XML produit
+            # contenait alors des montants négatifs dans le corps principal de
+            # la déclaration (TaxableAmount/VatAmountIssued) — techniquement
+            # généré, mais fiscalement invalide et rejeté par le portail OSS —
+            # sans que l'utilisateur soit informé qu'une correction avait été
+            # ignorée. Nouveau comportement : ignore_negatives n'est plus
+            # jamais utilisé depuis l'UI. Si des soldes négatifs restent
+            # bloquants après tentative de rattachement automatique, AUCUN XML
+            # n'est généré et l'erreur détaillée (pays/taux/montants concernés)
+            # est affichée en clair et reste visible tant que le point n'est
+            # pas résolu (rattachement complété, ou avoirs corrigés en amont).
+            _oss_xml_error_key = "_dl_artifact_oss_xml_error"
+
             def _build_oss_xml():
                 _res_net = _get_results_net()
                 try:
-                    return generate_oss_xml(results=_res_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
-                except ValueError:
-                    return generate_oss_xml(results=_res_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections, ignore_negatives=True)
+                    _xml_bytes = generate_oss_xml(results=_res_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
+                except ValueError as _exc:
+                    st.session_state[_oss_xml_error_key] = str(_exc)
+                    return None
+                st.session_state.pop(_oss_xml_error_key, None)
+                return _xml_bytes
 
             # On inclut _confirm_corrections dans la clé de cache car le XML change selon cette option
             oss_xml_bytes = _lazy_artifact(f"oss_xml_{_confirm_corrections}", _build_oss_xml, label="dl_generate_oss_xml_btn")
+
+            _oss_xml_error = st.session_state.get(_oss_xml_error_key)
+            if _oss_xml_error:
+                st.error(_("dl_oss_xml_blocked_error", detail=_oss_xml_error))
 
             if not _can_export:
                 _gated_download(_("dl_xml_oss_btn"), data=b"", file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml")

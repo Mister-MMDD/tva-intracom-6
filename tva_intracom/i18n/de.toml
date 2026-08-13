@@ -371,6 +371,7 @@ dl_oss_negative_expander = "🔎 Automatische Zuordnung von Gutschriften erkannt
 dl_oss_negative_matched = "**{label}** — {count} zugeordnete Gutschrift(en) (Ursprungszeitraum: {origins})."
 dl_oss_negative_unmatched = "⚠️ **{label}** — {count} Gutschrift(en) ohne Ursprung (Netto {ht} €)."
 dl_oss_confirm_corrections = "✅ Automatisches Korrektur-Modul in XML aufnehmen"
+dl_oss_xml_blocked_error = "❌ **Erstellung der OSS-XML-Datei blockiert** — {detail}\n\nDie XML-Datei wurde **nicht** erstellt: Es wird keine herunterladbare Datei angeboten, bis dieser Punkt geklärt ist, um eine ungültige Steuererklärung zu vermeiden."
 dl_xml_oss_btn = "📥 XML für OSS herunterladen (impots.gouv.fr)"
 dl_xml_oss_filename = "OSS_XML_Erklaerung - {company} - {period}.xml"
 dl_xlsx_oss_btn = "📊 OSS Zusammenfassung (.xlsx)"

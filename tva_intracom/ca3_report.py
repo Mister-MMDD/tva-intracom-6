@@ -324,6 +324,18 @@ def compute_ca3_lines_v2(
         lines["L17_tva_aic"] = t
         lines["L08_base_ht"] += b
         lines["L08_tva_due"] += t
+        # NB affichage (rapport HTML uniquement, aucun impact sur le Cerfa) :
+        # L08_base_ht/L08_tva_due incluent l'AIC ci-dessus, mais
+        # L08_base_vente/L08_tva_due_vente n'en sont volontairement PAS
+        # augmentés ici — cf. le calcul de `base_vente_total`/`tva_vente_total`
+        # plus bas (hors AIC par construction, comme documenté à cet endroit)
+        # et la ligne CA totale (Section A, ~L.671) qui ajoute B2_base_ht à
+        # part dans son propre total "vente" affiché. Faire de même ici (au
+        # lieu de muter L08_base_vente) casserait ces totaux "hors AIC"
+        # utilisés ailleurs dans le rapport. La ligne 08 du tableau B affiche
+        # donc "Net" != "Vente + Remb" quand il y a de l'AIC : c'est corrigé
+        # au niveau de l'affichage (mémo AIC dédié dans le tableau, voir
+        # `has_aic` / ligne AIC) plutôt qu'en modifiant les données sources.
         # TVA déductible sur AIC (art. 272 CGI, déduction immédiate si le
         # stock transféré est destiné à la revente) — intégrée dans la
         # Ligne 20 (Autres biens et services), pas une ligne séparée.

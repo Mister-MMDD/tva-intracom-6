@@ -262,7 +262,7 @@ def generate_local_vat_html_report(
     {box_col_note}
 
     <p class="notice">
-        {_("local_vat_footer_notice", country=country_label)}
+        {_("local_vat_footer_notice", country=c_label)}
     </p>
 </body>
 </html>"""

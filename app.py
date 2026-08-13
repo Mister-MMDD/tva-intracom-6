@@ -262,20 +262,25 @@ if uploaded_files:
     # (coûteux en CPU sur de gros fichiers) tournait donc à chaque rerun
     # pour rien, alors que le contenu déjà en cache est strictement
     # identique la plupart du temps.
-    _new_signature = {f.name: f.size for f in uploaded_files}
+    #
+    # Clé (name, size) plutôt que name seul : deux fichiers différents
+    # portant le même nom (ex: deux exports "rapport.csv" de tailles
+    # différentes) ne doivent PAS s'écraser dans ce cache — sinon l'un des
+    # deux disparaît (ou est remplacé par le contenu de l'autre) au premier
+    # rerun interne (ex: changement de langue), voir _CachedUploadedFile
+    # ci-dessous qui reconstruit uploaded_files à partir de ce cache.
+    _new_signature = {(f.name, f.size) for f in uploaded_files}
     _cached = st.session_state.get("_last_uploaded_files_bytes")
-    _cached_signature = {
-        _name: _size for _name, (_c, _size) in (_cached or {}).items()
-    }
+    _cached_signature = set(_cached.keys()) if _cached else set()
     if _cached is None or _new_signature != _cached_signature:
         st.session_state["_last_uploaded_files_bytes"] = {
-            f.name: (gzip.compress(f.getvalue(), compresslevel=6), f.size)
+            (f.name, f.size): gzip.compress(f.getvalue(), compresslevel=6)
             for f in uploaded_files
         }
 elif _preserve_upload_this_run and st.session_state.get("_last_uploaded_files_bytes"):
     uploaded_files = [
         _CachedUploadedFile(_name, _compressed, _size)
-        for _name, (_compressed, _size) in st.session_state["_last_uploaded_files_bytes"].items()
+        for (_name, _size), _compressed in st.session_state["_last_uploaded_files_bytes"].items()
     ]
 else:
     # Vrai retrait de fichier (ou aucun fichier n'a jamais été chargé) :

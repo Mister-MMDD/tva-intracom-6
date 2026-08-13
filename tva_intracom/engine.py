@@ -13,6 +13,7 @@ l'acheteur) pour determiner le regime applicable parmi les 4 cas principaux :
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from dataclasses import replace as _dc_replace
 from decimal import ROUND_HALF_UP, Decimal
 from itertools import chain
@@ -36,7 +37,22 @@ from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 
 
-_NOTE_INTERN_CACHE: dict[str, str] = {}
+_NOTE_INTERN_CACHE: "OrderedDict[str, str]" = OrderedDict()
+
+# Borne dure sur le cache d'interning des notes (voir `_note()` ci-dessous).
+# Pour l'immense majorité des notes, le nombre de clés distinctes est bien
+# borné par la combinatoire fiscale (pays x taux x scénario), comme documenté
+# plus bas. Mais `_build_oss_note` inclut le montant cumulé OSS courant dans
+# le texte pour les ventes sous le seuil — ce montant change quasiment à
+# chaque vente, donc cette famille de notes génère potentiellement autant de
+# clés uniques que de ventes sur un run donné (jusqu'à des dizaines de
+# milliers sur un gros fichier). Sans borne, le cache — global au process,
+# jamais vidé entre les runs/utilisateurs — grossirait indéfiniment (fuite
+# mémoire, risque d'OOM sur un serveur multi-tenant). On plafonne donc sa
+# taille avec une éviction LRU simple : ça préserve le partage mémoire pour
+# les combinaisons réellement répétées (le cas normal), tout en bornant la
+# pire hypothèse (notes à cardinalité élevée type seuil OSS).
+_NOTE_INTERN_CACHE_MAXSIZE = 5000
 
 _i18n_translate = None  # cache paresseux, voir _get_i18n_translate()
 
@@ -75,20 +91,40 @@ def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
     restreint de combinaisons (pays de destination × taux × scénario), donc
     la même chaîne est reconstruite des dizaines de milliers de fois par des
     f-strings (jamais internées automatiquement par CPython, contrairement
-    aux littéraux). `dict.setdefault` renvoie la première instance vue pour
-    un texte donné, permettant à toutes les occurrences ultérieures de
-    partager le même objet str en mémoire plutôt que d'en allouer un
-    nouveau. `setdefault` sur un dict est atomique au niveau bytecode
-    (protégé par le GIL) : sûr même appelé depuis le thread de calcul
-    d'arrière-plan (voir background_calc.py). Le nombre de clés distinctes
-    reste borné par la combinatoire des scénarios fiscaux, pas par le
-    nombre de ventes — pas besoin d'éviction.
+    aux littéraux). Le cache renvoie la première instance vue pour un texte
+    donné, permettant à toutes les occurrences ultérieures de partager le
+    même objet str en mémoire plutôt que d'en allouer un nouveau.
+
+    Le nombre de clés distinctes reste borné par la combinatoire des
+    scénarios fiscaux dans l'immense majorité des cas — SAUF pour les notes
+    de seuil OSS (`_build_oss_note`), qui incluent le montant cumulé courant
+    et peuvent donc générer autant de clés que de ventes. Le cache est donc
+    plafonné à `_NOTE_INTERN_CACHE_MAXSIZE` avec éviction LRU (voir plus haut)
+    pour rester borné en mémoire même dans ce cas — les combinaisons à forte
+    répétition restent partagées, l'excédent à cardinalité élevée est
+    simplement moins bien dédupliqué plutôt que de fuir indéfiniment.
+
+    Les opérations `OrderedDict` utilisées ici (lookup + move_to_end / pop
+    + insertion) sont sûres même appelées depuis le thread de calcul
+    d'arrière-plan (voir background_calc.py) : dans le pire cas d'une course
+    entre deux threads, le résultat est une légère perte d'efficacité du
+    cache (deux instances au lieu d'une pour une même chaîne), jamais une
+    incohérence — ce n'est qu'un cache mémoire, pas une source de vérité.
     """
     if lang == "fr":
         _text = fr_text
     else:
         _text = _get_i18n_translate()(key, lang=lang, **kwargs)
-    return _NOTE_INTERN_CACHE.setdefault(_text, _text)
+
+    _cached = _NOTE_INTERN_CACHE.get(_text)
+    if _cached is not None:
+        _NOTE_INTERN_CACHE.move_to_end(_text)
+        return _cached
+
+    if len(_NOTE_INTERN_CACHE) >= _NOTE_INTERN_CACHE_MAXSIZE:
+        _NOTE_INTERN_CACHE.popitem(last=False)  # évince l'entrée la plus ancienne
+    _NOTE_INTERN_CACHE[_text] = _text
+    return _text
 
 
 def _resolve_lang() -> str:
@@ -542,10 +578,24 @@ def _oss_eligible(sale: Sale) -> bool:
     )
 
 
-def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbol: str = "€") -> tuple[str, str, str]:
+def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbol: str = "€",
+                            oss_period: str = "", transaction_date=None) -> tuple[str, str, str]:
     """Cumul et seuil OSS à afficher dans la note.
     Les paramètres currency et symbol doivent être passés par l'appelant
     pour éviter d'accéder à st.session_state dans un thread d'arrière-plan.
+
+    `oss_period` / `transaction_date` : date du taux BCE utilisée pour la
+    conversion, alignée sur celle du calcul fiscal réel (voir oss_export.py /
+    ecb_rates.get_oss_rate_date, Règl. UE 2020/194 art. 5 bis — dernier jour
+    de la période déclarée), plutôt que `date.today()`. Avant ce correctif,
+    la note affichée ici (calculée avec le taux du jour) pouvait légèrement
+    différer du montant réellement utilisé pour la déclaration si l'écran
+    était consulté après la fin de la période (ex. Q1 consulté en plein Q2) —
+    décalage entre couche "information" et couche "déclaration". Si
+    `oss_period` est vide ou non reconnu (ex. \"__auto__\", période pas encore
+    résolue au moment de l'appel), `get_oss_rate_date` retombe déjà sur la
+    fin du trimestre de `transaction_date` — cohérent avec le comportement
+    de secours déjà utilisé côté export OSS.
     """
     if not currency or currency.upper() == "EUR":
         return f"{cumulative_eur:,.2f}", f"{Decimal('10000.00'):,.2f}", "€"
@@ -553,9 +603,10 @@ def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbo
     eur_rate = None
     if currency.upper() not in OSS_THRESHOLD_FIXED_EQUIVALENTS:
         try:
-            from .ecb_rates import get_rate
-            from datetime import date as _d
-            eur_rate = get_rate(currency, _d.today())
+            from .ecb_rates import get_rate, get_oss_rate_date
+            _tx_date = transaction_date or _date.today()
+            _rate_date = get_oss_rate_date(oss_period or "", _tx_date)
+            eur_rate = get_rate(currency, _rate_date)
         except Exception:
             eur_rate = None
 
@@ -568,8 +619,16 @@ def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbo
 def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                     sale: Sale, product_category: str,
                     apply_fr_under_threshold: bool, lang: str | None = None,
-                    currency: str = "EUR", symbol: str = "€") -> VatResult:
-    """Applique la logique du seuil OSS à un VatResult déjà calculé."""
+                    currency: str = "EUR", symbol: str = "€",
+                    oss_period: str = "") -> VatResult:
+    """Applique la logique du seuil OSS à un VatResult déjà calculé.
+
+    `oss_period` : période de déclaration (ex. "2024-Q1", ou "__auto__"/vide
+    si pas encore résolue par l'utilisateur) — transmise à
+    `_oss_threshold_display` pour que la date du taux BCE utilisée dans la
+    note affichée soit alignée sur celle du calcul fiscal réel (voir
+    ecb_rates.get_oss_rate_date / oss_export.py).
+    """
     if lang is None:
         lang = _resolve_lang()
     if not apply_fr_under_threshold:
@@ -588,7 +647,10 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                 pass
         home_rate = vat_rate(origin_country, product_category, tx_date=_oss_tx_date)
         home_vat_amount = _vat_amount(sale.amount_ht, home_rate)
-        _cumul_disp, _limit_disp, _sym_disp = _oss_threshold_display(cumulative, currency, symbol)
+        _cumul_disp, _limit_disp, _sym_disp = _oss_threshold_display(
+            cumulative, currency, symbol,
+            oss_period=oss_period, transaction_date=_oss_tx_date,
+        )
         return VatResult(
             sale=sale, scenario=Scenario.DOMESTIC,
             vat_country=origin_country,
@@ -680,6 +742,7 @@ def _run_oss_loop(
         currency: str = "EUR",
         symbol: str = "€",
         ioss_own_number_active: bool = False,
+        oss_period: str = "",
 ) -> tuple[list[VatResult], list[VatResult], OssThresholdSummary]:
     """Boucle chronologique OSS.
 
@@ -752,14 +815,14 @@ def _run_oss_loop(
                 res = _build_oss_note(
                     res, cumulative_oss_ht, Decimal("10000.00"),
                     effective_sale, product_category, apply_fr_under_threshold,
-                    lang=_lang, currency=currency, symbol=symbol
+                    lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
                 )
             else:
                 refund_cumulative_oss_ht += effective_sale.amount_ht
                 res = _build_oss_note(
                     res, refund_cumulative_oss_ht, Decimal("10000.00"),
                     effective_sale, product_category, apply_fr_under_threshold,
-                    lang=_lang, currency=currency, symbol=symbol
+                    lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
                 )
 
         if not is_from_refunds:
@@ -794,6 +857,7 @@ def compute_all_with_vies(
         currency: str = "EUR",
         symbol: str = "€",
         ioss_own_number_active: bool = False,
+        oss_period: str = "",
 ) -> tuple[list[VatResult], list[VatResult], ViesValidationSummary, OssThresholdSummary]:
     """Calcule la TVA avec validation VIES en gérant le seuil de 10 000 € OSS.
 
@@ -821,6 +885,19 @@ def compute_all_with_vies(
                  (sécurisé) : un n° IOSS renseigné sur le compte ne fait PAS
                  basculer automatiquement les ventes en IOSS_DIRECT tant que
                  l'utilisateur n'a pas explicitement coché ce choix.
+        oss_period: période de déclaration sélectionnée côté UI (ex.
+                 "2024-Q1"), ou "__auto__"/vide si l'utilisateur n'a pas
+                 encore validé de période explicite (cas le plus courant :
+                 au moment de cet appel, period_label n'est pas encore
+                 résolu côté app.py, qui en dépend justement via
+                 billing_gate.detect_period_label(results, ...)). Utilisée
+                 uniquement pour dater le taux BCE affiché dans la note de
+                 seuil OSS (voir `_oss_threshold_display` /
+                 ecb_rates.get_oss_rate_date) — alignement "couche info" sur
+                 "couche déclaration" plutôt qu'un impact sur le calcul
+                 fiscal lui-même. Si non reconnue, `get_oss_rate_date`
+                 retombe déjà sur la fin de trimestre de la transaction
+                 (même repli que celui utilisé côté export OSS).
     """
     if asin_to_category is None:
         asin_to_category = {}
@@ -1128,6 +1205,7 @@ def compute_all_with_vies(
         effective_sale_fn=_effective_sale_with_vies,
         lang=_lang, currency=_curr, symbol=_sym,
         ioss_own_number_active=ioss_own_number_active,
+        oss_period=oss_period,
     )
 
     # Mise à jour des montants TVA évités dans les reclassifications

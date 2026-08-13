@@ -51,14 +51,21 @@ def detect_period_label(results, oss_period: str) -> tuple[str, Optional[tuple[s
     (period_label, (date_min, date_max) | None)."""
     if oss_period != "__auto__":
         return oss_period, None
-    _dates = sorted(
+    # min()/max() plutôt que sorted() : on n'a besoin que des bornes, pas de
+    # l'ordre complet. Évite un tri O(N log N) recalculé à chaque rerun
+    # Streamlit (chaque clic/filtre) sur potentiellement 100k+ lignes — la
+    # même optimisation avait déjà été faite côté sidebar, mais avait été
+    # oubliée ici pour le bloc de paiement principal.
+    _dates = [
         r.sale.transaction_date for r in results
         if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
-    )
+    ]
     if not _dates:
         return "", None
-    _d_min = _dt.fromisoformat(_dates[0][:10])
-    _d_max = _dt.fromisoformat(_dates[-1][:10])
+    _date_min_str = min(_dates)
+    _date_max_str = max(_dates)
+    _d_min = _dt.fromisoformat(_date_min_str[:10])
+    _d_max = _dt.fromisoformat(_date_max_str[:10])
     _y_min, _m_min = _d_min.year, _d_min.month
     _y_max, _m_max = _d_max.year, _d_max.month
     if _y_min != _y_max:
@@ -75,7 +82,7 @@ def detect_period_label(results, oss_period: str) -> tuple[str, Optional[tuple[s
         _q_min = (_m_min - 1) // 3 + 1
         _q_max = (_m_max - 1) // 3 + 1
         _lbl = f"{_y_min}-Q{_q_min}" if _q_min == _q_max else f"{_y_min}-Q{_q_min}_Q{_q_max}"
-    return _lbl, (_dates[0][:10], _dates[-1][:10])
+    return _lbl, (_date_min_str[:10], _date_max_str[:10])
 
 
 @dataclass

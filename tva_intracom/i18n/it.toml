@@ -371,6 +371,7 @@ dl_oss_negative_expander = "🔎 Rilevato collegamento automatico della nota di 
 dl_oss_negative_matched = "**{label}** — {count} nota/e di credito collegata/e (periodo di origine: {origins})."
 dl_oss_negative_unmatched = "⚠️ **{label}** — {count} nota/e di credito senza origine (CV {ht} €)."
 dl_oss_confirm_corrections = "✅ Includi il blocco di correzione automatica nell'XML"
+dl_oss_xml_blocked_error = "❌ **Generazione dell'XML OSS bloccata** — {detail}\n\nL'XML **non** è stato generato: nessun file scaricabile sarà proposto finché questo punto non sarà risolto, per evitare una dichiarazione fiscale non valida."
 dl_xml_oss_btn = "📥 Scarica XML OSS (impots.gouv.fr)"
 dl_xml_oss_filename = "Dichiarazione XML OSS - {company} - {period}.xml"
 dl_xlsx_oss_btn = "📊 Prospetto riepilogativo OSS (.xlsx)"
