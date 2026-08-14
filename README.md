@@ -322,7 +322,6 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 ## Optimisations de performance & UX
 
 ### Performance & Réactivité
-- **Auto-Sleep (Veille)** : Libération de la RAM après 30 min d'inactivité via une purge proactive du `session_state`.
 - **String Interning** : Réduction drastique de l'empreinte RAM (codes pays, devises) via `sys.intern()`.
 - **Fragments Streamlit** : Isolation du rendu pour éviter les reruns complets lors des interactions locales.
 - **Cache intelligent** : Mise en cache des parsers, du catalogue ASIN et des exports via signatures MD5.

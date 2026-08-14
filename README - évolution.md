@@ -2119,6 +2119,26 @@ double comptage), suite `pytest` complète — 166 passed / 4 failed,
 rapport avec ce patch).
 
 ---
+
+## Retrait de l'Auto-Sleep applicatif (2026-08-15, suite)
+
+Suppression du mécanisme de veille côté application (détection d'inactivité JS
++ purge proactive du `session_state`).
+
+- **Raison technique** : Toute activité périodique (même minimale) sur le
+  canal WebSocket Streamlit empêchait l'infrastructure (Railway Serverless)
+  de détecter l'inactivité réelle du service. Cela bloquait la mise en
+  veille profonde (scale-to-zero) du conteneur, entraînant une consommation
+  de crédits inutile.
+- **Nouvelle stratégie** : La gestion de la mémoire et de la mise en veille
+  est désormais déléguée intégralement à l'infrastructure. Railway coupe le
+  conteneur après une période d'inactivité réelle (RAM rendue à 0). Le
+  système de cookies persistant (`tva_session_token`) garantit que
+  l'utilisateur retrouve sa session au redémarrage sans friction.
+- **Nettoyage** : Commentaire d'explication ajouté dans `app.py` et mise à
+  jour du `README.md` principal.
+
+---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.
 
