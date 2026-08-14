@@ -81,16 +81,24 @@ def _round(amount: Decimal) -> Decimal:
 # ---------------------------------------------------------------------------
 
 def _asin_avg_price_from_results(results: List[VatResult]) -> Dict[str, Decimal]:
-    """Prix de vente HT moyen par ASIN (approximation valeur d'achat — art. 83 dir.)."""
-    totals: Dict[str, list] = {}
+    """Prix de vente HT moyen par ASIN (approximation valeur d'achat — art. 83 dir.).
+
+    Implémentation en (somme, compteur) plutôt qu'en liste de Decimal par ASIN
+    (alignée sur excel_report.py::_build_asin_avg_price) : évite de conserver
+    un objet Decimal par vente en mémoire (jusqu'à 100k objets superflus sur
+    les gros volumes) juste pour calculer une moyenne.
+    """
+    totals: Dict[str, tuple] = {}
     for r in results:
         asin = getattr(r.sale, "asin", "").strip()
         amt  = r.sale.amount_ht
         if asin and amt > Decimal("0"):
-            totals.setdefault(asin, []).append(amt)
+            prev_sum, prev_count = totals.get(asin, (Decimal("0"), 0))
+            totals[asin] = (prev_sum + amt, prev_count + 1)
     return {
-        a: sum(v, Decimal("0")) / Decimal(str(len(v)))
-        for a, v in totals.items() if v
+        asin: total / Decimal(count)
+        for asin, (total, count) in totals.items()
+        if count
     }
 
 

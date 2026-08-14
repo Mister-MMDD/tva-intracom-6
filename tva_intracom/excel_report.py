@@ -846,11 +846,23 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
     seen_vats: set[str] = set()
     display_by_full_vat: dict[str, str] = {}
     scenario_by_full_vat: dict[str, str] = {}
+    # Cache (vat_brut, pays_acheteur) -> full_vat normalisé : normalize_full_vat
+    # a déjà été appelée par le moteur pour chaque vente lors du calcul VIES
+    # initial ; ici on ne fait que reconstruire la même valeur pour l'affichage
+    # de l'historique. Sur un fichier avec beaucoup d'acheteurs récurrents
+    # (même numéro de TVA sur plusieurs ventes), ce cache évite de refaire
+    # la normalisation pour chaque ligne partageant le même (vat, pays).
+    _norm_cache: dict[tuple[str, str], str] = {}
     for r in results:
         vat = getattr(r.sale, "buyer_vat_number", "")
         if not vat:
             continue
-        full_vat = normalize_full_vat(vat, getattr(r.sale, "buyer_country", ""))
+        buyer_country = getattr(r.sale, "buyer_country", "")
+        _cache_key = (vat, buyer_country)
+        full_vat = _norm_cache.get(_cache_key)
+        if full_vat is None:
+            full_vat = normalize_full_vat(vat, buyer_country) or ""
+            _norm_cache[_cache_key] = full_vat
         if not full_vat:
             continue
         seen_vats.add(full_vat)
@@ -889,6 +901,7 @@ def _write_intrastat_tab(
         results: list,
         seller_country: str = "FR",
         display_currency: str = "EUR",
+        asin_avg: dict | None = None,
 ) -> None:
     """Onglet Intrastat / EMEBI (statistique) — aide au remplissage de la déclaration."""
     from .rates import intrastat_emebi_threshold_for_year
@@ -922,8 +935,11 @@ def _write_intrastat_tab(
     ws.append([])
     ws.row_dimensions[3].height = 8
 
-    # Calcul du prix moyen HT par ASIN
-    asin_avg = _build_asin_avg_price(results)
+    # Calcul du prix moyen HT par ASIN — partagé avec _write_fba_aic_tab
+    # (calculé une seule fois dans export_xlsx) ; recalculé ici seulement en
+    # fallback si la fonction est appelée directement sans ce paramètre.
+    if asin_avg is None:
+        asin_avg = _build_asin_avg_price(results)
 
     # Agrégation des transferts par (départ, arrivée, ASIN, mois)
     from collections import defaultdict
@@ -1401,6 +1417,7 @@ def _write_fba_aic_tab(
         results: list,
         countries_with_vat: list[str] | None = None,
         display_currency: str = "EUR",
+        asin_avg: dict | None = None,
 ) -> None:
     """Onglet Analyse AIC (Acquisitions Intracommunautaires assimilées).
 
@@ -1429,8 +1446,12 @@ def _write_fba_aic_tab(
     def _conv(amount: Decimal) -> float:
         return float(_to_home_currency(amount, display_currency, _conv_date))
 
-    # --- Prix moyen HT par ASIN depuis les ventes ---
-    asin_avg = _build_asin_avg_price(results)
+    # --- Prix moyen HT par ASIN depuis les ventes — partagé avec
+    # _write_intrastat_tab (calculé une seule fois dans export_xlsx) ;
+    # recalculé ici seulement en fallback si appelé directement sans ce
+    # paramètre (ex. tests, appels CLI historiques).
+    if asin_avg is None:
+        asin_avg = _build_asin_avg_price(results)
 
     # --- Agrégation par (départ, arrivée, asin) ---
     from collections import defaultdict
@@ -2085,6 +2106,17 @@ def export_xlsx(
     if results is not None:
         _oss_agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
 
+    # Prix moyen HT par ASIN calculé UNE SEULE fois pour tout l'export et
+    # partagé entre l'onglet Analyse AIC FBA et l'onglet Intrastat (EMEBI),
+    # qui en avaient chacun besoin séparément (même parcours complet de
+    # `results`) : sur un fichier de 100k lignes ça évite de refaire deux
+    # fois le même calcul. `results` peut être None (appels CLI
+    # historiques) : dans ce cas chaque fonction retombe sur son fallback
+    # de calcul individuel.
+    _asin_avg = None
+    if results is not None:
+        _asin_avg = _build_asin_avg_price(results)
+
     # 1. Page de synthèse
     ws_recap = _SequentialSheetWriter(wb.create_sheet())
     _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country,
@@ -2160,7 +2192,7 @@ def export_xlsx(
 
     # 9. Onglet Analyse AIC FBA (synthèse fiscale des transferts)
     ws_aic = _SequentialSheetWriter(wb.create_sheet("Analyse AIC FBA"))
-    _write_fba_aic_tab(ws_aic, all_fc_transfers or [], results, countries_with_vat, display_currency=_currency)
+    _write_fba_aic_tab(ws_aic, all_fc_transfers or [], results, countries_with_vat, display_currency=_currency, asin_avg=_asin_avg)
     ws_aic.finalize()
 
     # 10. Onglet Transferts FBA Détail (liste brute)
@@ -2170,7 +2202,7 @@ def export_xlsx(
 
     # 11. Onglet Intrastat / DEB (aide au remplissage)
     ws_intrastat = _SequentialSheetWriter(wb.create_sheet("Intrastat (EMEBI)"))
-    _write_intrastat_tab(ws_intrastat, all_fc_transfers or [], results, seller_country=seller_country, display_currency=_currency)
+    _write_intrastat_tab(ws_intrastat, all_fc_transfers or [], results, seller_country=seller_country, display_currency=_currency, asin_avg=_asin_avg)
     ws_intrastat.finalize()
 
     # 11bis. Onglet INVOICE / CREDIT_NOTE (écritures Amazon hors ventes)

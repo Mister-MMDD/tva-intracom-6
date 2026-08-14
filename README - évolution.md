@@ -1873,6 +1873,53 @@ et n'ont pas été reprises telles quelles — voir plus bas).
   (audit précédent, ci-dessus), qui couvre le fichier de transactions
   principal, pas le catalogue ASIN.
 
+**2026-08-14 (suite) — Audit perf/RAM/cohérence, points traités :**
+
+- **`app.py` — garde `any_job_running()` réellement retiré** : le point ci-dessus
+  documentait déjà la décision, mais le code du run précédent contenait
+  encore le garde `if not any_job_running():` et son import. Corrigé pour
+  être en phase avec cette entrée.
+- **`ca3_report.py::_asin_avg_price_from_results`** : implémentation en liste
+  de `Decimal` par ASIN remplacée par un accumulateur `(somme, compteur)`,
+  alignée sur `excel_report.py::_build_asin_avg_price` qui avait déjà ce
+  pattern. Évite de conserver un objet `Decimal` par vente en RAM juste pour
+  calculer une moyenne. Équivalence numérique vérifiée sur données
+  aléatoires (5000 lignes) avant patch.
+- **`excel_report.py::export_xlsx`** : `_build_asin_avg_price(results)` était
+  appelée deux fois séparément (onglet Analyse AIC FBA et onglet Intrastat),
+  chacune reparcourant l'intégralité de `results`. Calculée une seule fois
+  dans `export_xlsx` (même pattern que `_oss_agg`, déjà en place) et passée
+  en paramètre optionnel `asin_avg` aux deux fonctions, qui gardent un
+  fallback de calcul interne pour compat ascendante (appels directs hors
+  `export_xlsx`, tests).
+- **`excel_report.py::_write_vies_history_tab`** : `normalize_full_vat()`
+  était appelée pour chaque ligne de `results`, pas seulement une fois par
+  numéro de TVA distinct (le dédoublonnage via `seen_vats` n'intervenait
+  qu'après). Ajout d'un cache local `(vat_brut, pays_acheteur) -> full_vat`
+  pour éviter de renormaliser le même numéro à chaque vente d'un acheteur
+  récurrent. Gain CPU modeste (normalisation = manipulation de string), mais
+  cohérent avec les autres optimisations O(n) déjà faites sur ce fichier.
+
+**Point identifié mais non traité (reporté) :**
+
+- **`_ColumnWidthTracker` local redondant dans ~13 fonctions `_write_*_tab`** :
+  vérifié empiriquement (test openpyxl isolé) qu'en mode `write_only=True`,
+  toute largeur de colonne posée après le tout premier `ws.append()` réel
+  est silencieusement ignorée. Or `_SequentialSheetWriter` (le wrapper passé
+  à toutes ces fonctions) calcule déjà ses propres largeurs en interne et
+  les applique *avant* d'émettre réellement les lignes vers la feuille —
+  c'est tout l'objet de ce wrapper. L'appel explicite `_width_tracker.apply(ws)`
+  fait par chaque fonction `_write_*_tab` à sa toute fin intervient donc
+  *après* l'émission réelle : c'est un no-op silencieux, sans impact sur le
+  fichier produit. Chaque tracker local (instanciation + tous les
+  `observe_row()` associés) fait un travail CPU pour un résultat jeté —
+  vestige du code d'avant l'introduction de `_SequentialSheetWriter`.
+  **Reporté** : correctif non risqué en soi (suppression de code mort) mais
+  qui toucherait ~13 fonctions différentes pour un gain CPU seul (pas de
+  bug visible, le rendu final est correct) — ratio risque/gain défavorable
+  pour un refactor en une passe. À traiter au fil de l'eau si ces fonctions
+  sont retouchées pour d'autres raisons, plutôt qu'en bloc.
+
 ---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.

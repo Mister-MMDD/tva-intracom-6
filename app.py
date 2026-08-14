@@ -33,7 +33,6 @@ from tva_intracom.ui.background_calc import (
     get_job_state,
     clear_job,
     render_job_progress,
-    any_job_running,
 )
 from tva_intracom.report import build_report
 
@@ -72,17 +71,22 @@ from tva_intracom import ecb_rates as _tva_ecb_rates
 from tva_intracom import billing as _tva_billing
 from tva_intracom import vies_engine as _tva_vies_engine
 
-if not any_job_running():
-    for _close_fn in (
-            tva_auth.close_idle_connections,
-            _tva_ecb_rates.close_idle_connections,
-            _tva_billing.close_idle_connections,
-            _tva_vies_engine.close_idle_connections,
-    ):
-        try:
-            _close_fn()
-        except Exception:
-            pass
+# Pas de garde ici (voir README - évolution.md, 2026-08-14) : close_idle_connections()
+# ne ferme que la connexion mise en cache par threading.local() sur LE THREAD APPELANT
+# (ce run Streamlit), jamais celle d'un job de calcul en cours dans son propre thread
+# (background_calc.py, thread bgjob-*). Un garde any_job_running() ne protégerait donc
+# rien et retarderait seulement, sans raison, le nettoyage des connexions d'utilisateurs
+# par ailleurs inactifs pendant qu'un job tourne n'importe où sur le process.
+for _close_fn in (
+        tva_auth.close_idle_connections,
+        _tva_ecb_rates.close_idle_connections,
+        _tva_billing.close_idle_connections,
+        _tva_vies_engine.close_idle_connections,
+):
+    try:
+        _close_fn()
+    except Exception:
+        pass
 
 # =============================================================================
 # PAGE CONFIG + PURGE CACHE MAL-PREFIXÉ (une fois par session)
