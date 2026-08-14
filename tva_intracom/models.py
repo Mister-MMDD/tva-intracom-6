@@ -124,6 +124,20 @@ class Sale:
         if self.buyer_vat_number:
             object.__setattr__(self, "buyer_vat_number", sys.intern(self.buyer_vat_number))
 
+        # transaction_date / order_date : chaine au format "YYYY-MM-DD" (ou
+        # avec heure), forte cardinalite repetitive sur un rapport couvrant
+        # une periode donnee (ex: ~30 valeurs distinctes de transaction_date
+        # pour 100k lignes sur un mois) -> interning pour eviter de stocker
+        # autant d'objets str identiques que de lignes. Casse non modifiee,
+        # comme pour asin/buyer_vat_number : ces valeurs sont deja au format
+        # attendu par les parsers (voir parsers/amazon.py) et ne doivent pas
+        # etre normalisees ici.
+        if self.transaction_date:
+            object.__setattr__(self, "transaction_date", sys.intern(self.transaction_date))
+
+        if self.order_date:
+            object.__setattr__(self, "order_date", sys.intern(self.order_date))
+
         # Validation des pays (ISO 2 lettres)
         for field_name in ["stock_country", "buyer_country", "seller_country"]:
             val = getattr(self, field_name)

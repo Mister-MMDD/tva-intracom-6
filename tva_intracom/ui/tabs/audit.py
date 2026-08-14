@@ -119,6 +119,15 @@ def render_audit() -> None:
                     tva_moteur = float(r.vat_amount)
                     if tva_amazon==0 and tva_moteur==0: continue
                     ecart = tva_amazon - tva_moteur
+                    if abs(ecart)<=0.05:
+                        if abs(ecart)>0: nb_arrondis+=1
+                        continue
+                    # row_d n'est construit qu'à partir d'ici : sur un fichier
+                    # sans écart significatif (cas courant sur un rapport
+                    # propre), on évite d'allouer/peupler un dict à 11 clés
+                    # par ligne pour le jeter immédiatement au `continue`
+                    # ci-dessus (ex: 100k lignes sans écart = 100k dicts
+                    # inutiles avant ce correctif).
                     row_d = {
                         _("vies_col_id"): (r.sale.display_id or r.sale.sale_id),
                         _("col_stock_dest"): f"{r.sale.stock_country}→{r.sale.buyer_country}",
@@ -132,9 +141,6 @@ def render_audit() -> None:
                         _("col_vat_rate_engine"): float(r.vat_rate),
                         _("col_channel"): r.channel.value
                     }
-                    if abs(ecart)<=0.05:
-                        if abs(ecart)>0: nb_arrondis+=1
-                        continue
                     _dep = r.sale.stock_country; _arr = r.sale.buyer_country; _sid = str(r.sale.sale_id)
                     _is_b2b = (r.sale.buyer_type == _BT_APP.B2B)
                     if _dep == "GB" or _arr == "GB": ecarts_gb_tab.append(row_d)

@@ -1132,6 +1132,21 @@ def compute_all_with_vies(
     for fv, vr in checked_vats.items():
         if getattr(vr, "is_manual_override", False):
             vies_summary.manual_override_count += 1
+            # `manual_override_count` seul ne distinguait pas les overrides
+            # "valide" des "invalide" : `manual_valid_count`/
+            # `manual_invalid_count` (voir models.py, ViesValidationSummary)
+            # n'étaient jamais incrémentés, ce qui faisait toujours renvoyer
+            # 0 à `total_manual_override` (= leur somme) et faussait le taux
+            # de fiabilité affiché (`total_checked_or_covered`,
+            # `automatic_reliability_rate`, qui en dépendent). Le
+            # SimpleNamespace construit plus haut porte déjà `valid=_is_valid`
+            # (l'état choisi par l'utilisateur au moment de l'override) : on
+            # l'utilise pour ventiler correctement, sans changer le sens de
+            # `manual_override_count` qui reste le total des deux.
+            if getattr(vr, "valid", False):
+                vies_summary.manual_valid_count += 1
+            else:
+                vies_summary.manual_invalid_count += 1
         elif getattr(vr, "valid", False):
             vies_summary.valid_count += 1
         elif _vies_is_unreliable(vr):

@@ -2139,6 +2139,52 @@ Suppression du mécanisme de veille côté application (détection d'inactivité
   jour du `README.md` principal.
 
 ---
+
+## Audit de performance/fiabilité — 4 points corrigés (2026-08-15, suite)
+
+Suite à un audit externe (5 points soumis), vérification systématique du code
+réel avant patch : 1 point rejeté (référence à un champ `shipment_date`
+inexistant dans `models.py`), 1 point confirmé mais laissé en l'état
+(interning des notes OSS dans `engine.py` — déjà mitigé par un cache LRU
+plafonné existant, refonte jugée risque/gain défavorable sur du code moteur
+légalement sensible), 4 corrections appliquées :
+
+- **`app.py::_upload_sig`** — décompression Gzip répétée corrigée. Les
+  fichiers restaurés depuis le cache interne (`_CachedUploadedFile`, survit
+  aux reruns internes type changement de langue) forçaient une décompression
+  complète du blob (jusqu'à 100 Mo) à chaque appel de `_upload_sig`, appelé
+  plusieurs fois par rerun Streamlit (dédup + clé de cache de parsing), donc
+  à chaque clic/filtre. Le hash MD5 partiel est désormais porté directement
+  par `_CachedUploadedFile` (`_content_hash`, calculé une seule fois à la
+  compression initiale) et réutilisé tel quel — plus aucune décompression
+  hors re-parsing réel.
+- **`tva_intracom/ui/tabs/audit.py::render_audit`** — construction de
+  `row_d` déplacée après le test d'écart (`abs(ecart)<=0.05`) au lieu
+  d'avant. Sur un fichier sans écart significatif, la boucle n'alloue plus
+  un dict à 11 clés par ligne pour le jeter immédiatement.
+- **`tva_intracom/models.py::Sale.__post_init__`** — `transaction_date` et
+  `order_date` ajoutés à l'interning (`sys.intern`), au même titre que
+  `asin`/`buyer_vat_number` : forte cardinalité répétitive sur un rapport
+  couvrant une période donnée (ex. ~30 valeurs distinctes pour 100k lignes
+  sur un mois). `sale_id`/`display_id` volontairement laissés hors périmètre
+  (cardinalité réelle non mesurée, à date potentiellement quasi unique par
+  vente selon le connecteur Amazon).
+- **`tva_intracom/engine.py`** (bug fonctionnel) — les compteurs
+  `manual_valid_count`/`manual_invalid_count` (`ViesValidationSummary`,
+  `models.py`) n'étaient jamais incrémentés, alors que `manual_override_count`
+  l'était. Conséquence : `total_manual_override` (= somme des deux) renvoyait
+  toujours 0, faussant `total_checked_or_covered` et le taux de fiabilité
+  affiché à l'utilisateur. Correction : ventilation sur le champ `valid` déjà
+  porté par l'objet `SimpleNamespace` construit lors de l'application d'un
+  override manuel — `manual_override_count` garde son sens de total.
+
+Validation : `py_compile` sur les 4 fichiers modifiés, suite `pytest`
+complète — 165 passed / 5 failed, échecs strictement identiques au baseline
+sans les patches (comparaison directe faite sur le dépôt `dev` non modifié :
+mêmes 5 tests en échec, tous liés à `SUPABASE_DB_URL` absente en sandbox ou
+préexistants, sans rapport avec ce patch). Aucune régression introduite.
+
+---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.
 

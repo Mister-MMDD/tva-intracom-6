@@ -240,11 +240,23 @@ uploaded_files = st.file_uploader(
 # déduplication/cache (name, size) reste identique à celle d'un nouvel
 # upload, sans avoir à décompresser juste pour connaître la taille.
 class _CachedUploadedFile:
-    __slots__ = ("name", "size", "_compressed")
-    def __init__(self, name: str, compressed: bytes, size: int) -> None:
+    # `_content_hash` porte le hash MD5 déjà connu (calculé une seule fois,
+    # au moment de la compression initiale — voir plus bas) pour que
+    # `_upload_sig()` puisse le renvoyer directement SANS décompresser tout
+    # le blob gzip. Avant ce correctif, `_upload_sig()` appelait
+    # `getvalue()` (qui décompresse l'intégralité du fichier, potentiellement
+    # 100 Mo) simplement pour hasher les 128 premiers Ko — et ce, plusieurs
+    # fois par rerun Streamlit (dédup, clé de cache de parsing...), donc à
+    # chaque clic/filtre/changement de langue tant que les fichiers restent
+    # servis depuis ce cache interne. Le hash étant invariant tant que le
+    # contenu ne change pas (c'est justement ce qu'il sert à détecter), le
+    # porter directement sur l'objet évite ce travail répété pour rien.
+    __slots__ = ("name", "size", "_compressed", "_content_hash")
+    def __init__(self, name: str, compressed: bytes, size: int, content_hash: str) -> None:
         self.name = name
         self.size = size
         self._compressed = compressed
+        self._content_hash = content_hash
     def getvalue(self) -> bytes:
         return gzip.decompress(self._compressed)
 
@@ -271,7 +283,19 @@ def _upload_sig(f) -> tuple:
     design (name, size) cherchait justement à éviter. Un hash partiel sur
     le début du fichier suffit à couvrir le cas réaliste (contenu modifié,
     même taille) sans ce coût.
+
+    Cas `_CachedUploadedFile` (fichiers restaurés depuis le cache interne
+    après un rerun "interne", voir `preserve_upload_rerun()`) : le hash a
+    déjà été calculé une fois lors de la compression initiale et est porté
+    par l'objet (`_content_hash`). On le réutilise tel quel plutôt que de
+    rappeler `f.getvalue()`, qui décompresserait inutilement tout le blob
+    gzip (jusqu'à 100 Mo) rien que pour en relire les 128 premiers Ko — ce
+    correctif évite cette décompression répétée à chaque rerun (chaque
+    clic, changement de langue, filtre...) tant que le fichier reste servi
+    depuis ce cache.
     """
+    if isinstance(f, _CachedUploadedFile):
+        return (f.name, f.size, f._content_hash)
     return (f.name, f.size, hashlib.md5(f.getvalue()[:131072]).hexdigest())
 
 
@@ -309,7 +333,7 @@ if uploaded_files:
         }
 elif _preserve_upload_this_run and st.session_state.get("_last_uploaded_files_bytes"):
     uploaded_files = [
-        _CachedUploadedFile(_name, _compressed, _size)
+        _CachedUploadedFile(_name, _compressed, _size, _hash)
         for (_name, _size, _hash), _compressed in st.session_state["_last_uploaded_files_bytes"].items()
     ]
 else:
