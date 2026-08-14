@@ -113,6 +113,17 @@ class Sale:
         if self.product_category:
             object.__setattr__(self, "product_category", sys.intern(self.product_category.upper()))
 
+        # ASIN et n° TVA acheteur : forte cardinalite repetitive (meme ASIN /
+        # meme client sur des milliers de lignes) -> interning pour eviter la
+        # duplication d'objets str identiques en RAM. Casse non modifiee
+        # (contrairement aux codes pays) pour ne pas alterer une valeur deja
+        # normalisee ailleurs (VIES, affichage).
+        if self.asin:
+            object.__setattr__(self, "asin", sys.intern(self.asin))
+
+        if self.buyer_vat_number:
+            object.__setattr__(self, "buyer_vat_number", sys.intern(self.buyer_vat_number))
+
         # Validation des pays (ISO 2 lettres)
         for field_name in ["stock_country", "buyer_country", "seller_country"]:
             val = getattr(self, field_name)

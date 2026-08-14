@@ -567,7 +567,6 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
 
     header_fill = _ORANGE_HEADER_FILL if is_refund_tab else _BLUE_HEADER_FILL
     _header_align = Alignment(horizontal="center", vertical="center")
-    _width_tracker = _ColumnWidthTracker()
 
     _header_cells = [
         _wcell(ws, text, font=_HEADER_FONT_WHITE, fill=header_fill, alignment=_header_align)
@@ -575,7 +574,6 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
     ]
     ws.append(_header_cells)
     ws.row_dimensions[1].height = 22
-    _width_tracker.observe_row(headers)
 
     _alert_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
 
@@ -647,7 +645,6 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
         ]
         ws.append(_row_cells)
         ws.row_dimensions[i].height = 18
-        _width_tracker.observe_row(_row_values)
 
 
 
@@ -696,7 +693,6 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
 
     # ── Section 1 : Réconciliation agrégée ──────────────────────────────
     ws.title = i18n_("xl_tab_audit")
-    _width_tracker = _ColumnWidthTracker()
 
     ws.append([_wcell(ws, i18n_("xl_audit_agg_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 24
@@ -740,7 +736,6 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers_1])
     ws.row_dimensions[4].height = 22
-    _width_tracker.observe_row(_headers_1)
 
     row = 5
     for (nat, arr, type_label), d in sorted(agg.items()):
@@ -765,7 +760,6 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
             _wcell(ws, risque),
         ])
         ws.row_dimensions[row].height = 18
-        _width_tracker.observe_row(_vals1)
         row += 1
 
     if row == 5:
@@ -788,7 +782,6 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers_2])
     ws.row_dimensions[row].height = 22
-    _width_tracker.observe_row(_headers_2)
     row += 1
 
     for r, nat, dep, arr, tva_amz, tva_mot, ecart, type_label in detail_rows:
@@ -805,7 +798,6 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
             _wcell(ws, _conv(ecart), number_format=_fmt_curr),
         ])
         ws.row_dimensions[row].height = 18
-        _width_tracker.observe_row(_vals2)
         row += 1
 
     if not detail_rows:
@@ -822,7 +814,6 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
     from .vies_engine import get_vies_history_bulk, normalize_full_vat
 
     ws.title = i18n_("xl_tab_vies")
-    _width_tracker = _ColumnWidthTracker()
     _headers = [
         i18n_("xl_vies_col_vat"), i18n_("xl_vies_col_checked_at"), i18n_("xl_vies_col_status"),
         i18n_("xl_vies_col_country"), i18n_("xl_vies_col_name"), i18n_("col_scenario"), i18n_("xl_vies_col_error")
@@ -831,7 +822,6 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers])
     ws.row_dimensions[1].height = 22
-    _width_tracker.observe_row(_headers)
 
     # IMPORTANT (fix onglet vide/incomplet) : vies_check_history.vat_id stocke
     # le numéro NORMALISE (préfixe pays ajouté si absent, cf. normalize_full_vat
@@ -885,7 +875,6 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
             _vals = [_display_vat, entry["checked_at"], _status, entry["country_code"], entry["name"], _scenario, entry["error"]]
             ws.append([_wcell(ws, v) for v in _vals])
             ws.row_dimensions[row].height = 16
-            _width_tracker.observe_row(_vals)
             row += 1
 
     if row == 2:
@@ -905,7 +894,6 @@ def _write_intrastat_tab(
 
     ws.title = i18n_("xl_tab_intrastat")
     GREEN_FILL = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
-    _width_tracker = _ColumnWidthTracker()
 
     ws.append([_wcell(ws, i18n_("xl_intrastat_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
@@ -974,7 +962,6 @@ def _write_intrastat_tab(
                           fill=PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"),
                           alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_seuil])
-        _width_tracker.observe_row(_headers_seuil)
         current_row += 1
         any_unconfirmed = False
         for annee in sorted(seuil_par_annee):
@@ -1002,7 +989,6 @@ def _write_intrastat_tab(
                     _wcell(ws, statut),
                 ])
                 ws.row_dimensions[current_row].height = 18
-                _width_tracker.observe_row(_vals_seuil)
                 current_row += 1
         ws.append([_wcell(ws, i18n_("xl_intrastat_footer", unconfirmed=(i18n_("xl_intrastat_unconfirmed_footer") if any_unconfirmed else "")),
                           font=Font(italic=True, size=9, color="7f7f7f"))])
@@ -1029,7 +1015,6 @@ def _write_intrastat_tab(
                           alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_flux])
         ws.row_dimensions[current_row].height = 22
-        _width_tracker.observe_row(_headers_flux)
         current_row += 1
 
         rows_written = 0
@@ -1058,7 +1043,6 @@ def _write_intrastat_tab(
                 _wcell(ws, _vals_flux[11]), _wcell(ws, _vals_flux[12]),
             ])
             ws.row_dimensions[current_row].height = 18
-            _width_tracker.observe_row(_vals_flux)
             current_row += 1
             rows_written += 1
 
@@ -1110,7 +1094,6 @@ def _write_calendar_tab(
     RED_FILL    = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid")
     today       = _date.today()
 
-    _width_tracker = _ColumnWidthTracker()
     ws.append([_wcell(ws, i18n_("xl_cal_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
     ws.append([_wcell(ws, i18n_("xl_cal_meta", date=today.isoformat(), country=seller_country, period=(period or i18n_("xl_cal_unspecified"))),
@@ -1128,7 +1111,6 @@ def _write_calendar_tab(
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers])
     ws.row_dimensions[4].height = 22
-    _width_tracker.observe_row(_headers)
 
     row = 5
 
@@ -1149,7 +1131,6 @@ def _write_calendar_tab(
             _wcell(ws, base_legale),
         ])
         ws.row_dimensions[row].height = 18
-        _width_tracker.observe_row(_vals)
         row += 1
 
     # ── 1. OSS ────────────────────────────────────────────────────────────
@@ -1379,7 +1360,6 @@ def _build_asin_avg_price(results: list) -> dict[str, Decimal]:
 def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
     """Onglet Mouvements Stock FBA — détail de chaque transfert."""
     ws.title = i18n_("xl_tab_fba")
-    _width_tracker = _ColumnWidthTracker()
     _headers = [
         i18n_("xl_fba_col_tx_id"), i18n_("xl_fba_col_date"), i18n_("xl_fba_col_asin"), i18n_("xl_fba_col_desc"),
         i18n_("xl_fba_col_qty"), i18n_("xl_fba_col_dep"), i18n_("xl_fba_col_arr"), i18n_("xl_fba_col_type"),
@@ -1388,11 +1368,9 @@ def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in _headers])
     ws.row_dimensions[1].height = 22
-    _width_tracker.observe_row(_headers)
 
     if not all_fc_transfers:
         ws.append([_wcell(ws, i18n_("xl_fba_none"))])
-        _width_tracker.apply(ws)
         return
 
     for i, t in enumerate(all_fc_transfers, 2):
@@ -1401,7 +1379,6 @@ def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
         _vals = [tx_id, date_str, asin, designation, qty, dep or "—", arr or "—", tx_type]
         ws.append([_wcell(ws, v) for v in _vals])
         ws.row_dimensions[i].height = 18
-        _width_tracker.observe_row(_vals)
 
 
 
@@ -1433,7 +1410,6 @@ def _write_fba_aic_tab(
 
     ws.title = "Analyse AIC FBA"
     countries_with_vat = [c.upper() for c in (countries_with_vat or [])]
-    _width_tracker = _ColumnWidthTracker()
 
     _fmt_curr = _currency_format(display_currency)
     _conv_date = _date.today()
@@ -1510,7 +1486,6 @@ def _write_fba_aic_tab(
                           alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_detail])
         ws.row_dimensions[current_row].height = 22
-        _width_tracker.observe_row(_headers_detail)
         current_row += 1
 
         # Regrouper par flux pour les totaux
@@ -1548,7 +1523,6 @@ def _write_fba_aic_tab(
                 _wcell(ws, statut),
             ])
             ws.row_dimensions[current_row].height = 18
-            _width_tracker.observe_row(_vals)
             current_row += 1
 
         # Lignes de sous-total par flux
@@ -1564,7 +1538,6 @@ def _write_fba_aic_tab(
                           alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_sub])
         ws.row_dimensions[current_row].height = 22
-        _width_tracker.observe_row(_headers_sub)
         current_row += 1
 
         for (dep, arr) in sorted(flux_actifs):
@@ -1584,7 +1557,6 @@ def _write_fba_aic_tab(
                 _wcell(ws, ref), _wcell(ws, action),
             ])
             ws.row_dimensions[current_row].height = 20
-            _width_tracker.observe_row(_vals_sub)
             current_row += 1
 
     current_row += 2
@@ -1609,7 +1581,6 @@ def _write_fba_aic_tab(
                           alignment=Alignment(horizontal="center", vertical="center"))
                    for t in _headers_inact])
         ws.row_dimensions[current_row].height = 22
-        _width_tracker.observe_row(_headers_inact)
         current_row += 1
 
         for (dep, arr) in sorted(flux_inactifs):
@@ -1628,7 +1599,6 @@ def _write_fba_aic_tab(
             _vals_inact = [_dep_lbl2, _arr_lbl2, nb_t, nb_a, imm_dep, imm_arr, obs]
             ws.append([_wcell(ws, v) for v in _vals_inact])
             ws.row_dimensions[current_row].height = 18
-            _width_tracker.observe_row(_vals_inact)
             current_row += 1
 
 
@@ -1681,7 +1651,6 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
     """Onglet OSS détaillé : mois par mois (net) puis Brut / Remboursements / Net
     (total période) par pays de destination."""
     ws.title = i18n_("xl_tab_oss")
-    _width_tracker = _ColumnWidthTracker()
 
     ws.append([_wcell(ws, i18n_("xl_oss_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
@@ -1745,7 +1714,6 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
     ws.row_dimensions[header_row].height = 22
-    _width_tracker.observe_row(headers)
 
     row = header_row + 1
     for country in all_countries:
@@ -1782,7 +1750,6 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
 
         ws.append(_row_cells)
         ws.row_dimensions[row].height = 18
-        _width_tracker.observe_row(_vals)
         row += 1
 
     # Ligne de total (une ligne blanche d'écart avant, comme dans l'original)
@@ -1821,7 +1788,6 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     ws.append([_wcell(ws, i18n_("xl_local_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
-    _width_tracker = _ColumnWidthTracker()
 
     _fmt_curr = _currency_format(display_currency)
     _conv_date = _date.today()
@@ -1893,7 +1859,6 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
     ws.row_dimensions[header_row].height = 22
-    _width_tracker.observe_row(headers)
 
     row = header_row + 1
     for country in all_countries:
@@ -1927,7 +1892,6 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
         ws.append(_row_cells)
         ws.row_dimensions[row].height = 18
-        _width_tracker.observe_row(_vals)
         row += 1
 
     # Total
@@ -1959,7 +1923,6 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
     """Onglet INVOICE / CREDIT_NOTE."""
     ws.title = i18n_("xl_tab_invoice_cn")
-    _width_tracker = _ColumnWidthTracker()
 
     ws.append([_wcell(ws, i18n_("xl_inv_cn_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
@@ -1972,11 +1935,9 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
     ws.row_dimensions[4].height = 22
-    _width_tracker.observe_row(headers)
 
     if not invoice_credit_notes:
         ws.append([_wcell(ws, i18n_("xl_inv_cn_none"))])
-        _width_tracker.apply(ws)
         return
 
     row = 5
@@ -2000,7 +1961,6 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
         total_ht += amount_ht
         total_vat += vat_amount
         ws.row_dimensions[row].height = 18
-        _width_tracker.observe_row(_vals)
         row += 1
 
     ws.append([])

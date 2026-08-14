@@ -759,7 +759,21 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
     ])
 
 
+def _b2b_month_key(transaction_date: str) -> str:
+    """Clé de regroupement mensuel (YYYY-MM) à partir d'une date normalisée
+    YYYY-MM-DD (voir parsers/amazon/detect.py::parse_date). Chaîne vide
+    (date manquante/invalide) regroupée à part, triée en dernier."""
+    return transaction_date[:7] if len(transaction_date) >= 7 else ""
+
+
 def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
+    """Onglet B2B_Recap avec sous-totaux mensuels : l'état récapitulatif
+    des clients (DES, art. 289 B CGI) est une obligation MENSUELLE, alors
+    que `period` (l'export choisi par l'utilisateur, ex. un trimestre) peut
+    couvrir plusieurs mois. On garde un seul onglet — trié chronologiquement,
+    avec un bandeau + un sous-total par mois — plutôt que fragmenter en
+    plusieurs fichiers, pour rester lisible en un coup d'œil tout en donnant
+    les montants exacts à reporter mois par mois."""
     ws = wb.create_sheet("B2B_Recap")
     ws.sheet_view.showGridLines = False
 
@@ -792,28 +806,60 @@ def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
     ws.row_dimensions[3].height = 18
     ws.append([_hdr_cell(ws, h, _GREEN_LIGHT, fg=_GREEN_HDR, size=9) for h in headers])
 
-    for i, line in enumerate(data.b2b_lines):
-        row = i + 4
-        zebra = i % 2 == 1
-        ws.row_dimensions[row].height = 15
+    # Tri chronologique puis regroupement par mois (YYYY-MM) ; les lignes
+    # sans date exploitable sont regroupées à part, en dernier.
+    _sorted_lines = sorted(data.b2b_lines, key=lambda l: (_b2b_month_key(l.transaction_date) == "", _b2b_month_key(l.transaction_date), l.transaction_date))
+
+    _months: dict[str, list] = {}
+    for line in _sorted_lines:
+        _months.setdefault(_b2b_month_key(line.transaction_date), []).append(line)
+
+    row = 3  # dernière ligne écrite = en-têtes (row 3)
+    zebra_idx = 0
+    for month_key, lines in _months.items():
+        month_label = month_key if month_key else _("b2b_unknown_date")
+
+        row += 1
+        ws.row_dimensions[row].height = 16
+        ws.append([_hdr_cell(ws, _("b2b_month_group_header", month=month_label), "E2EFDA", fg="375623", size=8)])
+        _merge(ws, f"A{row}:F{row}")
+
+        month_total = _ZERO
+        for line in lines:
+            row += 1
+            zebra = zebra_idx % 2 == 1
+            zebra_idx += 1
+            ws.row_dimensions[row].height = 15
+            ws.append([
+                _data_cell(ws, line.sale_id, zebra=zebra),
+                _data_cell(ws, line.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+                _data_cell(ws, line.buyer_vat_number or "—", zebra=zebra),
+                _data_cell(ws, line.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
+                _data_cell(ws, line.country_name, zebra=zebra),
+                _data_cell(ws, float(line.amount_ht), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            ])
+            month_total += line.amount_ht
+
+        row += 1
+        ws.row_dimensions[row].height = 16
         ws.append([
-            _data_cell(ws, line.sale_id, zebra=zebra),
-            _data_cell(ws, line.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
-            _data_cell(ws, line.buyer_vat_number or "—", zebra=zebra),
-            _data_cell(ws, line.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
-            _data_cell(ws, line.country_name, zebra=zebra),
-            _data_cell(ws, float(line.amount_ht), fmt='#,##0.00 "€"', zebra=zebra, alignment=Alignment(horizontal="right", vertical="center")),
+            _total_cell(ws, ""),
+            _total_cell(ws, ""),
+            _total_cell(ws, ""),
+            _total_cell(ws, ""),
+            _total_cell(ws, _("b2b_month_subtotal", month=month_label)),
+            _total_cell(ws, float(month_total), fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
         ])
 
     n = len(data.b2b_lines)
-    tr = n + 4
+    tr = row + 1
     ws.append([
         _total_cell(ws, ""),
         _total_cell(ws, ""),
         _total_cell(ws, ""),
         _total_cell(ws, ""),
         _total_cell(ws, _("TOTAL HT")),
-        _total_cell(ws, f"=SUM(F4:F{tr-1})", fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
+        _total_cell(ws, float(data.total_b2b_ht), fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
     ])
 
     note_row = tr + 2
@@ -1100,15 +1146,30 @@ def build_oss_csv(
     b2b_writer.writerow([_("b2b_csv_title", period=period)])
     b2b_writer.writerow([])
     b2b_writer.writerow([_("b2b_col_id"), _("b2b_col_date"), _("b2b_col_vat_number"), _("b2b_col_country_code"), _("b2b_col_buyer_country"), _("b2b_csv_col_amount_eur")])
-    for line in data.b2b_lines:
-        b2b_writer.writerow([
-            line.sale_id,
-            line.transaction_date,
-            line.buyer_vat_number or "",
-            line.buyer_country,
-            line.country_name,
-            _fmt_dec(line.amount_ht),
-        ])
+
+    # Meme regroupement mensuel que l'onglet Excel B2B_Recap (obligation DES
+    # mensuelle, art. 289 B CGI) — voir _build_b2b_recap pour le detail.
+    _sorted_b2b = sorted(data.b2b_lines, key=lambda l: (_b2b_month_key(l.transaction_date) == "", _b2b_month_key(l.transaction_date), l.transaction_date))
+    _b2b_months: dict[str, list] = {}
+    for line in _sorted_b2b:
+        _b2b_months.setdefault(_b2b_month_key(line.transaction_date), []).append(line)
+
+    for month_key, lines in _b2b_months.items():
+        month_label = month_key if month_key else _("b2b_unknown_date")
+        b2b_writer.writerow([_("b2b_month_group_header", month=month_label)])
+        month_total = _ZERO
+        for line in lines:
+            b2b_writer.writerow([
+                line.sale_id,
+                line.transaction_date,
+                line.buyer_vat_number or "",
+                line.buyer_country,
+                line.country_name,
+                _fmt_dec(line.amount_ht),
+            ])
+            month_total += line.amount_ht
+        b2b_writer.writerow(["", "", "", "", _("b2b_month_subtotal", month=month_label), _fmt_dec(month_total)])
+
     b2b_writer.writerow([])
     b2b_writer.writerow([_("TOTAL"), "", "", "", "", _fmt_dec(data.total_b2b_ht)])
 

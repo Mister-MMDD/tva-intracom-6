@@ -1995,6 +1995,130 @@ complète — 166 passed / 4 failed, échecs identiques au baseline documenté
 patchs).
 
 ---
+
+## Audit externe perf/RAM #3 — interning ASIN/TVA, nettoyage tracker largeur (2026-08-15)
+
+Nouvel audit externe, 8 points soumis. 3 points redondants avec des sujets
+déjà traités/tranchés lors d'audits précédents (rejetés ou déjà décidés, non
+retraités ici), 2 points déjà corrigés dans le code actuel (audit basé sur
+une version antérieure), 1 point sans gain réel identifié, 2 points corrigés :
+
+**Corrigés :**
+
+- **`models.py::Sale.__post_init__`** — `asin` et `buyer_vat_number`
+  n'étaient pas internés (`sys.intern`), contrairement aux champs pays/devise/
+  catégorie déjà traités. Ces deux champs ont une cardinalité répétitive
+  élevée (même ASIN ou même client sur des milliers de lignes) : ajout de
+  l'interning, casse d'origine conservée (pas d'`.upper()`, contrairement aux
+  codes pays) pour ne pas altérer une valeur déjà normalisée ailleurs (VIES,
+  affichage).
+
+- **`excel_report.py` — nettoyage complet du `_ColumnWidthTracker` local
+  résiduel dans les ~13 fonctions `_write_*_tab`** : l'audit du 2026-08-14
+  avait déjà supprimé les 10 appels `.apply(ws)` réellement no-op, en
+  conservant volontairement par prudence les boucles `observe_row()` ainsi
+  que les 2 `.apply(ws)` situés sur un chemin de retour anticipé (feuille
+  vide), leur effet n'étant pas jugé "garanti no-op" à l'époque. Analyse
+  approfondie du wrapper `_SequentialSheetWriter` : celui-ci maintient son
+  propre tracker interne et observe déjà chaque ligne ajoutée via son propre
+  `append()` (y compris les lignes d'en-tête et de repli "aucune donnée") ;
+  `finalize()`, toujours appelé après écriture de chaque feuille, applique
+  systématiquement les largeurs via ce tracker interne — y compris sur les
+  chemins de retour anticipé, où l'`apply()` externe est donc écrasé/rendu
+  redondant par l'`apply()` interne déclenché par `finalize()`. Les ~28
+  boucles `observe_row()` restantes et les 2 derniers `.apply(ws)` (chemins
+  de retour anticipé) ont donc été retirés — code entièrement mort ou
+  redondant confirmé. La classe `_ColumnWidthTracker` elle-même est
+  conservée : toujours utilisée en interne par `_SequentialSheetWriter`.
+
+**Déjà corrigés (audit basé sur une version antérieure du code) :**
+
+- Pré-calcul du taux de change hors boucle dans `_write_details_tab`
+  (`excel_report.py`) — déjà fait le 2026-08-04.
+- Suppression du tracker de largeur mort — voir ci-dessus (déjà partiellement
+  fait le 2026-08-14, complété aujourd'hui).
+
+**Rejetés (analyse détaillée) :**
+
+- *Filtrage Polars vectorisé des types de transaction (`loader.py`)* : la
+  boucle réelle ne fait pas qu'un test `tx_type in {...}` (déjà O(1),
+  négligeable) — elle construit aussi les objets `Sale`, convertit les
+  devises, valide les données ligne par ligne via des fonctions `parser.*`
+  opérant sur des dicts. Vectoriser réellement demanderait de réécrire tous
+  les `parser.*` pour opérer sur DataFrame : refactor lourd et risqué pour un
+  gain quasi nul, le coût réel de la boucle n'étant pas le test de type.
+- *`DOMESTIC_REVERSE_CHARGE_COUNTRIES` en `dict[pays, categories]`
+  (`rates.py`)* : déjà tranché le 2026-08-09, validé par le cabinet
+  comptable pour le périmètre actuel — reste en attente d'un nouveau
+  cas produit/pays pour être rouvert.
+- *Découpage mensuel B2B DES (`oss_export.py::build_b2b_excel`)* : déjà
+  identifié et suivi comme item de roadmap (obligation légale mensuelle,
+  art. 289 B CGI, export actuel non subdivisé par mois) — pas de nouvelle
+  information apportée par cet audit, statut inchangé (en attente).
+
+**Test "déjà trié" avant `sorted()` (`engine.py`, tri chronologique)** :
+gain jugé marginal et non prioritaire — `sorted()` avec `key=` calcule la
+clé une fois par élément quel que soit l'état de tri initial (transformée de
+Schwartz), donc vérifier si la liste est déjà triée nécessiterait de toute
+façon un passage complet sur les éléments pour un gain net faible. Non
+retenu pour l'instant.
+
+Validation : `py_compile` sur `models.py` + `excel_report.py`, AST complet
+validé sur `excel_report.py`, suite `pytest` complète — 166 passed /
+4 failed, échecs identiques au baseline (liés à l'absence de
+`SUPABASE_DB_URL` en sandbox, sans rapport avec ces patchs).
+
+---
+
+## Découpage mensuel de l'état récapitulatif B2B — DES (2026-08-15, suite)
+
+Correction de l'item roadmap identifié lors de l'audit précédent : la
+déclaration DES (état récapitulatif des clients, autoliquidation B2B) est
+une obligation **mensuelle** (art. 289 B CGI), alors que `build_b2b_excel` /
+`build_oss_csv` agrégeaient toutes les ventes B2B de la période choisie
+(souvent un trimestre) en une seule liste avec un unique total — obligeant
+l'utilisateur à redécouper manuellement par mois.
+
+Aucune contrainte technique bloquante : chaque `B2bLine` porte déjà sa
+`transaction_date` individuelle, normalisée en amont au format `YYYY-MM-DD`
+(voir `parsers/amazon/detect.py::parse_date`). Correctif limité à la couche
+d'export (`oss_export.py`), sans toucher au moteur de classification fiscale
+(`engine.py`) ni à `rates.py`.
+
+- **`oss_export.py::_build_b2b_recap` (Excel, onglet `B2B_Recap`)** : les
+  lignes sont désormais triées chronologiquement et regroupées par mois
+  (clé `YYYY-MM`, nouvelle fonction `_b2b_month_key`). Chaque groupe reçoit
+  un bandeau ("Période : YYYY-MM") et une ligne de sous-total ; le total
+  général reste affiché en bas comme avant. Les lignes sans date exploitable
+  (transaction_date vide) sont regroupées à part sous "Date inconnue", en
+  dernier. Choix : un seul onglet avec sous-totaux (option retenue par
+  Matthieu) plutôt qu'un onglet par mois — plus simple, moins de risque de
+  régression, montants mensuels exacts conservés.
+- **Total général** : passé d'une formule Excel `=SUM(F4:F{n})` à une valeur
+  précalculée (`data.total_b2b_ht`) — la plage de somme n'est plus
+  contiguë une fois les bandeaux/sous-totaux insérés (elle aurait
+  recompté les sous-totaux mensuels en plus des lignes, doublant le total).
+- **`oss_export.py::build_oss_csv`** — même regroupement mensuel appliqué
+  au CSV `b2b_recap.csv` (bandeau de mois en première colonne + ligne de
+  sous-total), pour rester cohérent avec l'Excel.
+- **i18n** : 3 nouvelles clés (`b2b_month_group_header`,
+  `b2b_month_subtotal`, `b2b_unknown_date`) ajoutées dans les 7 fichiers
+  TOML, symétrie vérifiée (`toml.load` + diff de clés sur les 7 langues).
+  Format machine `YYYY-MM` conservé pour l'étiquette de mois (pas de nom de
+  mois localisé) : évite d'avoir à maintenir des noms de mois traduits dans
+  7 langues, et reste sans ambiguïté pour un usage comptable.
+- **Test existant mis à jour** : `tests/test_oss_export.py::
+  test_b2b_excel_sheet_and_rows` référençait les numéros de ligne fixes de
+  l'ancienne mise en page (plus de bandeau de mois) — adapté aux nouveaux
+  indices de ligne et à la valeur de total précalculée.
+
+Validation : `py_compile` sur `oss_export.py`, test manuel de génération
+CSV + Excel (contrôle visuel du regroupement et des sous-totaux, pas de
+double comptage), suite `pytest` complète — 166 passed / 4 failed,
+échecs identiques au baseline (`SUPABASE_DB_URL` absent en sandbox, sans
+rapport avec ce patch).
+
+---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.
 
