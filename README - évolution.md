@@ -1920,6 +1920,81 @@ et n'ont pas été reprises telles quelles — voir plus bas).
   pour un refactor en une passe. À traiter au fil de l'eau si ces fonctions
   sont retouchées pour d'autres raisons, plutôt qu'en bloc.
 
+**2026-08-14 (suite 2) — Audit externe perf/RAM/cohérence #2, 6 points traités :**
+
+- **`vies_engine.py::check_vat_with_retry` / `_check_one`** : le sémaphore
+  global `_vies_global_semaphore` (limite 25 requêtes VIES concurrentes)
+  englobait tout le cycle retry, `time.sleep()` de backoff exponentiel
+  inclus (1s → 2s → 4s). Un pays en panne/lent pouvait donc faire dormir
+  jusqu'à 25 threads tout en gardant leur slot réservé, bloquant les
+  vérifications d'autres pays dont le service VIES fonctionne normalement.
+  Le sémaphore est désormais acquis uniquement autour de l'appel réseau
+  (`check_vat`) individuel, à l'intérieur de la boucle de retry — les sleep
+  de backoff n'immobilisent plus de slot. Comportement de retry/backoff par
+  ailleurs inchangé.
+- **`ui/formatting.py::_smart_money_df`** : la fonction mute `df` en place
+  (conversion de devise sur les colonnes monétaires) — vérifié que c'est un
+  contrat volontaire dont dépendent les 9 points d'appel actuels (le même
+  objet `df` est réaffiché juste après via `_gated_preview_table`/
+  `st.dataframe` ; la rendre pure aurait cassé silencieusement l'affichage
+  devise partout dans l'app). Pas de bug actif constaté (tous les appelants
+  passent un df fraîchement `.copy()`/construit). Ajout d'un garde-fou
+  idempotent (`df.attrs["_tva_currency_converted"]`) : si la fonction est
+  rappelée une seconde fois sur le même objet `df` (réutilisation
+  accidentelle, référence partagée via un cache), le taux de change n'est
+  plus appliqué une deuxième fois.
+- **`excel_report.py` — 10 appels `_width_tracker.apply(ws)` morts supprimés** :
+  sur les ~13 fonctions `_write_*_tab` documentées ci-dessus comme code
+  mort, seuls les appels situés *après la boucle d'écriture complète*
+  (donc réellement no-op, cf. entrée précédente) ont été retirés — 10
+  occurrences, dans les fonctions ayant des données à écrire. Les 2 appels
+  situés sur un chemin de retour anticipé (feuille vide, avant toute
+  émission réelle vers la feuille sous-jacente) sont conservés inchangés
+  car leur effet, bien que redondant avec `_SequentialSheetWriter.finalize()`,
+  n'est pas garanti no-op de la même façon et n'entrait pas dans le
+  périmètre "aucun risque" de ce correctif. Les boucles `observe_row()`
+  restent en place (retrait complet du tracker local hors périmètre —
+  refactor plus large, cf. entrée reportée ci-dessus).
+- **`ui/sidebar.py::_parse_catalog_bytes`** : passé de `@heavy_cache_data`
+  (= `st.cache_data`, une copie du dict retournée à chaque appel) à
+  `@st.cache_resource` (même instance mémoire partagée entre toutes les
+  sessions). Le catalogue ASIN n'est jamais muté après parsing (uniquement
+  des `.get()` en aval) : safe. Pour un catalogue de 20k+ entrées et
+  plusieurs sessions utilisateur simultanées, évite une copie complète du
+  dict par session. Effet de bord positif : ce cache n'étant plus dans
+  `_HEAVY_CACHE_REGISTRY`, il n'est plus vidé par `release_memory()` au
+  logout d'un utilisateur quelconque (correct, puisque c'est désormais une
+  ressource partagée entre sessions — le vider sur l'évènement d'un seul
+  utilisateur forçait un re-parsing inutile pour les autres sessions
+  actives). Import `heavy_cache_data` retiré de `sidebar.py` (plus utilisé).
+  Commentaire dans `app.py` (autour de `_asin_catalog_sig`) mis à jour :
+  ne prétend plus que l'`id()` change à chaque rerun (ce n'est plus vrai
+  avec `cache_resource`) ; le hash de contenu est conservé malgré tout pour
+  ne pas faire reposer la clé de cache sur un détail d'implémentation de
+  `st.cache_resource`.
+- **`excel_report.py` — cache `id_hash` par `sale_id`** : dans le calcul des
+  hash totals (contrôle d'intégrité technique), `re.sub(r"\D", "", str(sale_id))`
+  était recalculé pour chaque ligne. Un `sale_id` (TRANSACTION_EVENT_ID)
+  revient très souvent sur plusieurs lignes consécutives (une commande
+  Amazon = plusieurs articles partageant le même ID de commande). Ajout
+  d'un cache local `dict[sale_id, int]` (vidé à chaque appel, pas de fuite
+  mémoire inter-appels) : le nettoyage regex + parsing int n'est fait
+  qu'une fois par `sale_id` distinct au lieu d'une fois par ligne.
+- **`engine.py::_run_oss_loop`** : la date de transaction était déjà parsée
+  une seule fois par vente (`date.fromisoformat`, réutilisée pour
+  `compute_vat` et `_build_oss_note`). Ajout d'un cache "dernière date vue"
+  (`sorted_items` est trié chronologiquement en amont) : si la valeur brute
+  ISO (10 premiers caractères) est identique à la ligne précédente, la
+  date déjà parsée est réutilisée sans nouvel appel à `date.fromisoformat()`.
+  Gain concentré sur les gros fichiers où de nombreuses ventes partagent la
+  même date de transaction consécutivement.
+
+Validation : `py_compile` sur les 6 fichiers modifiés + suite `pytest`
+complète — 166 passed / 4 failed, échecs identiques au baseline documenté
+(liés à l'absence de `SUPABASE_DB_URL` en sandbox, sans rapport avec ces
+patchs).
+
 ---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.
+

@@ -364,15 +364,16 @@ if uploaded_files:
     # catalogue ASIN) ont réellement changé.
     #
     # Le catalogue ASIN peut compter des dizaines de milliers d'entrées.
-    # `_parse_catalog_bytes` est déjà @st.cache_data côté sidebar, mais
-    # Streamlit renvoie une COPIE du dict à chaque appel (pour éviter les
-    # bugs de mutation de cache) : l'id() de asin_to_category change donc
-    # d'un rerun à l'autre même si le contenu est identique, et
-    # tuple(sorted(dict.items())) devait auparavant retrier tout le
-    # catalogue (O(n log n)) à *chaque* rerun (changement de filtre,
-    # d'onglet...), pas seulement à l'upload. On remplace par un hash sur
-    # un frozenset (O(n), pas de tri, et un simple int à comparer au rerun
-    # suivant au lieu d'un tuple de 20k éléments).
+    # `_parse_catalog_bytes` est en `@st.cache_resource` côté sidebar (même
+    # instance mémoire partagée entre sessions, pas de copie par appel) :
+    # l'id() de asin_to_category reste donc stable pour un même contenu.
+    # On garde malgré tout un hash de contenu (plutôt que de comparer sur
+    # id()) pour ne pas faire reposer ce cache de clé sur un détail
+    # d'implémentation de st.cache_resource : tuple(sorted(dict.items()))
+    # retriait tout le catalogue (O(n log n)) à *chaque* rerun (changement
+    # de filtre, d'onglet...) ; hash sur un frozenset est O(n), sans tri, et
+    # ne compare qu'un simple int au rerun suivant au lieu d'un tuple de 20k
+    # éléments.
     _asin_catalog_sig = hash(frozenset(asin_to_category.items())) if asin_to_category else None
     _parse_cache_key = (
         tuple(sorted(_upload_sig(f) for f in uploaded_files)),

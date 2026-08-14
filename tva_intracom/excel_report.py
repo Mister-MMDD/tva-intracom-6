@@ -649,7 +649,6 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
         ws.row_dimensions[i].height = 18
         _width_tracker.observe_row(_row_values)
 
-    _width_tracker.apply(ws)
 
 
 def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None,
@@ -812,7 +811,6 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     if not detail_rows:
         ws.append([_wcell(ws, i18n_("xl_no_line_gap"), font=Font(italic=True))])
 
-    _width_tracker.apply(ws)
 
 
 def _write_vies_history_tab(ws, results, scope_id: str) -> None:
@@ -892,7 +890,6 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
 
     if row == 2:
         ws.append([_wcell(ws, i18n_("xl_vies_no_history"))])
-    _width_tracker.apply(ws)
 
 
 def _write_intrastat_tab(
@@ -1070,7 +1067,6 @@ def _write_intrastat_tab(
             current_row += 1
         current_row += 2
 
-    _width_tracker.apply(ws)
 
 
 def _next_working_day(d: _date) -> _date:
@@ -1298,7 +1294,6 @@ def _write_calendar_tab(
     if row == 5:
         ws.append([_wcell(ws, i18n_("xl_cal_no_deadline"), font=Font(italic=True))])
 
-    _width_tracker.apply(ws)
 
 
 def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
@@ -1408,7 +1403,6 @@ def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
         ws.row_dimensions[i].height = 18
         _width_tracker.observe_row(_vals)
 
-    _width_tracker.apply(ws)
 
 
 def _write_fba_aic_tab(
@@ -1637,7 +1631,6 @@ def _write_fba_aic_tab(
             _width_tracker.observe_row(_vals_inact)
             current_row += 1
 
-    _width_tracker.apply(ws)
 
 
 def _month_label(month_key: str) -> str:
@@ -1813,7 +1806,6 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
     ws.append(_total_row_cells)
     ws.row_dimensions[row].height = 20
 
-    _width_tracker.apply(ws)
 
 
 
@@ -1962,7 +1954,6 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     ws.append(_total_cells)
     ws.row_dimensions[row].height = 20
 
-    _width_tracker.apply(ws)
 
 
 def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
@@ -2022,7 +2013,6 @@ def _write_invoice_creditnote_tab(ws, invoice_credit_notes: list) -> None:
     ])
     ws.row_dimensions[row].height = 20
 
-    _width_tracker.apply(ws)
 
 
 def export_xlsx(
@@ -2067,16 +2057,25 @@ def export_xlsx(
         "id_hash": 0,
         "net_ht_check": Decimal("0.00"),
     }
+    # Cache local : un même TRANSACTION_EVENT_ID (sale_id) revient très
+    # souvent sur plusieurs lignes consécutives (une commande Amazon = un ID
+    # de commande partagé par tous ses articles) — on évite de refaire le
+    # nettoyage regex + parsing int pour un sale_id déjà vu dans cette passe.
+    _id_hash_cache: dict[str, int] = {}
     for r in chain(results, refund_results or []):
         hash_totals["count"] += 1
         hash_totals["abs_ht"] += abs(r.sale.amount_ht)
         hash_totals["vat"] += abs(r.vat_amount)
         hash_totals["net_ht_check"] += r.sale.amount_ht
         # Somme numérique des IDs pour détecter les doublons ou omissions
-        raw_id = re.sub(r"\D", "", str(r.sale.sale_id))
-        if raw_id:
+        _sid = r.sale.sale_id
+        _id_contrib = _id_hash_cache.get(_sid)
+        if _id_contrib is None:
+            raw_id = re.sub(r"\D", "", str(_sid))
             # On prend les 6 derniers chiffres pour plus de précision
-            hash_totals["id_hash"] += int(raw_id[-6:])
+            _id_contrib = int(raw_id[-6:]) if raw_id else 0
+            _id_hash_cache[_sid] = _id_contrib
+        hash_totals["id_hash"] += _id_contrib
 
     # write_only=True : toutes les feuilles ci-dessous sont désormais écrites en
     # mode séquentiel (ws.append), ce qui élimine le gonflement mémoire d'openpyxl

@@ -1319,11 +1319,22 @@ def check_vat_with_retry(
         max_attempts: int = _RETRY_MAX_ATTEMPTS,
         base_delay: float = _RETRY_BASE_DELAY,
 ) -> ViesResult:
-    """Appelle check_vat avec retry backoff exponentiel sur erreurs transitoires."""
+    """Appelle check_vat avec retry backoff exponentiel sur erreurs transitoires.
+
+    Le sémaphore global (`_vies_global_semaphore`) n'est acquis qu'autour de
+    l'appel réseau lui-même (`check_vat`), PAS autour du `time.sleep()` de
+    backoff entre tentatives. Avant ce correctif, un pays en panne/lent
+    pouvait faire dormir jusqu'à `_VIES_GLOBAL_CONCURRENCY_LIMIT` threads
+    tout en gardant leur slot de sémaphore réservé, bloquant les vérifications
+    d'autres pays dont le service VIES fonctionne normalement. Relâcher le
+    sémaphore pendant le sleep laisse ces slots disponibles pour les autres
+    threads pendant l'attente.
+    """
     delay = base_delay
     last_result: Optional[ViesResult] = None
     for attempt in range(1, max_attempts + 1):
-        result = check_vat(country_code, vat_number, timeout=timeout)
+        with _vies_global_semaphore:
+            result = check_vat(country_code, vat_number, timeout=timeout)
         if not _is_unreliable(result) and not _is_empty_response(result):
             return result
         last_result = result
@@ -1504,10 +1515,11 @@ def validate_vat_numbers_parallel(
             norm_id, orig = item
             country_code, number = _clean_vat_number(orig)
             # Le thread peut démarrer immédiatement (pas de limite sur
-            # max_workers ici), mais la requête réseau elle-même attend son
-            # tour derrière _vies_global_semaphore — voir sa docstring.
-            with _vies_global_semaphore:
-                result = check_vat_with_retry(country_code, number, timeout=timeout)
+            # max_workers ici) ; le sémaphore est désormais acquis à
+            # l'intérieur de check_vat_with_retry, autour de chaque appel
+            # réseau individuel seulement (pas autour des sleep de retry) —
+            # voir sa docstring.
+            result = check_vat_with_retry(country_code, number, timeout=timeout)
             return norm_id, result
 
         workers = min(max_workers, len(to_fetch))

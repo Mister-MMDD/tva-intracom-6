@@ -34,7 +34,6 @@ from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom import billing as tva_billing
 from tva_intracom.i18n import _, country_label
-from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
     oss_threshold_in_currency
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
@@ -304,14 +303,22 @@ def _edit_siren_form_fragment(
 _MAX_CATALOG_MB = 100
 
 
-@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
+@st.cache_resource(show_spinner=False, ttl=1800, max_entries=20)
 def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
     """Parse un catalogue ASIN → catégorie fiscale depuis son contenu brut.
 
-    Mis en cache par contenu (`file_bytes` fait partie de la clé de hash de
-    `st.cache_data`) : tant que l'utilisateur ne change pas de fichier, ce
-    parsing ne s'exécute qu'une seule fois, au lieu d'être refait à chaque
-    rerun Streamlit (changement de widget, etc.).
+    Mis en cache par contenu (`file_bytes` fait partie de la clé de hash) :
+    tant que l'utilisateur ne change pas de fichier, ce parsing ne s'exécute
+    qu'une seule fois, au lieu d'être refait à chaque rerun Streamlit
+    (changement de widget, etc.).
+
+    `st.cache_resource` (et non `st.cache_data`) : le dict retourné n'est
+    JAMAIS muté après sa construction (uniquement des `.get()` en aval, dans
+    `engine.py`/`loader.py`) — `cache_resource` partage donc la même
+    instance mémoire entre toutes les sessions au lieu d'en renvoyer une
+    copie par appel. Pour un catalogue de 20k+ ASIN et plusieurs sessions
+    utilisateur simultanées, ça évite une copie complète du dict par
+    session (RAM divisée par le nombre de sessions actives).
 
     IMPORTANT (mémoire) : ce cache est GLOBAL au process (partagé entre
     toutes les sessions), donc jamais purgé par le logout ni par le retrait

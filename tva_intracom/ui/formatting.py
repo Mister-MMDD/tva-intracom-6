@@ -243,7 +243,21 @@ def _smart_money_df(
     
     Amélioration Performance : utilise la vectorisation Pandas pour les conversions.
     Amélioration UX : utilise NumberColumn pour conserver le tri numérique correct.
+
+    ATTENTION effet de bord assumé : cette fonction MUTE le DataFrame reçu
+    (conversion de devise en place sur les colonnes monétaires) — c'est un
+    contrat volontaire dont dépendent tous les appelants actuels (le même
+    objet `df` est réaffiché juste après via `_gated_preview_table`/
+    `st.dataframe`, sans quoi les montants convertis n'apparaîtraient
+    jamais). Le rendre "pur" casserait silencieusement l'affichage devise
+    dans toute l'app.
+
+    Garde-fou anti double-conversion : un DataFrame déjà passé une fois par
+    cette fonction est marqué via `df.attrs`, et un second appel sur le même
+    objet (ex. réutilisation accidentelle, référence partagée par un cache)
+    n'applique plus le taux une seconde fois.
     """
+    _already_converted = bool(df.attrs.get("_tva_currency_converted"))
     column_config = existing_config.copy() if existing_config else {}
     m_cols = money_cols or []
     p_cols = pct_cols or []
@@ -281,7 +295,7 @@ def _smart_money_df(
         # 2. Colonnes Monétaires (Tri numérique préservé)
         elif col in m_cols or any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total", "remboursé"]):
             # Conversion vectorisée si nécessaire (plus rapide que .apply)
-            if _rate != 1.0 and df[col].dtype in ['float64', 'int64']:
+            if _rate != 1.0 and not _already_converted and df[col].dtype in ['float64', 'int64']:
                 df[col] = df[col] * _rate
             
             column_config[col] = st.column_config.NumberColumn(
@@ -301,7 +315,10 @@ def _smart_money_df(
             column_config[col] = st.column_config.TextColumn(col, width="small")
         elif "id" in col_lower:
             column_config[col] = st.column_config.TextColumn(col, width="medium")
-            
+
+    if _rate != 1.0 and not _already_converted:
+        df.attrs["_tva_currency_converted"] = True
+
     return column_config
 
 

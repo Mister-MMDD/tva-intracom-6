@@ -802,6 +802,15 @@ def _run_oss_loop(
     # On utilise les paramètres passés plutôt que _resolve_lang() pour le thread-safety
     _lang = lang
 
+    # Cache "dernière date vue" : sorted_items est trié chronologiquement en
+    # amont (voir docstring), donc la même valeur de date (les 10 premiers
+    # caractères ISO de transaction_date) revient très souvent sur des
+    # dizaines/centaines de lignes consécutives. On évite de rappeler
+    # `date.fromisoformat()` (parsing de string) quand la date brute n'a pas
+    # changé depuis la ligne précédente.
+    _last_tx_date_raw: str | None = None
+    _last_tx_date_parsed: _date | None = None
+
     for sale in sorted_items:
         is_from_refunds = _sale_key(sale) in refund_keys
         product_asin = getattr(sale, "asin", "")
@@ -831,13 +840,22 @@ def _run_oss_loop(
 
         # Parsée une seule fois ici et réutilisée par compute_vat (taux
         # historique) ET _build_oss_note (affichage seuil OSS) plus bas —
-        # évite de parser deux fois la même string ISO par vente.
+        # évite de parser deux fois la même string ISO par vente. Cache
+        # "dernière date vue" en plus : ventes triées chronologiquement,
+        # donc la même valeur brute revient souvent sur des lignes
+        # consécutives (évite un appel à date.fromisoformat() par ligne).
         _sale_tx_date: _date | None = None
         if effective_sale.transaction_date:
-            try:
-                _sale_tx_date = _date.fromisoformat(effective_sale.transaction_date[:10])
-            except ValueError:
-                pass
+            _raw_tx_date = effective_sale.transaction_date[:10]
+            if _raw_tx_date == _last_tx_date_raw:
+                _sale_tx_date = _last_tx_date_parsed
+            else:
+                try:
+                    _sale_tx_date = _date.fromisoformat(_raw_tx_date)
+                except ValueError:
+                    _sale_tx_date = None
+                _last_tx_date_raw = _raw_tx_date
+                _last_tx_date_parsed = _sale_tx_date
 
         res = compute_vat(effective_sale, marketplace_name, product_category=product_category, lang=_lang,
                           ioss_own_number_active=ioss_own_number_active, tx_date=_sale_tx_date)
