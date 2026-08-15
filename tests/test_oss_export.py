@@ -97,10 +97,14 @@ def test_b2b_excel_sheet_and_rows(sample_results, tmp_path):
     assert wb.sheetnames == ["B2B_Recap"]
     ws = wb["B2B_Recap"]
     assert "A1:F1" in [str(r) for r in ws.merged_cells.ranges]
-    # 1 vente B2B (C) -> ligne 4, total ligne 5.
-    assert ws.cell(row=4, column=1).value == "C"
-    assert ws.cell(row=4, column=3).value == "DE123456789"
-    assert ws.cell(row=5, column=6).value == "=SUM(F4:F4)"
+    # 1 vente B2B (C, sans transaction_date) -> regroupee sous le bandeau
+    # "date inconnue" (ligne 4), donnee ligne 5, sous-total mois ligne 6,
+    # total general ligne 7 (voir _build_b2b_recap : sous-totaux mensuels,
+    # obligation DES mensuelle art. 289 B CGI).
+    assert ws.cell(row=5, column=1).value == "C"
+    assert ws.cell(row=5, column=3).value == "DE123456789"
+    assert ws.cell(row=6, column=6).value == 500.0
+    assert ws.cell(row=7, column=6).value == 500.0
 
 
 def test_oss_csv_still_generated(sample_results):
