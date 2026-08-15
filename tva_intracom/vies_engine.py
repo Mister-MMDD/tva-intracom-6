@@ -485,6 +485,17 @@ def _init_schema(pool: "NonPoolingConnectionPool") -> None:
                     updated_at TIMESTAMPTZ NOT NULL
                 )
             """)
+            # PERF (voir README - évolution.md) : horodatage de la dernière
+            # purge administrative `purge_malformed_entries()` — permet de
+            # ne l'exécuter réellement qu'une fois par jour au lieu d'une
+            # fois par SESSION utilisateur (le garde précédent était en
+            # st.session_state, donc réinitialisé à chaque nouvel onglet).
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS vies_maintenance (
+                    task_name    TEXT PRIMARY KEY,
+                    last_run_at  TIMESTAMPTZ NOT NULL
+                )
+            """)
     finally:
         pool.putconn(conn)
 
@@ -1040,25 +1051,63 @@ def get_scope_vies_snapshot(scope_id: str) -> list[dict]:
     return snapshot
 
 
-def purge_malformed_entries() -> int:
-    """Purge administrative, une fois par session (appelée depuis app.py) :
+_MALFORMED_PURGE_MIN_INTERVAL_DAYS = 1
+
+
+def purge_malformed_entries(force: bool = False) -> int:
+    """Purge administrative (appelée depuis app.py une fois par session) :
     supprime les entrées vat_id mal préfixées par un bug historique (double
     préfixe pays, ex. "DEIT123..."). Opère sur les DEUX tables (scope +
-    global) car le bug était antérieur à la scopisation."""
-    _EU_CC = {"AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
-              "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "XI"}
+    global) car le bug était antérieur à la scopisation.
+
+    PERF (voir README - évolution.md) : deux correctifs par rapport à la
+    version précédente.
+      1. Un seul `DELETE ... WHERE` par table (comparaison d'ensemble via
+         `= ANY(%s)` sur les 2 préfixes pays) remplace le `SELECT DISTINCT`
+         suivi d'une boucle Python de `DELETE` ligne par ligne — coûteux
+         (un aller-retour réseau par ligne à supprimer) et qui grossissait
+         avec la taille du cache global mutualisé.
+      2. La purge réelle n'est plus tentée qu'au plus une fois par
+         `_MALFORMED_PURGE_MIN_INTERVAL_DAYS` (horodatage persisté en base,
+         table `vies_maintenance`), au lieu d'une fois par SESSION Streamlit
+         (le garde précédent vivait en `st.session_state`, donc s'exécutait
+         à nouveau à chaque nouvel onglet/utilisateur). `force=True` (tests,
+         CLI) ignore ce throttle.
+    """
+    _EU_CC = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
+              "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "XI"]
     deleted = 0
     with _conn() as conn, conn.cursor() as cur:
+        if not force:
+            cur.execute(
+                "SELECT last_run_at FROM vies_maintenance WHERE task_name = %s",
+                ("purge_malformed_entries",),
+            )
+            row = cur.fetchone()
+            if row and row[0] and (_now_utc() - row[0]) < timedelta(days=_MALFORMED_PURGE_MIN_INTERVAL_DAYS):
+                return 0
+
         for table in ("vies_global_cache", "vies_scope_cache"):
-            cur.execute(f"SELECT DISTINCT vat_id FROM {table}")
-            to_delete = [
-                r[0] for r in cur.fetchall()
-                if len(r[0]) >= 4 and r[0][:2].upper() in _EU_CC
-                   and r[0][2:4].upper() in _EU_CC and r[0][:2].upper() != r[0][2:4].upper()
-            ]
-            for vat_id in to_delete:
-                cur.execute(f"DELETE FROM {table} WHERE vat_id=%s", (vat_id,))
-                deleted += cur.rowcount
+            cur.execute(
+                f"""
+                DELETE FROM {table}
+                WHERE length(vat_id) >= 4
+                  AND upper(left(vat_id, 2)) = ANY(%(cc)s)
+                  AND upper(substring(vat_id from 3 for 2)) = ANY(%(cc)s)
+                  AND upper(left(vat_id, 2)) <> upper(substring(vat_id from 3 for 2))
+                """,
+                {"cc": _EU_CC},
+            )
+            deleted += cur.rowcount
+
+        cur.execute(
+            """
+            INSERT INTO vies_maintenance (task_name, last_run_at)
+            VALUES (%s, %s)
+            ON CONFLICT (task_name) DO UPDATE SET last_run_at = EXCLUDED.last_run_at
+            """,
+            ("purge_malformed_entries", _now_utc()),
+        )
         conn.commit()
     return deleted
 

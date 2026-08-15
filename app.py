@@ -296,7 +296,19 @@ def _upload_sig(f) -> tuple:
     """
     if isinstance(f, _CachedUploadedFile):
         return (f.name, f.size, f._content_hash)
-    return (f.name, f.size, hashlib.md5(f.getvalue()[:131072]).hexdigest())
+    # BUGFIX (fiabilité, voir README - évolution.md) : hasher uniquement les
+    # 128 premiers Ko ne détecte pas une modification tombant plus loin dans
+    # le fichier (ex. correction d'un montant sur la dernière ligne d'un CSV
+    # de 100 Mo) — l'app pouvait alors réutiliser silencieusement d'anciens
+    # résultats de parsing/calcul sur un fichier pourtant modifié. On ajoute
+    # le hash des 128 derniers Ko (bornes qui se chevauchent sans problème
+    # sur les petits fichiers, `getvalue()` n'étant appelé qu'une fois) —
+    # coût toujours borné (256 Ko max, pas le fichier entier) donc pas de
+    # régression sur le design (name, size) + hash partiel.
+    _content = f.getvalue()
+    _head = _content[:131072]
+    _tail = _content[-131072:] if len(_content) > 131072 else b""
+    return (f.name, f.size, hashlib.md5(_head + _tail).hexdigest())
 
 
 if uploaded_files:
@@ -605,6 +617,15 @@ if uploaded_files:
             home_country,
             target_currency,
             _vies_retry_nonce,
+            # BUGFIX (voir README - évolution.md) : ces trois variables
+            # influencent bien le résultat du calcul (langue des notes
+            # générées, taux BCE du seuil OSS affiché selon la période,
+            # comportement sur numéro TVA invalide) mais étaient absentes
+            # de la clé de cache — un changement de langue ou de période
+            # OSS réutilisait silencieusement l'ancien résultat en cache.
+            st.session_state.get("language"),
+            oss_period,
+            on_invalid_behavior,
         )
 
         calc_progress_ph = st.empty()

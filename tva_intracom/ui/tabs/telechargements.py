@@ -159,8 +159,21 @@ def render_telechargements() -> None:
         # RAM : On évite de créer results_net (copie de liste) trop tôt ou
         # systématiquement. On l'encapsule dans une fonction pour ne la créer
         # que si un export OSS, B2B ou FEC est réellement demandé.
+        #
+        # PERF (voir README - évolution.md) : mémoïsée pour ce rendu de
+        # l'onglet via une closure — `results + refund_results` alloue une
+        # nouvelle liste de ~100k références à chaque appel ; plusieurs
+        # sections (aperçu OSS, correctifs négatifs, exports) l'appellent
+        # sans qu'un bouton soit forcément cliqué, ce qui recréait la même
+        # liste géante plusieurs fois par run pour rien. Un simple cache "un
+        # seul slot" suffit ici (pas de session_state : la fonction ne vit
+        # que le temps de CE rendu de l'onglet).
+        _results_net_cache: list | None = None
         def _get_results_net():
-            return results + (refund_results or [])
+            nonlocal _results_net_cache
+            if _results_net_cache is None:
+                _results_net_cache = results + (refund_results or [])
+            return _results_net_cache
 
         def _build_main_xlsx():
             xlsx_path = None

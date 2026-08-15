@@ -2281,6 +2281,121 @@ sandbox ou à des limitations réseau du sandbox — aucun rapport avec ces
 patches). Aucune régression introduite.
 
 
+## 2026-08-15 — Audit externe (10 points) : seuil OSS avoirs, perf BCE/VIES/RAM, précision AIC
+
+Audit externe reçu sous forme de liste de 10 points (bug fiscal, performance,
+fiabilité, RAM, redondance, précision). Chaque point vérifié contre le code
+réel avant tout jugement (voir règle #1) — tous confirmés sauf nuance sur le
+point 2 (impact réel seulement en devise étrangère non listée dans les
+contre-valeurs fixes) et le point 10 (déjà résolu). 9 points corrigés, 1
+laissé en l'état.
+
+- **BUG FISCAL — seuil OSS des avoirs (`tva_intracom/engine.py::_run_oss_loop`,
+  confirmé)** — les avoirs étaient classés selon un cumul `refund_cumulative_oss_ht`
+  reconstruit uniquement à partir des avoirs (toujours ≤ 0), donc `_build_oss_note`
+  reclassait systématiquement tout avoir en régime DOMESTIC (FR) dès que
+  l'option seuil était active, même quand l'entreprise avait dépassé le seuil
+  OSS via ses ventes. Un avoir annulant une vente OSS (taxée à destination)
+  était alors indûment déduit de la TVA française sur la CA3. Corrigé : les
+  avoirs utilisent désormais le même cumul net partagé `cumulative_oss_ht`
+  que les ventes pour déterminer leur régime — un avoir suit la classification
+  de la vente qu'il annule. Le cumul dédié aux avoirs (devenu inutile) a été
+  supprimé.
+
+- **PERF — lookups BCE dans la boucle OSS (`engine.py::_oss_threshold_display`,
+  confirmé, impact réel nuancé)** — `_oss_threshold_display` retourne
+  immédiatement sans appel BCE quand la devise est EUR (cas majoritaire), donc
+  l'impact "massif" décrit ne concerne que les ventes facturées dans une devise
+  étrangère non listée dans `OSS_THRESHOLD_FIXED_EQUIVALENTS`. Dans ce cas,
+  `get_rate`/`get_oss_rate_date` (verrou `_cache_lock` compris) étaient bien
+  rappelés à chaque ligne éligible OSS. Corrigé : cache local
+  `(devise, période, date) -> limite locale` créé une fois par appel de
+  `_run_oss_loop` et propagé via `_build_oss_note`, mémoïsant le calcul pour
+  tout le batch (devise et date de taux quasi constantes sur un batch donné).
+
+- **BUG — clé de cache incomplète (`app.py::_cache_key`, confirmé)** — la
+  clé ne contenait ni `language`, ni `oss_period`, ni `on_invalid_behavior`,
+  alors que les trois influencent le résultat affiché (langue des notes,
+  taux BCE du seuil OSS selon la période, comportement sur numéro TVA
+  invalide). Un changement de langue ou de période OSS réutilisait donc
+  silencieusement l'ancien résultat en cache. Corrigé : les trois variables
+  ajoutées à `_cache_key`.
+
+- **PERF BDD — purge de session VIES (`vies_engine.py::purge_malformed_entries`,
+  confirmé)** — `SELECT DISTINCT vat_id` sur toute la table suivi d'un
+  `DELETE` ligne par ligne en boucle Python, déclenché une fois par SESSION
+  Streamlit (donc à chaque nouvel onglet/utilisateur, pas une fois pour
+  toutes). Corrigé : un seul `DELETE ... WHERE upper(left(vat_id,2)) = ANY(%s)
+  AND ...` par table (comparaison d'ensemble côté SQL, plus de boucle Python),
+  et la purge réelle n'est désormais tentée qu'une fois par jour au maximum —
+  horodatage persisté dans une nouvelle table `vies_maintenance` (survit au
+  scale-to-zero et aux redéploiements, contrairement à un garde en mémoire).
+
+- **FIABILITÉ — signature MD5 tronquée (`app.py::_upload_sig`, confirmé)** —
+  seuls les 128 premiers Ko du fichier étaient hashés ; une modification en
+  fin de fichier (ex. correction d'un montant sur la dernière ligne d'un CSV
+  de 100 Mo, taille inchangée) n'était pas détectée, risquant de réutiliser
+  d'anciens résultats de parsing/calcul. Corrigé : le hash porte désormais
+  sur les 128 premiers Ko **et** les 128 derniers Ko (coût toujours borné à
+  256 Ko max, pas le fichier entier).
+
+- **RAM — copies de listes répétées (`ui/tabs/telechargements.py::_get_results_net`,
+  confirmé, ampleur nuancée)** — `results + refund_results` (nouvelle liste
+  de ~100k références) était recréé à chaque appel ; plusieurs sections
+  (aperçu OSS, correctifs négatifs) l'appellent sans clic de bouton. Le "8
+  fois" de l'audit est surestimé (plusieurs appels vivent dans des callbacks
+  de boutons, jamais tous exécutés le même run), mais au moins 2 appels
+  inconditionnels par rendu de l'onglet restaient réels. Corrigé : mémoïsée
+  via une closure locale au rendu de l'onglet (pas de `session_state`,
+  ne vit que le temps du rendu).
+
+- **CPU — initialisation Fernet répétée (`security.py::_get_fernet`,
+  confirmé)** — l'objet `Fernet` (parsing/validation de la clé inclus) était
+  recréé à chaque appel de `encrypt_data`/`decrypt_data`, coûteux sur un
+  batch VIES de plusieurs centaines/milliers de numéros. Corrigé : instance
+  mise en cache en singleton module-level.
+
+- **REDONDANCE — double calcul du prix ASIN (`ca3_report.py`, confirmé)** —
+  `_asin_avg_price_from_results` dupliquait à l'identique
+  `excel_report.py::_build_asin_avg_price`. Corrigé : suppression de la copie,
+  `ca3_report.py` délègue désormais à l'implémentation unique d'`excel_report.py`
+  (source unique, plus de risque de drift entre les deux). Piste explorée et
+  **différée** : partager le résultat déjà calculé par l'export Excel avec
+  la génération CA3 dans le même run (via `session_state` keyé sur `calc_key`,
+  comme le fait déjà l'aperçu OSS de `telechargements.py`) — gain réel mais
+  modeste (les deux rapports sont généralement générés sur des clics
+  séparés), pour une plomberie plus invasive à travers `app.py`/`telechargements.py`
+  sans enjeu fiscal ; laissé de côté (reject > defer > patch).
+
+- **PRÉCISION — taux de TVA sur AIC toujours STANDARD (`ca3_report.py::_compute_aic_from_fc_transfers`,
+  confirmé)** — le calcul de la TVA sur les transferts de stock (AIC)
+  appliquait systématiquement le taux standard du pays vendeur, sur-évaluant
+  base et TVA AIC affichées sur le rapport pour les ASIN à taux réduit
+  (livres, alimentaire...) — neutre au global (autoliquidation immédiate en
+  Ligne 20) mais trompeur ligne à ligne sur le mémo B2/L17. Corrigé : nouvelle
+  `_asin_category_map` déduit la catégorie produit connue par ASIN à partir
+  des ventes de la période, utilisée pour appliquer le taux réel via
+  `vat_rate(pays, catégorie)` ; repli sur STANDARD conservé si l'ASIN
+  n'apparaît dans aucune vente connue (comportement précédent inchangé dans
+  ce cas précis).
+
+- **NETTOYAGE — fermetures de connexions redondantes (`app.py`, point
+  vérifié et écarté)** — l'audit proposait de ne garder qu'un seul appel à
+  `close_idle_connections` sur les 4 modules. Vérification faite : les 4
+  modules (`auth.py`, `billing.py`, `ecb_rates.py`, `vies_engine.py`)
+  délèguent déjà tous à un unique `database.close_idle_connections()` opérant
+  sur un `_shared_pool` commun (voir fix `cache_connection=True` du
+  2026-08-02) — les 3 appels "en trop" sont des no-ops volontaires et bon
+  marché (un simple test `if _p is not None`), déjà documentés comme tels
+  dans le code. Aucune modification nécessaire.
+
+Validation : `py_compile` sur les 6 fichiers modifiés (`engine.py`, `app.py`,
+`vies_engine.py`, `security.py`, `ca3_report.py`,
+`ui/tabs/telechargements.py`) + suite `pytest` complète — 166 passed / 4
+failed, échecs strictement identiques au baseline avant patch (3 liés à
+`SUPABASE_DB_URL` absente en sandbox, 1 test parser insensible à la casse
+déjà cassé avant ces patches) — aucune régression introduite.
+
 ---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.

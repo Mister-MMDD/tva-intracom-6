@@ -617,7 +617,8 @@ def _oss_eligible(sale: Sale) -> bool:
 
 
 def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbol: str = "€",
-                            oss_period: str = "", transaction_date=None) -> tuple[str, str, str]:
+                            oss_period: str = "", transaction_date=None,
+                            rate_cache: dict | None = None) -> tuple[str, str, str]:
     """Cumul et seuil OSS à afficher dans la note.
     Les paramètres currency et symbol doivent être passés par l'appelant
     pour éviter d'accéder à st.session_state dans un thread d'arrière-plan.
@@ -634,21 +635,40 @@ def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbo
     résolue au moment de l'appel), `get_oss_rate_date` retombe déjà sur la
     fin du trimestre de `transaction_date` — cohérent avec le comportement
     de secours déjà utilisé côté export OSS.
+
+    `rate_cache` (PERF) : dict optionnel fourni par l'appelant (voir
+    `_run_oss_loop`), mémorisant `(currency, oss_period, transaction_date)
+    -> limit_local` pour tout le batch en cours. Sans lui, chaque ligne
+    éligible OSS en devise étrangère rappelait `get_oss_rate_date` +
+    `get_rate` (verrou `_cache_lock` du module ecb_rates inclus) même si le
+    cache mémoire L1 de ecb_rates évitait déjà la requête HTTP/DB — sur de
+    gros volumes (dizaines/centaines de milliers de lignes), c'est surtout
+    ce coût d'appel + verrou répété qui pèse, la devise et la date de taux
+    étant en pratique quasi constantes sur un batch donné (même devise
+    vendeur, même période déclarée). `rate_cache=None` reproduit le
+    comportement précédent (pas de mémoïsation) pour tout appelant externe.
     """
     if not currency or currency.upper() == "EUR":
         return f"{cumulative_eur:,.2f}", f"{Decimal('10000.00'):,.2f}", "€"
 
-    eur_rate = None
-    if currency.upper() not in OSS_THRESHOLD_FIXED_EQUIVALENTS:
-        try:
-            from .ecb_rates import get_rate, get_oss_rate_date
-            _tx_date = transaction_date or _date.today()
-            _rate_date = get_oss_rate_date(oss_period or "", _tx_date)
-            eur_rate = get_rate(currency, _rate_date)
-        except Exception:
-            eur_rate = None
+    _ccy = currency.upper()
+    _cache_k = (_ccy, oss_period or "", transaction_date)
+    if rate_cache is not None and _cache_k in rate_cache:
+        limit_local = rate_cache[_cache_k]
+    else:
+        eur_rate = None
+        if _ccy not in OSS_THRESHOLD_FIXED_EQUIVALENTS:
+            try:
+                from .ecb_rates import get_rate, get_oss_rate_date
+                _tx_date = transaction_date or _date.today()
+                _rate_date = get_oss_rate_date(oss_period or "", _tx_date)
+                eur_rate = get_rate(currency, _rate_date)
+            except Exception:
+                eur_rate = None
+        limit_local = oss_threshold_in_currency(currency, eur_rate)
+        if rate_cache is not None:
+            rate_cache[_cache_k] = limit_local
 
-    limit_local = oss_threshold_in_currency(currency, eur_rate)
     _ratio = (limit_local / Decimal("10000.00")) if limit_local else Decimal("1")
     cumulative_local = cumulative_eur * _ratio
     return f"{cumulative_local:,.2f}", f"{limit_local:,.2f}", symbol
@@ -658,7 +678,8 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                     sale: Sale, product_category: str,
                     apply_fr_under_threshold: bool, lang: str | None = None,
                     currency: str = "EUR", symbol: str = "€",
-                    oss_period: str = "", tx_date: _date | None = None) -> VatResult:
+                    oss_period: str = "", tx_date: _date | None = None,
+                    rate_cache: dict | None = None) -> VatResult:
     """Applique la logique du seuil OSS à un VatResult déjà calculé.
 
     `oss_period` : période de déclaration (ex. "2024-Q1", ou "__auto__"/vide
@@ -693,6 +714,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
         _cumul_disp, _limit_disp, _sym_disp = _oss_threshold_display(
             cumulative, currency, symbol,
             oss_period=oss_period, transaction_date=_oss_tx_date,
+            rate_cache=rate_cache,
         )
         return VatResult(
             sale=sale, scenario=Scenario.DOMESTIC,
@@ -790,19 +812,23 @@ def _run_oss_loop(
     """Boucle chronologique OSS.
 
     Traite ventes ET avoirs en une seule passe (voir compute_all_with_vies).
-    Deux cumuls OSS distincts sont suivis, comme avant la fusion des deux
-    appels :
-      - `cumulative_oss_ht` : cumul NET partagé ventes+avoirs (un avoir
-        réduit le cumul), reset annuel commun. C'est lui qui alimente
-        `oss_summary` (seuil net, art. 59 ter) ET la note des VENTES —
-        comportement identique à l'ancien premier appel.
-      - `refund_cumulative_oss_ht` : cumul recalculé sur les avoirs SEULS
-        (reset annuel indépendant, repart de 0), utilisé uniquement pour
-        construire la note/le résultat des AVOIRS — reproduit à l'identique
-        le comportement de l'ancien second appel dédié
-        `compute_all_with_vies(refunds, ...)`, qui traitait les avoirs comme
-        une liste de "ventes" indépendante. Il n'alimente jamais
-        `oss_summary`.
+
+    BUGFIX (fiabilité fiscale, voir README - évolution.md) : les avoirs
+    utilisaient auparavant un cumul dédié (`refund_cumulative_oss_ht`)
+    reconstruit uniquement à partir des avoirs (donc toujours négatif ou
+    nul, jamais > 10 000 €). Cela reclassait systématiquement tout avoir en
+    régime DOMESTIC (FR) dès que `apply_fr_under_threshold` était actif,
+    y compris pour annuler une vente OSS (taxée à destination) déjà passée
+    au-dessus du seuil — l'avoir était alors indûment déduit de la TVA
+    française sur la CA3 au lieu de venir en déduction du pays de
+    destination réel de la vente qu'il annule.
+
+    Un seul cumul est maintenant suivi : `cumulative_oss_ht`, cumul NET
+    partagé ventes+avoirs (un avoir réduit bien le cumul), reset annuel.
+    Il alimente à la fois `oss_summary` (seuil net, art. 59 ter) ET la note
+    affichée pour les ventes ET pour les avoirs — un avoir suit donc la
+    même classification de seuil que la vente qu'il annule, comme
+    attendu.
     """
     results: list[VatResult] = []
     refund_results: list[VatResult] = []
@@ -810,12 +836,13 @@ def _run_oss_loop(
     current_year = ""
     oss_ht_by_year: dict[str, Decimal] = {}
 
-    # Cumul indépendant pour la note des avoirs (mêmes règles de reset
-    # annuel que ci-dessus, mais jamais mélangé au cumul net ci-dessus ni
-    # à oss_summary).
-    refund_cumulative_oss_ht = Decimal("0.00")
-    refund_current_year = ""
-    refund_oss_ht_by_year: dict[str, Decimal] = {}
+    # PERF : cache local (currency, oss_period, tx_date) -> limite locale du
+    # seuil OSS, partagé par toutes les lignes de ce batch (voir docstring
+    # de `_oss_threshold_display`). Évite un appel get_rate/get_oss_rate_date
+    # (verrou inclus) par ligne éligible OSS en devise étrangère alors que
+    # la devise et la date de taux sont en pratique quasi constantes sur un
+    # même batch.
+    _oss_rate_cache: dict = {}
 
     # On utilise les paramètres passés plutôt que _resolve_lang() pour le thread-safety
     _lang = lang
@@ -843,12 +870,6 @@ def _run_oss_loop(
                 oss_ht_by_year[current_year] = cumulative_oss_ht
             current_year = year
             cumulative_oss_ht = oss_ht_by_year.get(year, Decimal("0.00"))
-        if is_from_refunds:
-            if year and year != refund_current_year:
-                if refund_current_year:
-                    refund_oss_ht_by_year[refund_current_year] = refund_cumulative_oss_ht
-                refund_current_year = year
-                refund_cumulative_oss_ht = refund_oss_ht_by_year.get(year, Decimal("0.00"))
 
         effective_sale = (
             effective_sale_fn(sale, product_category)
@@ -879,24 +900,17 @@ def _run_oss_loop(
                           ioss_own_number_active=ioss_own_number_active, tx_date=_sale_tx_date)
 
         if _oss_eligible(effective_sale):
-            # Cumul net partagé (ventes+avoirs) — inchangé par rapport à
-            # l'ancien premier appel : un avoir réduit bien le seuil net.
+            # Cumul net partagé (ventes+avoirs) : un avoir réduit bien le
+            # seuil net, et un avoir est désormais classé selon CE MÊME
+            # cumul (voir BUGFIX dans la docstring de la fonction) au lieu
+            # d'un cumul dédié qui restait toujours sous le seuil.
             cumulative_oss_ht += effective_sale.amount_ht
-            if not is_from_refunds:
-                res = _build_oss_note(
-                    res, cumulative_oss_ht, Decimal("10000.00"),
-                    effective_sale, product_category, apply_fr_under_threshold,
-                    lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
-                    tx_date=_sale_tx_date,
-                )
-            else:
-                refund_cumulative_oss_ht += effective_sale.amount_ht
-                res = _build_oss_note(
-                    res, refund_cumulative_oss_ht, Decimal("10000.00"),
-                    effective_sale, product_category, apply_fr_under_threshold,
-                    lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
-                    tx_date=_sale_tx_date,
-                )
+            res = _build_oss_note(
+                res, cumulative_oss_ht, Decimal("10000.00"),
+                effective_sale, product_category, apply_fr_under_threshold,
+                lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
+                tx_date=_sale_tx_date, rate_cache=_oss_rate_cache,
+            )
 
         if not is_from_refunds:
             results.append(res)
@@ -905,8 +919,6 @@ def _run_oss_loop(
 
     if current_year:
         oss_ht_by_year[current_year] = cumulative_oss_ht
-    if refund_current_year:
-        refund_oss_ht_by_year[refund_current_year] = refund_cumulative_oss_ht
 
     oss_summary = OssThresholdSummary(
         total_oss_ht=cumulative_oss_ht,

@@ -11,13 +11,26 @@ logger = logging.getLogger(__name__)
 # Clé de chiffrement chargée depuis les secrets.
 _KEY = get_secret("ENCRYPTION_KEY")
 
+# PERF (voir README - évolution.md) : instance Fernet mise en cache
+# (singleton module-level) au lieu d'être reconstruite (parsing/validation
+# de la clé inclus) à CHAQUE appel de encrypt_data/decrypt_data — coûteux
+# sur un batch VIES de plusieurs centaines/milliers de numéros où chaque
+# élément est chiffré/déchiffré individuellement. `_KEY` est chargé une
+# seule fois au niveau module et n'est pas censé changer en cours de
+# process, donc aucun risque à ne construire l'objet qu'une fois.
+_fernet_singleton: Fernet | None = None
+
 def _get_fernet() -> Fernet:
-    """Initialise Fernet et valide la clé de chiffrement."""
+    """Initialise Fernet (une seule fois) et valide la clé de chiffrement."""
+    global _fernet_singleton
+    if _fernet_singleton is not None:
+        return _fernet_singleton
     if not _KEY:
         logger.critical("ENCRYPTION_KEY is missing in configuration!")
         raise RuntimeError("Security Error: Encryption key is not configured. Sensitive data cannot be processed.")
     try:
-        return Fernet(_KEY.encode())
+        _fernet_singleton = Fernet(_KEY.encode())
+        return _fernet_singleton
     except Exception as e:
         logger.critical(f"Invalid ENCRYPTION_KEY format: {str(e)}")
         raise RuntimeError("Security Error: Encryption key is invalid.") from e

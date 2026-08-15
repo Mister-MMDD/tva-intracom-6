@@ -83,23 +83,30 @@ def _round(amount: Decimal) -> Decimal:
 def _asin_avg_price_from_results(results: List[VatResult]) -> Dict[str, Decimal]:
     """Prix de vente HT moyen par ASIN (approximation valeur d'achat — art. 83 dir.).
 
-    Implémentation en (somme, compteur) plutôt qu'en liste de Decimal par ASIN
-    (alignée sur excel_report.py::_build_asin_avg_price) : évite de conserver
-    un objet Decimal par vente en mémoire (jusqu'à 100k objets superflus sur
-    les gros volumes) juste pour calculer une moyenne.
+    RÉUTILISE `excel_report._build_asin_avg_price` (voir README - évolution.md) :
+    ce module maintenait sa propre copie identique de cette logique
+    (source de duplication/drift), refaisant en plus une seconde boucle O(n)
+    sur `results` déjà parcourus par l'export Excel dans le même run quand
+    les deux rapports sont générés successivement. On délègue désormais à
+    l'implémentation unique d'excel_report.py plutôt que d'en maintenir une
+    copie ici.
     """
-    totals: Dict[str, tuple] = {}
+    from tva_intracom.excel_report import _build_asin_avg_price
+    return _build_asin_avg_price(results)
+
+
+def _asin_category_map(results: List[VatResult]) -> Dict[str, str]:
+    """Catégorie produit par ASIN, déduite des ventes connues (première
+    valeur rencontrée par ASIN) — utilisée pour appliquer le bon taux de TVA
+    sur l'AIC au lieu du taux STANDARD systématique (voir BUGFIX ci-dessous).
+    """
+    mapping: Dict[str, str] = {}
     for r in results:
         asin = getattr(r.sale, "asin", "").strip()
-        amt  = r.sale.amount_ht
-        if asin and amt > Decimal("0"):
-            prev_sum, prev_count = totals.get(asin, (Decimal("0"), 0))
-            totals[asin] = (prev_sum + amt, prev_count + 1)
-    return {
-        asin: total / Decimal(count)
-        for asin, (total, count) in totals.items()
-        if count
-    }
+        if asin and asin not in mapping:
+            cat = getattr(r.sale, "product_category", "") or "STANDARD"
+            mapping[asin] = cat
+    return mapping
 
 
 def _compute_aic_from_fc_transfers(
@@ -114,10 +121,22 @@ def _compute_aic_from_fc_transfers(
 
     ⚠ Valeur estimée : prix de vente moyen HT × qté (art. 83 impose la
     valeur d'achat, inconnue depuis Amazon). Approximation par excès.
+
+    BUGFIX (précision fiscale, voir README - évolution.md) : le taux de TVA
+    appliqué à l'AIC était auparavant TOUJOURS le taux standard du pays
+    vendeur, y compris pour des ASIN vendus à taux réduit (livres,
+    alimentaire...) — sur-évaluant la base ET la TVA AIC affichées sur le
+    rapport CA3 (neutre au global puisque l'AIC est auto-liquidée et
+    immédiatement déduite en Ligne 20, mais trompeur ligne à ligne sur le
+    mémo B2/L17). On utilise désormais la catégorie produit connue de
+    l'ASIN transféré (via les ventes de la période) pour appliquer le taux
+    réellement applicable, avec repli sur STANDARD si l'ASIN n'apparaît dans
+    aucune vente connue (comportement précédent conservé dans ce cas précis).
     """
     from tva_intracom.rates import vat_rate as _vat_rate, STANDARD_VAT_RATES
 
     avg_price = _asin_avg_price_from_results(results)
+    asin_category = _asin_category_map(results)
     base_aic  = Decimal("0.00")
     tva_aic   = Decimal("0.00")
 
@@ -157,7 +176,8 @@ def _compute_aic_from_fc_transfers(
                 )
         avg = avg_price.get(asin, Decimal("0"))
         ligne_base = _round(Decimal(str(qty)) * avg)
-        taux = _vat_rate(seller_country, "STANDARD") if seller_country in STANDARD_VAT_RATES else Decimal("20")
+        _category = asin_category.get(asin, "STANDARD")
+        taux = _vat_rate(seller_country, _category) if seller_country in STANDARD_VAT_RATES else Decimal("20")
         ligne_tva  = _round(ligne_base * taux / Decimal("100"))
         base_aic  += ligne_base
         tva_aic   += ligne_tva
