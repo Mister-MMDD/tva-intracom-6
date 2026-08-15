@@ -128,7 +128,6 @@ tva-intracom/
 │   │   │                             (liaison de compte, distincte du login Amazon), écran
 │   │   │                             de connexion/déconnexion. Lien magique conservé dans le
 │   │   │                             code mais désactivé côté UI ("en préparation").
-│   │   ├── onboarding.py             Visite guidée de première connexion (st.dialog).
 │   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
 │   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, catalogue produits,
 │   │   │                             abonnements & forfaits Stripe)
@@ -217,7 +216,6 @@ du script.
 | `ui/theme.py` | `apply_theme()` — configuration de page Streamlit (titre, icône, layout) et injection du CSS de marque |
 | `ui/formatting.py` | Helpers d'affichage partagés : `_fmt`, `country_label`, `_money_col`, `_pct_col`, `_smart_money_df` (formatage vectorisé haute performance), `_gated_preview_table` (optimisé RAM, affichage du décompte total des lignes masquées, protection "tva"), `_fec_period_end_date`, tri numérique robuste, `_render_filter_bar` (scan optimisé) |
 | `ui/auth_flow.py` | `AuthContext` + `ensure_cookie_manager()` / `run_auth_flow()` — bypass dev local, restauration de session par cookie, consommation du lien magique, migration `?session_token=`, callback OAuth Amazon SP-API, écran de connexion (bloquant via `st.stop()`), bandeau connecté/déconnexion |
-| `ui/onboarding.py` | `maybe_show_sidebar_tour` / `maybe_show_tabs_tour` — Visite guidée de première connexion utilisant `st.dialog` et `st.fragment` |
 | `ui/rerun_utils.py` | `preserve_upload_rerun()` — Gestion fine des reruns pour éviter de perdre le fichier uploadé lors d'interactions sidebar |
 | `ui/sidebar.py` | `SidebarResult` + `render_sidebar()` — tous les accordéons de la barre latérale : **Pays d'origine** (`home_country`, tout premier réglage, voir section dédiée ci-dessous), connexion SP-API, Validation & Devises, Cache VIES, Paramètres du fichier, Catalogue Produits, Entreprise & Paramètres avec gestion des SIREN, Abonnements & forfaits Stripe, et génération de **Certificat VIES (PDF)** basé sur un snapshot |
 | `ui/billing_gate.py` | `BillingGate` + `build_billing_gate()` — détection de période, gating crédit PAYG/abonnement actif, gating quota SIREN, gating conformité (TVA locales/IOSS manquants), **rattachement anti-abus Compte Amazon <-> SIREN**, méthode `gated_download()` utilisée par tous les exports de tous les onglets |
@@ -2183,6 +2181,105 @@ complète — 165 passed / 5 failed, échecs strictement identiques au baseline
 sans les patches (comparaison directe faite sur le dépôt `dev` non modifié :
 mêmes 5 tests en échec, tous liés à `SUPABASE_DB_URL` absente en sandbox ou
 préexistants, sans rapport avec ce patch). Aucune régression introduite.
+
+## 2026-08-15 — Audit externe (7 points) : seuil OSS, RAM, cache, i18n, threads
+
+Traitement d'un audit externe transmis par l'utilisateur (7 points). Chaque
+point vérifié sur le code réel (dépôt `dev`) avant tout patch — plusieurs
+affirmations de l'audit étaient inexactes ou trop générales par rapport au
+code effectif.
+
+- **`tva_intracom/engine.py::_oss_eligible`** (bug fiscal, confirmé) — les
+  ventes B2B cross-border requalifiées `Scenario.OSS_B2C` par `compute_vat`
+  (numéro de TVA acheteur invalide VIES, pays de destination HORS
+  `DOMESTIC_REVERSE_CHARGE_COUNTRIES`) étaient déclarées en OSS mais absentes
+  du cumul du seuil 10 000 € (`_oss_eligible` ne testait que
+  `buyer_type == B2C`). Corrigé : `_oss_eligible` inclut désormais cette
+  branche précise. Ne couvre PAS l'autre branche B2B invalide (pays DANS
+  `DOMESTIC_REVERSE_CHARGE_COUNTRIES`, restée `Scenario.DOMESTIC`,
+  correctement hors OSS) — contrairement à ce que suggérait l'audit
+  (`buyer_vat_valid is False` générique, qui aurait cassé ce second cas).
+
+- **`tva_intracom/parsers/amazon/aggregate.py::preaggregate_v5`** (RAM,
+  confirmé) — `groups.pop(key)` remplace `groups[key]` dans la construction
+  de `rows_to_process` : chaque liste de lignes brutes est libérée dès son
+  agrégation au lieu de rester en mémoire jusqu'à la fin de la compréhension
+  de liste. Évite de quasiment doubler la RAM au pic sur les gros fichiers V5
+  (100k+ lignes).
+
+- **`tva_intracom/vies_engine.py::_is_empty_response`** (retry VIES) —
+  **REJETÉ**, documenté en commentaire directement sur la fonction plutôt que
+  patché. L'audit proposait de sortir les réponses vides des conditions de
+  retry (réponse standard pour un n° réellement invalide). Rejet motivé :
+  ce comportement existe précisément pour absorber l'incident de production
+  du 31/07/2026 (panne du service national allemand renvoyant
+  `valid=False, error=""`, indiscernable d'un numéro réellement invalide,
+  ayant fait basculer en masse des n° allemands valides en "invalides").
+  Patcher ce point réouvrirait une faille déjà colmatée sur un incident vécu.
+  Coût accepté : latence de traitement sur les vrais numéros invalides,
+  pas d'impact fiscal.
+
+- **`tva_intracom/ui/sidebar.py::vies_cache_stats`** (charge Supabase,
+  confirmé) — `get_cache_stats` (3 `SELECT COUNT(*)`, dont un sur le cache
+  global) tournait à chaque rerun Streamlit, y compris `st.expander` replié.
+  Wrapper `@st.cache_data(ttl=60)` ajouté côté `sidebar.py` (pas dans
+  `vies_engine.py`, qui reste sans dépendance Streamlit dure) ; cache
+  invalidé explicitement quand l'utilisateur change le TTL, pour ne pas
+  afficher une valeur périmée jusqu'à 60s après son propre changement.
+
+- **`tva_intracom/models.py::Sale`** (cleanup, impact nul confirmé sur
+  Amazon) — le nettoyage de `_to_decimal` (symboles €/$/£, virgule
+  décimale) dans `__post_init__` était mort : Pydantic valide déjà
+  `amount_ht`/`original_amount`/`exchange_rate`/`amazon_vat_amount` en
+  `Decimal` AVANT `__post_init__`, donc soit la valeur brute est déjà
+  rejetée par Pydantic avant d'atteindre le nettoyage, soit elle est déjà
+  convertie. Remplacé par `CleanDecimal` (`Annotated[Decimal,
+  BeforeValidator(_clean_decimal)]`), qui nettoie AVANT la validation
+  Pydantic — testé ("10,50 €" → `Decimal('10.50')`). Le parser Amazon
+  (seul maintenu) fournissait déjà des `Decimal` propres en amont : aucun
+  changement de comportement observable sur le pipeline actuel, cleanup de
+  robustesse pour les autres parsers/champs.
+
+- **`tva_intracom/ui/background_calc.py::start_background_job`** (thread
+  fantôme, confirmé partiellement) — quand un réglage change pendant qu'un
+  calcul (gros fichier) tourne en tâche de fond, un nouveau `job_id`
+  démarre un nouveau thread ; l'ancien continuait de tourner jusqu'à son
+  terme (accepté, pas d'annulation coopérative sûre sans complexifier
+  engine.py/vies_engine.py) MAIS son entrée `_JobState` — potentiellement
+  volumineuse une fois le résultat complet stocké — n'était jamais libérée
+  de `st.session_state`, s'accumulant indéfiniment à chaque changement de
+  réglage sur un gros fichier. Corrigé : l'entrée session_state du job
+  précédent est libérée dès qu'un nouveau job démarre pour un `job_id`
+  différent.
+
+- **i18n / `onboarding`** (dette confirmée, mais 24 clés et non 150+) —
+  `onboarding.py` avait déjà été supprimé du code, mais les 24 clés
+  `onboarding_*` (bloc de section complet, symétrique) restaient dans les 7
+  `i18n/*.toml` (1157 → 1133 clés partout, vérifié `toml.load()`) ainsi que
+  2 mentions obsolètes de `ui/onboarding.py` dans `README.md` et ce fichier
+  — toutes retirées.
+
+- **`tva_intracom/ui/formatting.py::_gated_preview_table`** (détection
+  colonnes identifiant) — ajout de `"nº"` (variante ordinal ≠ "n°" degré)
+  aux marqueurs identifiant, couvrant des libellés ES/PT réels
+  ("Nº IVA rechazado"...). Piste explorée et **abandonnée** : ajouter
+  `"vat"`/`"iva"`/`"mwst"` comme marqueurs identifiant pour couvrir les n°
+  TVA traduits (proposition de l'audit) — rejetée après vérification des
+  `i18n/*.toml` : ces mots apparaissent aussi dans de VRAIS libellés de
+  colonnes MONTANT (`col_vat_eur` = "VAT (EUR)" / "MwSt (EUR)" / "IVA
+  (EUR)"...) ; les marquer comme identifiant aurait cassé le formatage
+  monétaire dans 6 langues sur 7. Aucun bug actif constaté sur les libellés
+  de colonnes VAT-ID réellement utilisés dans l'app aujourd'hui.
+
+Validation : `py_compile` sur les 7 fichiers Python modifiés
+(`engine.py`, `parsers/amazon/aggregate.py`, `ui/sidebar.py`, `models.py`,
+`ui/background_calc.py`, `ui/formatting.py`, `vies_engine.py`) + `toml.load()`
+sur les 7 fichiers i18n (clés symétriques, 1133 partout) + suite `pytest`
+complète — 165 passed / 5 failed, échecs strictement identiques au baseline
+avant patch (mêmes 5 tests, tous liés à `SUPABASE_DB_URL` absente en
+sandbox ou à des limitations réseau du sandbox — aucun rapport avec ces
+patches). Aucune régression introduite.
+
 
 ---
 > Il ne remplace pas un conseil fiscal professionnel.

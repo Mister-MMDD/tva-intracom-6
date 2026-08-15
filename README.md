@@ -104,7 +104,6 @@ tva-intracom/
 │   │   ├── theme.py                  Configuration de page + CSS de marque.
 │   │   ├── formatting.py             Helpers d'affichage partagés.
 │   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth via Supabase Auth.
-│   │   ├── onboarding.py             Visite guidée de première connexion (st.dialog).
 │   │   ├── rerun_utils.py            Gestion fine des st.rerun().
 │   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe).
 │   │   ├── billing_gate.py           Gating de facturation et conformité.
@@ -156,7 +155,6 @@ tva-intracom/
 | `ui/theme.py` | Thème visuel et injection du CSS de marque |
 | `ui/formatting.py` | Helpers d'affichage vectorisés, formatage monétaire et tri robuste |
 | `ui/auth_flow.py` | Flux d'authentification complet (PKCE Supabase, Social OAuth, Sessions) |
-| `ui/onboarding.py` | Visite guidée utilisant `st.dialog` et `st.fragment` |
 | `ui/sidebar.py` | Barre latérale de configuration (SIREN, IOSS, Catalogue, Abonnements) |
 | `ui/billing_gate.py` | Gating crédit PAYG, quotas SIREN et conformité fiscale |
 | `ui/background_calc.py` | Exécution asynchrone des calculs longs avec suivi de progression |

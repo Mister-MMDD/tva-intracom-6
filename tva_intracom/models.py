@@ -6,9 +6,45 @@ import enum
 import sys
 from dataclasses import field
 from decimal import Decimal
-from typing import Any
+from typing import Annotated, Any
 
+from pydantic import BeforeValidator
 from pydantic.dataclasses import dataclass
+
+
+def _clean_decimal(value: Any) -> Any:
+    """Nettoie une valeur brute (str "10,50 €", float, None…) avant la
+    validation Decimal de Pydantic.
+
+    Corrige un bug latent : Sale est une pydantic.dataclass, et Pydantic
+    tente sa propre conversion en Decimal AVANT `__post_init__`. Une
+    ancienne version de ce nettoyage vivait dans `Sale._to_decimal()`,
+    appelée depuis `__post_init__` — mais ce code n'était en réalité
+    jamais atteint utilement : soit Pydantic rejette déjà la valeur brute
+    ("10,50 €" lève une ValidationError avant même d'atteindre
+    __post_init__), soit Pydantic a déjà réussi à convertir en Decimal
+    (valeur déjà "propre"), rendant le nettoyage redondant. En pratique le
+    parser Amazon (seul parser maintenu) fournit déjà des Decimal propres
+    en amont, donc ce correctif n'a pas d'impact observable sur le
+    pipeline actuel — cleanup de robustesse pour les champs Decimal de
+    Sale en général.
+    """
+    if value is None:
+        return Decimal("0.00")
+    if isinstance(value, (int, float, Decimal)):
+        return value
+    raw = str(value).strip()
+    if not raw:
+        return Decimal("0.00")
+    raw = raw.replace("\xa0", "").replace(" ", "").replace("€", "").replace("$", "").replace("£", "")
+    if "," in raw and "." not in raw:
+        raw = raw.replace(",", ".")
+    elif "," in raw and "." in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    return raw
+
+
+CleanDecimal = Annotated[Decimal, BeforeValidator(_clean_decimal)]
 
 
 class BuyerType(enum.Enum):
@@ -74,7 +110,7 @@ class Sale:
     """
 
     sale_id: str
-    amount_ht: Decimal
+    amount_ht: CleanDecimal
     buyer_type: BuyerType
     stock_country: str
     buyer_country: str
@@ -83,14 +119,14 @@ class Sale:
     buyer_vat_number: str = ""
     quantity: int = 1
     original_currency: str = "EUR"
-    original_amount: Decimal = Decimal("0")
-    exchange_rate: Decimal = Decimal("1")
+    original_amount: CleanDecimal = Decimal("0")
+    exchange_rate: CleanDecimal = Decimal("1")
     exchange_rate_source: str = "eur"
     transaction_date: str = ""
     order_date: str = ""
     product_category: str = "STANDARD"
     asin: str = ""
-    amazon_vat_amount: Decimal = Decimal("0.00")
+    amazon_vat_amount: CleanDecimal = Decimal("0.00")
     seller_is_importer: bool = False
     ioss_number: str = ""
     arrival_post_code: str = ""
@@ -146,29 +182,11 @@ class Sale:
                 # Pour rester compatible on laisse couler si vide mais on valide le format
                 pass
 
-        # Conversion Decimal defensive
-        for attr in ["amount_ht", "original_amount", "exchange_rate", "amazon_vat_amount"]:
-            val = getattr(self, attr)
-            if not isinstance(val, Decimal):
-                object.__setattr__(self, attr, self._to_decimal(val, attr))
-
-    def _to_decimal(self, value: Any, field_name: str) -> Decimal:
-        if value is None:
-            return Decimal("0.00")
-        if isinstance(value, (int, float)):
-            return Decimal(str(value))
-        raw = str(value).strip()
-        if not raw:
-            return Decimal("0.00")
-        raw = raw.replace("\xa0", "").replace(" ", "").replace("€", "").replace("$", "").replace("£", "")
-        if "," in raw and "." not in raw:
-            raw = raw.replace(",", ".")
-        elif "," in raw and "." in raw:
-            raw = raw.replace(".", "").replace(",", ".")
-        try:
-            return Decimal(raw)
-        except Exception:
-            raise ValueError(f"Erreur de conversion Decimal pour {field_name}: {value}")
+        # Le nettoyage/la conversion Decimal (str "10,50 €", float…) est
+        # maintenant fait en amont par CleanDecimal (BeforeValidator Pydantic,
+        # voir _clean_decimal) — ce nettoyage était auparavant redondant ou
+        # inatteignable ici (Pydantic validait déjà amount_ht/original_amount/
+        # exchange_rate/amazon_vat_amount en Decimal avant __post_init__).
 
 
 @dataclass(frozen=True, slots=True)

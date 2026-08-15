@@ -1146,7 +1146,34 @@ def _is_transient(error: Optional[str]) -> bool:
 
 
 def _is_empty_response(res: ViesResult) -> bool:
-    """Réponse VIES "vide" : valid=False, sans nom/adresse, sans erreur."""
+    """Réponse VIES "vide" : valid=False, sans nom/adresse, sans erreur.
+
+    DÉCISION (audit externe reçu 2026-08-15, point 3) — REJETÉE, documentée
+    ici plutôt que patchée :
+
+    L'audit propose de sortir `_is_empty_response` des conditions de retry
+    de `check_vat_with_retry`, au motif qu'une réponse vide est la réponse
+    standard et définitive de VIES pour un numéro réellement invalide (ce
+    qui est vrai en général), et que retenter inutilement coûte du temps
+    sur les gros fichiers contenant beaucoup de numéros invalides.
+
+    Rejet : ce comportement existe précisément pour absorber un incident
+    réel du 31/07/2026 (voir commentaire dans check_vat(), branche
+    errorWrappers, L1260-1268) — une panne du service national ALLEMAND
+    renvoyait `valid=False, error=""`, strictement indiscernable d'un
+    numéro réellement invalide côté `ViesResult`, et avait fait basculer en
+    masse des numéros de TVA allemands VALIDES en "invalides" pendant la
+    panne, faute de fallback sur le cache. `_is_empty_response` + le retry
+    associé est le filet de sécurité qui absorbe ce cas : sans lui,
+    l'incident du 31/07/2026 se reproduirait à la prochaine panne
+    d'indisponibilité d'un État membre ne renvoyant pas errorWrappers.
+
+    Le coût (retries + attente sur les VRAIS numéros invalides) est réel
+    mais accepté : impact temps de traitement, pas impact fiscal. Le risque
+    inverse (patcher et rouvrir une faille déjà colmatée sur un incident de
+    production vécu) est disproportionné au regard du gain. Principe
+    Reject > Defer > Patch appliqué ici.
+    """
     return (
             not res.valid
             and not res.error

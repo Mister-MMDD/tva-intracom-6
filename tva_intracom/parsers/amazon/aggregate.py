@@ -135,8 +135,13 @@ def preaggregate_v5(
         ot for ot, asins in order_tx_to_asins.items() if len(asins) > 1
     )
 
+    # groups.pop(key) plutôt que groups[key] : libère chaque liste de lignes
+    # brutes dès qu'elle est agrégée, au lieu de garder tout `groups` en
+    # mémoire jusqu'à la fin de la compréhension de liste — évite de
+    # quasiment doubler la RAM au pic de transformation sur les gros
+    # fichiers V5 (potentiellement 100k+ lignes brutes).
     rows_to_process = [
-        (line_no_by_key[key], _aggregate_group(groups[key]))
+        (line_no_by_key[key], _aggregate_group(groups.pop(key)))
         for key in line_order
     ]
 

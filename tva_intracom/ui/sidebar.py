@@ -39,10 +39,27 @@ from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOL
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 from tva_intracom.ui.theme import _PLATFORM_OPTIONS
 from tva_intracom.vies_engine import (
-    get_cache_stats as vies_cache_stats,
+    get_cache_stats,
     purge_expired_cache,
     set_cache_ttl,
 )
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def vies_cache_stats(scope_id: str) -> dict:
+    """Wrapper cache (60s) autour de get_cache_stats.
+
+    get_cache_stats exécute 3 SELECT COUNT(*) (dont un sur le cache global,
+    potentiellement volumineux) — sans ce cache, ces requêtes tournaient à
+    CHAQUE rerun Streamlit (chaque clic), y compris quand le st.expander()
+    qui les affiche est replié (Streamlit exécute le corps du bloc `with`
+    même fermé). Charge Supabase inutile pour un affichage informatif qui
+    n'a pas besoin d'une précision à la seconde. Wrapper placé ici (et non
+    dans vies_engine.py) pour ne pas introduire de dépendance Streamlit
+    dure dans ce module (voir engine_note isolation : vies_engine.py doit
+    rester utilisable hors contexte Streamlit — webhook/CLI).
+    """
+    return get_cache_stats(scope_id)
 
 
 @dataclass
@@ -983,6 +1000,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                                       help=_("ttl_cache_help"))
                 if _ttl_days != _cs["ttl_days"]:
                     set_cache_ttl(_vies_scope_id, _ttl_days)
+                    vies_cache_stats.clear()
                     preserve_upload_rerun()
                 _c1, _c2, _c3 = st.columns(3)
                 _c1.metric(_("total"), _cs["total"])

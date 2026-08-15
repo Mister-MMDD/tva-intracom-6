@@ -585,13 +585,31 @@ def _oss_eligible(sale: Sale) -> bool:
     """Vrai si une vente (ou un avoir) entre dans le calcul du seuil OSS 10 000 €.
 
     Critères art. 59 ter directive 2006/112/CE :
-      - acheteur B2C
+      - acheteur B2C, OU B2B requalifié B2C par compute_vat (numéro de TVA
+        acheteur invalide VIES, cross-border, pays de destination HORS
+        DOMESTIC_REVERSE_CHARGE_COUNTRIES — voir compute_vat, Cas 3 "B2B
+        cross-border sans TVA intracom valide", branche else L419-445).
+        Dans ce cas précis, compute_vat assigne bien Scenario.OSS_B2C et
+        taxe au pays de destination via l'OSS : ces ventes doivent donc
+        compter dans le cumul, sous peine de sous-estimer le seuil (une
+        vente déclarée en OSS mais absente du cumul du seuil qui la
+        déclenche). Ne couvre PAS l'autre branche B2B invalide (pays DANS
+        DOMESTIC_REVERSE_CHARGE_COUNTRIES) : celle-ci reste Scenario.DOMESTIC,
+        taxée au pays de départ — correctement hors OSS.
       - stock ET acheteur dans l'UE
       - vente cross-border (stock_country ≠ buyer_country)
     Les avoirs (amount_ht < 0) sont éligibles et réduisent le cumul.
     """
-    return (
+    is_b2c_like = (
             sale.buyer_type == BuyerType.B2C
+            or (
+                    sale.buyer_type == BuyerType.B2B
+                    and not sale.buyer_vat_valid
+                    and sale.buyer_country not in DOMESTIC_REVERSE_CHARGE_COUNTRIES
+            )
+    )
+    return (
+            is_b2c_like
             and is_eu(sale.stock_country)
             and is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None)
             and sale.stock_country != sale.buyer_country

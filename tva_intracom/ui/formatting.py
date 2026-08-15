@@ -352,10 +352,27 @@ def _gated_preview_table(
     # On force également le type object pour permettre l'insertion ultérieure 
     # du cadenas (chaîne) dans des colonnes initialement numériques sans
     # provoquer de TypeError sur les versions récentes de pandas/numpy.
+    # Détection des colonnes "identifiant" (n° TVA, n° commande…) à exclure du
+    # formatage monétaire — sans quoi un n° de TVA sans séparateur (11 chiffres
+    # IT, 10 chiffres PL…) peut être interprété comme un montant par _fmt() et
+    # affiché multiplié par le taux de change. Ajout de "nº" (variante typo
+    # avec indicateur ordinal ° vs º) en plus de "n°" déjà couvert.
+    #
+    # Piste explorée et ABANDONNÉE : ajouter "vat"/"iva"/"mwst" comme
+    # marqueurs identifiant pour couvrir les n° TVA traduits (audit externe,
+    # point 7). Rejetée après vérification des i18n/*.toml : ces mots
+    # apparaissent aussi dans de VRAIS libellés de colonnes MONTANT
+    # (col_vat_eur = "VAT (EUR)" / "MwSt (EUR)" / "IVA (EUR)",
+    # col_tva_amz_eur = "Amazon VAT (EUR)"...) — les marquer comme
+    # identifiant aurait cassé le formatage monétaire dans 6 langues sur 7.
+    # Aucun bug actif constaté sur les libellés de colonnes VAT-ID
+    # réellement utilisés dans l'app (voir README évolution) ; risque/gain
+    # défavorable pour un fix plus large ici.
+    _ID_MARKERS = ("n°", "nº", "numéro", "numero", "num.")
     for col in df_preview.columns:
         col_lower = col.lower()
         is_identifier_col = (
-            any(k in col_lower for k in ["n°", "numéro", "numero", "num."])
+            any(k in col_lower for k in _ID_MARKERS)
             or "id" in col_lower
         )
         if not is_identifier_col and any(k in col_lower for k in ["montant", "tva", "ttc", "ht", "total"]):

@@ -113,6 +113,13 @@ def _session_key(job_id: str) -> str:
     return f"_bgjob_{job_id}"
 
 
+# Un seul "job actif" suivi par session (clé fixe, PAS par job_id) : sert
+# uniquement à retrouver puis libérer l'entrée session_state du job
+# PRÉCÉDENT quand un nouveau job démarre pour un job_id différent (ex.
+# l'utilisateur change un réglage pendant qu'un calcul tourne encore).
+_ACTIVE_JOB_TRACKER_KEY = "_bgjob_active_job_id"
+
+
 def start_background_job(
     job_id: str,
     target_fn: Callable[[Callable[[float, str], None]], Any],
@@ -125,10 +132,31 @@ def start_background_job(
     `target_fn` reçoit un callback `report(progress: float, text: str)` à
     appeler pour publier son avancement, lu ensuite par
     `render_job_progress()`.
+
+    Nettoyage des jobs abandonnés : si l'utilisateur change un réglage
+    pendant qu'un calcul (gros fichier) tourne encore en tâche de fond,
+    `job_id` change (il dérive du hash des réglages) et un NOUVEAU thread
+    démarre ici pour ce nouveau `job_id`. L'ancien thread continue de
+    tourner jusqu'à son terme (on n'interrompt jamais un calcul VIES/moteur
+    TVA en cours — pas de mécanisme d'annulation coopérative sûr sans
+    complexifier engine.py/vies_engine.py, voir README évolution.md), mais
+    son entrée `_JobState` dans `st.session_state` — qui peut porter
+    l'intégralité des résultats (Sale/VatResult) une fois le job terminé —
+    n'était auparavant JAMAIS libérée : elle restait indéfiniment en
+    mémoire de session, un nouvel objet s'accumulant à chaque changement de
+    réglage sur un gros fichier. On la retire ici dès qu'un nouveau job
+    démarre : le thread orphelin continue (résultat ignoré, CPU/RAM
+    consommés jusqu'à sa fin — accepté, cf. note ci-dessus), mais sa trace
+    en session_state ne s'accumule plus.
     """
     _skey = _session_key(job_id)
     if _skey in st.session_state:
         return
+
+    _previous_job_id = st.session_state.get(_ACTIVE_JOB_TRACKER_KEY)
+    if _previous_job_id and _previous_job_id != job_id:
+        st.session_state.pop(_session_key(_previous_job_id), None)
+    st.session_state[_ACTIVE_JOB_TRACKER_KEY] = job_id
 
     state = _JobState()
     st.session_state[_skey] = state
