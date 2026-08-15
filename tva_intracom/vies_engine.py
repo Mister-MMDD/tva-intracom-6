@@ -100,6 +100,13 @@ DEFAULT_TIMEOUT = 10
 DEFAULT_CACHE_TTL_DAYS: int = 7
 _SCOPE_TTL_DAYS: dict[str, int] = {}
 
+# PERF (voir README - évolution.md) : compilée une seule fois au chargement
+# du module plutôt qu'à chaque appel de _clean_vat_number (potentiellement
+# des dizaines de milliers d'appels sur un gros fichier). re.compile() est
+# techniquement déjà mise en cache par le module `re` (jusqu'à 512 patterns),
+# mais un objet Pattern dédié évite ce lookup de cache et documente l'usage.
+_VAT_CLEAN_RE = re.compile(r"[\s.\-]")
+
 
 def _get_ttl_days(scope_id: Optional[str] = None) -> int:
     """TTL effectif (en jours) pour ce scope, ou le défaut global si le
@@ -284,7 +291,7 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _is_expired(checked_at, scope_id: Optional[str] = None) -> bool:
+def _is_expired(checked_at, scope_id: Optional[str] = None, ttl_days: Optional[int] = None) -> bool:
     """Retourne True si l'entrée dépasse le TTL configuré pour ce scope.
 
     Accepte un datetime (valeur normale renvoyée par psycopg2 pour une
@@ -294,6 +301,15 @@ def _is_expired(checked_at, scope_id: Optional[str] = None) -> bool:
     scopé (vies_scope_cache, vies_manual_overrides) ; le laisser à None
     revient à utiliser DEFAULT_CACHE_TTL_DAYS, réservé au cache global
     mutualisé (vies_global_cache) qui n'est pas personnalisable.
+
+    PERF (voir README - évolution.md) : `ttl_days` est optionnel et permet
+    à un appelant qui traite un LOT de lignes pour un même scope (ex.
+    `_db_get_scope_batch`, `_db_get_global_batch`) de calculer le TTL une
+    seule fois via `_get_ttl_days(scope_id)` et de le repasser ici pour
+    chaque ligne, au lieu de refaire un lookup dict (déjà bon marché, mais
+    répété inutilement des centaines/milliers de fois par batch) pour une
+    valeur strictement identique sur tout le lot. Si `ttl_days` n'est pas
+    fourni, le comportement est inchangé (résolution via `_get_ttl_days`).
     """
     if checked_at is None:
         return True
@@ -304,7 +320,8 @@ def _is_expired(checked_at, scope_id: Optional[str] = None) -> bool:
             return True
     if checked_at.tzinfo is None:
         checked_at = checked_at.replace(tzinfo=timezone.utc)
-    return _now_utc() - checked_at > timedelta(days=_get_ttl_days(scope_id))
+    _ttl = ttl_days if ttl_days is not None else _get_ttl_days(scope_id)
+    return _now_utc() - checked_at > timedelta(days=_ttl)
 
 
 def _parse_checked_at(checked_at_str: str) -> Optional[datetime]:
@@ -651,9 +668,12 @@ def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[Vi
         )
         rows = cur.fetchall()
     out: dict[str, tuple[ViesResult, bool]] = {}
+    # PERF : TTL identique pour toutes les lignes de ce batch (même scope) —
+    # calculé une seule fois plutôt que dans chaque appel à _is_expired.
+    _ttl_days = _get_ttl_days(scope_id)
     for row in rows:
         vat_id, checked_at = row[0], row[7]
-        out[vat_id] = (_row_to_result(row[1:8]), not _is_expired(checked_at, scope_id))
+        out[vat_id] = (_row_to_result(row[1:8]), not _is_expired(checked_at, scope_id, _ttl_days))
     return out
 
 
@@ -669,9 +689,12 @@ def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool
         )
         rows = cur.fetchall()
     out: dict[str, tuple[ViesResult, bool]] = {}
+    # PERF : cache global = toujours DEFAULT_CACHE_TTL_DAYS (non scopé), un
+    # seul appel suffit pour tout le batch (voir _is_expired / _get_ttl_days).
+    _ttl_days = DEFAULT_CACHE_TTL_DAYS
     for row in rows:
         vat_id, checked_at = row[0], row[7]
-        out[vat_id] = (_row_to_result(row[1:8]), not _is_expired(checked_at))
+        out[vat_id] = (_row_to_result(row[1:8]), not _is_expired(checked_at, None, _ttl_days))
     return out
 
 
@@ -1257,7 +1280,7 @@ def _is_downgrade(previous: ViesResult, new_result: ViesResult) -> bool:
 # ---------------------------------------------------------------------------
 
 def _clean_vat_number(raw: str) -> tuple[str, str]:
-    cleaned = re.sub(r"[\s.\-]", "", raw.strip())
+    cleaned = _VAT_CLEAN_RE.sub("", raw.strip())
     if len(cleaned) < 3:
         raise ValueError(f"Numero de TVA trop court : {raw}")
     return cleaned[:2].upper(), cleaned[2:].upper()

@@ -2477,6 +2477,89 @@ introduite. Aucun risque scale-to-zero (patch SQL pur, pas de connexion ni
 thread persistant ajouté).
 
 ---
+
+## Audit externe — 8 points (2026-08-15, revue complémentaire)
+
+Nouvelle liste de 8 points soumis par un audit externe. Chaque point vérifié
+sur le code réel (`dev`) avant tout patch. 5 points patchés, 3 écartés.
+
+**Points écartés (déjà corrigés ou faux positifs) :**
+
+- **Seuil OSS « fantôme » (`engine.py::_run_oss_loop`, faux positif)** —
+  l'audit décrivait un cumul scalaire réinitialisé par changement d'année,
+  fragile sur données multi-années entrelacées. Code déjà en l'état
+  recommandé : `oss_ht_by_year: dict[str, Decimal]` sauvegarde le cumul de
+  l'année sortante AVANT bascule (L869-870) et restaure la bonne valeur pour
+  l'année entrante (L872) — robuste même en cas d'années entrelacées. Aucune
+  modification.
+
+- **Seuil OSS « limite locale » figée (`engine.py::_oss_threshold_display`,
+  faux positif)** — l'audit demandait d'utiliser une table de contre-valeurs
+  fixes par devise plutôt qu'un recalcul au taux BCE du jour.
+  `OSS_THRESHOLD_FIXED_EQUIVALENTS` (`rates.py` L135) existe déjà et est
+  déjà utilisé en priorité par `_oss_threshold_display` (L660), la
+  conversion BCE n'intervenant que pour les devises hors de cette table.
+  Aucune modification.
+
+- **Libellés « MwSt »/« IVA » non reconnus (`ui/formatting.py::_smart_money_df`,
+  faux positif)** — la détection par sous-chaîne française n'est qu'un filet
+  de sécurité pour des colonnes non explicitement listées. Tous les
+  appelants réels (`detail_ventes.py`, `vies_ui.py`, `declarations.py`,
+  `audit.py`) passent déjà `money_cols=[...]` avec les libellés traduits via
+  `_()` — aucune colonne monétaire affichée à l'utilisateur ne dépend de la
+  détection par sous-chaîne. Aucun impact en DE/IT. Aucune modification.
+
+**Points patchés :**
+
+- **PERF — TTL VIES recalculé par ligne (`vies_engine.py::_db_get_scope_batch`
+  / `_db_get_global_batch`)** — `_get_ttl_days` était déjà mise en cache par
+  scope (pas de requête SQL répétée comme le supposait l'audit), mais restait
+  appelée une fois par ligne du lot (lookup dict). `_is_expired` accepte
+  désormais un paramètre optionnel `ttl_days` ; les deux fonctions de batch
+  le calculent une seule fois avant la boucle et le passent à chaque appel.
+  Comportement par défaut inchangé pour tout appelant qui ne fournit pas ce
+  paramètre.
+
+- **PERF CPU — regex non compilée (`vies_engine.py::_clean_vat_number`)** —
+  `re.sub(r"[\s.\-]", "", ...)` appelée à chaque numéro de TVA nettoyé.
+  Python met déjà en cache les patterns compilés (jusqu'à 512), donc gain
+  réel proche de zéro, mais patché par hygiène : `_VAT_CLEAN_RE` compilée
+  une fois au niveau module.
+
+- **RAM — duplication ASIN catalogue (`ui/sidebar.py::_parse_catalog_bytes`)**
+  — les clés ASIN du dictionnaire catalogue n'étaient pas internées
+  (contrairement à `Sale.asin`, interné dans `models.py`), créant une
+  seconde copie mémoire de chaque ASIN. `sys.intern()` appliqué aux clés en
+  plus des valeurs (catégorie), qui l'étaient déjà.
+
+- **UX/PERF — seuil « gros fichier » mal calibré (`app.py`)** —
+  `_is_big_file` comparait `total_rows_sum` (lignes CSV brutes, transferts
+  FBA et lignes ignorées comprises) à 20 000, déclenchant le chemin thread
+  d'arrière-plan bien trop souvent pour des fichiers dont le volume de
+  calcul fiscal réel est modeste. Basé désormais sur
+  `len(sales) + len(refunds)`, le volume qui alimente réellement
+  `_run_oss_loop`/VIES.
+
+- **PERF — double passe ASIN (`ca3_report.py::_compute_aic_from_fc_transfers`)**
+  — un audit précédent (voir entrée du 2026-08-15 ci-dessus) avait écarté ce
+  même point pour ne pas casser le partage intentionnel de
+  `_asin_avg_price_from_results` avec `excel_report.py`. Cette fois,
+  approche différente : `_asin_avg_price_from_results` et
+  `_asin_category_map` restent intactes et partagées ailleurs ; une nouvelle
+  fonction dédiée `_asin_avg_price_and_category` calcule les deux en une
+  seule passe, utilisée uniquement dans `_compute_aic_from_fc_transfers` (le
+  seul appelant ayant besoin des deux simultanément). Aucun autre appelant
+  affecté.
+
+Validation : `py_compile` sur chacun des 4 fichiers modifiés
+(`vies_engine.py`, `ui/sidebar.py`, `app.py`, `ca3_report.py`) + suite
+`pytest` complète — 166 passed / 4 failed, échecs identiques au baseline
+(liés à `SUPABASE_DB_URL` absente en sandbox) — aucune régression
+introduite. Aucun risque scale-to-zero (aucune connexion, thread ou polling
+persistant ajouté ; tous les changements sont des optimisations locales de
+calcul/mémoire).
+
+---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.
 

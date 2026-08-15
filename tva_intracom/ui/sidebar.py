@@ -358,8 +358,13 @@ def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
         cat_col = next((c for c in df_cat.columns if any(k in c for k in ["TAX", "GROUP", "CODE", "TYPE"])), None)
     if asin_col and cat_col:
         import sys
+        # PERF RAM (voir README - évolution.md) : les ASIN du catalogue sont
+        # comparés/utilisés comme clé pour retrouver les mêmes ASIN déjà
+        # internés côté Sale (models.py, `self.asin`). Sans sys.intern() ici,
+        # chaque ASIN existe deux fois en mémoire (chaîne catalogue distincte
+        # de la chaîne Sale) au lieu de partager le même objet str.
         return {
-            str(a).strip().upper(): sys.intern(str(c).strip().upper())
+            sys.intern(str(a).strip().upper()): sys.intern(str(c).strip().upper())
             for a, c in zip(df_cat[asin_col], df_cat[cat_col]) if pd.notna(a) and pd.notna(c)
         }
     return {}

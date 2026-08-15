@@ -637,8 +637,18 @@ if uploaded_files:
         # l'identique (aucun changement de comportement pour les cas
         # courants, aucun risque de régression sur le chemin le plus
         # emprunté).
+        # CORRECTIF (voir README - évolution.md) : le seuil se basait sur
+        # `total_rows_sum`, qui compte TOUTES les lignes lues dans les CSV
+        # (transferts FBA, factures, lignes ignorées comprises), pas
+        # seulement le volume réellement soumis au calcul fiscal
+        # (VIES + compute_vat). Un fichier de quelques Mo dépassait 20k
+        # lignes brutes en un instant, basculant trop souvent sur le
+        # chemin thread (délai de démarrage + rafraîchissement fragment)
+        # pour des volumes que le script principal traite en un instant.
+        # On se base désormais sur `len(sales) + len(refunds)`, le volume
+        # qui alimente réellement `_run_oss_loop`/VIES.
         _BIG_FILE_ROW_THRESHOLD = 20_000
-        _is_big_file = total_rows_sum > _BIG_FILE_ROW_THRESHOLD
+        _is_big_file = (len(sales) + len(refunds)) > _BIG_FILE_ROW_THRESHOLD
 
         vies_summary = None
         if st.session_state.get("_calc_key") != _cache_key:

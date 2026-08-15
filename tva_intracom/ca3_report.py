@@ -109,6 +109,43 @@ def _asin_category_map(results: List[VatResult]) -> Dict[str, str]:
     return mapping
 
 
+def _asin_avg_price_and_category(results: List[VatResult]) -> tuple[Dict[str, Decimal], Dict[str, str]]:
+    """Prix de vente HT moyen ET catégorie produit par ASIN, en un seul
+    parcours de `results` (voir README - évolution.md).
+
+    `_compute_aic_from_fc_transfers` avait besoin des deux informations mais
+    les obtenait via deux appels séparés (`_asin_avg_price_from_results` +
+    `_asin_category_map`), donc deux boucles O(n) sur la même liste. On les
+    fusionne ici pour ce seul appelant, SANS toucher aux fonctions
+    existantes (conservées telles quelles, notamment
+    `_asin_avg_price_from_results` qui délègue à `excel_report` et reste
+    utilisée/partagée ailleurs).
+
+    Le filtre `amt > 0` (exclusion des remboursements) est repris à
+    l'identique de `_build_asin_avg_price` pour le prix moyen ; la
+    catégorie, elle, est prise sur la première ligne rencontrée pour l'ASIN
+    (vente ou avoir), comme dans `_asin_category_map` d'origine.
+    """
+    totals: Dict[str, tuple[Decimal, int]] = {}
+    category: Dict[str, str] = {}
+    for r in results:
+        asin = getattr(r.sale, "asin", "").strip()
+        if not asin:
+            continue
+        if asin not in category:
+            category[asin] = getattr(r.sale, "product_category", "") or "STANDARD"
+        amt = r.sale.amount_ht
+        if amt > Decimal("0"):
+            prev_sum, prev_count = totals.get(asin, (Decimal("0"), 0))
+            totals[asin] = (prev_sum + amt, prev_count + 1)
+    avg_price = {
+        asin: total / Decimal(count)
+        for asin, (total, count) in totals.items()
+        if count
+    }
+    return avg_price, category
+
+
 def _compute_aic_from_fc_transfers(
         all_fc_transfers: list,
         results: List[VatResult],
@@ -135,8 +172,10 @@ def _compute_aic_from_fc_transfers(
     """
     from tva_intracom.rates import vat_rate as _vat_rate, STANDARD_VAT_RATES
 
-    avg_price = _asin_avg_price_from_results(results)
-    asin_category = _asin_category_map(results)
+    # PERF (voir README - évolution.md) : un seul parcours de `results` au
+    # lieu de deux (_asin_avg_price_from_results + _asin_category_map
+    # appelées séparément auparavant).
+    avg_price, asin_category = _asin_avg_price_and_category(results)
     base_aic  = Decimal("0.00")
     tva_aic   = Decimal("0.00")
 
