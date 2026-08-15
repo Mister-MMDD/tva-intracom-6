@@ -2396,6 +2396,86 @@ failed, échecs strictement identiques au baseline avant patch (3 liés à
 `SUPABASE_DB_URL` absente en sandbox, 1 test parser insensible à la casse
 déjà cassé avant ces patches) — aucune régression introduite.
 
+## Audit externe — seuil OSS B2B, ASIN, purge VIES, overrides check_vat_raw (2026-08-15)
+
+Revue de 8 points soumis par un audit externe. Chaque point vérifié sur le
+code réel (`dev`) avant tout patch, conformément à la règle « jamais deviner
+le code par déduction ».
+
+- **BUG FISCAL — seuil OSS incomplet pour le B2B reclassé (`engine.py`,
+  point écarté, faux positif)** — l'audit affirmait que `_oss_eligible` ignore
+  les ventes B2B transfrontalières requalifiées OSS_B2C (n° TVA invalide vers
+  un pays hors art. 194). Vérification faite : `_oss_eligible` (L584-616)
+  gère déjà explicitement ce cas, avec commentaire dédié expliquant la
+  logique. Aucune modification nécessaire.
+
+- **FIABILITÉ — purge des « malformés » trop restrictive (`vies_engine.py::purge_malformed_entries`,
+  confirmé)** — la clause `upper(left(vat_id,2)) <> upper(substring(vat_id
+  from 3 for 2))` excluait les doublons de préfixe identique (ex.
+  `"FRFR12345..."`), issus du même bug historique que la procédure est censée
+  nettoyer. Corrigé : suppression de la clause `<>` sur les deux tables
+  (`vies_global_cache`, `vies_scope_cache`) — tout `vat_id` dont les 4
+  premiers caractères forment deux codes pays UE valides consécutifs est
+  désormais purgé, identiques ou non.
+
+- **OPTIMISATION RAM — casse ASIN (`models.py`, point vérifié et écarté)** —
+  l'audit signalait un double lookup (`asin_to_category.get(asin)` puis
+  `.get(asin.upper())`) en L863-864 d'`engine.py`, le catalogue (`sidebar.py`)
+  étant normalisé en majuscules. Confirmé, mais sans impact mémoire réel :
+  `sys.intern` empêche déjà toute duplication RAM sur l'ASIN lui-même : au
+  pire un second lookup dict en cas de miss (coût négligeable). Normaliser la
+  casse dans `models.py::Sale.__post_init__` risquerait de désynchroniser
+  d'autres usages en aval (commentaire explicite du code à ce sujet). Laissé
+  de côté (reject > defer > patch).
+
+- **PERFORMANCE — propriétés calculées répétées (`report.py::ReportSummary`,
+  point différé)** — l'audit proposait `functools.cached_property` sur
+  `net_oss_by_country`/`net_local_by_country`. `ReportSummary` est un
+  `@dataclass(slots=True)` (choix mémoire assumé, cohérent avec les 4 autres
+  dataclasses du même fichier) : `cached_property` ne fonctionne pas nativement
+  avec `__slots__` sans ajouter à la main les slots de cache correspondants,
+  ce qui complexifie le dataclass pour un gain non mesuré. Différé — à
+  instrumenter (profilage réel sur l'onglet Visualisations) avant de patcher.
+
+- **DETTE TECHNIQUE — prefetch BCE incomplet sur les autres parsers,
+  point ignoré (hors périmètre)** — seul le parser Amazon est maintenu
+  actuellement (Shopify/WooCommerce/AliExpress/Mirakl non utilisés,
+  conformément à la règle de suivi de ce projet).
+
+- **LOGIQUE VIES — cache-miss sur les overrides dans `check_vat_raw`,
+  point écarté après vérification des appelants (faux positif corrigé)** —
+  l'audit affirmait que le bouton « Revérifier » de l'UI VIES pouvait afficher
+  un statut erroné car `check_vat_raw` ignore les overrides manuels. Trace des
+  appelants réels : `check_vat_raw` n'est appelée **nulle part dans l'app**
+  (`app.py`, `ui/`) — seulement dans les tests. Le bouton « Revérifier »
+  (`vies_ui.py`) déclenche un `st.rerun()` qui refait tourner tout le pipeline
+  `compute_all_with_vies`, lequel applique correctement les overrides
+  (`engine.py` L1100-1147). Aucun impact utilisateur actuel ; `check_vat_raw`
+  reste une fonction publique dont le comportement diverge du pipeline
+  principal, mais sans conséquence en production. Non patché (reject).
+
+- **PERFORMANCE — multiples passes O(n) sur les résultats
+  (`ca3_report.py::_compute_aic_from_fc_transfers`, point écarté)** — l'audit
+  proposait de fusionner `_asin_avg_price_from_results` et
+  `_asin_category_map` en une seule passe. `_asin_avg_price_from_results`
+  délègue déjà à `excel_report.py::_build_asin_avg_price` (source unique
+  partagée entre les deux rapports, voir audit précédent du 2026-08). Une
+  fusion casserait ce partage intentionnel pour un gain marginal (une passe
+  de dict-building économisée, pas sur l'ensemble de `results`). Laissé de
+  côté.
+
+- **PERFORMANCE — tri chronologique déjà partiellement trié
+  (`engine.py::compute_all_with_vies`, point écarté)** — gain jugé
+  négligeable : Timsort (tri de Python) est déjà efficace sur des séquences
+  partiellement ordonnées, et la clé de tri est une simple chaîne. Aucune
+  modification.
+
+Validation : `py_compile` sur `vies_engine.py` (seul fichier modifié) +
+suite `pytest` complète — 166 passed / 4 failed, échecs identiques au
+baseline (liés à `SUPABASE_DB_URL` absente en sandbox) — aucune régression
+introduite. Aucun risque scale-to-zero (patch SQL pur, pas de connexion ni
+thread persistant ajouté).
+
 ---
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.

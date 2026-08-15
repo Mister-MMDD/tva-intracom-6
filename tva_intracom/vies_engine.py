@@ -1057,8 +1057,15 @@ _MALFORMED_PURGE_MIN_INTERVAL_DAYS = 1
 def purge_malformed_entries(force: bool = False) -> int:
     """Purge administrative (appelée depuis app.py une fois par session) :
     supprime les entrées vat_id mal préfixées par un bug historique (double
-    préfixe pays, ex. "DEIT123..."). Opère sur les DEUX tables (scope +
-    global) car le bug était antérieur à la scopisation.
+    préfixe pays, ex. "DEIT123..." ou "FRFR123..." en cas de répétition du
+    même préfixe). Opère sur les DEUX tables (scope + global) car le bug
+    était antérieur à la scopisation.
+
+    BUGFIX (voir README - évolution.md) : la clause excluait auparavant le
+    cas où les deux préfixes détectés étaient identiques (ex. "FRFR..."),
+    laissant ces doublons non nettoyés par la procédure optimisée. Retirée :
+    tout vat_id dont les 4 premiers caractères forment deux codes pays UE
+    valides consécutifs est un doublon de préfixe, identiques ou non.
 
     PERF (voir README - évolution.md) : deux correctifs par rapport à la
     version précédente.
@@ -1094,7 +1101,6 @@ def purge_malformed_entries(force: bool = False) -> int:
                 WHERE length(vat_id) >= 4
                   AND upper(left(vat_id, 2)) = ANY(%(cc)s)
                   AND upper(substring(vat_id from 3 for 2)) = ANY(%(cc)s)
-                  AND upper(left(vat_id, 2)) <> upper(substring(vat_id from 3 for 2))
                 """,
                 {"cc": _EU_CC},
             )
