@@ -200,6 +200,22 @@ def _init_schema() -> None:
         cur.execute(
             "ALTER TABLE tva_subscriptions ADD COLUMN IF NOT EXISTS siren_quantity INTEGER"
         )
+        # Downgrade différé (Subscription Schedules Stripe, ajout 2026-08-16) :
+        # un changement de plan planifié (effectif à la fin de la période en
+        # cours, pour éviter les avoirs) n'affecte PAS `plan`/`billing_interval`
+        # tout de suite — ces 3 colonnes stockent l'info du changement à venir,
+        # uniquement pour affichage utilisateur (cf. sidebar.py). Elles sont
+        # effacées dès que la planification s'achève ou est annulée (voir
+        # handle_stripe_webhook_event, events subscription_schedule.*).
+        cur.execute(
+            "ALTER TABLE tva_subscriptions ADD COLUMN IF NOT EXISTS scheduled_plan TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE tva_subscriptions ADD COLUMN IF NOT EXISTS scheduled_billing_interval TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE tva_subscriptions ADD COLUMN IF NOT EXISTS scheduled_change_at DOUBLE PRECISION"
+        )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS tva_export_credits (
@@ -346,6 +362,11 @@ class SubscriptionStatus:
     current_period_end: Optional[float] = None
     billing_interval: Optional[str] = None
     siren_quantity: Optional[int] = None
+    # Downgrade différé planifié (Subscription Schedule Stripe) — voir note
+    # dans _init_schema. None/None/None si aucun changement n'est programmé.
+    scheduled_plan: Optional[str] = None
+    scheduled_billing_interval: Optional[str] = None
+    scheduled_change_at: Optional[float] = None
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -353,7 +374,8 @@ def get_subscription_status(user_id: str) -> SubscriptionStatus:
     def _fn(conn, cur):
         cur.execute(
             """
-            SELECT status, plan, current_period_end, billing_interval, siren_quantity
+            SELECT status, plan, current_period_end, billing_interval, siren_quantity,
+                   scheduled_plan, scheduled_billing_interval, scheduled_change_at
             FROM tva_subscriptions WHERE user_id=%s
             """,
             (user_id,),
@@ -365,7 +387,8 @@ def get_subscription_status(user_id: str) -> SubscriptionStatus:
     if not row:
         return SubscriptionStatus(active=False)
 
-    status, plan, period_end, billing_interval, siren_quantity = row
+    (status, plan, period_end, billing_interval, siren_quantity,
+     scheduled_plan, scheduled_billing_interval, scheduled_change_at) = row
     active = status in ("active", "trialing") and period_end > time.time()
     return SubscriptionStatus(
         active=active,
@@ -374,6 +397,9 @@ def get_subscription_status(user_id: str) -> SubscriptionStatus:
         current_period_end=period_end,
         billing_interval=billing_interval,
         siren_quantity=siren_quantity,
+        scheduled_plan=scheduled_plan,
+        scheduled_billing_interval=scheduled_billing_interval,
+        scheduled_change_at=scheduled_change_at,
     )
 
 
@@ -1414,6 +1440,93 @@ def _fulfill_checkout_session(data: dict) -> None:
         )
 
 
+def _set_scheduled_change(user_id: str, plan: str, interval: Optional[str], change_at: float) -> None:
+    """Enregistre un changement de plan programmé (downgrade différé) pour
+    affichage utilisateur. UPDATE seul (pas d'INSERT) : n'a de sens que si
+    une ligne d'abonnement existe déjà pour cet utilisateur — un schedule
+    Stripe est toujours associé à une Subscription existante."""
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            UPDATE tva_subscriptions
+            SET scheduled_plan=%s, scheduled_billing_interval=%s,
+                scheduled_change_at=%s, updated_at=%s
+            WHERE user_id=%s
+            """,
+            (plan, interval, change_at, time.time(), user_id),
+        )
+        conn.commit()
+
+    _run(_fn)
+
+
+def _clear_scheduled_change(user_id: str) -> None:
+    """Efface un changement de plan programmé — appelé quand la planification
+    s'achève (le changement est devenu effectif, `plan` a déjà été mis à jour
+    par le customer.subscription.updated correspondant) ou est annulée."""
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            UPDATE tva_subscriptions
+            SET scheduled_plan=NULL, scheduled_billing_interval=NULL,
+                scheduled_change_at=NULL, updated_at=%s
+            WHERE user_id=%s
+            """,
+            (time.time(), user_id),
+        )
+        conn.commit()
+
+    _run(_fn)
+
+
+def _extract_scheduled_change(schedule_data: dict) -> Optional[tuple[str, Optional[str], float]]:
+    """À partir de l'objet Subscription Schedule Stripe (event["data"]["object"]
+    d'un event subscription_schedule.created/updated), détermine le
+    changement de plan programmé à venir : (plan, interval, change_at).
+
+    Repère la phase "suivante" en cherchant, dans `phases`, celle dont
+    `start_date` correspond exactement à `current_phase.end_date` — Stripe
+    garantit des phases contiguës (fin de l'une = début de la suivante).
+
+    Retourne None si : le schedule n'a pas encore démarré (pas de
+    current_phase), aucune phase suivante n'est trouvée (dernière phase du
+    schedule), ou le price_id de cette phase ne correspond à aucun plan
+    connu (_plan_from_price_id) — dans ce cas on ne veut pas afficher une
+    info erronée/vide à l'utilisateur plutôt que de deviner.
+    """
+    current_phase = _safe_get(schedule_data, "current_phase") or {}
+    current_end = _safe_get(current_phase, "end_date")
+    if current_end is None:
+        return None
+
+    phases = _safe_get(schedule_data, "phases", []) or []
+    next_phase = None
+    for _phase in phases:
+        if _safe_get(_phase, "start_date") == current_end:
+            next_phase = _phase
+            break
+    if next_phase is None:
+        return None
+
+    items = _safe_get(next_phase, "items", []) or []
+    if not items:
+        return None
+    first_item = items[0]
+    price = _safe_get(first_item, "price")
+    # `price` est soit un id (string) soit un objet Price étendu, selon la
+    # configuration du webhook Stripe — on gère les deux.
+    price_id = _safe_get(price, "id") if isinstance(price, dict) else price
+    plan = _plan_from_price_id(price_id)
+    if plan is None:
+        return None
+
+    interval = None
+    if isinstance(price, dict):
+        interval = _safe_get(_safe_get(price, "recurring", {}) or {}, "interval")
+
+    return plan, interval, float(current_end)
+
+
 def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
@@ -1504,6 +1617,45 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
             billing_interval=interval,
             siren_quantity=quantity,
         )
+
+    elif etype in ("subscription_schedule.created", "subscription_schedule.updated"):
+        # Downgrade différé (2026-08-16) : ces events signalent qu'une
+        # planification de changement de plan existe ou a été mise à jour.
+        # NOTE : le changement de plan EFFECTIF (le vrai price_id actif sur
+        # l'abonnement) est déjà correctement pris en charge par la branche
+        # customer.subscription.updated ci-dessus, qui dérive `plan` depuis
+        # le price_id réellement actif — aucune modification nécessaire là.
+        # Ici, on se contente d'extraire l'info du changement À VENIR pour
+        # affichage utilisateur (cf. sidebar.py) ; ça ne touche jamais au
+        # plan actif en base.
+        customer_id = _safe_get(data, "customer")
+        user_id = _user_id_for_stripe_customer(customer_id)
+        if not user_id:
+            return
+        _pending = _extract_scheduled_change(data)
+        if _pending:
+            _plan, _interval, _change_at = _pending
+            _set_scheduled_change(user_id, _plan, _interval, _change_at)
+        else:
+            # Pas de phase suivante distincte trouvée (schedule fraîchement
+            # créé sans changement identifiable, ou déjà sur sa dernière
+            # phase) : on n'affiche rien plutôt que d'afficher une info
+            # potentiellement obsolète/erronée.
+            _clear_scheduled_change(user_id)
+
+    elif etype in ("subscription_schedule.released", "subscription_schedule.completed",
+                    "subscription_schedule.canceled"):
+        # La planification s'achève (le changement vient de devenir effectif
+        # — customer.subscription.updated a normalement déjà mis à jour
+        # `plan`/`billing_interval` avec la nouvelle valeur) ou est annulée
+        # avant terme (le downgrade n'aura pas lieu). Dans les deux cas,
+        # l'info "changement à venir" affichée à l'utilisateur n'a plus lieu
+        # d'être : on l'efface.
+        customer_id = _safe_get(data, "customer")
+        user_id = _user_id_for_stripe_customer(customer_id)
+        if not user_id:
+            return
+        _clear_scheduled_change(user_id)
 
     elif etype == "customer.subscription.deleted":
         customer_id = _safe_get(data, "customer")

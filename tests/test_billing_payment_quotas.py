@@ -393,5 +393,155 @@ class TestHasExportCredit:
         assert billing.has_export_credit("user-1", "2026-Q1") is False
 
 
+# ---------------------------------------------------------------------------
+# _extract_scheduled_change : downgrade différé via Subscription Schedule
+# Stripe (ajout 2026-08-16) — logique pure, sans DB ni API Stripe.
+# ---------------------------------------------------------------------------
+
+def _fake_schedule(current_end: float | None, phases: list[dict]) -> dict:
+    schedule: dict = {"phases": phases}
+    if current_end is not None:
+        schedule["current_phase"] = {"start_date": 0, "end_date": current_end}
+    return schedule
+
+
+def _fake_schedule_phase(start_date: float, price_id: str | None,
+                          interval: str | None = "month", expanded_price: bool = False) -> dict:
+    if price_id is None:
+        price = None
+    elif expanded_price:
+        price = {"id": price_id, "recurring": ({"interval": interval} if interval else {})}
+    else:
+        price = price_id
+    return {"start_date": start_date, "items": [{"price": price, "quantity": 1}]}
+
+
+class TestExtractScheduledChange:
+
+    def setup_method(self):
+        # _plan_from_price_id compare aux price_id configurés en variables
+        # d'environnement — on les fixe explicitement pour ces tests plutôt
+        # que de dépendre de l'environnement sandbox (souvent vide).
+        os.environ["STRIPE_PRICE_SUB_BUSINESS_MONTHLY"] = "price_business_month"
+        os.environ["STRIPE_PRICE_SUB_BUSINESS_YEARLY"] = "price_business_year"
+        os.environ["STRIPE_PRICE_SUB_CABINET_MONTHLY"] = "price_cabinet_month"
+        os.environ["STRIPE_PRICE_SUB_CABINET_YEARLY"] = "price_cabinet_year"
+
+    def test_no_current_phase_returns_none(self):
+        # Schedule pas encore démarré (statut "not_started") : rien à afficher.
+        schedule = _fake_schedule(current_end=None, phases=[])
+        assert billing._extract_scheduled_change(schedule) is None
+
+    def test_next_phase_found_and_plan_resolved(self):
+        schedule = _fake_schedule(
+            current_end=1000.0,
+            phases=[
+                _fake_schedule_phase(0, "price_business_month"),
+                _fake_schedule_phase(1000.0, "price_cabinet_month", expanded_price=True),
+            ],
+        )
+        result = billing._extract_scheduled_change(schedule)
+        assert result == ("cabinet", "month", 1000.0)
+
+    def test_next_phase_price_as_plain_string_id(self):
+        # Cas non-expanded (le plus courant côté webhook réel) : price est
+        # directement l'id string, pas un objet — interval reste None
+        # (non extractible sans expand), mais le plan doit être résolu.
+        schedule = _fake_schedule(
+            current_end=500.0,
+            phases=[
+                _fake_schedule_phase(0, "price_cabinet_month"),
+                _fake_schedule_phase(500.0, "price_business_year", expanded_price=False),
+            ],
+        )
+        result = billing._extract_scheduled_change(schedule)
+        assert result == ("business", None, 500.0)
+
+    def test_no_matching_next_phase_returns_none(self):
+        # Aucune phase ne démarre exactement à current_phase.end_date (ex:
+        # dernière phase du schedule) : rien à afficher.
+        schedule = _fake_schedule(
+            current_end=1000.0,
+            phases=[_fake_schedule_phase(0, "price_business_month")],
+        )
+        assert billing._extract_scheduled_change(schedule) is None
+
+    def test_unknown_price_id_returns_none(self):
+        # price_id de la phase suivante ne correspond à aucun plan connu
+        # (price legacy, etc.) : on préfère ne rien afficher plutôt qu'une
+        # info fausse.
+        schedule = _fake_schedule(
+            current_end=1000.0,
+            phases=[
+                _fake_schedule_phase(0, "price_business_month"),
+                _fake_schedule_phase(1000.0, "price_legacy_unknown"),
+            ],
+        )
+        assert billing._extract_scheduled_change(schedule) is None
+
+
+# ---------------------------------------------------------------------------
+# handle_stripe_webhook_event : events subscription_schedule.* (2026-08-16)
+# ---------------------------------------------------------------------------
+
+class TestSubscriptionScheduleWebhookEvents:
+
+    def _make_event(self, etype: str, data: dict) -> dict:
+        return {"type": etype, "data": {"object": data}}
+
+    def test_schedule_created_sets_scheduled_change(self, fake_db, monkeypatch):
+        monkeypatch.setattr(billing, "_stripe_configured", lambda: True)
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+        schedule = _fake_schedule(
+            current_end=2000.0,
+            phases=[
+                _fake_schedule_phase(0, "price_business_month"),
+                _fake_schedule_phase(2000.0, "price_cabinet_year", expanded_price=True, interval="year"),
+            ],
+        )
+        schedule["customer"] = "cus_123"
+        event = self._make_event("subscription_schedule.created", schedule)
+        monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *a, **k: event)
+        monkeypatch.setattr(billing, "_user_id_for_stripe_customer", lambda cid: "user-42")
+
+        os.environ["STRIPE_PRICE_SUB_BUSINESS_MONTHLY"] = "price_business_month"
+        os.environ["STRIPE_PRICE_SUB_CABINET_YEARLY"] = "price_cabinet_year"
+
+        billing.handle_stripe_webhook_event(b"{}", "sig")
+
+        fake_db.cursor.execute.assert_called_once()
+        sql, params = fake_db.cursor.execute.call_args[0]
+        assert "scheduled_plan" in sql
+        assert params[0] == "cabinet"
+        assert params[1] == "year"
+        assert params[2] == 2000.0
+        assert params[-1] == "user-42"
+
+    def test_schedule_released_clears_scheduled_change(self, fake_db, monkeypatch):
+        monkeypatch.setattr(billing, "_stripe_configured", lambda: True)
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+        event = self._make_event("subscription_schedule.released", {"customer": "cus_123"})
+        monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *a, **k: event)
+        monkeypatch.setattr(billing, "_user_id_for_stripe_customer", lambda cid: "user-42")
+
+        billing.handle_stripe_webhook_event(b"{}", "sig")
+
+        fake_db.cursor.execute.assert_called_once()
+        sql, params = fake_db.cursor.execute.call_args[0]
+        assert "scheduled_plan=NULL" in sql
+        assert params[-1] == "user-42"
+
+    def test_schedule_event_without_user_id_is_noop(self, fake_db, monkeypatch):
+        monkeypatch.setattr(billing, "_stripe_configured", lambda: True)
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+        event = self._make_event("subscription_schedule.canceled", {"customer": "cus_unknown"})
+        monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *a, **k: event)
+        monkeypatch.setattr(billing, "_user_id_for_stripe_customer", lambda cid: None)
+
+        billing.handle_stripe_webhook_event(b"{}", "sig")
+
+        fake_db.cursor.execute.assert_not_called()
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

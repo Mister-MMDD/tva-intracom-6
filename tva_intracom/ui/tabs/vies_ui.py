@@ -373,7 +373,17 @@ def render_vies(ctx: TabContext) -> None:
                     _nat_cfg = _smart_money_df(_nat_df,
                         money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
                         note_cols=[_("vies_col_national_id"), _("vies_col_id"), _("col_scenario"), _("vies_col_expl")])
-                    st.dataframe(_nat_df, column_config=_nat_cfg, hide_index=True, width="stretch")
+                    # BUGFIX (2026-08-16) : ce tableau des identifiants nationaux NIF
+                    # (non soumis à VIES) était affiché en clair via st.dataframe, sans
+                    # passer par _gated_preview_table — contrairement au tableau
+                    # "N° TVA rejeté" juste au-dessus (_can_export appliqué ligne 356).
+                    # Un compte gratuit avait donc accès complet à cette donnée
+                    # sensible (identifiant fiscal acheteur) alors que le reste de
+                    # l'audit VIES est bridé. Même pattern que partout ailleurs :
+                    # quelques lignes visibles, le reste verrouillé tant que la
+                    # période n'est pas débloquée.
+                    _gated_preview_table(_nat_df, _can_export, column_config=_nat_cfg, total_count=len(_nat_df),
+                                         exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")])
 
             if avec_delta:
                 by_c = {}

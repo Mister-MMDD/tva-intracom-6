@@ -2182,6 +2182,111 @@ sans les patches (comparaison directe faite sur le dépôt `dev` non modifié :
 mêmes 5 tests en échec, tous liés à `SUPABASE_DB_URL` absente en sandbox ou
 préexistants, sans rapport avec ce patch). Aucune régression introduite.
 
+## 2026-08-16 — Dépassement quota SIREN : affichage déjà aligné sur compte gratuit + message clarifié
+
+Suite à question de l'utilisateur : "si j'ai un abonnement avec 5 SIREN et 5
+enregistrés que je passe à 3 SIREN, faut-il bloquer l'affichage et le
+téléchargement jusqu'à redescendre à un nombre de SIREN ≤ abonnement ?"
+
+**Vérification du code réel (pas de patch structurel nécessaire)** :
+- `build_billing_gate()` positionne déjà `can_export=False` dès que
+  `SirenQuotaStatus.blocked` est vrai (SIREN enregistrés > quota de
+  l'abonnement).
+- Tous les onglets (`declarations.py`, `detail_ventes.py`, `audit.py`,
+  `vies_ui.py`, `telechargements.py`, `visualisations.py`) consomment déjà
+  `ctx.can_export` de façon uniforme via `_gated_preview_table()`
+  (`formatting.py`) — qui verrouille l'aperçu des tableaux **à l'identique**,
+  qu'il s'agisse d'un compte jamais abonné ou d'un compte en dépassement de
+  quota. Aucune distinction de comportement d'affichage entre les deux cas
+  n'existait déjà côté code — la demande "même affichage que les comptes
+  gratuits" était donc déjà satisfaite structurellement.
+- Les téléchargements sont également déjà bloqués (`gated_download()`), avec
+  un message dédié `gate_quota_blocked_err` / `gate_quota_global_blocked_err`
+  (distinct du paywall générique) plutôt qu'un blocage silencieux.
+
+**Seul ajustement apporté** — `tva_intracom/i18n/*.toml` (7 langues) :
+les 2 clés `gate_quota_blocked_err` et `gate_quota_global_blocked_err`
+n'indiquaient que "retirez des SIREN" comme solution. Ajout de l'alternative
+"ou augmentez votre abonnement" dans les 7 langues, à la demande explicite de
+l'utilisateur. Clés inchangées (1134 dans chaque fichier, symétrie
+`toml.load()` revérifiée) — seul le texte des 2 valeurs a changé.
+
+**Validation** : suite `pytest` complète — 174 passed / 4 failed, échecs
+strictement identiques au baseline (SUPABASE_DB_URL absente en sandbox, sans
+rapport). Vérifié qu'aucun test n'asserte le texte exact de ces 2 clés avant
+modification (`grep` sur `tests/`).
+
+## 2026-08-16 — Downgrade différé Stripe (Subscription Schedules)
+
+Passage de la logique de downgrade en cours de période (application immédiate,
+avec avoir) à un downgrade différé (effectif à la fin de la période en cours,
+via Subscription Schedules Stripe côté configuration Stripe). Ajout du support
+webhook des 4 nouveaux types d'événements associés, à la demande de
+l'utilisateur.
+
+- **Prise en charge du changement de plan EFFECTIF** — aucune modification
+  nécessaire. `handle_stripe_webhook_event` (branche
+  `customer.subscription.updated`) dérivait déjà le plan actif depuis le
+  `price_id` réellement actif sur l'abonnement (bugfix du 2026-08-16 précédent
+  dans la même session, pour un autre incident) et non depuis les metadata
+  figées au Checkout initial. Quand la phase planifiée s'active réellement,
+  Stripe modifie le `price_id` du `SubscriptionItem` et déclenche cet event
+  standard — la base reste donc automatiquement cohérente sans changement de
+  code sur ce point.
+
+- **`tva_intracom/billing.py::handle_stripe_webhook_event`** (nouveau) — ajout
+  de 2 branches pour les 4 événements demandés :
+  - `subscription_schedule.created` / `subscription_schedule.updated` :
+    extrait la phase suivante (`_extract_scheduled_change`, cherche dans
+    `phases` celle dont `start_date` correspond exactement à
+    `current_phase.end_date`) et enregistre plan/intervalle/date en base pour
+    affichage utilisateur uniquement — ne touche jamais au plan actif.
+  - `subscription_schedule.released` / `subscription_schedule.completed` /
+    `subscription_schedule.canceled` : efface l'info "changement à venir"
+    (devenue effective ou annulée).
+
+- **Nouvelles colonnes `tva_subscriptions`** — `scheduled_plan`,
+  `scheduled_billing_interval`, `scheduled_change_at` (toutes nullable,
+  `ADD COLUMN IF NOT EXISTS`, idempotent). Purement informatives : n'affectent
+  ni `can_export`/`get_subscription_status().active`, ni aucune logique de
+  facturation existante.
+
+- **`SubscriptionStatus`** — 3 nouveaux champs optionnels
+  (`scheduled_plan`, `scheduled_billing_interval`, `scheduled_change_at`),
+  défauts `None` — rétrocompatible avec tous les appels positionnels/mots-clés
+  existants (vérifié : tests existants passent sans modification).
+
+- **`tva_intracom/ui/sidebar.py`** — affichage d'un `st.info` dans la zone
+  "Abonnements & forfaits" (sous le message d'abonnement actif) si un
+  changement est programmé : "🔄 Passage prévu au forfait **{plan}** le
+  {date}". Nouvelle clé i18n `sub_scheduled_change_msg` ajoutée aux 7 fichiers
+  TOML (symétrie vérifiée via `toml.load()` — 1134 clés dans chacun).
+
+- **Scale-to-zero** — aucun impact : mêmes patterns `_run`/`_get_pool` que le
+  reste de `billing.py`, aucune connexion/thread persistant ajouté.
+
+- **Tests** — 8 nouveaux tests (`tests/test_billing_payment_quotas.py`) :
+  5 sur `_extract_scheduled_change` (phase suivante trouvée/absente, price_id
+  string vs objet étendu, price_id inconnu → None) et 3 sur le webhook
+  (`subscription_schedule.created` écrit bien plan/intervalle/date,
+  `subscription_schedule.released` efface bien les 3 colonnes, event sans
+  `user_id` résolu → no-op, pas d'écriture DB).
+
+- **Point d'attention pour la mise en prod** — à faire côté **Stripe
+  Dashboard** (hors code) : ajouter les 4 event types à la liste des
+  événements écoutés par l'endpoint webhook, sinon ils ne seront jamais
+  envoyés. Recommandé également : déclencher un événement de test réel
+  (`subscription_schedule.created`) en mode test Stripe avant bascule en
+  production, pour confirmer que `customer.subscription.updated` accompagne
+  bien la création du schedule sans changer le `price_id` actif (comportement
+  attendu d'après la documentation Stripe, non re-vérifiable depuis ce
+  sandbox sans clé API réelle).
+
+**Validation** : `py_compile` sur tous les fichiers modifiés + suite `pytest`
+complète — 174 passed / 4 failed, échecs strictement identiques au baseline
+(166/4, tous liés à `SUPABASE_DB_URL` absente en sandbox, sans rapport avec ce
+patch). Aucune régression introduite.
+
 ## 2026-08-15 — Audit externe (7 points) : seuil OSS, RAM, cache, i18n, threads
 
 Traitement d'un audit externe transmis par l'utilisateur (7 points). Chaque

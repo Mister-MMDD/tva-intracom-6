@@ -326,7 +326,7 @@ def _gated_preview_table(
     df: pd.DataFrame,
     can_export: bool,
     pct: float = 0.15,
-    min_rows: int = 5,
+    min_rows: int = 1,
     key: str = None,
     column_config: dict = None,
     total_count: int = None,
@@ -342,7 +342,13 @@ def _gated_preview_table(
 
     # PERFORMANCE : Si bridé, on ne traite qu'un échantillon pour économiser la RAM
     n_total = total_count if total_count is not None else len(df)
-    n_visible = max(min_rows, min(20, len(df))) # On limite à 20 lignes max en aperçu
+    
+    # Règle de masquage : au moins 'min_rows' (1 par défaut) en clair, 
+    # dans la limite de 'pct' (15%) du total, et sans dépasser 10 lignes.
+    n_clear = max(min_rows, math.ceil(n_total * pct))
+    n_clear = min(n_clear, 10)
+    
+    n_visible = max(n_clear + 5, min(20, len(df))) 
     
     # On crée un aperçu léger
     df_preview = df.head(n_visible).copy()
@@ -391,7 +397,7 @@ def _gated_preview_table(
     # Masquage sur l'échantillon
     for i, col in enumerate(df_preview.columns):
         if col not in safe_cols:
-            df_preview.iloc[min_rows:, i] = lock_msg
+            df_preview.iloc[n_clear:, i] = lock_msg
 
     # Pour un aperçu masqué, on utilise TextColumn partout car les types sont mixtes.
     # On doit forcer TextColumn même si column_config demande du numérique, 

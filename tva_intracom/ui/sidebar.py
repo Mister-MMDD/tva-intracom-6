@@ -701,6 +701,20 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 st.success(_("sub_active_msg", plan=_plan_label, interval=_interval_label)
                            + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
 
+                # Downgrade différé (Subscription Schedule Stripe, 2026-08-16) :
+                # un changement de plan à venir en fin de période est signalé
+                # ici, distinctement du plan actif ci-dessus qui reste
+                # inchangé jusqu'à la date effective.
+                if _sub_status.scheduled_plan and _sub_status.scheduled_change_at:
+                    _sched_plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
+                        _sub_status.scheduled_plan, _sub_status.scheduled_plan)
+                    import datetime as _dt
+                    st.info(
+                        _("sub_scheduled_change_msg",
+                          plan=_sched_plan_label,
+                          date=_dt.datetime.fromtimestamp(_sub_status.scheduled_change_at).strftime("%d/%m/%Y"))
+                    )
+
                 # Gestion des SIREN pour un abonnement Cabinet (ajout via la section
                 # Entreprise, retrait différé ici, effectif à la date anniversaire).
                 if _sub_status.plan == "cabinet" and _registered_sirens:
