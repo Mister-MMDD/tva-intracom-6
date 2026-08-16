@@ -2775,3 +2775,60 @@ inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en
 sandbox). Sanitizer `_safe()` validé par test manuel sur des payloads
 `=`, `+`, `-`, `@` ainsi que sur des valeurs `None`/numériques (aucune
 altération).
+
+## Bugfix — plan non mis à jour lors d'un changement d'offre via le Portail client Stripe (2026-08-16, suite)
+
+**Symptôme rapporté** : passage de l'offre Pro (annuel) à Cabinet (annuel),
+quantité 3 SIREN, via le Portail client Stripe. Paiement, event Stripe et
+log Vercel tous corrects (webhook reçu, `200 OK`). Mais l'app continuait
+d'afficher l'abonnement Pro, et Supabase confirmait : ligne `tva_subscriptions`
+avec `plan='business'` (Pro) et `siren_quantity=3` — une quantité de 3
+n'a pourtant aucun sens pour le plan Pro (limité à 1 SIREN), incohérence qui
+a permis de repérer le bug.
+
+**Cause** : le handler `customer.subscription.updated`
+(`billing.py::handle_stripe_webhook_event`) lisait le plan depuis
+`event["data"]["object"]["metadata"]["plan"]` — la metadata de l'objet
+Subscription Stripe, posée une seule fois au moment du Checkout initial.
+Un changement de plan effectué depuis le Portail client Stripe modifie bien
+le `price_id` du `SubscriptionItem` (d'où la quantité correctement mise à
+jour, extraite dynamiquement de l'item par `_extract_subscription_item_details`)
+mais **ne touche jamais** à cette metadata figée côté Subscription — Stripe
+ne la resynchronise pas automatiquement lors d'un switch de prix via le
+portail. Un mécanisme d'inférence du plan depuis le `price_id` existait déjà
+dans `_fulfill_checkout_session` (pour le flux Pricing Table externe, sans
+metadata), mais n'était jamais appelé dans le handler
+`customer.subscription.updated`.
+
+**Correctif** : deux fonctions extraites (`_plan_from_price_id`,
+`_first_item_price_id`) pour partager la logique de résolution entre
+`_fulfill_checkout_session` et le handler `customer.subscription.updated`.
+Ce dernier dérive désormais le plan **en priorité depuis le `price_id`
+réellement actif** sur l'abonnement (source de vérité, reflète tout
+changement fait via le portail), avec repli sur la metadata uniquement si ce
+`price_id` ne correspond à aucun des 4 price_id configurés (ex. prix legacy
+retiré de la configuration) — pour ne pas régresser un cas imprévu où
+l'inférence échouerait.
+
+**Portée du bug** : tout changement de plan (Pro↔Cabinet) effectué par un
+client via le Portail client Stripe était affecté, silencieusement — le
+paiement et la quantité étaient corrects, seul le plan restait figé sur
+l'ancienne valeur, ce qui pouvait bloquer l'accès aux fonctionnalités du
+nouveau plan ou laisser un plan Pro accepter plusieurs SIREN dans les
+données sans que l'UI ne le permette (incohérence constatée, pas
+d'exploitation du plan Cabinet malgré paiement).
+
+**Action recommandée pour les comptes déjà impactés** : identifier en base
+les lignes `tva_subscriptions` où `siren_quantity > 1` et `plan='business'`
+(incohérence structurelle, le plan Pro étant limité à 1 par construction
+UI) — ce sont des comptes ayant changé de plan via le portail avant ce
+correctif, à corriger manuellement (`plan='cabinet'`) ou en renvoyant
+l'event `customer.subscription.updated` correspondant depuis le Dashboard
+Stripe (Developers > Events > Resend) une fois le correctif déployé.
+
+**Validation** : `py_compile` sur `billing.py` + suite complète `pytest` :
+166 passed / 4 failed, baseline strictement inchangée. Test manuel de
+`_plan_from_price_id`/`_first_item_price_id` sur un event simulé
+(metadata="business" périmée, price_id pointant vers Cabinet annuel) :
+plan résolu = "cabinet" (attendu), et vérification du repli sur la metadata
+quand le price_id est inconnu.

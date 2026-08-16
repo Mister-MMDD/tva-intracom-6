@@ -1331,6 +1331,30 @@ def _link_stripe_customer(user_id: str, stripe_customer_id: str) -> None:
     _run(_fn)
 
 
+def _plan_from_price_id(price_id: Optional[str]) -> Optional[str]:
+    """Résout un plan ("business"/"cabinet") à partir d'un price_id Stripe,
+    en le comparant aux 4 price_id configurés en variables d'environnement.
+    Retourne None si le price_id ne correspond à aucun plan connu (prix
+    legacy retiré de la config, ou line item hors abonnement standard)."""
+    if not price_id:
+        return None
+    if price_id in (_env("STRIPE_PRICE_SUB_BUSINESS_MONTHLY"), _env("STRIPE_PRICE_SUB_BUSINESS_YEARLY")):
+        return "business"
+    if price_id in (_env("STRIPE_PRICE_SUB_CABINET_MONTHLY"), _env("STRIPE_PRICE_SUB_CABINET_YEARLY")):
+        return "cabinet"
+    return None
+
+
+def _first_item_price_id(subscription_like) -> Optional[str]:
+    """Extrait le price_id du premier SubscriptionItem d'un objet Subscription
+    (ou de l'objet event["data"]["object"], même structure `items.data[]`)."""
+    items = _safe_get(subscription_like, "items", {}) or {}
+    items_data = _safe_get(items, "data", []) or []
+    if not items_data:
+        return None
+    return _safe_get(_safe_get(items_data[0], "price", {}), "id")
+
+
 def _fulfill_checkout_session(data: dict) -> None:
     """Débloque l'accès (crédit PAYG ou abonnement) pour une session Checkout
     dont le paiement est confirmé — appelée uniquement quand payment_status
@@ -1369,16 +1393,9 @@ def _fulfill_checkout_session(data: dict) -> None:
 
         # INFER PLAN : si le plan est inconnu (Pricing Table), on le devine via le price_id
         if plan == "unknown":
-            items = _safe_get(subscription, "items", {}) or {}
-            items_data = _safe_get(items, "data", []) or []
-            if items_data:
-                price_id = _safe_get(_safe_get(items_data[0], "price", {}), "id")
-                if price_id:
-                    # Comparaison avec les prix configurés en variables d'env
-                    if price_id in (_env("STRIPE_PRICE_SUB_BUSINESS_MONTHLY"), _env("STRIPE_PRICE_SUB_BUSINESS_YEARLY")):
-                        plan = "business"
-                    elif price_id in (_env("STRIPE_PRICE_SUB_CABINET_MONTHLY"), _env("STRIPE_PRICE_SUB_CABINET_YEARLY")):
-                        plan = "cabinet"
+            _inferred = _plan_from_price_id(_first_item_price_id(subscription))
+            if _inferred:
+                plan = _inferred
 
         quantity, interval, period_end = _extract_subscription_item_details(subscription)
         if period_end is None:
@@ -1458,7 +1475,20 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
 
         if not user_id:
             return
-        plan = _safe_get(_safe_get(data, "metadata") or {}, "plan", "unknown")
+        # BUGFIX (2026-08-16) : `data["metadata"]["plan"]` est la metadata de
+        # la Subscription, posée UNE FOIS au Checkout initial — un changement
+        # de plan fait depuis le Portail client Stripe (upgrade/downgrade)
+        # modifie le price_id du SubscriptionItem mais NE MET JAMAIS À JOUR
+        # cette metadata. Résultat observé : passer de "business" (Pro) à
+        # "cabinet" via le portail met bien à jour la quantité (lue depuis
+        # l'item live) mais gardait l'ancien plan "business" en base. On
+        # dérive donc le plan en priorité depuis le price_id réellement actif
+        # sur l'abonnement (source de vérité), avec repli sur la metadata
+        # UNIQUEMENT si ce price_id ne correspond à aucun plan connu (ex.
+        # price legacy retiré de la config) — pour ne pas régresser le cas où
+        # l'inférence échouerait pour une raison imprévue.
+        _metadata_plan = _safe_get(_safe_get(data, "metadata") or {}, "plan", "unknown")
+        plan = _plan_from_price_id(_first_item_price_id(data)) or _metadata_plan
         quantity, interval, period_end = _extract_subscription_item_details(data)
         if period_end is None:
             raise RuntimeError(
