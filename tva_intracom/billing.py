@@ -481,11 +481,11 @@ def list_registered_sirens(user_id: str) -> list[dict]:
     rows = _run(_fn)
     return [
         {
-            "siren": r[0], "company_name": _dec(r[1]), "tva_number": r[2],
+            "siren": r[0], "company_name": _dec(r[1]), "tva_number": _dec(r[2]),
             "first_used_at": r[3], "pending_removal_at": r[4],
-            "ioss_number": r[5], "seller_is_importer": r[6],
+            "ioss_number": _dec(r[5]), "seller_is_importer": r[6],
             "apply_fr_under_threshold": r[7], "countries_with_vat": r[8],
-            "vat_numbers_json": r[9],
+            "vat_numbers_json": _dec(r[9]),
             "oss_threshold_exceeded_prev_year": r[10] if len(r) > 10 else False,
             "ioss_own_number_active": r[11] if len(r) > 11 else False,
         }
@@ -565,6 +565,15 @@ def register_siren(
         dont le statut N-1 diffère selon l'année, traiter chaque année dans
         un import séparé.
     ioss_own_number_active : voir docstring engine.compute_vat().
+
+    SÉCURITÉ (voir README - évolution.md) : `tva_number`, `ioss_number` et
+    `vat_numbers_json` sont désormais chiffrés (Fernet, `_enc`) avant
+    insertion, au même titre que `company_name` — ces numéros identifient
+    de manière unique l'activité fiscale d'un client et étaient stockés en
+    clair. Backfill effectué le 2026-08-16 (`backfill_encrypt_pii.py`) sur
+    toutes les lignes existantes ; le fail-open de `decrypt_data` a été
+    retiré en conséquence (security.py) — une valeur non chiffrée en base
+    lève désormais une erreur explicite plutôt que d'être acceptée.
     """
     def _fn(conn, cur):
         cur.execute(
@@ -577,8 +586,28 @@ def register_siren(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id, siren)
             DO UPDATE SET company_name = EXCLUDED.company_name,
-                          tva_number = EXCLUDED.tva_number,
-                          ioss_number = EXCLUDED.ioss_number,
+                          -- SÉCURITÉ (voir README - évolution.md) : verrouillage définitif de
+                          -- tva_number/ioss_number appliqué désormais AUSSI côté SQL, pas
+                          -- seulement dans l'UI (_edit_siren_form_fragment cache le champ une
+                          -- fois rempli, mais un appel direct à register_siren -- bug de script,
+                          -- appel API -- pouvait jusqu'ici écraser une valeur déjà "verrouillée").
+                          -- Une valeur déjà enregistrée (non NULL/non vide) est conservée quel que
+                          -- soit ce qui est passé en paramètre ; seul un champ encore vide peut
+                          -- être renseigné. vat_numbers_json n'est volontairement PAS verrouillé
+                          -- ainsi : son usage légitime consiste à AJOUTER un nouveau pays au fil du
+                          -- temps (le verrouillage par pays déjà rempli est, lui, géré au niveau UI).
+                          tva_number = CASE
+                              WHEN tva_siren_registrations.tva_number IS NOT NULL
+                                   AND tva_siren_registrations.tva_number <> ''
+                              THEN tva_siren_registrations.tva_number
+                              ELSE EXCLUDED.tva_number
+                          END,
+                          ioss_number = CASE
+                              WHEN tva_siren_registrations.ioss_number IS NOT NULL
+                                   AND tva_siren_registrations.ioss_number <> ''
+                              THEN tva_siren_registrations.ioss_number
+                              ELSE EXCLUDED.ioss_number
+                          END,
                           seller_is_importer = EXCLUDED.seller_is_importer,
                           apply_fr_under_threshold = EXCLUDED.apply_fr_under_threshold,
                           countries_with_vat = EXCLUDED.countries_with_vat,
@@ -586,8 +615,8 @@ def register_siren(
                           oss_threshold_exceeded_prev_year = EXCLUDED.oss_threshold_exceeded_prev_year,
                           ioss_own_number_active = EXCLUDED.ioss_own_number_active
             """,
-            (user_id, siren, _enc(company_name), tva_number, time.time(),
-             ioss_number, seller_is_importer, apply_fr_under_threshold, countries_with_vat, vat_numbers_json,
+            (user_id, siren, _enc(company_name), _enc(tva_number), time.time(),
+             _enc(ioss_number), seller_is_importer, apply_fr_under_threshold, countries_with_vat, _enc(vat_numbers_json),
              oss_threshold_exceeded_prev_year, ioss_own_number_active),
         )
         conn.commit()

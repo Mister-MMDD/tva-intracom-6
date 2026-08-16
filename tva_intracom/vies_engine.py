@@ -210,6 +210,18 @@ def resolve_scope_id(email: str) -> str:
     Appelée une fois par session depuis app.py juste après authentification,
     et transmise à toutes les fonctions de ce module ainsi qu'à
     ``engine.compute_all_with_vies``.
+
+    DÉCISION (audit sécurité, voir README - évolution.md) : la mutualisation
+    par domaine pour tout domaine hors `PERSONAL_EMAIL_DOMAINS` est un choix
+    de design INTENTIONNEL (mutualiser le cache/historique/overrides VIES
+    entre collaborateurs d'un même cabinet comptable ou d'une même
+    structure), pas un bug. Le risque théorique symétrique (une grande
+    organisation non listée -- ex: @université.fr -- partagerait aussi son
+    historique VIES sans le savoir) est réel mais accepté en l'état :
+    cibler ce cas nécessiterait une option produit (opt-out par domaine, ou
+    liste blanche restreinte aux domaines "partenaires/cabinets"), une
+    décision produit hors du périmètre d'un correctif de sécurité ponctuel.
+    Pas de changement de code ici.
     """
     email = (email or "").strip().lower()
     if "@" not in email:
@@ -914,7 +926,25 @@ def anonymize_and_retain_scope_history(scope_id: str) -> None:
     """
     if not scope_id.startswith("user:"):
         return
-    pseudo_scope = "deleted:" + hashlib.sha256(scope_id.encode()).hexdigest()[:32]
+    # SÉCURITÉ (voir README - évolution.md) : un SHA-256 non salé d'un
+    # scope_id (qui contient l'e-mail en clair) est déterministe -- un
+    # attaquant en possession d'une liste d'e-mails peut recalculer les
+    # hashs et ré-identifier à qui appartient un historique "pseudonymisé".
+    # On sale désormais avec un secret dédié chargé depuis l'environnement
+    # (PSEUDONYMIZATION_SALT), distinct de ENCRYPTION_KEY : sa compromission
+    # ne doit pas exposer les données chiffrées, et inversement. Absence de
+    # secret configuré -> on retombe sur un sel constant plutôt que de
+    # lever une exception ici : la pseudonymisation reste toujours
+    # appliquée (mieux qu'un hash non salé), et un avertissement est loggé
+    # pour inciter à configurer le secret en production.
+    _salt = get_secret("PSEUDONYMIZATION_SALT")
+    if not _salt:
+        logger.warning(
+            "PSEUDONYMIZATION_SALT non configuré : hachage de pseudonymisation "
+            "avec un sel de repli non secret. À configurer en production."
+        )
+        _salt = "tva-intracom-6-fallback-salt-non-secret"
+    pseudo_scope = "deleted:" + hashlib.sha256((scope_id + _salt).encode()).hexdigest()[:32]
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE vies_check_history SET scope_id=%s WHERE scope_id=%s",

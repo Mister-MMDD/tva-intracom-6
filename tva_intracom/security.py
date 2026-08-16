@@ -53,19 +53,26 @@ def encrypt_data(data: str) -> str:
 
 def decrypt_data(encrypted_data: str) -> str:
     """Déchiffre une chaîne de caractères.
-    
-    Lève une exception si le déchiffrement échoue.
+
+    Lève une exception si le déchiffrement échoue, ou si la donnée n'est
+    pas un jeton Fernet valide (préfixe 'gAAAA').
     """
     if not encrypted_data:
         return encrypted_data
-    
-    # Heuristique : les jetons Fernet (cryptography) commencent par 'gAAAA'.
-    # Si la donnée ne commence pas par ce préfixe, c'est probablement du texte
-    # en clair (ex: migration depuis une version précédente sans chiffrement).
-    # On le retourne tel quel pour éviter de bloquer l'application.
+
+    # SÉCURITÉ (audit, voir README - évolution.md) : l'ancienne heuristique
+    # "fail-open" (retourner tel quel toute valeur ne commençant pas par
+    # 'gAAAA', en supposant qu'il s'agissait de texte en clair hérité
+    # d'avant chiffrement) a été RETIRÉE le 2026-08-16, après confirmation
+    # via backfill_encrypt_pii.py qu'il ne restait plus aucune ligne en
+    # clair sur tva_number/ioss_number/vat_numbers_json (billing.py) ni
+    # refresh_token (auth.py) — les seules colonnes qui en dépendaient.
+    # Toute valeur non conforme au format Fernet est désormais traitée
+    # comme une erreur plutôt qu'acceptée silencieusement.
     if not encrypted_data.startswith("gAAAA"):
-        return encrypted_data
-    
+        logger.error("decrypt_data: donnée non chiffrée (préfixe 'gAAAA' absent) — refusée.")
+        raise ValueError("Failed to decrypt sensitive data: not a valid Fernet token.")
+
     f = _get_fernet()
     try:
         return f.decrypt(encrypted_data.encode()).decode()

@@ -2563,3 +2563,127 @@ calcul/mémoire).
 > Il ne remplace pas un conseil fiscal professionnel.
 > Les taux de TVA et seuils doivent être vérifiés et tenus à jour annuellement.
 
+
+## Audit externe sécurité — 7 points (2026-08-16)
+
+Audit de sécurité (isolation multi-tenant, chiffrement, verrouillage fiscal,
+pseudonymisation). Chaque point vérifié sur le code réel (`dev`) avant tout
+patch. 5 points patchés, 1 écarté (faux positif), 1 reporté (dépendance
+avec un des correctifs de cette même session).
+
+**Point écarté (faux positif) :**
+
+- **Permissions fichiers temporaires (`app.py`, `telechargements.py`,
+  `tempfile.NamedTemporaryFile(delete=False)`)** — l'audit craignait des
+  fichiers temporaires lisibles par d'autres utilisateurs/process du même
+  serveur selon l'umask du conteneur. Vérifié empiriquement : CPython crée
+  ces fichiers via `mkstemp()` en interne, qui ouvre toujours avec le mode
+  explicite `0o600` (confirmé par un test direct sur cet environnement).
+  L'umask ne peut que *retirer* des permissions, jamais en ajouter — le
+  risque décrit ne peut pas se matérialiser ici. Aucune modification.
+
+**Point reporté (Defer) :**
+
+- **`decrypt_data` fail-open sur préfixe `gAAAA` (`security.py`)** — pattern
+  "fail-open" réel en théorie, mais actuellement un mécanisme de migration
+  ACTIF : `refresh_token` (`auth.py`) et, depuis ce patch,
+  `tva_number`/`ioss_number`/`vat_numbers_json` (`billing.py`) s'appuient
+  explicitement sur cette tolérance pour déchiffrer sans échec les lignes
+  déjà en base non encore migrées (pas de script de backfill prévu — la
+  ré-écriture se fait au fil de l'eau). Retirer l'heuristique maintenant
+  casserait la lecture des lignes existantes. Documenté en commentaire dans
+  `security.py`, à reconsidérer une fois toutes les colonnes concernées
+  effectivement migrées.
+
+**Points patchés :**
+
+- **Cache multi-tenant (`app.py::_cache_key`)** — `st.cache_data` est un
+  cache global au process (pas par session). Deux comptes uploadant un
+  fichier strictement identique avec les mêmes réglages fiscaux partageaient
+  la même entrée de cache (`_build_rows_df`, `_aggregate_viz_raw` et les
+  fonctions `_build_fig_*` de `visualisations.py`, toutes clées sur
+  `ctx.calc_key`). `current_user.id` ajouté en tête de `_cache_key`,
+  propagé automatiquement à `calc_key` et donc à toutes les fonctions
+  `heavy_cache_data` qui en dépendent — isolation cryptographique par
+  utilisateur, sans toucher aux fonctions elles-mêmes.
+
+- **SIREN/IOSS/n° TVA locaux en clair en base (`billing.py::register_siren`
+  / `list_registered_sirens`)** — seul `company_name` passait par
+  `encrypt_data`. `tva_number`, `ioss_number` et `vat_numbers_json`
+  chiffrent désormais de la même façon à l'écriture et sont déchiffrés à la
+  lecture. Repose sur la tolérance `decrypt_data` (voir point reporté
+  ci-dessus) pour les lignes existantes déjà en base — aucune migration à
+  froid nécessaire, ré-écriture naturelle au prochain `register_siren`.
+  Tous les appelants (`sidebar.py`, `billing_gate.py`) passent exclusivement
+  par ces deux fonctions — aucun autre point de lecture directe en base
+  vérifié.
+
+- **Verrouillage fiscal UI-only (`billing.py::register_siren`,
+  `ON CONFLICT ... DO UPDATE`)** — le formulaire (`sidebar.py`) masque déjà
+  les champs `tva_number`/`ioss_number` une fois renseignés, mais la requête
+  SQL écrasait sans condition via `EXCLUDED.*`. Ajout d'un `CASE` conservant
+  la valeur déjà enregistrée si non vide, quel que soit ce qui est passé en
+  paramètre — verrouillage désormais garanti même en cas d'appel direct hors
+  UI (bug de script, appel API). `vat_numbers_json` volontairement **non**
+  verrouillé ainsi : son usage légitime est d'ajouter un nouveau pays au fil
+  du temps (le verrouillage par pays déjà rempli reste géré côté UI).
+
+- **Pseudonymisation réversible (`vies_engine.py::anonymize_and_retain_scope_history`)**
+  — hash SHA-256 non salé de `scope_id` (contient l'e-mail en clair),
+  recalculable par dictionnaire d'e-mails. Sel secret dédié
+  `PSEUDONYMIZATION_SALT` (variable d'environnement, distincte de
+  `ENCRYPTION_KEY`) ajouté avant hachage. Repli sur un sel constant non
+  secret si la variable n'est pas configurée (avec avertissement loggé) :
+  la pseudonymisation reste toujours appliquée plutôt que de lever une
+  exception qui bloquerait la suppression de compte.
+
+- **Isolation VIES par domaine (`vies_engine.py::resolve_scope_id`)** —
+  point partiellement invalidé : l'exemple cité par l'audit (`orange.fr`)
+  est déjà dans `PERSONAL_EMAIL_DOMAINS` (isolé par compte, pas mutualisé).
+  Le risque théorique général (grande organisation non listée partageant
+  son historique VIES par domaine) reste réel mais correspond à un choix de
+  design intentionnel (mutualisation cabinet comptable) — traiter le cas
+  général relève d'une décision produit (opt-out, liste blanche), hors
+  périmètre d'un correctif de sécurité ponctuel. Documenté en docstring,
+  aucune modification de comportement.
+
+**Validation :** `py_compile` sur les 4 fichiers modifiés (`billing.py`,
+`vies_engine.py`, `security.py`, `app.py`) + suite complète `pytest` :
+166 passed / 4 failed, baseline strictement inchangée (échecs pré-existants
+liés à l'absence de `SUPABASE_DB_URL` en sandbox).
+
+**Variable d'environnement à ajouter en production (Railway) :**
+`PSEUDONYMIZATION_SALT` (chaîne aléatoire secrète, distincte de
+`ENCRYPTION_KEY`) — fonctionne sans, mais avec un sel de repli non secret.
+
+## Clôture point 2 — retrait du fail-open de `decrypt_data` (2026-08-16)
+
+Suite au backfill (`backfill_encrypt_pii.py`, exécuté en production par
+Matthieu, `--apply`) confirmant qu'il ne restait plus aucune ligne en clair
+sur `tva_number` / `ioss_number` / `vat_numbers_json`
+(`tva_siren_registrations`) ni `refresh_token`
+(`tva_amazon_credentials`) : le fail-open de `decrypt_data` (`security.py`)
+est retiré. Toute valeur ne commençant pas par `gAAAA` lève désormais une
+`ValueError` explicite au lieu d'être retournée telle quelle.
+
+Commentaires mis à jour en conséquence dans `auth.py` (docstring
+`get_amazon_credentials`) et `billing.py` (docstring `register_siren`), qui
+faisaient référence à l'ancienne tolérance.
+
+**Impact opérationnel** : si une ligne en clair réapparaissait (nouvelle
+colonne future non passée par `encrypt_data` avant écriture, restauration
+d'un backup pré-chiffrement, etc.), la lecture échoue bruyamment
+(`ValueError`) au lieu d'être silencieusement acceptée en clair — c'est le
+comportement recherché.
+
+**Validation** : `py_compile` sur `security.py`, `auth.py`, `billing.py` +
+suite complète `pytest` : 166 passed / 4 failed, baseline strictement
+inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en
+sandbox).
+
+---
+
+**Audit externe sécurité — 7 points : clôture.** Les 7 points sont
+désormais tous traités : 5 patchés, 1 écarté (faux positif confirmé), 1
+initialement reporté puis patché après backfill (ce point 2). Aucun point
+restant en attente sur cet audit.

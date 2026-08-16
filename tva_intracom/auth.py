@@ -561,9 +561,10 @@ def save_amazon_credentials(user_id: str, selling_partner_id: str, refresh_token
 
 def get_amazon_credentials(user_id: str) -> Optional[dict]:
     """Retourne les identifiants Amazon SP-API, avec le refresh_token
-    déchiffré. `decrypt_data` retombe silencieusement sur la valeur brute si
-    elle n'était pas chiffrée (transition depuis d'anciennes lignes stockées
-    en clair avant ce correctif)."""
+    déchiffré. Depuis le retrait du fail-open de `decrypt_data` (voir
+    security.py / README - évolution.md, 2026-08-16), toute valeur non
+    conforme au format Fernet lève désormais une erreur au lieu d'être
+    retournée telle quelle."""
     def _fn(conn, cur):
         cur.execute(
             "SELECT selling_partner_id, refresh_token FROM tva_amazon_credentials WHERE user_id=%s",

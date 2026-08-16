@@ -608,6 +608,18 @@ if uploaded_files:
         # === CALCUL (mis en cache dans session_state) ===
         _vies_retry_nonce = st.session_state.get("_vies_retry_nonce", 0)
         _cache_key = (
+            # SÉCURITÉ (voir README - évolution.md) : `current_user.id` inclus
+            # explicitement en tête de clé. Sans cela, deux comptes distincts
+            # uploadant un fichier strictement identique avec les mêmes
+            # réglages fiscaux partageaient la même entrée de cache
+            # (st.cache_data est un cache global au process, pas par session
+            # -- voir aussi heavy_cache_data dans mem_utils.py). Les données
+            # actuelles sont dérivées du seul fichier importé (pas de PII
+            # propre à l'utilisateur au-delà de ce qu'il a lui-même fourni),
+            # mais l'isolation cryptographique par utilisateur est appliquée
+            # par prudence, avant toute évolution qui stockerait davantage
+            # dans ces DataFrames mis en cache.
+            _current_user.id,
             tuple(_upload_sig(f) for f in uploaded_files),
             enable_vies, convert_fx, file_format,
             tuple(sorted(asin_to_category.items())),
