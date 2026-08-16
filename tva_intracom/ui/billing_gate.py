@@ -30,6 +30,7 @@ Usage dans app.py :
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime as _dt
 from typing import Any, Optional
@@ -201,7 +202,16 @@ class BillingGate:
                 # Streamlit et fonctionne de façon fiable en local et en cloud.
                 # Le style violet est repris via la même astuce CSS que pour
                 # les boutons OAuth : cibler .st-key-{key} a[data-testid^="stBaseLinkButton"].
-                _btn_key = f"paywall_btn_{self.period_label}_{file_name}"
+                # SÉCURITÉ (CSS/XSS injection) : file_name inclut nom_entreprise, une
+                # saisie libre utilisateur (voir telechargements.py), injectée plus bas
+                # brute dans un bloc <style> via unsafe_allow_html=True. Un nom
+                # d'entreprise contenant "}</style><script>..." casserait le style de
+                # la page, voire pire. On dérive la clé d'un hash plutôt que d'utiliser
+                # la chaîne utilisateur directement — la clé n'a besoin que d'être
+                # stable et unique par (période, fichier), pas lisible.
+                _btn_key = "paywall_btn_" + hashlib.sha256(
+                    f"{self.period_label}_{file_name}".encode()
+                ).hexdigest()[:16]
                 st.markdown(
                     f"""
                     <style>

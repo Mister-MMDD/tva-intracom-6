@@ -7,6 +7,8 @@ B2B→B2C et export CSV du rapport d'audit VIES.
 
 from __future__ import annotations
 
+import html
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -251,19 +253,28 @@ def render_vies(ctx: TabContext) -> None:
                     _oc1b, _oc2b, _oc3b, _oc4b = st.columns([3, 2, 1, 1])
                     _ov_badge2 = _("vies_manual_class_exp_expired_badge") if _ov_expired2 else ""
 
-                    _ov_label2 = f"**{_ov_vat2}**"
+                    # SÉCURITÉ (XSS) : _ov_vat2 vient de la base des overrides (numéro TVA
+                    # normalisé, peu à risque) mais _ov_sales2 provient de
+                    # vat_to_display_ids, qui reflète les display_id/sale_id du fichier
+                    # Amazon importé — donnée NON FIABLE. Ce bloc passe par
+                    # unsafe_allow_html=True : sans échappement, un display_id du type
+                    # <img src=x onerror=...> s'exécuterait dans le navigateur de la
+                    # personne consultant ce rapport. html.escape() sur toutes les
+                    # variables injectées dans ce markdown, y compris _ov_vat2 et
+                    # _ov_date_str2 par prudence (défense en profondeur, coût nul).
+                    _ov_label2 = f"**{html.escape(str(_ov_vat2))}**"
                     # On affiche les ventes du fichier actuel concernées par cet override (si présentes)
                     _ov_sales2 = []
                     if vies_summary and hasattr(vies_summary, "vat_to_display_ids"):
                         _ov_sales2 = vies_summary.vat_to_display_ids.get(_ov_vat2, [])
                     if _ov_sales2:
-                        _ov_sales_str = ", ".join(_ov_sales2[:3])
+                        _ov_sales_str = ", ".join(html.escape(str(s)) for s in _ov_sales2[:3])
                         if len(_ov_sales2) > 3:
                             _ov_sales_str += f" +{len(_ov_sales2)-3}"
                         _ov_label2 += _("vies_manual_class_exp_sales", sales=_ov_sales_str)
 
                     _oc1b.markdown(
-                        f"{_ov_label2}  \n<small style='color:grey'>{_ov_date_str2}{_ov_badge2}</small>",
+                        f"{_ov_label2}  \n<small style='color:grey'>{html.escape(_ov_date_str2)}{_ov_badge2}</small>",
                         unsafe_allow_html=True)
                     _ov_new2 = _oc2b.selectbox(_("vies_manual_class_status"),
                         options=[_("manual_valid"), _("manual_invalid")],

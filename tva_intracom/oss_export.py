@@ -521,8 +521,12 @@ def _aggregate(results: List[VatResult], period: str = "") -> OssExportData:
 
     b2b_lines = [
         B2bLine(
-            sale_id=(getattr(r.sale, "display_id", "") or r.sale.sale_id),
-            buyer_vat_number=r.sale.buyer_vat_number,
+            # sale_id/buyer_vat_number ne servent ici qu'à l'affichage (Excel +
+            # CSV plus bas) — jamais à un matching -> _safe() sans risque de
+            # casser une comparaison ailleurs (vérifié : seul res.sale.sale_id
+            # brut, hors B2bLine, est utilisé pour le matching remboursements).
+            sale_id=_safe(getattr(r.sale, "display_id", "") or r.sale.sale_id),
+            buyer_vat_number=_safe(r.sale.buyer_vat_number),
             buyer_country=r.sale.buyer_country,
             country_name=_country_name(r.sale.buyer_country),
             amount_ht=r.sale.amount_ht,
@@ -548,6 +552,21 @@ def _merge(ws, cell_range: str) -> None:
     compatible en passant directement par `ws.merged_cells.ranges`, qui
     est la structure lue par openpyxl à la sauvegarde quel que soit le mode)."""
     ws.merged_cells.ranges.add(CellRange(cell_range))
+
+
+_FORMULA_LEADING_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe(value):
+    """Neutralise une injection de formule Excel/CSV (OWASP CSV Injection)
+    sur une valeur texte issue du fichier Amazon importé (sale_id,
+    display_id, numéro de TVA acheteur...) — non fiable par nature.
+    Même logique que `excel_report.py::_safe`, dupliquée ici car ce module
+    n'importe pas excel_report (pas de dépendance croisée souhaitée).
+    Ne jamais appliquer à des formules internes construites par l'appli."""
+    if isinstance(value, str) and value and value[0] in _FORMULA_LEADING_CHARS:
+        return "'" + value
+    return value
 
 
 def _wcell(ws, value, font=None, fill=None, alignment=None, number_format=None, border=None):
@@ -734,7 +753,7 @@ def _build_oss_detail(wb: Workbook, data: OssExportData):
         zebra = i % 2 == 1
         ws.row_dimensions[row].height = 15
         ws.append([
-            _data_cell(ws, (getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra),
+            _data_cell(ws, _safe(getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra),
             _data_cell(ws, r.sale.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, r.sale.stock_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, r.sale.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
@@ -984,7 +1003,7 @@ def _build_ioss_detail(wb: Workbook, data: IossExportData):
         zebra = i % 2 == 1
         ws.row_dimensions[row].height = 15
         ws.append([
-            _data_cell(ws, (getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra),
+            _data_cell(ws, _safe(getattr(r.sale, "display_id", "") or r.sale.sale_id), zebra=zebra),
             _data_cell(ws, r.sale.transaction_date, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, r.sale.stock_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),
             _data_cell(ws, r.sale.buyer_country, zebra=zebra, alignment=Alignment(horizontal="center", vertical="center")),

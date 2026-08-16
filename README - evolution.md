@@ -2687,3 +2687,91 @@ sandbox).
 désormais tous traités : 5 patchés, 1 écarté (faux positif confirmé), 1
 initialement reporté puis patché après backfill (ce point 2). Aucun point
 restant en attente sur cet audit.
+
+## Audit externe sécurité — 6 points, injections & fuites (2026-08-16, suite)
+
+Second audit de sécurité le même jour (XSS, injection de formule Excel/CSV,
+open redirect, fuite de logs, durcissement cookie). Chaque point vérifié sur
+le code réel (`dev`) avant tout patch. 5 points patchés, 1 documenté sans
+modification de code (limitation structurelle d'une dépendance tierce).
+
+**Points patchés :**
+
+- **Injection de formule Excel/CSV (`excel_report.py`, `oss_export.py`)** —
+  les valeurs texte issues du fichier Amazon importé (`display_id`/`sale_id`,
+  ASIN, désignation produit, numéro de TVA acheteur, nom retourné par VIES)
+  étaient écrites brutes dans les cellules `WriteOnlyCell`. Un champ
+  commençant par `=`, `+`, `-`, `@`, tabulation ou retour chariot peut être
+  interprété comme une formule par Excel/LibreOffice/Google Sheets à
+  l'ouverture par l'expert-comptable (CSV/Formula Injection, OWASP). Ajout
+  d'un helper `_safe()` (dupliqué dans les deux fichiers — pas de dépendance
+  croisée voulue entre eux) qui préfixe d'une apostrophe toute chaîne
+  commençant par un de ces caractères, appliqué à chaque point d'écriture de
+  donnée importée identifié : onglets Détails, Audit, Historique VIES,
+  Intrastat, FBA/AIC (`excel_report.py`) ; `B2bLine` (source commune de
+  l'onglet B2B Excel et du CSV B2B) et détails OSS/IOSS (`oss_export.py`).
+  Les formules internes construites par l'appli (ex. `=E5+F5` dans les
+  totaux) ne passent jamais par `_safe()` — vérifié explicitement, aucun
+  appel accidentel introduit.
+
+- **XSS via données CSV (`ui/tabs/vies_ui.py`)** — le tableau des
+  reclassifications VIES manuelles affiche les `display_id`/`sale_id` du
+  fichier importé via `st.markdown(..., unsafe_allow_html=True)` sans
+  échappement. `html.escape()` appliqué à `_ov_vat2`, aux `display_ids`
+  listés (`_ov_sales2`) et à `_ov_date_str2` (défense en profondeur) avant
+  insertion dans le bloc HTML.
+
+- **Injection CSS/XSS via nom d'entreprise (`ui/billing_gate.py`)** — la clé
+  de widget du bouton de paiement (`_btn_key`) intègre `file_name`, qui
+  contient `nom_entreprise` (saisie libre), injectée ensuite brute dans un
+  bloc `<style>` via `unsafe_allow_html=True`. `_btn_key` est désormais dérivé
+  d'un hash SHA-256 tronqué (`period_label` + `file_name`) plutôt que de la
+  chaîne utilisateur directement — la clé n'a besoin que d'être stable et
+  unique, pas lisible.
+
+- **Open Redirect via header Host (`ui/auth_flow.py::_resolve_app_base_url`)**
+  — en l'absence du secret `APP_BASE_URL`, le header `Host` (falsifiable
+  selon la configuration du reverse proxy) était utilisé sans vérification
+  pour construire les URLs de redirection OAuth/Stripe. Ajout d'une fonction
+  `_is_trusted_host()` avec allowlist (`localhost`/`127.0.0.1`, suffixes
+  `.streamlit.app`, `.up.railway.app`, `.railway.app`) : un Host hors de
+  cette liste est ignoré et l'appli retombe sur le fallback historique
+  plutôt que de faire confiance à une valeur arbitraire. Rendre
+  `APP_BASE_URL` strictement obligatoire (erreur si absent) a été écarté :
+  cela casserait le comportement actuel qui permet de déployer sur un
+  nouvel environnement sans configuration manuelle immédiate — l'allowlist
+  couvre le risque réel (redirection vers un domaine tiers) sans ce
+  compromis.
+
+- **Fuite d'information dans les logs du webhook Stripe
+  (`vercel_webhook/api/stripe_webhook.py`)** — le traceback complet était
+  systématiquement envoyé sur stderr en cas d'erreur ; `str(exception)` peut
+  dans certains cas (ex. erreur de parsing JSON citant le contenu fautif)
+  inclure un fragment du payload (donc potentiellement des données client).
+  Par défaut, seul un message générique + type d'exception + `event_id`
+  Stripe (extrait en best-effort du payload, non fiable puisque non vérifié
+  à ce stade — utilisé uniquement pour corrélation avec le Dashboard Stripe,
+  jamais pour une décision) est désormais loggé. Le traceback complet reste
+  disponible via la variable d'environnement `STRIPE_WEBHOOK_DEBUG_LOGS=1`, à
+  réserver à un environnement de test/staging Vercel.
+
+**Point documenté sans patch (limitation structurelle) :**
+
+- **Durcissement des cookies de session (`ui/auth_flow.py`, cookie
+  `tva_session_token`)** — le composant tiers `stx.CookieManager`
+  (streamlit-cookies-manager) pose le cookie côté JavaScript, ce qui exclut
+  par nature l'attribut `HttpOnly`. Non patchable en code applicatif sans
+  changer de composant (refactor hors périmètre d'un correctif ponctuel).
+  Mesures compensatoires recommandées au niveau infrastructure (headers
+  `Strict-Transport-Security` et `Content-Security-Policy` sur Railway,
+  durée de vie de cookie réduite si le contexte le permet) plutôt qu'un
+  changement de code.
+
+**Validation :** `py_compile` sur les 7 fichiers modifiés (`excel_report.py`,
+`oss_export.py`, `ui/tabs/vies_ui.py`, `ui/billing_gate.py`,
+`ui/auth_flow.py`, `billing.py`, `vercel_webhook/api/stripe_webhook.py`) +
+suite complète `pytest` : 166 passed / 4 failed, baseline strictement
+inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en
+sandbox). Sanitizer `_safe()` validé par test manuel sur des payloads
+`=`, `+`, `-`, `@` ainsi que sur des valeurs `None`/numériques (aucune
+altération).

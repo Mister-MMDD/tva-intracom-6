@@ -67,6 +67,28 @@ class AuthContext:
         return f"{self.app_base_url}/?session_token={_tok}" if _tok else f"{self.app_base_url}/"
 
 
+_TRUSTED_HOST_SUFFIXES = (
+    ".streamlit.app",
+    ".up.railway.app",
+    ".railway.app",
+)
+
+
+def _is_trusted_host(host: str) -> bool:
+    """Vérifie que le header Host correspond à un déploiement connu de
+    l'application, avant de s'en servir pour construire une URL de
+    redirection (voir note dans _resolve_app_base_url). N'accepte pas de
+    port arbitraire ni d'userinfo (host:port ou user@host classiques d'un
+    Host header falsifié) au-delà de ce qu'un nom d'hôte légitime contient."""
+    _h = host.strip().lower()
+    if not _h or any(c in _h for c in ("/", "\\", "@", " ")):
+        return False
+    _hostname = _h.split(":", 1)[0]
+    if _hostname in ("localhost", "127.0.0.1"):
+        return True
+    return any(_hostname.endswith(suffix) for suffix in _TRUSTED_HOST_SUFFIXES)
+
+
 def _resolve_app_base_url() -> str:
     """Résout l'URL de base de l'application (pour les redirections OAuth/Stripe).
     Cherche dans st.secrets["APP_BASE_URL"], sinon tente une détection dynamique via les headers
@@ -77,9 +99,20 @@ def _resolve_app_base_url() -> str:
         return _url.rstrip("/")
 
     # 2. Détection dynamique via headers (robuste si le secret est absent)
+    #
+    # SÉCURITÉ (Open Redirect) : le header "Host" est fourni par le client et
+    # peut être falsifié (selon la configuration du reverse proxy en amont).
+    # Faire aveuglément confiance à sa valeur pour construire les URLs de
+    # redirection OAuth/Stripe permettrait à un attaquant d'envoyer un Host
+    # forgé afin de rediriger la victime vers un domaine tiers après connexion
+    # ou paiement. On ne fait donc confiance au header Host QUE s'il
+    # correspond à un motif de déploiement connu (localhost en dev, domaines
+    # Railway/Streamlit Cloud attendus) ; sinon on ignore le header et on
+    # tombe sur le fallback historique (étape 3) plutôt que de faire
+    # confiance à une valeur arbitraire.
     try:
         _host = st.context.headers.get("Host")
-        if _host:
+        if _host and _is_trusted_host(_host):
             # Si on est sur localhost, on reste en http, sinon on assume https (Streamlit Cloud)
             _proto = "http" if "localhost" in _host or "127.0.0.1" in _host else "https"
             return f"{_proto}://{_host}"

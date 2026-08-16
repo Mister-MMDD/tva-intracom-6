@@ -24,10 +24,22 @@ Réglages Vercel nécessaires :
       SUPABASE_DB_URL.
 """
 import importlib.util
+import json
+import os
 import sys
 import traceback
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+
+# SÉCURITÉ (fuite d'info dans les logs) : par défaut on ne logge qu'un message
+# générique + l'event id Stripe (identifiant non sensible, permet de
+# retrouver l'événement dans le Dashboard Stripe pour diagnostiquer). Le
+# traceback complet peut contenir l'exception str() elle-même, laquelle
+# inclut parfois un extrait du payload (ex: erreur de parsing JSON citant le
+# contenu fautif) — ce qui peut être des données client. On ne l'active que
+# si STRIPE_WEBHOOK_DEBUG_LOGS=1 est explicitement défini (à réserver à un
+# environnement de test/staging Vercel, jamais en production).
+_DEBUG_LOGS = os.environ.get("STRIPE_WEBHOOK_DEBUG_LOGS") == "1"
 
 # api/stripe_webhook.py -> vercel_webhook/ -> racine du repo -> tva_intracom/billing.py
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -73,13 +85,34 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             handle_stripe_webhook_event(payload, sig_header)
-        except Exception:
-            # Le traceback complet est loggé côté serveur (logs Vercel) pour
-            # diagnostic, mais JAMAIS renvoyé dans la réponse HTTP publique :
-            # un webhook Stripe est un endpoint exposé sans authentification
-            # applicative, un traceback y révélerait des chemins internes et
-            # potentiellement des fragments de payload.
-            print(traceback.format_exc(), file=sys.stderr)
+        except Exception as exc:
+            # Le détail complet n'est JAMAIS renvoyé dans la réponse HTTP
+            # publique : un webhook Stripe est un endpoint exposé sans
+            # authentification applicative.
+            #
+            # SÉCURITÉ (fuite d'info dans les logs) : par défaut on logge un
+            # message générique + le type d'exception + l'event id Stripe si
+            # extractible (best-effort, échec silencieux sinon — le payload
+            # n'est pas fiable tant que la signature n'est pas vérifiée, donc
+            # on ne fait que lire un champ pour le corrélationner aux logs
+            # Stripe, sans agir dessus). Le traceback complet (potentiellement
+            # porteur de fragments du payload via str(exc)) n'est loggé que si
+            # STRIPE_WEBHOOK_DEBUG_LOGS=1 est explicitement positionné
+            # (test/staging uniquement, jamais en production).
+            _event_id = None
+            try:
+                _event_id = json.loads(payload).get("id")
+            except Exception:
+                pass
+            if _DEBUG_LOGS:
+                print(traceback.format_exc(), file=sys.stderr)
+            else:
+                print(
+                    f"[stripe_webhook] Échec de traitement — "
+                    f"event_id={_event_id or 'inconnu'} "
+                    f"exception={type(exc).__name__}",
+                    file=sys.stderr,
+                )
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

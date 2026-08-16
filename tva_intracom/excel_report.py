@@ -122,6 +122,27 @@ class _ColumnWidthTracker:
             ws.column_dimensions[get_column_letter(col_idx)].width = max(length + 4, 12)
 
 
+_FORMULA_LEADING_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe(value):
+    """Neutralise une injection de formule Excel (CSV/Formula Injection,
+    cf. OWASP) sur une valeur texte issue d'un fichier importé (Amazon :
+    sale_id, display_id, ASIN, désignation produit, numéro de TVA
+    acheteur...). Ces champs sont NON FIABLES : un fichier peut être altéré
+    avant import par un tiers ayant accès au flux (ex: ASIN falsifié
+    contenant '=HYPERLINK(...)'). Si le premier caractère est un
+    déclencheur de formule pour Excel/LibreOffice/Google Sheets, on préfixe
+    d'une apostrophe pour forcer une interprétation en texte pur — sans
+    incidence sur l'affichage, seulement sur la barre de formule.
+    IMPORTANT : ne jamais appeler sur les formules internes construites par
+    l'appli (ex: "=E5+F5") — celles-ci ne doivent PAS passer par cette
+    fonction, sous peine d'être neutralisées elles aussi."""
+    if isinstance(value, str) and value and value[0] in _FORMULA_LEADING_CHARS:
+        return "'" + value
+    return value
+
+
 def _wcell(ws, value, font=None, fill=None, alignment=None, number_format=None):
     """Construit une cellule stylée prête à être ajoutée via `ws.append(...)`.
 
@@ -607,7 +628,7 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
         _ecart = round(_amz_vat - _vat_amount_f, 2)
 
         _row_values = [
-            str(getattr(sale, "display_id", "") or sale.sale_id),
+            _safe(str(getattr(sale, "display_id", "") or sale.sale_id)),
             str(sale.transaction_date),
             str(sale.stock_country),
             str(sale.buyer_country),
@@ -787,7 +808,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     for r, nat, dep, arr, tva_amz, tva_mot, ecart, type_label in detail_rows:
         _flow = f"{dep}→{arr}"
         _vals2 = [
-            str(getattr(r.sale, "display_id", "") or r.sale.sale_id), nat, type_label, _flow,
+            _safe(str(getattr(r.sale, "display_id", "") or r.sale.sale_id)), nat, type_label, _flow,
             str(r.scenario.value), float(r.sale.amount_ht), float(tva_amz), float(tva_mot), float(ecart),
         ]
         ws.append([
@@ -872,7 +893,11 @@ def _write_vies_history_tab(ws, results, scope_id: str) -> None:
         _scenario = scenario_by_full_vat.get(full_vat, "")
         for entry in history:
             _status = i18n_("xl_vies_status_valid") if entry["valid"] else i18n_("xl_vies_status_invalid")
-            _vals = [_display_vat, entry["checked_at"], _status, entry["country_code"], entry["name"], _scenario, entry["error"]]
+            # _display_vat = numéro TVA BRUT saisi par l'acheteur (voir note plus
+            # haut) et entry["name"]/entry["error"] proviennent de la réponse VIES
+            # (nom officiel de l'entreprise) : toutes deux non fiables -> _safe().
+            _vals = [_safe(_display_vat), entry["checked_at"], _status, entry["country_code"],
+                     _safe(entry["name"]), _scenario, _safe(entry["error"])]
             ws.append([_wcell(ws, v) for v in _vals])
             ws.row_dimensions[row].height = 16
             row += 1
@@ -1032,7 +1057,7 @@ def _write_intrastat_tab(
 
             _vals_flux = [
                 mois, f"{_get_country_name(dep)} ({dep})", f"{_get_country_name(arr)} ({arr})", sens,
-                i18n_("xl_intrastat_transfer_desc"), asin, desc, i18n_("xl_intrastat_to_complete"), qty,
+                i18n_("xl_intrastat_transfer_desc"), _safe(asin), _safe(desc), i18n_("xl_intrastat_to_complete"), qty,
                 i18n_("xl_intrastat_to_complete"), float(valeur), "DAP / DDP", i18n_("xl_intrastat_estimated_val_remark"),
             ]
             ws.append([
@@ -1376,7 +1401,7 @@ def _write_fba_transfers_tab(ws, all_fc_transfers: list) -> None:
     for i, t in enumerate(all_fc_transfers, 2):
         tx_id, date_str, asin, designation, dep, arr, qty = _parse_fc_transfer(t)
         tx_type = (t.get("TRANSACTION_TYPE") or t.get("transaction_type") or "FC_TRANSFER").upper()
-        _vals = [tx_id, date_str, asin, designation, qty, dep or "—", arr or "—", tx_type]
+        _vals = [_safe(tx_id), date_str, _safe(asin), _safe(designation), qty, dep or "—", arr or "—", tx_type]
         ws.append([_wcell(ws, v) for v in _vals])
         ws.row_dimensions[i].height = 18
 
@@ -1512,9 +1537,9 @@ def _write_fba_aic_tab(
             _arr_lbl = f"{_get_country_name(arr)} ({arr})"
             _desc80 = designation[:80]
             _avg_f, _base_f, _taux_f, _tva_f = float(avg_price), float(base_aic), float(taux_arr), float(tva_aic)
-            _vals = [_dep_lbl, _arr_lbl, asin, _desc80, qty, _avg_f, _base_f, _taux_f, _tva_f, statut]
+            _vals = [_dep_lbl, _arr_lbl, _safe(asin), _safe(_desc80), qty, _avg_f, _base_f, _taux_f, _tva_f, statut]
             ws.append([
-                _wcell(ws, _dep_lbl), _wcell(ws, _arr_lbl), _wcell(ws, asin), _wcell(ws, _desc80),
+                _wcell(ws, _dep_lbl), _wcell(ws, _arr_lbl), _wcell(ws, _safe(asin)), _wcell(ws, _safe(_desc80)),
                 _wcell(ws, qty),
                 _wcell(ws, _conv(avg_price), number_format=_fmt_curr),
                 _wcell(ws, _conv(base_aic), number_format=_fmt_curr),
