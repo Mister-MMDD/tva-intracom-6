@@ -208,7 +208,7 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
 
 ### Validation VIES
 - **Architecture résiliente** à trois niveaux : Cache Privé > Cache Global > API UE.
-- **Piste d'audit** : Historique append-only des vérifications pour justifier les exonérations B2B.
+- **Piste d'audit & Pseudonymisation** : Historique des vérifications avec pseudonymisation SHA-256 pour justifier les exonérations B2B en respectant la RGPD/DPRA.
 - **Certificat PDF** : Génération de preuve de validité opposable en cas de contrôle.
 
 ### Conversion devises
@@ -239,7 +239,7 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
 | 5 | **TVA locale par pays** | Immatriculations locales (stocks FBA) avec détail mensuel net |
 | 6 | **Audit Écarts Amazon** | Ventes où la TVA calculée diffère de celle collectée par Amazon |
 | 7 | **Historique VIES** | Toutes les vérifications VIES horodatées (piste d'audit) |
-| 8 | **Analyse AIC FBA** | AIC estimées par flux (art. 17 Dir. 2006/112/CE) |
+| 8 | **Analyse AIC FBA** | AIC estimées par flux avec application des taux de TVA réels par ASIN (art. 17 Dir. 2006/112/CE) |
 | 9 | **Transferts FBA Détail** | Liste brute des mouvements de stock entre entrepôts |
 | 10 | **Intrastat (EMEBI)** | Aide au remplissage : introductions et expéditions par mois/ASIN |
 | 11 | **INVOICE & CREDIT_NOTE** | Détail des écritures de service Amazon |
@@ -276,11 +276,14 @@ L'onglet fournit les flux UE->FR et FR->UE agrégés par ASIN, avec calcul de la
 
 ---
 
-## Conformité Amazon DPP
+## Conformité Amazon DPP & Sécurité
 
-Le moteur respecte les exigences de protection des données personnelles (PII) :
-- **Chiffrement au Repos** : Algorithme Fernet (AES-128 CBC + HMAC-SHA256) pour les données sensibles.
-- **Sécurité Fail-Safe** : Interdiction de traitement si la clé de chiffrement est absente.
+Le moteur respecte les exigences de protection des données personnelles (PII) et les standards OWASP :
+- **Chiffrement au Repos** : Algorithme Fernet (AES-128 CBC + HMAC-SHA256) pour les données sensibles (noms, adresses, mais aussi n° SIREN et IOSS).
+- **Pseudonymisation réversible** : Hachage SHA-256 salé des identifiants (e-mails) pour l'historique VIES, garantissant l'isolation sans stockage en clair.
+- **Protection contre l'injection de formules** : Sanitization systématique des exports Excel/CSV pour bloquer les attaques par injection de formules (`=`, `+`, `-`, `@`).
+- **Isolation Multi-tenant** : Clés de cache isolées par utilisateur (`current_user.id`) empêchant toute fuite de données entre comptes via le cache global.
+- **Sécurité Fail-Safe** : Interdiction de traitement si la clé de chiffrement est absente ; retrait du mécanisme de repli en clair (fail-open) pour garantir l'intégrité du chiffrement.
 - **Rétention limitée** : Suppression automatique des PII après 365 jours.
 - **TLS/SSL forcé** pour tous les échanges avec la base de données.
 

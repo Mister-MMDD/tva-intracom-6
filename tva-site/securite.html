@@ -49,12 +49,20 @@
             <p>Nous utilisons exclusivement les API gouvernementales : <strong>VIES</strong> (Commission Européenne) pour la TVA et <strong>SDW</strong> (Banque Centrale Européenne) pour les taux de change.</p>
         </div>
         <div class="card">
-            <h3>🔐 Chiffrement AES-128</h3>
-            <p>Toutes les données persistantes (SIREN, Emails) sont chiffrées au niveau applicatif avant d'être écrites sur le disque, rendant toute fuite de données inexploitable.</p>
+            <h3>🔐 Chiffrement Fernet AES-128</h3>
+            <p>Toutes les données sensibles (SIREN, IOSS, Emails) sont chiffrées via l'algorithme <strong>Fernet (AES-128 CBC + HMAC-SHA256)</strong> avant d'être écrites sur le disque, avec une protection Fail-Safe interdisant tout traitement en cas d'absence de clé.</p>
         </div>
         <div class="card">
             <h3>📦 Conformité Amazon DPP</h3>
-            <p>Notre infrastructure respecte scrupuleusement la <i>Data Protection Policy</i> d'Amazon. Nous garantissons une isolation totale entre les comptes clients.</p>
+            <p>Notre infrastructure respecte scrupuleusement la <i>Data Protection Policy</i> d'Amazon. Nous garantissons une isolation totale entre les comptes clients via des clés de cache uniques par utilisateur.</p>
+        </div>
+        <div class="card">
+            <h3>🛡️ Pseudonymisation SHA-256</h3>
+            <p>L'historique des vérifications VIES utilise une pseudonymisation par hachage SHA-256 salé des identifiants, permettant la persistance des preuves d'audit sans stockage d'e-mails en clair.</p>
+        </div>
+        <div class="card">
+            <h3>📉 Protection Formula Injection</h3>
+            <p>Tous les exports (Excel, CSV) sont protégés contre les injections de formules (OWASP) via une sanitization automatique des caractères spéciaux en début de cellule.</p>
         </div>
         <div class="card">
             <h3>🌍 Hébergement Européen</h3>
