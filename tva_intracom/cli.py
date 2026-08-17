@@ -215,7 +215,7 @@ def main(argv: List[str] | None = None) -> int:
     if args.xlsx:
         from .excel_report import export_xlsx
 
-        xlsx_path = export_xlsx(results, args.xlsx, summary=summary)
+        xlsx_path = export_xlsx(results, args.xlsx, scope_id=_CLI_VIES_SCOPE_ID, summary=summary)
         print(f"\nRapport Excel genere : {xlsx_path}")
 
     return 0

@@ -798,7 +798,7 @@ def _chronological_sort_key(sale: Sale) -> str:
 
 def _run_oss_loop(
         sorted_items: list[Sale],
-        refund_keys: set[tuple[str, str]],
+        refund_keys: set[tuple[str, Decimal]],
         marketplace_name: str,
         asin_to_category: dict[str, str],
         apply_fr_under_threshold: bool,
@@ -931,7 +931,7 @@ def _run_oss_loop(
 def compute_all_with_vies(
         sales: list[Sale],
         scope_id: str,
-        asin_to_category: dict[str, str] = None,
+        asin_to_category: dict[str, str] | None = None,
         on_invalid: str = "reclassify",
         marketplace_name: str = "Amazon",
         check_vies_func=None,  # Conservé pour ne pas faire planter app.py
@@ -1161,7 +1161,12 @@ def compute_all_with_vies(
     vies_summary.total_checked = len(vat_seen)
     for fv, vr in checked_vats.items():
         if getattr(vr, "is_manual_override", False):
-            vies_summary.manual_override_count += 1
+            # BUGFIX 2026-08-17 : `manual_override_count` n'existe pas comme
+            # champ sur ViesValidationSummary (slots=True) — cette ligne
+            # levait AttributeError au premier override manuel rencontré.
+            # `total_manual_override` (property, models.py) fait déjà la
+            # somme manual_valid_count + manual_invalid_count ci-dessous,
+            # aucun champ dédié n'est nécessaire.
             # `manual_override_count` seul ne distinguait pas les overrides
             # "valide" des "invalide" : `manual_valid_count`/
             # `manual_invalid_count` (voir models.py, ViesValidationSummary)

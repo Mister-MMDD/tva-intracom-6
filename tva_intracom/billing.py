@@ -22,8 +22,6 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-import psycopg2
-import psycopg2.pool
 import threading
 
 # IMPORTANT : streamlit n'est PAS installé dans l'environnement serverless

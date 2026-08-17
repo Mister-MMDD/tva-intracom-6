@@ -730,7 +730,7 @@ if uploaded_files:
                 with calc_progress_ph.container():
                     _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
                     results, vies_summary, oss_summary, refund_results, summary = _run_full_calc(
-                        lambda p, t: _vies_bar.progress(p, text=t or _("calc_progress_vies"))
+                        lambda p, t: (_vies_bar.progress(p, text=t or _("calc_progress_vies")), None)[1]
                     )
                 calc_progress_ph.empty()
 

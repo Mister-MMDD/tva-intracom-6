@@ -622,7 +622,7 @@ def _total_cell(ws, value, fmt: str = None, alignment: Alignment = None):
 
 
 def _build_oss_resume(
-        wb: Workbook, data: OssExportData, period: str,
+        wb: Workbook, data: "OssExportData | IossExportData", period: str,
         sheet_name: str = "OSS_Résumé",
         title_key: str = "oss_export_title", subtitle_key: str = "oss_export_subtitle",
         total_label_key: str = "oss_total_countries", footer_key: str = "oss_footer_note",

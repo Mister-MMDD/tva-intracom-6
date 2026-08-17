@@ -21,8 +21,6 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-import psycopg2
-import psycopg2.pool
 import requests
 
 from .config import get_secret
@@ -85,7 +83,7 @@ def _run(fn):
     return run_with_retry(_get_pool, fn, on_retry=reset_shared_pool)
 
 
-def _init_schema(pool: psycopg2.pool.AbstractConnectionPool) -> None:
+def _init_schema(pool: NonPoolingConnectionPool) -> None:
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:

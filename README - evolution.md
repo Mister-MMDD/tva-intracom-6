@@ -3037,3 +3037,92 @@ séparément, aucune modification apportée ici.
 **Validation** : `py_compile` sur les 7 fichiers modifiés + suite complète
 `pytest` : 174 passed / 4 failed, identique au repo vierge (aucune
 régression introduite par ces corrections).
+
+## 2026-08-17 — Revue d'erreurs IDE fichier par fichier (auth/billing/cli/database/engine/excel_report/oss_export/oss_xml/security/vies_engine/app.py)
+
+Revue systématique de la liste d'erreurs signalées par l'IDE sur 11 fichiers,
+chaque point vérifié sur le code réel (fetch GitHub `dev`), classé en bug
+réel / cosmétique-type / faux positif, avant tout patch.
+
+**Bugs réels corrigés (2) :**
+
+- `engine.py` (L1164) : `vies_summary.manual_override_count += 1` levait
+  `AttributeError` au premier override manuel VIES rencontré —
+  `ViesValidationSummary` (`slots=True`, models.py) n'a pas ce champ,
+  seulement `manual_valid_count`/`manual_invalid_count` et la property
+  `total_manual_override` qui en fait déjà la somme. Ligne supprimée
+  (remplacée par un commentaire explicatif) ; `manual_valid_count`/
+  `manual_invalid_count` juste en dessous continuent d'être incrémentés
+  normalement, `total_manual_override` reste donc correct.
+- `cli.py` (L218) : `export_xlsx(results, args.xlsx, summary=summary)`
+  omettait le paramètre obligatoire `scope_id`, provoquant un `TypeError`
+  systématique dès `--xlsx` utilisé en CLI. Corrigé en passant
+  `scope_id=_CLI_VIES_SCOPE_ID` (déjà utilisé plus haut dans le fichier pour
+  le même besoin).
+
+**Cosmétique / annotations de type corrigées (aucun impact runtime), 5 points :**
+
+- `auth.py` : `import psycopg2` inutile retiré ; annotation
+  `_init_schema(pool: psycopg2.pool.AbstractConnectionPool)` remplacée par
+  `NonPoolingConnectionPool` (classe maison réellement utilisée) — l'import
+  `psycopg2.pool` devenu inutile a aussi été retiré.
+- `billing.py` : `import psycopg2` et `import psycopg2.pool` inutiles retirés
+  (seule une docstring en texte les mentionnait).
+- `engine.py` : `refund_keys: set[tuple[str, str]]` corrigé en
+  `set[tuple[str, Decimal]]` (incohérent avec `_sale_key()` et la ligne
+  1009 utilisant déjà la bonne annotation) ; `asin_to_category: dict[str,
+  str] = None` corrigé en `dict[str, str] | None = None` (le `None` est
+  bien géré au runtime, seule l'annotation mentait).
+- `oss_export.py` : `_build_oss_resume(data: OssExportData, ...)` élargi en
+  `data: "OssExportData | IossExportData"` — réutilisation volontaire et
+  documentée par `_build_ioss_resume()` (le paramètre `lines=` est toujours
+  fourni sur ce chemin, `data.oss_by_country` n'est jamais lu), le typage
+  reflète maintenant l'usage réel.
+- `app.py` : callback de progression VIES (petit fichier) renvoyait le
+  `DeltaGenerator` de `st.progress()` au lieu de `None` attendu par la
+  signature du callback — valeur de toute façon ignorée par l'appelant,
+  corrigé pour forcer un retour `None` explicite.
+
+**Faux positifs identifiés, non modifiés (limites IDE/stubs, aucun risque
+runtime confirmé par lecture du code réel) :**
+
+- `excel_report.py` / `oss_export.py` : `'Cell' has no attribute
+  font/fill/alignment/number_format/border` — vient du helper
+  `WriteOnlyCell` déjà en place (conforme aux règles write-only : largeurs
+  avant `append()`, pas de `merge_cells()` classique) ; aucun `ws.cell()`
+  post-append trouvé qui casserait réellement le mode write-only.
+- `oss_xml.py` (L369) : `toprettyxml(..., encoding="utf-8")` retourne bien
+  des `bytes` au runtime (cohérent avec la signature `-> bytes` déclarée) ;
+  stub typeshed de `xml.dom.minidom` imprécis (ignore l'effet du paramètre
+  `encoding` sur le type de retour).
+- `security.py` : narrowing de `_fernet_singleton: Fernet | None` perdu par
+  l'inspecteur sur une variable module-level réassignée via `global` — la
+  logique garantit un `Fernet` non-`None` à chaque `return` de
+  `_get_fernet()`.
+- `vies_engine.py` (L1610-1630) : `dict[str, tuple[ViesResult, bool]]` bien
+  déclaré et respecté par `_db_get_scope_batch`/`_db_get_global_batch` ;
+  élargissement en union par l'inspecteur sur l'indexation de tuple
+  hétérogène (`tuple[X, Y].__getitem__(int)`), limite connue de certains
+  checkers.
+- `app.py` : les 4 `results`/`refund_results`/`summary`/`oss_summary`
+  "can be undefined" viennent toutes de code situé après un `st.stop()`
+  — Streamlit ne type pas `st.stop()` en `NoReturn`, l'inspecteur ne sait
+  donc pas que le flux s'arrête réellement à cet endroit.
+- `app.py` : `getvalue`/`name`/`size` vs `bytes | Any` sur les fichiers
+  uploadés — stubs Streamlit imprécis sur `file_uploader()` (retourne
+  toujours des `UploadedFile` en usage normal ici, jamais de `bytes` bruts).
+
+**Point hors périmètre, non traité ici** : `database.py` (`Optional[...]`
+sur le pool partagé) suit le même schéma que `auth.py`/`billing.py`
+ci-dessus — pas d'annotation à corriger côté `database.py` lui-même, le
+type déclaré (`Optional["NonPoolingConnectionPool"]`) est correct pour un
+singleton lazy-initialisé.
+
+**Validation** : `py_compile` OK sur les 6 fichiers modifiés
+(`auth.py`, `billing.py`, `cli.py`, `engine.py`, `oss_export.py`,
+`app.py`) ; suite complète `pytest` : 174 passed / 4 failed — identique au
+repo vierge (3 échecs confirmés pré-existants indépendamment de cette
+session : `SUPABASE_DB_URL` absente en sandbox ×2 côté VIES + casse
+`platform` côté parseur Amazon ; 1 échec supplémentaire lié à
+`SUPABASE_DB_URL` sur `test_check_vat_raw_valid`). Aucune régression
+introduite.
