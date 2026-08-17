@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 from decimal import Decimal, InvalidOperation
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ def is_national_tax_id(vat: str, buyer_country: str) -> bool:
         return False
     cc = buyer_country.strip().upper()
 
-    _PATTERNS: dict[str, object] = {
+    _PATTERNS: dict[str, list[Callable[[str], bool]]] = {
         "ES": [
             lambda s: bool(re.match(r'^\d{8}[A-Z]$', s)),           # NIF personne physique
             lambda s: bool(re.match(r'^[A-Z]\d{7}[A-Z0-9]$', s)),   # CIF / NIF entité

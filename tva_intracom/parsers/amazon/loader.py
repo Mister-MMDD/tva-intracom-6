@@ -36,7 +36,7 @@ from .constants import (
     safe_decimal,
 )
 from .detect import EXPECTED_COLUMNS, detect_format, detect_separator, normalize_header
-from .parsers import PARSERS
+from .parsers import PARSERS, _RowParser
 from ...ecb_rates import prefetch_rates
 from ...models import BuyerType, Sale
 from ...vies_engine import _normalize_vat_id as normalize_vat
@@ -99,13 +99,19 @@ class AmazonImportResult:
 
 def _process_rows(
     rows_to_process: list[tuple[int, dict]],
-    parser,
+    parser: _RowParser,
     fmt: int,
     seller_country: str,
     convert_currencies: bool,
     asin_to_category: Optional[dict[str, str]],
     result: AmazonImportResult,
-    progress_callback: Optional[Callable[[int, int], None]] = None,
+    # Signature harmonisée avec load_amazon_report/_bce_cb (3e paramètre
+    # `label` optionnel) : avant ce correctif, les deux fonctions déclaraient
+    # des signatures Callable incompatibles pour le même paramètre transmis
+    # tel quel de l'une à l'autre (aucun bug actif tant que seul le
+    # callback 2-arg de app.py y transitait, mais un futur branchement du
+    # callback 3-arg `_bce_cb` sur ce chemin aurait levé un TypeError).
+    progress_callback: Optional[Callable[[int, int, Optional[str]], None]] = None,
     progress_step: int = 500,
     target_currency: str = "EUR",
     ioss_number: str = "",
@@ -155,7 +161,7 @@ def _process_rows(
             processed % progress_step == 0 or processed == total
         ):
             try:
-                progress_callback(processed, total)
+                progress_callback(processed, total, None)
             except Exception:
                 # Le callback ne doit jamais interrompre le parsing (ex: erreur
                 # d'affichage Streamlit si le composant a été démonté entre-temps).
@@ -431,7 +437,7 @@ def _read_and_prepare_rows(
     path: Path,
     encoding: str,
     result: AmazonImportResult,
-) -> tuple[list, int, object]:
+) -> tuple[list, int, _RowParser]:
     """Lit le fichier, détecte le format et prépare les lignes à traiter.
 
     Isolé dans sa propre fonction pour que `raw_rows` (les lignes brutes,

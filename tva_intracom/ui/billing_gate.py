@@ -33,7 +33,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime as _dt
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import streamlit as st
 
@@ -291,8 +291,8 @@ def build_billing_gate(
         current_user,
         siren_entreprise: str,
         siren_quota_status,
-        all_stock_countries,
-        pay_eu,
+        all_stock_countries: "set[str] | Iterable[str]",
+        pay_eu: "set[str]",
         seller_is_importer: bool,
         local_vat_numbers: dict,
         ioss_number: str,
@@ -300,7 +300,7 @@ def build_billing_gate(
         stripe_success_url,
         stripe_cancel_url,
         vies_scope_id: str = "",
-        all_account_identifiers=None,
+        all_account_identifiers: "Optional[set[str]]" = None,
         nom_entreprise: str = "",
         home_country: str = "FR",
 ) -> BillingGate:

@@ -302,7 +302,11 @@ def render_declarations(ctx: TabContext) -> None:
         # On utilise le même formateur que detail_ventes pour avoir un bel affichage
         # même si les lignes sont partiellement masquées.
         # On force le type object pour permettre le masquage par chaînes (cadenas).
-        _recap_preview = _recap_df.copy().astype(object)
+        # "object" en chaîne plutôt que le type Python object : comportement
+        # runtime identique, mais évite un échec de résolution des overloads
+        # pandas qui faisait retomber le type inféré sur `Never` (et donc
+        # tout accès ultérieur à `_recap_preview.columns` invisible pour l'IDE).
+        _recap_preview = _recap_df.copy().astype("object")
         tva_cols = [_("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")]
         ca_cols = [_("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net")]
 

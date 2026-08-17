@@ -9,6 +9,15 @@ import logging
 from dataclasses import dataclass
 from datetime import date as _date
 from decimal import Decimal, ROUND_HALF_UP
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Import réservé au typage statique : BuyerType est injecté en
+    # paramètre (voir classify_buyer) pour éviter l'import circulaire
+    # réel au runtime avec models.py. `from __future__ import annotations`
+    # (en tête de fichier) rend cette annotation paresseuse, donc cet
+    # import ne s'exécute jamais en dehors des vérificateurs de type.
+    from ...models import BuyerType
 
 from .constants import (
     REFUND_TYPES,
@@ -31,7 +40,7 @@ _CENT = Decimal("0.01")
 @dataclass
 class BuyerClassification:
     buyer_vat: str         # numéro normalisé (vide si B2C)
-    buyer_type: object     # BuyerType.B2C ou BuyerType.B2B
+    buyer_type: "BuyerType"  # BuyerType.B2C ou BuyerType.B2B
     buyer_vat_valid: bool  # présence d'un numéro (pas validation VIES)
     national_tax_id: str = ""  # NIF national brut conservé même si buyer_vat est vidé
     # (cross-border sans préfixe EU, cf. Cas 2) — pour
@@ -43,7 +52,7 @@ def classify_buyer(
         arrival: str,
         departure: str,
         normalize_fn,   # _normalize_vat_id_vies depuis vies.py
-        BuyerType,      # enum injecté pour éviter l'import circulaire
+        BuyerType: "type[BuyerType]",  # enum injecté pour éviter l'import circulaire
 ) -> BuyerClassification:
     """Classifie l'acheteur (B2B/B2C) et nettoie le numéro TVA.
 

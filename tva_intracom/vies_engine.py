@@ -73,8 +73,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import psycopg2
-import psycopg2.pool
 from psycopg2.extras import execute_values
 
 from .security import encrypt_data as _enc, decrypt_data as _dec

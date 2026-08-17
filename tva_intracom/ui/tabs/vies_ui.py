@@ -225,6 +225,13 @@ def render_vies(ctx: TabContext) -> None:
         except Exception:
             _existing_overrides_b = []
             _VIES_TTL_B = 90
+            # Garantie explicite (avant : implicite via l'atomicité de
+            # l'import ci-dessus + le garde-fou `if _existing_overrides_b:`
+            # plus bas, qui rendait ces 3 noms inutilisés dans ce chemin —
+            # correct au runtime mais fragile aux futures évolutions, et
+            # signalé par l'IDE comme "referenced before assignment").
+            _smo_edit = _dmo_edit = None
+            _vies_is_expired_b = lambda *_a, **_kw: True
 
         # On ne garde que les overrides concernant un numéro de TVA présent
         # dans le fichier actuellement chargé — pas tout l'historique du

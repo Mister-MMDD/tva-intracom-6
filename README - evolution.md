@@ -2937,3 +2937,103 @@ Stripe (Developers > Events > Resend) une fois le correctif déployé.
 (metadata="business" périmée, price_id pointant vers Cabinet annuel) :
 plan résolu = "cabinet" (attendu), et vérification du repli sur la metadata
 quand le price_id est inconnu.
+
+## Audit typage IDE — 11 fichiers, faux positifs rejetés + 7 corrections (2026-08-16, suite)
+
+Revue systématique des avertissements de typage remontés par l'IDE sur 11
+fichiers (`classify.py`, `constants.py`, `loader.py`, `billing_gate.py`,
+`formatting.py`, `sidebar.py`, `declarations.py`, `detail_ventes.py`,
+`telechargements.py`, `vies_ui.py`, `visualisations.py`), avec vérification
+de chaque point contre le code réel avant toute action.
+
+**Corrections appliquées (vrais soucis de typage, aucun bug runtime actif) :**
+
+1. **`loader.py`** — `_read_and_prepare_rows()` retournait `object` au lieu
+   de `_RowParser` pour le parser détecté, ce qui masquait toute vérification
+   statique sur `parser.tx_type/departure/arrival/...` dans `_process_rows()`
+   et `load_amazon_report()`. Retypé en `tuple[list, int, _RowParser]`.
+   Signature `progress_callback` de `_process_rows` harmonisée avec celle de
+   `load_amazon_report`/`_bce_cb` (3ᵉ paramètre `label` optionnel) — les deux
+   déclaraient des `Callable` incompatibles pour le même objet transmis tel
+   quel ; aucun bug actif tant que seul le callback 2-arg y transitait, mais
+   fragile en cas de futur branchement du callback 3-arg sur ce chemin.
+2. **`classify.py`** — `BuyerClassification.buyer_type` et le paramètre
+   `BuyerType` de `classify_buyer()` étaient typés `object` pour éviter
+   l'import circulaire réel avec `models.py`. Typés proprement via
+   `TYPE_CHECKING` (import réservé au vérificateur de types, jamais exécuté
+   au runtime) — l'anti-circularité est préservée à l'identique.
+3. **`constants.py`** — `_PATTERNS` (dans `is_national_tax_id`) était typé
+   `dict[str, object]` alors que ses valeurs sont des listes de callables.
+   Retypé `dict[str, list[Callable[[str], bool]]]`.
+4. **`billing_gate.py`** — `pay_eu`, `all_stock_countries` et
+   `all_account_identifiers` (paramètres de `build_billing_gate`) n'étaient
+   pas typés, ce qui cassait l'inférence de `sorted()` sur ces ensembles et
+   provoquait des faux mismatches lors des lookups `dict[str, ...]` et de la
+   construction de `list[tuple[str, str]]` en aval. Typés `set[str] |
+   Iterable[str]`, `set[str]` et `Optional[set[str]]`.
+5. **`formatting.py`** — 7 paramètres annotés avec un type non-Optional mais
+   un défaut `None` (`_gated_preview_table`, `_smart_money_df`) : passés en
+   `Optional[...] = None`. Les annotations de retour `-> st.column_config.
+   NumberColumn` de `_money_col`/`_pct_col` étaient invalides
+   (`NumberColumn` est une fonction factory Streamlit, pas une classe) :
+   annotations retirées.
+6. **`declarations.py`** — `.astype(object)` (type Python) faisait échouer
+   la résolution des overloads pandas et retombait sur `Never`, rendant
+   `_recap_preview.columns` invisible pour l'IDE. Remplacé par
+   `.astype("object")` (chaîne) — comportement runtime strictement
+   identique.
+7. **`vies_ui.py`** — dans le bloc `try/except` d'import optionnel des
+   overrides manuels VIES, les noms `_smo_edit`/`_dmo_edit`/
+   `_vies_is_expired_b` n'étaient définis que si l'import réussissait ; la
+   garantie qu'ils ne soient jamais appelés en cas d'échec reposait
+   implicitement sur l'atomicité de l'import + un garde-fou plus bas
+   (`if _existing_overrides_b:`). Toujours correct au runtime, mais fragile
+   pour un futur ajout de code hors de ce garde-fou. Fallback explicite
+   ajouté dans le bloc `except`.
+
+**Faux positifs identifiés et volontairement laissés en l'état** (limites
+des stubs pandas/plotly/Streamlit ou du narrowing de l'IDE sur les
+fermetures `nonlocal`), avec justification consignée dans ce changelog
+plutôt que silencieusement ignorés :
+- `classify.py` L196 : narrowing de `tx_date: _date | None` non suivi par
+  l'IDE après le bloc `if tx_date is None: tx_date = ...` (garantie
+  correcte au runtime).
+- `loader.py` : `to_dict("records")` (ambiguïté de stub pandas sur l'union
+  de retour selon l'`orient`), et l'écriture volontaire de `None` dans
+  `rows_to_process[idx]` pour libération RAM (documentée sur place).
+- `billing_gate.py` : `stripe_success_url`/`stripe_cancel_url` typés `Any`
+  mais defaultés à `field(default=None)` — quirk connu de l'inspecteur
+  PyCharm sur `dataclasses.field()`, qui infère parfois depuis le défaut
+  plutôt que depuis l'annotation explicite.
+- `sidebar.py` L567 : `format_func` de `st.selectbox` typé `Any | None` par
+  le stub Streamlit, mismatche avec le `dict[str, str]` correctement typé
+  `_siren_label_by_value` — sans risque au runtime (`v` est toujours une
+  chaîne SIREN de la liste d'options).
+- `declarations.py`/`detail_ventes.py` : `sorted()` sur des dicts non
+  paramétrés (`_aggregate_declarations_raw() -> dict`) et `.rename()`/
+  `.sort_values()` sur un `DataFrame` sélectionné via une liste de colonnes
+  construite par `.append()`/`+=` — ambiguïtés de stubs pandas sur
+  l'overload `__getitem__`/`to_dict`, sans impact runtime.
+- `telechargements.py` : `_results_net_cache: list | None` réassigné dans
+  une fermeture `nonlocal` — l'IDE ne suit pas la garantie de non-`None` à
+  travers la fermeture (même limite que le point `classify.py` ci-dessus).
+- `visualisations.py` (L153, 256, 261, 286) et `vies_ui.py` (L394) :
+  `go.Bar(marker_color="#hex"/dict.get(...))` — les stubs auto-générés de
+  Plotly ne reconnaissent pas toujours `marker_color` comme acceptant un
+  `str` scalaire (limite connue de ces stubs).
+- `vies_ui.py` L146 : aucune correspondance dict/str trouvée dans le code
+  réel à cet endroit après vérification — signalé pour clarification si le
+  point persiste dans l'IDE.
+
+**Point hors périmètre constaté (non corrigé ici)** : `pytest` sur `dev`
+remonte désormais 174 passed / 4 failed (contre 166/4 au dernier baseline
+enregistré) — le test supplémentaire en échec,
+`test_parsers.py::TestAmazonParserWrapper::test_parse_via_parsers`
+(`'Amazon' == 'amazon'`, casse du champ `platform`), est confirmé
+pré-existant sur `dev` **avant** les corrections de cette session
+(reproduit sur un clone vierge du repo) — régression indépendante à traiter
+séparément, aucune modification apportée ici.
+
+**Validation** : `py_compile` sur les 7 fichiers modifiés + suite complète
+`pytest` : 174 passed / 4 failed, identique au repo vierge (aucune
+régression introduite par ces corrections).

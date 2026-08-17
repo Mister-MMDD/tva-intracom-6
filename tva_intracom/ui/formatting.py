@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 import streamlit as st
@@ -209,8 +209,13 @@ def _fmt(value, symbol=None) -> str:
 
 # Helpers column_config réutilisables
 # ── Colonne monétaire : tri numérique conservé, affichage smart (0 déc. ou 2 déc.)
-def _money_col(label: str, help_txt: str = "", symbol=None, width="small") -> st.column_config.NumberColumn:
-    """NumberColumn monétaire : entier si .00, sinon 2 décimales."""
+def _money_col(label: str, help_txt: str = "", symbol=None, width="small"):
+    """NumberColumn monétaire : entier si .00, sinon 2 décimales.
+
+    Pas d'annotation de retour : `st.column_config.NumberColumn` est une
+    fonction factory Streamlit (pas une classe), donc invalide comme
+    annotation de type — l'IDE la signalait comme "Invalid type annotation".
+    """
     if symbol is None:
         symbol = st.session_state.get("currency_symbol", "€")
         
@@ -222,8 +227,9 @@ def _money_col(label: str, help_txt: str = "", symbol=None, width="small") -> st
     )
 
 
-def _pct_col(label: str, help_txt: str = "", width="small") -> st.column_config.NumberColumn:
-    """NumberColumn pourcentage : 1 décimale, suffixe %."""
+def _pct_col(label: str, help_txt: str = "", width="small"):
+    """NumberColumn pourcentage : 1 décimale, suffixe % (cf. _money_col
+    pour la raison de l'absence d'annotation de retour)."""
     return st.column_config.NumberColumn(
         label,
         format="%.1f%%",
@@ -234,10 +240,10 @@ def _pct_col(label: str, help_txt: str = "", width="small") -> st.column_config.
 
 def _smart_money_df(
     df: pd.DataFrame,
-    money_cols: list[str] = None,
-    pct_cols: list[str] = None,
-    note_cols: list[str] = None,
-    existing_config: dict = None
+    money_cols: Optional[list[str]] = None,
+    pct_cols: Optional[list[str]] = None,
+    note_cols: Optional[list[str]] = None,
+    existing_config: Optional[dict] = None
 ) -> dict[str, Any]:
     """Génère un column_config Streamlit optimisé.
     
@@ -327,12 +333,12 @@ def _gated_preview_table(
     can_export: bool,
     pct: float = 0.15,
     min_rows: int = 1,
-    key: str = None,
-    column_config: dict = None,
-    total_count: int = None,
-    extra_safe_cols: list[str] = None,
+    key: Optional[str] = None,
+    column_config: Optional[dict] = None,
+    total_count: Optional[int] = None,
+    extra_safe_cols: Optional[list[str]] = None,
     lock_all: bool = False,
-    exclude_safe_cols: list[str] = None
+    exclude_safe_cols: Optional[list[str]] = None
 ) -> None:
     """Affiche un tableau de résultats avec protection des données sensibles."""
     if can_export:
