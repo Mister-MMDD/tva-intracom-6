@@ -682,7 +682,7 @@ def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[Vi
     # calculé une seule fois plutôt que dans chaque appel à _is_expired.
     _ttl_days = _get_ttl_days(scope_id)
     for row in rows:
-        vat_id, checked_at = row[0], row[7]
+        vat_id, checked_at = row["vat_id"], row["checked_at"]
         out[vat_id] = (_row_to_result(row[1:8]), not _is_expired(checked_at, scope_id, _ttl_days))
     return out
 
@@ -703,7 +703,7 @@ def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool
     # seul appel suffit pour tout le batch (voir _is_expired / _get_ttl_days).
     _ttl_days = DEFAULT_CACHE_TTL_DAYS
     for row in rows:
-        vat_id, checked_at = row[0], row[7]
+        vat_id, checked_at = row["vat_id"], row["checked_at"]
         out[vat_id] = (_row_to_result(row[1:8]), not _is_expired(checked_at, None, _ttl_days))
     return out
 
@@ -793,9 +793,9 @@ def get_vies_history(scope_id: str, full_vat: str) -> list[dict]:
         rows = cur.fetchall()
     return [
         {
-            "checked_at": r[0].isoformat() if r[0] else "",
-            "valid": bool(r[1]), "country_code": r[2], "vat_number": r[3],
-            "name": _dec(r[4]), "address": _dec(r[5]), "error": r[6] or "",
+            "checked_at": r["checked_at"].isoformat() if r["checked_at"] else "",
+            "valid": bool(r["valid"]), "country_code": r["country_code"], "vat_number": r["vat_number"],
+            "name": _dec(r["name"]), "address": _dec(r["address"]), "error": r["error"] or "",
         }
         for r in rows
     ]
@@ -816,10 +816,10 @@ def get_vies_history_bulk(scope_id: str, full_vats: list[str]) -> dict[str, list
         rows = cur.fetchall()
     result: dict[str, list[dict]] = {}
     for r in rows:
-        result.setdefault(r[0], []).append({
-            "checked_at": r[1].isoformat() if r[1] else "",
-            "valid": bool(r[2]), "country_code": r[3], "vat_number": r[4],
-            "name": _dec(r[5]), "address": _dec(r[6]), "error": r[7] or "",
+        result.setdefault(r["vat_id"], []).append({
+            "checked_at": r["checked_at"].isoformat() if r["checked_at"] else "",
+            "valid": bool(r["valid"]), "country_code": r["country_code"], "vat_number": r["vat_number"],
+            "name": _dec(r["name"]), "address": _dec(r["address"]), "error": r["error"] or "",
         })
     return result
 
@@ -844,9 +844,9 @@ def get_vies_status_as_of(scope_id: str, full_vat: str, as_of_date_iso: str) -> 
     if row is None:
         return None
     return {
-        "checked_at": row[0].isoformat() if row[0] else "",
-        "valid": bool(row[1]), "country_code": row[2], "vat_number": row[3],
-        "name": row[4] or "", "address": row[5] or "", "error": row[6] or "",
+        "checked_at": row["checked_at"].isoformat() if row["checked_at"] else "",
+        "valid": bool(row["valid"]), "country_code": row["country_code"], "vat_number": row["vat_number"],
+        "name": row["name"] or "", "address": row["address"] or "", "error": row["error"] or "",
     }
 
 

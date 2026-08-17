@@ -47,6 +47,7 @@ import threading
 from typing import Callable, Optional, TypeVar
 
 import psycopg2
+from psycopg2.extras import DictCursor
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,9 @@ class NonPoolingConnectionPool:
 
     def getconn(self, *_args, **_kwargs):
         if not self._cache_connection:
-            return psycopg2.connect(self._dsn, sslmode=self._sslmode)
+            conn = psycopg2.connect(self._dsn, sslmode=self._sslmode)
+            conn.cursor_factory = DictCursor
+            return conn
 
         conn = getattr(self._local, "conn", None)
         if conn is not None:
@@ -87,6 +90,11 @@ class NonPoolingConnectionPool:
             self._local.conn = None
 
         conn = psycopg2.connect(self._dsn, sslmode=self._sslmode)
+        # DictCursor par défaut : row[0] et le unpacking de tuple continuent
+        # de fonctionner (DictRow hérite de list), et row["colonne"] devient
+        # disponible partout — voir README - évolution.md (migration
+        # DictCursor billing.py/vies_engine.py).
+        conn.cursor_factory = DictCursor
         self._local.conn = conn
         return conn
 

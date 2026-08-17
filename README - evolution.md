@@ -3126,3 +3126,74 @@ session : `SUPABASE_DB_URL` absente en sandbox ×2 côté VIES + casse
 `platform` côté parseur Amazon ; 1 échec supplémentaire lié à
 `SUPABASE_DB_URL` sur `test_check_vat_raw_valid`). Aucune régression
 introduite.
+
+## 2026-08-17 — Audit sécurité complet + migration DictCursor (`vies_engine.py`/`billing.py`)
+
+**Audit sécurité complet** (connexion, chiffrement, données, exports) — aucune
+faille exploitable trouvée. Points vérifiés et confirmés déjà couverts :
+
+- **Injection SQL** : 100% des requêtes paramétrées (`%s`), aucune
+  concaténation/f-string dans un `execute()` sur l'ensemble du dépôt.
+- **Isolation multi-tenant** : toutes les requêtes `billing.py` (customers,
+  subscriptions, credits, SIREN) filtrent systématiquement par `user_id`.
+  Aucun IDOR détecté.
+- **Chiffrement PII** (`security.py`) : Fernet fail-closed (fail-open retiré
+  le 2026-08-16), clé jamais en dur.
+- **Formula injection (Excel/CSV)** : `_safe()` neutralise systématiquement
+  les champs non fiables (display_id, ASIN, désignation, nom/erreur VIES)
+  dans `excel_report.py`/`oss_export.py`. `piece_ref` du FEC provient d'un
+  libellé i18n contrôlé par l'app, pas d'un nom de fichier utilisateur —
+  pas de risque.
+- **XSS** : seul point à risque (display_id/sale_id dans `vies_ui.py`) déjà
+  protégé par `html.escape()` avant `unsafe_allow_html`. Les autres usages
+  d'`unsafe_allow_html` portent uniquement sur du contenu généré
+  côté serveur (CSS, grille tarifaire Stripe).
+- **CSRF / Open Redirect** : `_is_trusted_host()` (`ui/auth_flow.py`) valide
+  déjà le header `Host` contre une liste blanche avant toute construction
+  d'URL de redirection OAuth/Stripe.
+- **Webhook Stripe** : signature vérifiée (`stripe.Webhook.construct_event`),
+  détails d'erreur jamais renvoyés au client, logs verbeux uniquement si
+  `STRIPE_WEBHOOK_DEBUG_LOGS=1`.
+- **PKCE OAuth** : verifiers stockés côté serveur (jamais en cookie),
+  fenêtre de grâce idempotente correcte, purge périodique.
+- **Brute-force login** : rate-limit par hash d'IP (5 tentatives/5 min).
+- **Clés Supabase** : seule la clé `anon` utilisée côté client, jamais
+  `service_role`.
+- **Réseau sortant** : tous les appels `requests` ont un `timeout` explicite,
+  aucun `verify=False`.
+- **Pas d'`eval`/`exec`/`pickle`/`os.system`/`subprocess`** sur tout le dépôt.
+
+**Point secondaire relevé** : `amazon_spapi.py` (OAuth SP-API avec paramètre
+`state`) — code mort, aucun appelant trouvé nulle part dans le dépôt.
+Confirmé non utilisé par Matthieu → laissé tel quel, aucune action (pas de
+suppression demandée).
+
+**Migration DictCursor — `vies_engine.py` + `billing.py`** (dette technique
+notée précédemment comme différée, traitée aujourd'hui) :
+
+- `billing.py` et `vies_engine.py` partagent le même pool Postgres
+  (`database.get_shared_pool`) — `vies_engine._ConnCtx` pointe vers ce même
+  pool. Un seul changement dans `database.py`
+  (`NonPoolingConnectionPool.getconn()`, les deux branches
+  `cache_connection=True`/`False`) active `psycopg2.extras.DictCursor` par
+  défaut sur toute connexion ouverte par le pool partagé — couvre donc
+  `auth.py`, `billing.py`, `ecb_rates.py` et `vies_engine.py` d'un coup.
+- Changement non cassant : `DictRow` hérite de `list`, donc `row[0]`,
+  `row[1:8]` et le unpacking de tuple (`a, b, c = row`) continuent de
+  fonctionner à l'identique. Confirmé sur `billing.py` (`dict(zip(cur
+  .description, row))` en particulier, toujours valide).
+- Conversion en accès par nom de colonne des points les plus fragiles dans
+  `vies_engine.py` (index non contigu ou éloigné du `SELECT`) :
+  `_db_get_scope_batch`, `_db_get_global_batch` (`row[0]`/`row[7]` →
+  `row["vat_id"]`/`row["checked_at"]`), `get_vies_history`,
+  `get_vies_history_bulk`, `get_vies_status_as_of` (mapping 7-8 colonnes).
+- `billing.py` : accès `row[0]` existants tous sur des `SELECT`
+  mono-colonne — faible fragilité, non convertis (churn sans gain réel).
+- **Rejeté volontairement** : conversion des `SELECT *` / mono-colonne
+  restants — gain marginal, risque de régression pour un bénéfice nul.
+
+**Validation** : `py_compile` OK sur `database.py`, `vies_engine.py`,
+`billing.py`, `auth.py` ; suite complète `pytest` : 174 passed / 4 failed —
+identique à la baseline (échecs pré-existants liés à `SUPABASE_DB_URL`
+absente en sandbox + casse `platform` côté parseur Amazon). Aucune
+régression introduite.
