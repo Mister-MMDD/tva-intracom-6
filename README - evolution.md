@@ -3298,3 +3298,56 @@ effort et risque de régression sur des tabs de calcul fiscal.
 chaque fois — identique à la baseline (échecs pré-existants liés à
 `SUPABASE_DB_URL` absente en sandbox). Aucune régression introduite sur
 l'ensemble de la session.
+
+## 2026-08-18 (2) — Audit libre : except silencieux et log incohérent
+
+Nouvel audit sans point de départ externe, sur les fichiers pas encore
+passés en revue lors des sessions précédentes (`auth.py`, `billing.py`,
+`database.py`, `engine.py`, `vies_engine.py`, `parsers/amazon/loader.py`).
+Code récupéré depuis `codeload.github.com/Mister-MMDD/tva-intracom-6`,
+branche `dev`, avant tout diagnostic — aucune modification devinée.
+
+**1. `billing.py` — webhook Stripe, fallback `customer.retrieve` (~L.1577)**
+
+`except Exception: pass` avalait silencieusement tout échec du fallback
+liant `customer_id` Stripe → `user_id` (via email), y compris pour des
+causes autres qu'un simple aléa réseau (client Stripe supprimé, clé API
+invalide/expirée). Un abonnement ne se retrouvant lié à aucun `user_id`
+disparaissait sans trace exploitable en prod. Ajout d'un
+`logger.warning(..., exc_info=True)` avant le `pass` — comportement de
+fallback inchangé (toujours pas de levée d'exception), juste tracé.
+
+**2. `billing.py` — `print()` isolé dans le webhook (~L.1564)**
+
+Un seul `print()` au milieu d'un fichier qui utilise `logger.*` partout
+ailleurs (paiement différé échoué/expiré). Pas un bug — ce webhook tourne
+sur Vercel serverless (pas Railway, donc aucun risque scale-to-zero) — mais
+incohérence de style/niveau de log. Remplacé par `logger.info(...)`.
+
+**3. `auth.py` — PKCE, deux `except Exception: return None`**
+(`consume_pkce_verifier`, `consume_latest_pkce_verifier_by_provider`)
+
+Toute erreur DB pendant la consommation d'un verifier PKCE (callback OAuth
+et flux "mot de passe oublié") était traduite silencieusement en "verifier
+introuvable", indiscernable d'un cas normal (nonce expiré/absent). Une
+vraie panne de connexion pendant un callback OAuth devenait donc un échec
+de login silencieux sans aucune trace. Ajout de `logger.warning(...,
+exc_info=True)` dans les deux fonctions avant le `return None` —
+comportement de retour strictement inchangé (ne casse pas le flux OAuth
+existant), juste tracé pour diagnostic a posteriori.
+
+**4. `parsers/amazon/loader.py` — chaîne de fallback Polars → pandas →
+csv.DictReader : vérifiée, pas de changement**
+
+Hypothèse de départ (logs insuffisants sur bascule de fallback) invalidée
+à la lecture du code réel : la chaîne loggue déjà correctement à chaque
+niveau — `logger.debug` sur l'échec polars (bascule vers pandas, fréquente
+et attendue sur des CSV Amazon malformés), `logger.warning` sur l'échec
+pandas (bascule vers le dernier recours `csv.DictReader`, là où ça mérite
+vraiment d'être investigué). Niveaux déjà correctement calibrés — point
+refermé sans modification.
+
+**Validation** : `python3 -m py_compile` OK sur `billing.py` et `auth.py`.
+Suite complète `pytest` : 174 passed / 4 failed — identique à la baseline
+(échecs pré-existants liés à `SUPABASE_DB_URL` absente en sandbox), aucune
+régression.

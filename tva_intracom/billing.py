@@ -1561,10 +1561,9 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
         # mais un log serveur permet de repérer les paiements différés qui
         # n'aboutissent pas.
         metadata = _safe_get(data, "metadata", {}) or {}
-        print(
-            f"[stripe_webhook] Paiement différé échoué/expiré — "
-            f"user_id={_safe_get(metadata, 'user_id')} "
-            f"session={_safe_get(data, 'id')}"
+        logger.info(
+            "[stripe_webhook] Paiement différé échoué/expiré — user_id=%s session=%s",
+            _safe_get(metadata, "user_id"), _safe_get(data, "id"),
         )
 
     elif etype in ("customer.subscription.created", "customer.subscription.updated"):
@@ -1582,7 +1581,17 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
                     user_id = _get_or_create_user_id_by_email(email)
                     _link_stripe_customer(user_id, customer_id)
             except Exception:
-                pass
+                # Avant : erreur avalée silencieusement, y compris pour des
+                # causes autres qu'un simple aléa réseau (client Stripe
+                # supprimé, clé API invalide/expirée...). Résultat : un
+                # abonnement qui ne se lie à aucun user_id, sans aucune
+                # trace exploitable en prod. On logue désormais l'échec
+                # (sans lever, le comportement de fallback reste identique).
+                logger.warning(
+                    "[stripe_webhook] Échec du fallback customer.retrieve pour "
+                    "customer_id=%s (event=%s) — abonnement non lié.",
+                    customer_id, etype, exc_info=True,
+                )
 
         if not user_id:
             return

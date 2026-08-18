@@ -656,6 +656,15 @@ def consume_pkce_verifier(nonce: str, provider: str) -> Optional[str]:
     except LookupError:
         raise
     except Exception:
+        # Avant : toute erreur DB (pas seulement "nonce introuvable") était
+        # traduite silencieusement en "pas de verifier trouvé" → un vrai
+        # problème de connexion pendant un callback OAuth devenait un échec
+        # de login silencieux, sans trace. On logue désormais (sans changer
+        # le comportement de retour, pour ne pas casser le flux OAuth).
+        logger.warning(
+            "consume_pkce_verifier: erreur DB inattendue (nonce=%s, provider=%s)",
+            nonce, provider, exc_info=True,
+        )
         return None
 
 
@@ -702,6 +711,13 @@ def consume_latest_pkce_verifier_by_provider(provider: str, max_age_seconds: int
     try:
         return _run(_fn)
     except Exception:
+        # Voir commentaire équivalent dans consume_pkce_verifier() : on logue
+        # désormais les erreurs DB inattendues (flux "mot de passe oublié")
+        # au lieu de les avaler silencieusement.
+        logger.warning(
+            "consume_latest_pkce_verifier_by_provider: erreur DB inattendue (provider=%s)",
+            provider, exc_info=True,
+        )
         return None
 
 
