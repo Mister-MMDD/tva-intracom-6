@@ -319,7 +319,6 @@ def compute_ca3_lines_v2(
 
     def _aggregate(res: VatResult, is_refund: bool) -> None:
         stock_from_seller = res.sale.stock_country == seller_country.upper()
-        buyer_in_seller   = res.sale.buyer_country == seller_country.upper()
         suffix = "remb" if is_refund else "vente"
 
         if res.channel == Channel.FR_DOMESTIC:

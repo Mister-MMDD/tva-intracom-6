@@ -870,7 +870,6 @@ def _build_b2b_recap(wb: Workbook, data: OssExportData, period: str):
             _total_cell(ws, float(month_total), fmt='#,##0.00 "€"', alignment=Alignment(horizontal="right", vertical="center")),
         ])
 
-    n = len(data.b2b_lines)
     tr = row + 1
     ws.append([
         _total_cell(ws, ""),

@@ -97,7 +97,6 @@ def render_declarations(ctx: TabContext) -> None:
     results = ctx.results
     refund_results = ctx.refund_results
     summary = ctx.summary
-    oss_summary = ctx.oss_summary
     period_label = ctx.period_label
     _can_export = ctx.can_export
     home_country = ctx.home_country

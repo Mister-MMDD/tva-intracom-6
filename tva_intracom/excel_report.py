@@ -766,10 +766,7 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
                   else i18n_("xl_risk_medium") if abs(float(pct)) > 3
         else i18n_("xl_risk_low"))
         _dest_label = f"{_get_country_name(arr)} ({arr})"
-        _ht_f, _amz_f, _mot_f, _ecart_f, _pct_f = (
-            float(d["ht"]), float(d["amz"]), float(d["mot"]), float(ecart_abs), float(_round(pct))
-        )
-        _vals1 = [nat, _dest_label, type_label, d["n"], _ht_f, _amz_f, _mot_f, _ecart_f, _pct_f, risque]
+        _pct_f = float(_round(pct))
         ws.append([
             _wcell(ws, nat), _wcell(ws, _dest_label), _wcell(ws, type_label), _wcell(ws, d["n"]),
             _wcell(ws, _conv(d["ht"]), number_format=_fmt_curr),
@@ -1004,7 +1001,6 @@ def _write_intrastat_tab(
                 if not confirme:
                     statut += i18n_("xl_intrastat_status_unconfirmed")
                 _pct_r = round(pct, 1)
-                _vals_seuil = [annee, sens_label, float(cumul), float(seuil_annee), _pct_r, statut]
                 ws.append([
                     _wcell(ws, annee), _wcell(ws, sens_label),
                     _wcell(ws, _conv(cumul), number_format=_fmt_curr),
@@ -1143,7 +1139,6 @@ def _write_calendar_tab(
         nonlocal row
         jours = (deadline - today).days
         statut = i18n_("xl_cal_status_upcoming") if jours > 7 else (i18n_("xl_cal_status_urgent") if jours >= 0 else i18n_("xl_cal_status_overdue"))
-        _vals = [canal, obligation, periode_ref, deadline.isoformat(), jours, statut, portail, base_legale]
         ws.append([
             _wcell(ws, canal, fill=fill, font=Font(bold=True, color="FFFFFF")),
             _wcell(ws, obligation),
@@ -1201,7 +1196,7 @@ def _write_calendar_tab(
             deadline,
             "guichet-entreprises.fr / portail OSS DGFIP",
             "Art. 369 sexdecies & septdecies Dir. 2006/112/CE",
-            BLUE_FILL := _BLUE_HEADER_FILL,
+            _BLUE_HEADER_FILL,
         )
 
     # ── 2. CA3 (TVA locale France) ────────────────────────────────────────
@@ -1536,8 +1531,6 @@ def _write_fba_aic_tab(
             _dep_lbl = f"{_get_country_name(dep)} ({dep})"
             _arr_lbl = f"{_get_country_name(arr)} ({arr})"
             _desc80 = designation[:80]
-            _avg_f, _base_f, _taux_f, _tva_f = float(avg_price), float(base_aic), float(taux_arr), float(tva_aic)
-            _vals = [_dep_lbl, _arr_lbl, _safe(asin), _safe(_desc80), qty, _avg_f, _base_f, _taux_f, _tva_f, statut]
             ws.append([
                 _wcell(ws, _dep_lbl), _wcell(ws, _arr_lbl), _wcell(ws, _safe(asin)), _wcell(ws, _safe(_desc80)),
                 _wcell(ws, qty),
@@ -1573,8 +1566,6 @@ def _write_fba_aic_tab(
             ref   = f"AIC art. 17 dir. 2006/112/CE — déclarer en TVA {arr}"
             action = f"Inclure {float(tva):,.2f} € en TVA {arr} (autodéclaration)"
             _flow_lbl = f"{_get_country_name(dep)} → {_get_country_name(arr)}"
-            _base_f, _tva_f = float(base), float(tva)
-            _vals_sub = [_flow_lbl, nb_t, nb_a, _base_f, _tva_f, ref, action]
             ws.append([
                 _wcell(ws, _flow_lbl), _wcell(ws, nb_t), _wcell(ws, nb_a),
                 _wcell(ws, _conv(base), number_format=_fmt_curr, font=_BOLD_FONT),
@@ -1751,17 +1742,14 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
         net    = brut + refund  # noqa: F841 (conservé pour parité de lecture avec l'original)
 
         month_values = by_country_month.get(country, {})
-        col_brut, col_ref, col_net = total_start_col, total_start_col + 1, total_start_col + 2
-        letter_brut, letter_ref, letter_net = get_column_letter(col_brut), get_column_letter(col_ref), get_column_letter(col_net)
+        col_brut, col_ref = total_start_col, total_start_col + 1
+        letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
 
-        _vals = [_get_country_name(country), country]
         _row_cells = [_wcell(ws, _get_country_name(country)), _wcell(ws, country)]
         for m in months:
             v = _conv(month_values.get(m, _z))
-            _vals.append(v)
             _row_cells.append(_wcell(ws, v, number_format=_fmt_curr))
 
-        _vals += [_conv(brut), _conv(refund), f"={letter_brut}{row}+{letter_ref}{row}"]
         _row_cells.append(_wcell(ws, _conv(brut), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
@@ -1778,8 +1766,8 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
         row += 1
 
     # Ligne de total (une ligne blanche d'écart avant, comme dans l'original)
-    col_brut, col_ref, col_net = total_start_col, total_start_col + 1, total_start_col + 2
-    letter_brut, letter_ref, letter_net = get_column_letter(col_brut), get_column_letter(col_ref), get_column_letter(col_net)
+    col_brut, col_ref = total_start_col, total_start_col + 1
+    letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
     ws.append([])
     row += 1
     _total_row_cells = [_wcell(ws, i18n_("xl_oss_total"), font=_BOLD_FONT)]
@@ -1870,7 +1858,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     # Colonnes : Pays, Code, [mois...] (net seul), Brut, Remboursements, Net (total période), Statut
     month_start_col = 3
     total_start_col = month_start_col + len(months)
-    col_brut, col_ref, col_net, col_status = total_start_col, total_start_col + 1, total_start_col + 2, total_start_col + 3
+    col_brut, col_ref = total_start_col, total_start_col + 1
     letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
 
     _group_cells = _write_section_group_row(ws, month_start_col, len(months), total_start_col, header_row - 1, fill=_ORANGE_HEADER_FILL)

@@ -168,8 +168,7 @@ def release_memory() -> None:
             # Flush complet de l'allocateur
             # arenas.purge forcera la libération de toutes les pages inutilisées
             try:
-                # -1 signifie "tous les arenas"
-                all_arenas = ctypes.c_uint(0xFFFFFFFF)
+                # -1 signifie "tous les arenas" (0xFFFFFFFF = 4294967295)
                 jemalloc.mallctl(b"arena.4294967295.purge", None, None, None, 0)
             except Exception:
                 pass

@@ -3351,3 +3351,50 @@ refermé sans modification.
 Suite complète `pytest` : 174 passed / 4 failed — identique à la baseline
 (échecs pré-existants liés à `SUPABASE_DB_URL` absente en sandbox), aucune
 régression.
+
+## 2026-08-18 (3) — Nettoyage code mort (analyse statique pyflakes)
+
+Suite de l'audit libre. Passage de `pyflakes` sur l'ensemble du dépôt pour
+repérer variables/imports morts. Chaque signalement vérifié individuellement
+sur le code réel avant toute suppression (plusieurs faux positifs écartés :
+walrus operator dans `classify.py`, shadowing volontaire et documenté de
+`i18n_` dans `excel_report.py`, `unused_results` en `fec_export.py`
+explicitement commenté "Utilisation future", `net` en `excel_report.py`
+déjà marqué `# noqa: F841` intentionnel).
+
+**Résidus morts confirmés et supprimés :**
+- `ca3_report.py` : `buyer_in_seller`, résidu d'un ancien filtre remplacé
+  par le test `channel == Channel.FR_DOMESTIC` (voir bugfix DDP documenté
+  juste au-dessus).
+- `ui/tabs/declarations.py` : `oss_summary = ctx.oss_summary`, résidu de
+  la migration vers `aggregate_oss_results()` recalculé directement dans
+  cet onglet (voir commentaire en place expliquant la divergence avec
+  `summary.oss_by_country`).
+- `excel_report.py` : plusieurs listes `_vals*`/variables `_xxx_f`
+  construites juste avant un `ws.append(...)` mais jamais relues (le
+  `ws.append` réutilise directement `_conv(...)`/`float(...)`) — 4 sites
+  distincts. `BLUE_FILL := _BLUE_HEADER_FILL` (walrus dont le nom n'était
+  jamais lu) simplifié en passage direct. `col_net`/`letter_net`/`_vals`
+  morts sur 2 sites (le total "net" est en réalité calculé par une formule
+  Excel `=Brut+Remb` directement, jamais via ces variables). Nettoyage fait
+  en deux passes : la suppression des `_vals*` a révélé des variables
+  `_xxx_f` devenues mortes en cascade (seules `_pct_f` et les usages
+  directs de `_conv()` servaient réellement) — re-scan pyflakes après
+  chaque étape pour capturer cet effet domino avant validation finale.
+- `oss_export.py` : `n = len(data.b2b_lines)`, jamais relu.
+- `mem_utils.py` : `all_arenas = ctypes.c_uint(0xFFFFFFFF)`, jamais utilisé
+  — le `mallctl` en dessous appelle déjà directement la chaîne en dur
+  `b"arena.4294967295.purge"` (qui encode la même valeur), comportement de
+  purge jemalloc inchangé.
+
+Aucun changement de comportement fonctionnel dans tous les cas : uniquement
+suppression de code strictement mort (valeurs jamais lues), jamais de
+logique de calcul touchée.
+
+**Validation** : `python3 -m py_compile` OK sur les 5 fichiers modifiés.
+Re-scan `pyflakes` après nettoyage : plus aucun signalement hors les 3 faux
+positifs volontairement conservés. Suite complète `pytest` : 174 passed / 4
+failed — identique à la baseline (échecs pré-existants `SUPABASE_DB_URL`),
+aucune régression. Sous-suite ciblée `excel`/`oss_export`/`fec` (12 tests)
+également passée après le nettoyage, vu le volume de fonctions Excel
+touchées.
