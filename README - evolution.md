@@ -3398,3 +3398,35 @@ failed — identique à la baseline (échecs pré-existants `SUPABASE_DB_URL`),
 aucune régression. Sous-suite ciblée `excel`/`oss_export`/`fec` (12 tests)
 également passée après le nettoyage, vu le volume de fonctions Excel
 touchées.
+
+## 2026-08-18 (4) — Fin de l'audit libre : reste du dépôt passé au crible
+
+`pyflakes` étendu au reste du dépôt jamais audité (`rates.py`, `ecb_rates.py`,
+`oss_xml.py`, `models.py`, `report.py`, `cli.py`, `vies_certificate.py`,
+`amazon_adapter.py`, `amazon_spapi.py`, `historical_rates_widget.py`,
+`local_vat_report.py`, `ui/sidebar.py`, `ui/billing_gate.py`,
+`ui/formatting.py`, `ui/rerun_utils.py`, `ui/calc_cache.py`, `ui/files.py`,
+`ui/theme.py`, `ui/background_calc.py`, tous les `ui/tabs/*.py`). Quasiment
+rien remonté — le dépôt est déjà propre sur cet axe.
+
+Deux signalements résiduels examinés :
+- `ui/sidebar.py` : deux `import datetime as _dt` locaux dans deux blocs
+  indépendants — duplication mineure sans conflit réel à l'exécution,
+  laissée telle quelle (faible valeur, ne justifie pas de toucher aux
+  imports de ce fichier).
+- `ui/auth_flow.py` L572 : f-string de style CSS (boutons OAuth
+  Google/GitHub/Amazon) dont toutes les accolades sont échappées
+  (`{{`/`}}`) — zéro vraie interpolation dedans, le préfixe `f` était donc
+  superflu. Retiré (`f"""..."""` → `"""..."""`), aucun changement de
+  comportement/rendu.
+
+**Bilan de la passe pyflakes complète (sur 4 sous-sessions du 2026-08-18)** :
+dépôt globalement très propre. Code mort trouvé et nettoyé uniquement dans
+`ca3_report.py`, `ui/tabs/declarations.py`, `excel_report.py`,
+`oss_export.py`, `mem_utils.py` (voir entrées précédentes du jour) — tout le
+reste (une quinzaine de fichiers additionnels passés en revue) n'a rien
+révélé de significatif.
+
+**Validation** : `python3 -m py_compile` + `pyflakes` OK sur `auth_flow.py`.
+Suite complète `pytest` : 174 passed / 4 failed — baseline inchangée
+(`SUPABASE_DB_URL` absente en sandbox), aucune régression.

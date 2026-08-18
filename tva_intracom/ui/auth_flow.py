@@ -569,7 +569,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # automatiquement sur son conteneur, et on pose le logo en
         # background-image du <button> natif généré par Streamlit.
         st.markdown(
-            f"""
+            """
             <style>
             .st-key-oauth_btn_google a[data-testid^="stBaseLinkButton"] {{
                 background-color: #FFFFFF !important;
