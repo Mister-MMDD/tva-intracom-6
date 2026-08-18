@@ -151,6 +151,35 @@ button[data-testid="stBaseButton-secondary"]:hover {
     border-color: var(--primary-color) !important;
     color: var(--primary-color) !important;
 }
+
+/* ---- KPIs (extrait de app.py, section KPIs — aucune modification) ---- */
+.kpi-card {
+    border-radius: 10px;
+    padding: 14px 18px;
+    background-color: var(--secondary-background-color);
+    border: 1px solid color-mix(in srgb, var(--primary-color) 15%, transparent);
+    border-left: 4px solid var(--kpi-accent, var(--primary-color));
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+.kpi-label {
+    font-size: 0.8rem;
+    opacity: 0.7;
+    margin-bottom: 4px;
+}
+.kpi-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+}
+.badge-alert {
+    display: inline-block;
+    background-color: color-mix(in srgb, #d62728 15%, transparent);
+    color: #d62728;
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-top: 6px;
+}
 </style>
 """
 

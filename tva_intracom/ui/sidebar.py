@@ -37,6 +37,7 @@ from tva_intracom.i18n import _, country_label
 from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
     oss_threshold_in_currency
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
+from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.theme import _PLATFORM_OPTIONS
 from tva_intracom.vies_engine import (
     get_cache_stats,
@@ -481,7 +482,7 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             # quand `_sidebar_results` change réellement (nouvel objet et/ou
             # nouvelle taille — un même objet muté en place n'est pas prévu
             # par ce pipeline, donc cette clé suffit).
-            _sidebar_results = st.session_state.get("_results", [])
+            _sidebar_results = CalcCacheState.get_results()
             if _sidebar_results:
                 _period_cache_key = (id(_sidebar_results), len(_sidebar_results))
                 _period_cache = st.session_state.get("_period_detect_cache")

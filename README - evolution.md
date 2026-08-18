@@ -3197,3 +3197,104 @@ notée précédemment comme différée, traitée aujourd'hui) :
 identique à la baseline (échecs pré-existants liés à `SUPABASE_DB_URL`
 absente en sandbox + casse `platform` côté parseur Amazon). Aucune
 régression introduite.
+
+## 2026-08-18 — Optimisations app.py : imports, extraction UI, st.status, CSS, state management
+
+Suite à un audit externe proposant 5 points d'optimisation sur `app.py` et
+modules associés. Chaque point vérifié sur le code réel (récupéré depuis
+`codeload.github.com/Mister-MMDD/tva-intracom-6`, branche `dev`) avant
+patch, conformément à la règle « ne jamais deviner le code par déduction ».
+
+**1. Centralisation des imports (`app.py`)**
+
+Tous les `import`/`from ... import` remontés en tête de fichier. Les
+instructions exécutables intercalées avec les anciens imports
+(`init_i18n()`, `logging.basicConfig()`, fermeture des connexions DB idle
+avant `run_auth_flow()`, `apply_theme()`, `language_selector()`) sont
+restées strictement à leur emplacement d'origine et dans le même ordre
+relatif — seule la position des `import` a changé, jamais celle d'un appel
+de fonction. Vérifié qu'aucun module importé n'a d'effet de bord au niveau
+module dépendant de `init_i18n()`/`logging.basicConfig()` déjà exécutés
+(loggers/constantes uniquement).
+
+**2. Extraction fichiers uploadés → `tva_intracom/ui/files.py`**
+
+`_CachedUploadedFile` et `_upload_sig` (cache compressé gzip + signature de
+contenu des fichiers uploadés, pour survivre à un rerun Streamlit
+"interne" sans re-décompresser/re-hasher) déplacés tels quels dans un
+nouveau module. Usage confirmé exclusivement local à `app.py` avant
+extraction (aucun autre fichier du dépôt n'y faisait référence).
+
+**3. `st.progress` → `st.status` (parsing/calcul)**
+
+Deux usages identifiés, traités différemment selon le risque :
+- `app.py` (barre VIES, chemin synchrone/petit fichier) : remplacé par
+  `st.status` avec mise à jour du label à chaque callback de progression.
+- `tva_intracom/ui/background_calc.py` (`render_job_progress`, chemin gros
+  fichier) : **volontairement non modifié**. Ce `st.progress` vit dans un
+  `@st.fragment(run_every=0.4)` couplé à un thread de calcul en arrière-
+  plan — architecture déjà identifiée comme zone sensible (voir points
+  précédents de ce changelog). Gain UX jugé insuffisant pour justifier de
+  toucher à ce mécanisme.
+
+**4. CSS des KPI externalisé vers `theme.py`**
+
+Le bloc `<style>` injecté à chaque rendu de la section KPI (`.kpi-card`,
+`.kpi-label`, `.kpi-value`, `.badge-alert`) déplacé dans la constante
+`_CSS` de `tva_intracom/ui/theme.py`, qui centralisait déjà tout le CSS de
+l'application et n'est injectée qu'une seule fois par `apply_theme()` en
+tête de script (au lieu d'être réinjectée à chaque interaction). Suit la
+convention déjà en place plutôt que d'introduire un fichier `.css` externe
+chargé depuis le disque.
+
+**5. State management — dataclass `CalcCacheState`**
+(`tva_intracom/ui/calc_cache.py`)
+
+Cartographie complète effectuée avant toute modification (règle : bug
+complexe / risque d'aller-retours → analyse d'abord). Couplages
+inter-modules identifiés : `vies_ui.py` invalidait directement `_calc_key`
+en 3 endroits (reclassification manuelle VIES), `sidebar.py` lisait
+`_results` directement pour la détection de période. `TabContext.calc_key`
+(dataclass déjà existante) laissé inchangé — bon pattern déjà en place,
+réutilisé tel quel plutôt que dupliqué.
+
+Nouvelle dataclass avec façade explicite (`load()`, `save_parse()`,
+`save_calc()`, `save_period_sync_key()`, `save_vies_retry_nonce()`,
+`invalidate_calc()`, `get_results()`) remplaçant les accès dispersés à
+`_parse_cache_key`, `_parse_cache_data`, `_calc_key`, `_period_sync_key`,
+`_results`, `_refund_results`, `_summary`, `_vies_summary`, `_oss_summary`,
+`_vies_retry_nonce`.
+
+Deux points de comportement intentionnellement préservés à l'identique
+(documentés dans le module) :
+- Parsing et calcul restent deux caches indépendants (clés de cache
+  différentes) — pas de fusion qui forcerait un recalcul croisé inutile.
+- `invalidate_calc()` n'efface QUE `calc_key`, jamais
+  `results`/`summary`/`vies_summary`/`oss_summary` — les anciens résultats
+  restent affichés jusqu'au recalcul suivant (évite un flash d'interface
+  vide pendant une reclassification manuelle VIES). Comportement UX
+  volontaire de l'ancien code, pas un oubli à "corriger".
+
+**Rejeté / différé** : migration `pandas` → `polars` sur l'ensemble du
+dépôt. Le hot path CSV (jusqu'à 100 Mo, `parsers/amazon/loader.py`) est
+déjà en Polars, avec une chaîne de fallback intentionnelle et documentée à
+3 niveaux (Polars → pandas → `csv.DictReader` stdlib) pour absorber des CSV
+Amazon malformés — supprimer le fallback pandas ferait perdre ce filet de
+robustesse pour un gain RAM quasi nul (le chemin nominal n'y passe jamais).
+Les 9 autres usages de `pandas` (10 fichiers, 36 appels `pd.` au total)
+sont côté affichage (`formatting.py`, tabs, `sidebar.py`,
+`visualisations.py`) — une migration complète change la syntaxe partout
+(`.groupby()`, indexation, `pd.notna()`...) pour un gain mémoire marginal
+vu que les gros volumes sont déjà en Polars. Abandonné : gain incertain vs
+effort et risque de régression sur des tabs de calcul fiscal.
+
+**Résultat** : `app.py` réduit de 1101 à 986 lignes.
+
+**Validation** : `python3 -m py_compile` OK sur tous les fichiers modifiés
+(`app.py`, `tva_intracom/ui/files.py`, `tva_intracom/ui/calc_cache.py`,
+`tva_intracom/ui/theme.py`, `tva_intracom/ui/sidebar.py`,
+`tva_intracom/ui/tabs/vies_ui.py`) après chaque étape ; suite complète
+`pytest` relancée après chacun des 5 points : 174 passed / 4 failed à
+chaque fois — identique à la baseline (échecs pré-existants liés à
+`SUPABASE_DB_URL` absente en sandbox). Aucune régression introduite sur
+l'ensemble de la session.

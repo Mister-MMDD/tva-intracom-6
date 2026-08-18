@@ -8,24 +8,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import tempfile
 import gzip
-import hashlib
 import logging
 from typing import Optional, Callable
 from decimal import Decimal
-import streamlit as st
 from datetime import datetime
+
+import streamlit as st
 import pandas as pd
+
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
 from tva_intracom.i18n import _, init_i18n, language_selector, country_label
-
-# Initialisation I18N
-init_i18n()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-
 from tva_intracom.ecb_rates import get_rate as _ecb_get_rate
 from tva_intracom.engine import compute_all_with_vies
 from tva_intracom.ui.background_calc import (
@@ -35,15 +27,27 @@ from tva_intracom.ui.background_calc import (
     render_job_progress,
 )
 from tva_intracom.report import build_report
+from tva_intracom.rates import is_eu, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
+from tva_intracom.ui.theme import apply_theme
+from tva_intracom.ui.formatting import _fmt
+from tva_intracom import auth as tva_auth
+from tva_intracom import ecb_rates as _tva_ecb_rates
+from tva_intracom import billing as _tva_billing
+from tva_intracom import vies_engine as _tva_vies_engine
+from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
+from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
+from tva_intracom.ui.sidebar import render_sidebar
+from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig
+from tva_intracom.ui.calc_cache import CalcCacheState
 
 _ZERO = Decimal("0.00")
-from tva_intracom.rates import (
-    is_eu,
-)
 
-from tva_intracom.ui.theme import apply_theme
-from tva_intracom.ui.formatting import (
-    _fmt,
+# Initialisation I18N
+init_i18n()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
 # --- Fermeture des connexions DB idle laissées par le run précédent ---
@@ -66,10 +70,6 @@ from tva_intracom.ui.formatting import (
 # commencer l'auth — une connexion ne peut donc plus jamais vivre plus
 # longtemps qu'un seul run (quelques centaines de ms), quel que soit
 # l'endroit où le script s'arrête ensuite.
-from tva_intracom import auth as tva_auth
-from tva_intracom import ecb_rates as _tva_ecb_rates
-from tva_intracom import billing as _tva_billing
-from tva_intracom import vies_engine as _tva_vies_engine
 
 # Pas de garde ici (voir README - évolution.md, 2026-08-14) : close_idle_connections()
 # ne ferme que la connexion mise en cache par threading.local() sur LE THREAD APPELANT
@@ -92,8 +92,6 @@ for _close_fn in (
 # PAGE CONFIG + PURGE CACHE MAL-PREFIXÉ (une fois par session)
 # =============================================================================
 apply_theme()
-
-from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
 
 cookie_manager = ensure_cookie_manager()
 
@@ -141,7 +139,6 @@ _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 #   changement manuel ultérieur de l'utilisateur dans la même session).
 # - Sinon, si la langue de session a changé depuis (l'utilisateur vient
 #   d'utiliser le sélecteur) : on persiste ce choix sur le compte.
-from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
 _sess_lang = st.session_state.get("language", "fr")
 if st.session_state.get("_prefs_synced_user") != _current_user.id:
     if _current_user.language and _current_user.language != _sess_lang:
@@ -152,8 +149,6 @@ if st.session_state.get("_prefs_synced_user") != _current_user.id:
 elif _current_user.language != _sess_lang:
     tva_auth.set_language(_current_user.id, _sess_lang)
     _current_user.language = _sess_lang
-
-from tva_intracom.ui.sidebar import render_sidebar
 
 # BUGFIX : la sidebar (rendue ci-dessous) affiche `_period_label` tel qu'il
 # était à LA FIN DU RUN PRÉCÉDENT (upload/retrait de fichier/calcul n'ont pas
@@ -193,7 +188,6 @@ display_currency = _sb.display_currency
 # la classification fiscale. "DEFAULT" retombe sur la devise du pays
 # d'origine choisi (comportement historique). N'affecte jamais la devise de
 # calcul du moteur (toujours EUR) ni les déclarations légales.
-from tva_intracom.rates import COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
 if display_currency and display_currency != "DEFAULT":
     target_currency = display_currency
 else:
@@ -218,98 +212,10 @@ uploaded_files = st.file_uploader(
     key="main_file_uploader",
 )
 
-# ── Filet de sécurité : widget vide mais fichiers déjà chargés en session ───
-# Un changement de pays d'origine (qui déclenche un rerun explicite en plein
-# rendu de la sidebar, voir sidebar.py) peut faire ressortir `uploaded_files`
-# vide, alors même que rien n'a été retiré côté utilisateur. On ne réutilise
-# le cache d'octets QUE si ce rerun a été signalé comme "interne" (via
-# `preserve_upload_rerun()`, voir rerun_utils.py) — sinon, un widget vide
-# signifie un vrai retrait du fichier par l'utilisateur, et tout l'état
-# dérivé (résultats calculés, période détectée, tableaux) doit être purgé
-# pour ne pas rester affiché après suppression.
-# Les octets bruts mis en cache (pour survivre à un rerun interne, voir
-# rerun_utils.py) sont gardés compressés (gzip) plutôt qu'en clair : sur des
-# rapports Amazon/Mirakl/Shopify réels (texte, colonnes très répétitives —
-# codes pays, ASIN, dates), le ratio mesuré est de l'ordre de 6-6.5x
-# (~15% de la taille d'origine), pour un coût CPU de l'ordre de quelques
-# secondes même au pire cas (fichier de 100 Mo, la limite `maxUploadSize`).
-# La décompression n'a lieu que dans `getvalue()`, c'est-à-dire seulement
-# quand un re-parsing est réellement déclenché (changement d'encodage, de
-# devise, de catalogue ASIN...) — jamais à chaque rerun. La taille d'origine
-# (`size`) est gardée à côté du blob compressé pour que la clé de
-# déduplication/cache (name, size) reste identique à celle d'un nouvel
-# upload, sans avoir à décompresser juste pour connaître la taille.
-class _CachedUploadedFile:
-    # `_content_hash` porte le hash MD5 déjà connu (calculé une seule fois,
-    # au moment de la compression initiale — voir plus bas) pour que
-    # `_upload_sig()` puisse le renvoyer directement SANS décompresser tout
-    # le blob gzip. Avant ce correctif, `_upload_sig()` appelait
-    # `getvalue()` (qui décompresse l'intégralité du fichier, potentiellement
-    # 100 Mo) simplement pour hasher les 128 premiers Ko — et ce, plusieurs
-    # fois par rerun Streamlit (dédup, clé de cache de parsing...), donc à
-    # chaque clic/filtre/changement de langue tant que les fichiers restent
-    # servis depuis ce cache interne. Le hash étant invariant tant que le
-    # contenu ne change pas (c'est justement ce qu'il sert à détecter), le
-    # porter directement sur l'objet évite ce travail répété pour rien.
-    __slots__ = ("name", "size", "_compressed", "_content_hash")
-    def __init__(self, name: str, compressed: bytes, size: int, content_hash: str) -> None:
-        self.name = name
-        self.size = size
-        self._compressed = compressed
-        self._content_hash = content_hash
-    def getvalue(self) -> bytes:
-        return gzip.decompress(self._compressed)
-
+# Cache/signature des fichiers uploadés (_CachedUploadedFile, _upload_sig) :
+# voir tva_intracom/ui/files.py pour le détail (extrait de app.py, aucune
+# modification de comportement).
 _preserve_upload_this_run = consume_preserve_flag()
-
-
-def _upload_sig(f) -> tuple:
-    """Signature de contenu d'un fichier uploadé, utilisée partout où on
-    doit détecter un changement (cache de compression, dédup, cache de
-    parsing, cache de calcul TVA).
-
-    (name, size) seul ne suffit pas : deux versions d'un même fichier (ex.
-    correction d'une erreur dans le CSV, sans changer le nom) peuvent
-    partager la même taille en octets — plus fréquent qu'on ne le croit sur
-    de gros volumes. Dans ce cas l'app ne détectait pas le changement et
-    réutilisait silencieusement les anciennes données mises en cache
-    (bytes compressés, résultat de parsing, résultat de calcul TVA).
-
-    On ajoute un hash MD5 du DÉBUT du fichier seulement (128 Ko), pas du
-    fichier entier : cette signature est recalculée à CHAQUE rerun
-    Streamlit (chaque clic, changement de filtre...) pour détecter un
-    changement — hasher le fichier entier à chaque rerun réintroduirait,
-    pour les plus gros fichiers Amazon (jusqu'à 100 Mo), le coût CPU que le
-    design (name, size) cherchait justement à éviter. Un hash partiel sur
-    le début du fichier suffit à couvrir le cas réaliste (contenu modifié,
-    même taille) sans ce coût.
-
-    Cas `_CachedUploadedFile` (fichiers restaurés depuis le cache interne
-    après un rerun "interne", voir `preserve_upload_rerun()`) : le hash a
-    déjà été calculé une fois lors de la compression initiale et est porté
-    par l'objet (`_content_hash`). On le réutilise tel quel plutôt que de
-    rappeler `f.getvalue()`, qui décompresserait inutilement tout le blob
-    gzip (jusqu'à 100 Mo) rien que pour en relire les 128 premiers Ko — ce
-    correctif évite cette décompression répétée à chaque rerun (chaque
-    clic, changement de langue, filtre...) tant que le fichier reste servi
-    depuis ce cache.
-    """
-    if isinstance(f, _CachedUploadedFile):
-        return (f.name, f.size, f._content_hash)
-    # BUGFIX (fiabilité, voir README - évolution.md) : hasher uniquement les
-    # 128 premiers Ko ne détecte pas une modification tombant plus loin dans
-    # le fichier (ex. correction d'un montant sur la dernière ligne d'un CSV
-    # de 100 Mo) — l'app pouvait alors réutiliser silencieusement d'anciens
-    # résultats de parsing/calcul sur un fichier pourtant modifié. On ajoute
-    # le hash des 128 derniers Ko (bornes qui se chevauchent sans problème
-    # sur les petits fichiers, `getvalue()` n'étant appelé qu'une fois) —
-    # coût toujours borné (256 Ko max, pas le fichier entier) donc pas de
-    # régression sur le design (name, size) + hash partiel.
-    _content = f.getvalue()
-    _head = _content[:131072]
-    _tail = _content[-131072:] if len(_content) > 131072 else b""
-    return (f.name, f.size, hashlib.md5(_head + _tail).hexdigest())
-
 
 if uploaded_files:
     # ── Vérification technique de la taille (100 Mo par fichier) ────────────
@@ -417,8 +323,9 @@ if uploaded_files:
         _asin_catalog_sig,
     )
 
-    if st.session_state.get("_parse_cache_key") == _parse_cache_key:
-        _cached = st.session_state["_parse_cache_data"]
+    _calc_cache = CalcCacheState.load()
+    if _calc_cache.parse_key == _parse_cache_key:
+        _cached = _calc_cache.parse_data
         (all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,
          all_stock_countries, all_account_identifiers, all_warnings, all_platforms,
          total_rows_sum, skipped_rows_sum, file_summaries, _parse_results) = _cached
@@ -525,11 +432,13 @@ if uploaded_files:
             _pr.refunds = []
             _pr.fc_transfers = []
 
-        st.session_state["_parse_cache_key"] = _parse_cache_key
-        st.session_state["_parse_cache_data"] = (
-            all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,
-            all_stock_countries, all_account_identifiers, all_warnings, all_platforms,
-            total_rows_sum, skipped_rows_sum, file_summaries, _parse_results,
+        CalcCacheState.save_parse(
+            _parse_cache_key,
+            (
+                all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,
+                all_stock_countries, all_account_identifiers, all_warnings, all_platforms,
+                total_rows_sum, skipped_rows_sum, file_summaries, _parse_results,
+            ),
         )
 
     platform_name = all_platforms[0] if all_platforms else file_format.split("(")[0].strip()
@@ -606,7 +515,7 @@ if uploaded_files:
                 st.warning(_("foreign_currency_warning", currencies=', '.join(sorted(foreign))))
 
         # === CALCUL (mis en cache dans session_state) ===
-        _vies_retry_nonce = st.session_state.get("_vies_retry_nonce", 0)
+        _vies_retry_nonce = CalcCacheState.load().vies_retry_nonce
         _cache_key = (
             # SÉCURITÉ (voir README - évolution.md) : `current_user.id` inclus
             # explicitement en tête de clé. Sans cela, deux comptes distincts
@@ -663,7 +572,7 @@ if uploaded_files:
         _is_big_file = (len(sales) + len(refunds)) > _BIG_FILE_ROW_THRESHOLD
 
         vies_summary = None
-        if st.session_state.get("_calc_key") != _cache_key:
+        if CalcCacheState.load().calc_key != _cache_key:
             # On capture le contexte de session AVANT de lancer le thread pour
             # éviter les appels à st.session_state (ScriptRunContext)
             _lang_for_thread = st.session_state.get("language", "fr")
@@ -728,37 +637,40 @@ if uploaded_files:
                 calc_progress_ph.empty()
             else:
                 with calc_progress_ph.container():
-                    _vies_bar = st.progress(0.0, text=_("calc_progress_vies"))
-                    results, vies_summary, oss_summary, refund_results, summary = _run_full_calc(
-                        lambda p, t: (_vies_bar.progress(p, text=t or _("calc_progress_vies")), None)[1]
-                    )
+                    with st.status(_("calc_progress_vies"), expanded=True) as _calc_status:
+                        def _status_progress_cb(p, t):
+                            # `t` est vide lors du dernier appel (report(1.0, ""),
+                            # voir _run_full_calc) : on garde alors le dernier
+                            # libellé affiché plutôt que d'effacer le texte.
+                            if t:
+                                _calc_status.update(label=t)
+                        results, vies_summary, oss_summary, refund_results, summary = _run_full_calc(
+                            _status_progress_cb
+                        )
+                        _calc_status.update(state="complete", expanded=False)
                 calc_progress_ph.empty()
 
-            st.session_state["_calc_key"]       = _cache_key
-            st.session_state["_results"]        = results
-            st.session_state["_refund_results"] = refund_results
-            st.session_state["_summary"]        = summary
-            st.session_state["_vies_summary"]   = vies_summary
-            st.session_state["_oss_summary"]    = oss_summary
+            CalcCacheState.save_calc(_cache_key, results, refund_results, summary, vies_summary, oss_summary)
             # La sidebar (rendue AVANT le calcul, voir render_sidebar() plus
             # haut) affiche la période auto-détectée à partir de
             # `st.session_state["_results"]` : sans ce rerun, elle resterait
             # vide pendant tout le run où le fichier vient d'être analysé, et
             # n'afficherait la période qu'au prochain rerun fortuit.
-            if st.session_state.get("_period_sync_key") != _cache_key:
-                st.session_state["_period_sync_key"] = _cache_key
+            if CalcCacheState.load().period_sync_key != _cache_key:
+                CalcCacheState.save_period_sync_key(_cache_key)
                 preserve_upload_rerun()
         else:
-            results        = st.session_state["_results"]
-            refund_results = st.session_state["_refund_results"]
-            summary        = st.session_state["_summary"]
-            vies_summary   = st.session_state["_vies_summary"]
-            oss_summary    = st.session_state["_oss_summary"]
+            _calc_cache = CalcCacheState.load()
+            results        = _calc_cache.results
+            refund_results = _calc_cache.refund_results
+            summary        = _calc_cache.summary
+            vies_summary   = _calc_cache.vies_summary
+            oss_summary    = _calc_cache.oss_summary
 
         if vies_summary and vies_summary.total_inconclusive > 0:
             st.error(_("vies_inconclusive_error", count=vies_summary.total_inconclusive))
             if st.button(_("vies_reverify_btn"), key="retry_vies_error_banner"):
-                st.session_state["_vies_retry_nonce"] = _vies_retry_nonce + 1
+                CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
                 preserve_upload_rerun()
 
         # Segmentation écarts pour KPI
@@ -924,37 +836,10 @@ if uploaded_files:
         # =====================================================================
         # KPIs — toujours visibles
         # =====================================================================
-        st.markdown("""
-        <style>
-        .kpi-card {
-            border-radius: 10px;
-            padding: 14px 18px;
-            background-color: var(--secondary-background-color);
-            border: 1px solid color-mix(in srgb, var(--primary-color) 15%, transparent);
-            border-left: 4px solid var(--kpi-accent, var(--primary-color));
-            box-shadow: 0 1px 3px color-mix(in srgb, var(--primary-color) 8%, transparent);
-        }
-        .kpi-label {
-            font-size: 0.8rem;
-            opacity: 0.7;
-            margin-bottom: 4px;
-        }
-        .kpi-value {
-            font-size: 1.6rem;
-            font-weight: 700;
-        }
-        .badge-alert {
-            display: inline-block;
-            background-color: color-mix(in srgb, #d62728 15%, transparent);
-            color: #d62728;
-            border-radius: 999px;
-            padding: 3px 12px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            margin-top: 6px;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+        # CSS des .kpi-card / .kpi-label / .kpi-value / .badge-alert : voir
+        # tva_intracom/ui/theme.py (_CSS), injecté une seule fois par
+        # apply_theme() en tête de script — extrait de app.py, aucune
+        # modification de comportement.
 
         def _kpi_card(label: str, value: str, accent: str, help_text: str = "") -> str:
             title_attr = f' title="{help_text}"' if help_text else ""

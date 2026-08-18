@@ -17,6 +17,7 @@ from tva_intracom.i18n import _, country_label
 from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, \
     _render_filter_bar, _fmt
 from tva_intracom.ui.tabs.context import TabContext
+from tva_intracom.ui.calc_cache import CalcCacheState
 
 
 @st.fragment
@@ -67,7 +68,7 @@ def render_manual_vies_classification() -> None:
                 for _vat_key, _choice_val in _pending.items():
                     _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == _("manual_valid")))
                 st.session_state.pop("_vies_manual_overrides", None)
-                st.session_state.pop("_calc_key", None)
+                CalcCacheState.invalidate_calc()
                 st.success(_("vies_manual_class_success"))
                 st.rerun()
         with _col_reset:
@@ -209,7 +210,7 @@ def render_vies(ctx: TabContext) -> None:
             render_manual_vies_classification()
 
             if st.button(_("vies_reverify_btn"), key="retry_vies_btn"):
-                st.session_state["_vies_retry_nonce"] = _vies_retry_nonce + 1
+                CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
                 st.rerun()
 
         # Overrides manuels en base (toujours accessible, replié par défaut)
@@ -289,13 +290,13 @@ def render_vies(ctx: TabContext) -> None:
                         key=f"edit_override_b_{_ov_vat2}", label_visibility="collapsed")
                     if _oc3b.button("💾", key=f"save_override_b_{_ov_vat2}", help=_("vies_manual_class_exp_save_help")):
                         _smo_edit(_vies_scope_id, _ov_vat2, valid=(_ov_new2 == _("manual_valid")))
-                        st.session_state.pop("_calc_key", None)
+                        CalcCacheState.invalidate_calc()
                         st.success(f"{_ov_vat2} → {_ov_new2}")
                         st.rerun()
                     if _oc4b.button("🗑️", key=f"del_override_b_{_ov_vat2}", help=_("vies_manual_class_exp_del_help")):
                         try:
                             _dmo_edit(_vies_scope_id, _ov_vat2)
-                            st.session_state.pop("_calc_key", None)
+                            CalcCacheState.invalidate_calc()
                             st.success(_("vies_manual_class_exp_del_success", vat=_ov_vat2))
                             st.rerun()
                         except Exception as _del_err2:

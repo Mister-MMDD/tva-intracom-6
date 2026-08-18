@@ -103,6 +103,8 @@ tva-intracom/
 │   ├── ui/                           Découpage modulaire de l'interface Streamlit.
 │   │   ├── theme.py                  Configuration de page + CSS de marque.
 │   │   ├── formatting.py             Helpers d'affichage partagés.
+│   │   ├── files.py                  Gestion du cache et signatures des fichiers uploadés (gzip/MD5).
+│   │   ├── calc_cache.py             Gestion centralisée de l'état du cache de calcul (dataclass CalcCacheState).
 │   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth via Supabase Auth.
 │   │   ├── rerun_utils.py            Gestion fine des st.rerun().
 │   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe).
@@ -154,6 +156,8 @@ tva-intracom/
 |---|---|
 | `ui/theme.py` | Thème visuel et injection du CSS de marque |
 | `ui/formatting.py` | Helpers d'affichage vectorisés, formatage monétaire et tri robuste |
+| `ui/files.py` | Gestion du cache et signatures des fichiers uploadés (gzip/MD5) |
+| `ui/calc_cache.py` | Gestion centralisée de l'état du cache de calcul (`CalcCacheState`) |
 | `ui/auth_flow.py` | Flux d'authentification complet (PKCE Supabase, Social OAuth, Sessions) |
 | `ui/sidebar.py` | Barre latérale de configuration (SIREN, IOSS, Catalogue, Abonnements) |
 | `ui/billing_gate.py` | Gating crédit PAYG, quotas SIREN et conformité fiscale |
@@ -282,6 +286,8 @@ Le moteur respecte les exigences de protection des données personnelles (PII) e
 - **Chiffrement au Repos** : Algorithme Fernet (AES-128 CBC + HMAC-SHA256) pour les données sensibles (noms, adresses, mais aussi n° SIREN et IOSS).
 - **Pseudonymisation réversible** : Hachage SHA-256 salé des identifiants (e-mails) pour l'historique VIES, garantissant l'isolation sans stockage en clair.
 - **Protection contre l'injection de formules** : Sanitization systématique des exports Excel/CSV pour bloquer les attaques par injection de formules (`=`, `+`, `-`, `@`).
+- **Protection XSS & Injections** : Échappement systématique des données utilisateur (HTML/Markdown) et durcissement des clés de widgets Streamlit via hash.
+- **Validation des Redirects** : Contrôle du header `Host` via une allowlist pour prévenir les attaques de redirection ouverte (Open Redirect).
 - **Isolation Multi-tenant** : Clés de cache isolées par utilisateur (`current_user.id`) empêchant toute fuite de données entre comptes via le cache global.
 - **Sécurité Fail-Safe** : Interdiction de traitement si la clé de chiffrement est absente ; retrait du mécanisme de repli en clair (fail-open) pour garantir l'intégrité du chiffrement.
 - **Rétention limitée** : Suppression automatique des PII après 365 jours.
@@ -323,13 +329,15 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 ## Optimisations de performance & UX
 
 ### Performance & Réactivité
-- **String Interning** : Réduction drastique de l'empreinte RAM (codes pays, devises) via `sys.intern()`.
+- **String Interning** : Réduction drastique de l'empreinte RAM (codes pays, devises, ASINs) via `sys.intern()`.
 - **Fragments Streamlit** : Isolation du rendu pour éviter les reruns complets lors des interactions locales.
+- **Gestion d'état explicite** : Centralisation du cache de calcul via `CalcCacheState` pour une meilleure fiabilité des reruns.
 - **Cache intelligent** : Mise en cache des parsers, du catalogue ASIN et des exports via signatures MD5.
 - **Pooling thread-safe** : Gestion optimisée des connexions Postgres pour supporter les calculs parallèles.
 
 ### UX & Fiabilité
 - **MD5 Upload Signature** : Détection fiable des modifications de fichiers pour invalider le cache.
+- **Feedback utilisateur enrichi** : Usage de `st.status` pour le suivi détaillé du parsing et de la validation VIES.
 - **Persistance multilingue** : Interface et exports localisés en 7 langues (FR, EN, DE, ES, IT, PL, PT).
 - **Warm-up BCE** : Chargement batch des taux de change au démarrage pour optimiser les exports multi-années.
 
