@@ -336,24 +336,22 @@ def render_declarations(ctx: TabContext) -> None:
     _declared_net_ht = summary.total_ht + summary.refund_total_ht
     _bucket_net_ht = summary.net_ht_total
     _coherence_delta = _declared_net_ht - _bucket_net_ht
-    with st.expander(_("coherence_header"), expanded=abs(_coherence_delta) > Decimal("0.01")):
-        _bucket_rows = [
-            {_("col_fiscal_canal"): b, _("col_net_ht_eur"): float(v)}
-            for b, v in summary.net_ht_by_bucket.items() if v != 0
-        ]
-        if _bucket_rows:
-            _gated_preview_table(pd.DataFrame(_bucket_rows), _can_export,
-                                 column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))},
-                                 total_count=len(_bucket_rows))
-        c1, c2, c3 = st.columns(3)
-        c1.metric(_("kpi_declared_net_ht"), _fmt(_declared_net_ht))
-        c2.metric(_("kpi_sum_canals_net_ht"), _fmt(_bucket_net_ht))
-        c3.metric(_("kpi_gap"), _fmt(_coherence_delta))
-        if abs(_coherence_delta) > Decimal("0.01"):
-            st.error(_("coherence_error"))
-        else:
-            st.success(_("coherence_success"))
-        st.caption(_("coherence_caption"))
+    if abs(_coherence_delta) > Decimal("0.01"):
+        st.error(_("coherence_error"))
+        with st.expander(_("coherence_header"), expanded=True):
+            _bucket_rows = [
+                {_("col_fiscal_canal"): b, _("col_net_ht_eur"): float(v)}
+                for b, v in summary.net_ht_by_bucket.items() if v != 0
+            ]
+            if _bucket_rows:
+                _gated_preview_table(pd.DataFrame(_bucket_rows), _can_export,
+                                     column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))},
+                                     total_count=len(_bucket_rows))
+            c1, c2, c3 = st.columns(3)
+            c1.metric(_("kpi_declared_net_ht"), _fmt(_declared_net_ht))
+            c2.metric(_("kpi_sum_canals_net_ht"), _fmt(_bucket_net_ht))
+            c3.metric(_("kpi_gap"), _fmt(_coherence_delta))
+            st.caption(_("coherence_caption"))
 
     # Exposé pour l'onglet Téléchargements (voir docstring de ce module).
     ctx.oss_tva_net_total = _oss_tva_net_total
