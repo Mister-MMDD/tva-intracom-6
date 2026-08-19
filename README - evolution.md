@@ -3399,34 +3399,158 @@ aucune régression. Sous-suite ciblée `excel`/`oss_export`/`fec` (12 tests)
 également passée après le nettoyage, vu le volume de fonctions Excel
 touchées.
 
-## 2026-08-18 (4) — Fin de l'audit libre : reste du dépôt passé au crible
+## 2026-08-19 — Audit poussé des fonctions cœur (engine/rates/ca3/oss_export/vies_engine/excel_report) : 6 points corrigés
 
-`pyflakes` étendu au reste du dépôt jamais audité (`rates.py`, `ecb_rates.py`,
-`oss_xml.py`, `models.py`, `report.py`, `cli.py`, `vies_certificate.py`,
-`amazon_adapter.py`, `amazon_spapi.py`, `historical_rates_widget.py`,
-`local_vat_report.py`, `ui/sidebar.py`, `ui/billing_gate.py`,
-`ui/formatting.py`, `ui/rerun_utils.py`, `ui/calc_cache.py`, `ui/files.py`,
-`ui/theme.py`, `ui/background_calc.py`, tous les `ui/tabs/*.py`). Quasiment
-rien remonté — le dépôt est déjà propre sur cet axe.
+Audit ciblé sur les grosses fonctions de calcul métier (pas les fonctions
+d'export Excel/mise en forme) : `engine.py` (`compute_vat`, `_run_oss_loop`,
+`compute_all_with_vies`), `rates.py` (`vat_rate_at_date`), `ca3_report.py`
+(`compute_ca3_lines_v2`, `_compute_aic_from_fc_transfers`), `oss_export.py`
+(`aggregate_oss_results`, `suggest_negative_bucket_corrections`),
+`vies_engine.py` (`validate_vat_numbers_parallel`), `excel_report.py`
+(`_deadline_oss`). Aucun bug fiscal actif trouvé sur le chemin réellement
+emprunté par l'application — tous les points ci-dessous sont des correctifs
+de robustesse/lisibilité à faible risque, sans changement de comportement
+observable aujourd'hui (sauf point 3, qui change un montant affiché dans de
+rares cas).
 
-Deux signalements résiduels examinés :
-- `ui/sidebar.py` : deux `import datetime as _dt` locaux dans deux blocs
-  indépendants — duplication mineure sans conflit réel à l'exécution,
-  laissée telle quelle (faible valeur, ne justifie pas de toucher aux
-  imports de ce fichier).
-- `ui/auth_flow.py` L572 : f-string de style CSS (boutons OAuth
-  Google/GitHub/Amazon) dont toutes les accolades sont échappées
-  (`{{`/`}}`) — zéro vraie interpolation dedans, le préfixe `f` était donc
-  superflu. Retiré (`f"""..."""` → `"""..."""`), aucun changement de
-  comportement/rendu.
+**1. `rates.py::_HISTORY_INDEX` — tri par `date_from` réellement appliqué.**
+Le commentaire affirmait l'index "trié par date_from" mais aucun tri
+n'était effectivement exécuté — les périodes n'étaient conservées que dans
+leur ordre d'apparition dans `VAT_RATE_HISTORY`. Sans impact aujourd'hui
+(périodes déjà saisies chronologiquement et disjointes pour chaque couple
+pays/catégorie), mais fragile : une future période insérée hors-ordre
+(ex. correctif rétroactif ajouté en fin de liste) aurait pu faire retourner
+un taux incorrect sans aucune erreur levée. Ajout d'un tri explicite
+(`_periods.sort(key=lambda p: p.date_from)`) à la construction de l'index.
 
-**Bilan de la passe pyflakes complète (sur 4 sous-sessions du 2026-08-18)** :
-dépôt globalement très propre. Code mort trouvé et nettoyé uniquement dans
-`ca3_report.py`, `ui/tabs/declarations.py`, `excel_report.py`,
-`oss_export.py`, `mem_utils.py` (voir entrées précédentes du jour) — tout le
-reste (une quinzaine de fichiers additionnels passés en revue) n'a rien
-révélé de significatif.
+**2. `rates.py::vat_rate_at_date` — suppression d'une branche `elif` morte.**
+`elif product_category.upper() in country_rates:` ne pouvait jamais être
+atteinte : `cat` est déjà normalisé en tête de fonction vers la même forme
+canonique testée par le `if` précédent, et `country_rates` contient de
+toute façon les deux formes (FR et EN) comme clés directes. Branche
+retirée, remplacée par un commentaire expliquant pourquoi elle était morte.
 
-**Validation** : `python3 -m py_compile` + `pyflakes` OK sur `auth_flow.py`.
-Suite complète `pytest` : 174 passed / 4 failed — baseline inchangée
-(`SUPABASE_DB_URL` absente en sandbox), aucune régression.
+**3. `ca3_report.py::_compute_aic_from_fc_transfers` — taux AIC historisé.**
+Le taux de TVA appliqué à l'AIC (transferts de stock FBA entrants) utilisait
+`vat_rate()` sans `tx_date`, donc toujours le taux COURANT — contrairement à
+`compute_vat()` qui applique le taux historique en vigueur à la date réelle
+de la transaction (ex. EE 22%→24% au 01/07/2025, RO 19%→21% au 01/08/2025).
+Un transfert FBA daté d'avant un changement de taux se voyait donc à tort
+appliquer le taux d'après. Extraction best-effort d'une date sur le
+transfert (`tax_calculation_date` / `transaction_complete_date` /
+`shipment_date`, mêmes clés candidates que le reste du parsing Amazon) pour
+appliquer le taux historique correct ; repli sur le taux courant (comportement
+inchangé) si aucune date exploitable n'est trouvée sur la ligne.
+
+**4. `oss_export.py::suggest_negative_bucket_corrections` — origine
+déterministe pour les avoirs multi-lignes.** Quand plusieurs ventes
+positives partagent le même `(sale_id, stock_country, vat_country,
+vat_rate)` (commande multi-articles), `candidates[0]` prenait la première
+rencontrée dans l'ordre d'itération de `results` — pas nécessairement la
+plus ancienne. Remplacé par `min(candidates, key=...transaction_date)`
+pour que la période d'origine déduite soit déterministe et reflète le début
+réel de la commande.
+
+**5. `vies_engine.py::validate_vat_numbers_parallel` — robustesse aux
+doublons de `vat_ids`.** `to_fetch` était `dict[norm -> UN SEUL vat_id
+original]` : si deux chaînes brutes distinctes en entrée se normalisaient
+vers le même numéro (ex. espacement/casse différents), seul le dernier
+original rencontré pour ce `norm` recevait une entrée dans `results` — les
+autres auraient été silencieusement absents du dict retourné. Sans impact
+aujourd'hui (le seul appelant, `compute_all_with_vies`, déduplique déjà sur
+le VAT normalisé avant d'appeler cette fonction), mais fragile pour un futur
+appelant qui ne dédupliquerait pas. `to_fetch` devient `dict[norm ->
+list[vat_id original]]` ; tous les originaux partageant un `norm` reçoivent
+désormais le même résultat, et `_tick()` de progression est appelé une fois
+par original (pas une fois par requête réseau dédupliquée) pour rester
+cohérent avec `total = len(vat_ids)`.
+
+**6. `excel_report.py::_deadline_oss` — retrait de deux branches mortes.**
+`q_end_month` ne peut valoir que 3, 6, 9 ou 12 par construction
+(`((mois-1)//3*3)+3`) : le garde-fou `if q_end_month > 12` et la branche
+`elif q_end_month + 1 == 12` (qui supposerait `q_end_month == 11`) étaient
+tous deux inatteignables. Résultat déjà correct dans tous les cas (le
+`else` calculait la bonne date via `calendar.monthrange`) — nettoyage
+purement cosmétique, aucun changement de comportement.
+
+**Validation** : `python3 -m py_compile` OK sur les 4 fichiers modifiés
+(`rates.py`, `ca3_report.py`, `oss_export.py`, `vies_engine.py`,
+`excel_report.py`). Suite complète `pytest` : 174 passed / 4 failed —
+identique à la baseline (échecs pré-existants `SUPABASE_DB_URL` absente en
+sandbox, confirmé par comparaison directe avec une copie vierge du dépôt),
+aucune régression.
+
+## 2026-08-19 (2) — Audit perf/RAM/CPU : 1 optimisation, 1 code mort retiré, 2 clarifications
+
+Suite de l'audit du même jour, cette fois côté performance plutôt que
+correction de bug fiscal. Fichiers passés en revue : `loader.py::_process_rows`,
+`ecb_rates.py` (`prefetch_rates`, `_fetch_ecb_batch`, `_db_get_rates_batch`,
+`_db_upsert_batch`, `convert_to_eur`, `convert_to_currency`,
+`convert_to_currency_for_oss`, `get_rates_for_dates`, `clear_cache`,
+`cache_info`), `classify.py`, `constants.py` (Amazon).
+
+**Verdict global** : le pipeline de parsing Amazon et la couche de conversion
+BCE étaient déjà très matures niveau perf (batching déjà en place partout où
+ça compte : taux BCE pré-chargés en un seul aller-retour HTTP + une seule
+requête DB batch avant la boucle principale, écriture DB en une seule
+transaction `execute_values`, regex précompilées au niveau module,
+nettoyage RAM incrémental de `rows_to_process`). Une seule vraie
+optimisation trouvée, un code mort, deux clarifications de commentaires/API.
+
+**1. `constants.py::is_national_tax_id` — dict de patterns hissé au niveau
+module (gain mesuré ~2,3x sur la fonction).** Le dict `_PATTERNS` (12 clés,
+~20 fermetures lambda, dont deux regex ES compilées implicitement à chaque
+appel via `re.match(pattern, s)`) était reconstruit intégralement À CHAQUE
+APPEL de la fonction — appelée pour chaque ligne ayant un `buyer_vat` non
+vide, dans la boucle la plus chaude de tout le pipeline
+(`loader._process_rows` → `classify.classify_buyer` →
+`is_national_tax_id`). Sur un rapport Amazon volumineux très majoritairement
+B2B, ça revenait à ré-allouer ce dict et ses fermetures des centaines de
+milliers de fois pour un résultat strictement identique à chaque fois.
+Renommé `_NATIONAL_TAX_ID_PATTERNS`, hissé au niveau module (construit une
+seule fois au chargement), et les deux patterns ES précompilés en
+`_ES_NIF_PHYSIQUE`/`_ES_CIF_ENTITE`. Micro-benchmark avant/après (200 000
+appels, cas IT) : 0,323 s → 0,139 s, soit ~2,3x. Comportement strictement
+identique (mêmes règles, même ordre d'évaluation par pays).
+
+**2. `ecb_rates.py::get_rates_for_dates` — code mort retiré.** Aucun
+appelant nulle part dans le dépôt (vérifié par recherche exhaustive,
+y compris les tests). En plus d'être morte, elle n'utilisait pas le pattern
+batch employé partout ailleurs dans ce fichier (`prefetch_rates`,
+`_db_get_rates_batch`) — elle appelait `get_rate()` une fois par date en
+boucle, un piège de perf (retour au pattern N+1) si jamais réutilisée telle
+quelle sans y penser. Supprimée.
+
+**3. `ecb_rates.py::convert_to_currency_for_oss` — docstring clarifiée.**
+La docstring affirmait que la fonction "retombe sur le taux du jour de la
+transaction" si le taux BCE de clôture de trimestre n'est pas encore publié
+(cas d'un trimestre encore en cours). En réalité la fonction elle-même ne
+fait rien de tel : elle lève `ValueError` (ou utilise `fallback_rate` si
+fourni). Le repli documenté existe bel et bien côté produit, mais il est
+implémenté UN NIVEAU AU-DESSUS, chez le seul appelant réel
+(`oss_export.convert_ht_tva_for_oss_period`), qui (a) passe systématiquement
+`fallback_rate=res.sale.exchange_rate` (le taux du jour de la transaction,
+retenu à l'import) et (b) capture `ValueError` en conservant le montant déjà
+calculé à ce même taux. Comportement produit inchangé et correct — seule la
+docstring induisait en erreur sur QUI implémente le repli. Note croisée
+ajoutée des deux côtés (dans `ecb_rates.py` et dans `oss_export.py`) pour
+qu'un futur appelant de cette fonction sache qu'il doit reproduire ce même
+filet (`fallback_rate` + `except ValueError`) sous peine de voir l'exception
+se propager pour une période en cours.
+
+**4. `loader.py::load_amazon_report` — paramètre `target_currency`
+clarifié.** Signalé lors de l'audit précédent : ce paramètre, transmis
+explicitement par `app.py`, est toujours écrasé à `"EUR"` avant l'appel à
+`_process_rows` (le moteur fiscal doit calculer en EUR quel que soit le pays
+vendeur — voir le "BUGFIX CRITIQUE" déjà en place). Comportement inchangé
+(toujours correct), mais désormais explicité en tête de docstring + log de
+diagnostic (`logger.debug`) si une valeur autre qu'EUR est demandée, pour
+qu'un futur mainteneur ne découvre pas ce silence par surprise. Paramètre
+conservé dans la signature (pas renommé) pour ne pas casser l'appel par
+mot-clé existant dans `app.py`.
+
+**Validation** : `python3 -m py_compile` OK sur les 3 fichiers modifiés
+(`constants.py`, `ecb_rates.py`, `oss_export.py`, `loader.py`). Suite
+complète `pytest` : 174 passed / 4 failed — identique à la baseline
+(échecs pré-existants `SUPABASE_DB_URL` absente en sandbox), aucune
+régression.

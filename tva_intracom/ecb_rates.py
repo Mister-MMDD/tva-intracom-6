@@ -679,10 +679,25 @@ def convert_to_currency_for_oss(
 ) -> tuple[Decimal, Decimal, str]:
     """Convertit un montant vers la devise cible avec le taux BCE de clôture de période OSS.
 
-    Si `period` n'est pas reconnu (plage multi-trimestres/années) ou incomplet (mois unique), 
-    on utilise le taux de clôture du trimestre contenant la `transaction_date` 
-    (Règl. UE 2020/194, art. 5 bis). Si ce taux futur n'est pas encore publié,
-    on retombe sur le taux du jour de la transaction.
+    Si `period` n'est pas reconnu (plage multi-trimestres/années) ou incomplet
+    (mois unique), on utilise le taux de clôture du trimestre contenant la
+    `transaction_date` (Règl. UE 2020/194, art. 5 bis).
+
+    PRÉCISION (audit du 2026-08-19) : si ce taux de clôture (potentiellement
+    une date future, trimestre en cours) n'est pas encore publié par la BCE,
+    CETTE fonction lève ValueError (ou utilise `fallback_rate` s'il est
+    fourni) — elle ne retombe PAS elle-même sur le taux du jour de la
+    transaction. Ce repli existe bien côté produit, mais il est implémenté
+    UN NIVEAU AU-DESSUS, chez le seul appelant réel
+    (oss_export.convert_ht_tva_for_oss_period) : celui-ci passe déjà
+    `fallback_rate=res.sale.exchange_rate` (le taux du jour de la
+    transaction, retenu lors de l'import) — donc l'exception n'est en
+    pratique quasiment jamais levée — et si elle l'était malgré tout, le
+    `except ValueError: pass` de l'appelant conserve tel quel le montant
+    déjà converti au taux du jour de la transaction lors de l'import,
+    obtenant ainsi le même résultat. Tout appelant futur de cette fonction
+    DOIT reproduire ce même filet (fallback_rate + except ValueError) sous
+    peine de voir une ValueError se propager pour une période en cours.
     """
     source_currency = source_currency.upper()
     target_currency = target_currency.upper()
@@ -691,14 +706,6 @@ def convert_to_currency_for_oss(
 
     rate_date = get_oss_rate_date(period, transaction_date)
     return convert_to_currency(original_amount, source_currency, target_currency, rate_date, fallback_rate=fallback_rate)
-
-
-def get_rates_for_dates(
-    currency: str, dates: list[date]
-) -> dict[str, Optional[Decimal]]:
-    """Récupère les taux pour plusieurs dates (dédupliquées)."""
-    unique_dates = sorted(set(dates))
-    return {d.isoformat(): get_rate(currency, d) for d in unique_dates}
 
 
 def clear_cache(persistent: bool = True) -> None:

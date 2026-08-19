@@ -85,6 +85,13 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
             # BCE indisponible et pas de fallback : on garde le montant déjà
             # converti au taux du jour de la vente plutôt que de bloquer
             # toute la génération du rapport.
+            #
+            # C'est ICI (et pas dans convert_to_currency_for_oss elle-même)
+            # que vit le repli "taux du jour de la transaction" documenté
+            # dans la docstring de convert_to_currency_for_oss (voir
+            # ecb_rates.py) — voir sa note "PRÉCISION (audit du 2026-08-19)"
+            # pour le détail de ce partage de responsabilité entre les deux
+            # fonctions.
             pass
 
     return ht, tva
@@ -356,7 +363,18 @@ def suggest_negative_bucket_corrections(
             candidates = positive_by_sale_id.get(
                 (refund.sale.sale_id, refund.sale.stock_country, refund.vat_country, refund.vat_rate)
             )
-            origin_quarter = _oss_quarter_of(candidates[0].sale.transaction_date) if candidates else ""
+            # BUGFIX (audit du 2026-08-19) : `candidates[0]` prenait la
+            # première vente rencontrée dans l'ORDRE D'ITÉRATION de
+            # `results` (pas forcément la plus ancienne) quand plusieurs
+            # ventes positives partagent le même sale_id (commande
+            # multi-articles). On prend désormais explicitement la vente la
+            # plus ancienne par transaction_date parmi les candidates, pour
+            # que la période d'origine déduite soit déterministe et reflète
+            # bien le début de la commande plutôt qu'une ligne arbitraire.
+            origin_quarter = (
+                _oss_quarter_of(min(candidates, key=lambda c: c.sale.transaction_date or "").sale.transaction_date)
+                if candidates else ""
+            )
             # On n'accepte le rattachement que si une origine a été trouvée
             # ET qu'elle correspond bien à une période DIFFÉRENTE de la
             # période courante (sinon ce n'est pas un avoir "à cheval",

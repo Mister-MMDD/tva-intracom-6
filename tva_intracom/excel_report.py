@@ -8,7 +8,7 @@ from datetime import date as _date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from itertools import chain
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
@@ -143,7 +143,7 @@ def _safe(value):
     return value
 
 
-def _wcell(ws, value, font=None, fill=None, alignment=None, number_format=None):
+def _wcell(ws, value, font: Font | None = None, fill: PatternFill | None = None, alignment: Alignment | None = None, number_format: str | None = None) -> Any:
     """Construit une cellule stylée prête à être ajoutée via `ws.append(...)`.
 
     `WriteOnlyCell` fonctionne aussi bien en `Workbook()` normal qu'en
@@ -151,7 +151,7 @@ def _wcell(ws, value, font=None, fill=None, alignment=None, number_format=None):
     dès maintenant permet de convertir les feuilles une par une sans casser
     le mode normal encore actif, puis de basculer tout le classeur en
     write_only une fois toutes les feuilles converties."""
-    cell = WriteOnlyCell(ws, value=value)
+    cell: Any = WriteOnlyCell(ws, value=value)
     if font is not None:
         cell.font = font
     if fill is not None:

@@ -638,11 +638,24 @@ def load_amazon_report(
     progress_callback: Optional[Callable[[int, int, Optional[str]], None]] = None,
     bce_label: Optional[str] = None,
     bce_wait_label: Optional[str] = None,
-    target_currency: str = "EUR",
+    target_currency: str = "EUR",  # CONSERVÉ MAIS IGNORÉ — voir note ci-dessous.
     ioss_number: str = "",
     seller_is_importer: bool = False,
 ) -> AmazonImportResult:
     """Charge un fichier Amazon VAT Transactions Report (formats 1 à 5).
+
+    CLARTÉ D'API (audit du 2026-08-19) : le paramètre `target_currency` est
+    accepté (et transmis explicitement par app.py) mais TOUJOURS ignoré au
+    profit d'EUR en dur, plus bas dans cette fonction — voir le commentaire
+    "BUGFIX CRITIQUE" associé. Ce n'est pas un bug : le moteur fiscal doit
+    calculer en EUR quel que soit le pays vendeur (seuil OSS, cases CA3,
+    taux de TVA…), la conversion vers une devise d'affichage se fait
+    uniquement en couche présentation (ui/formatting.py, report.py,
+    excel_report.py). Le paramètre est conservé dans la signature par
+    compatibilité (app.py l'appelle en keyword), mais son nom peut induire
+    en erreur un futur mainteneur qui penserait qu'il pilote encore quelque
+    chose ici. Un log de diagnostic prévient désormais si une valeur autre
+    qu'EUR est passée, pour que ce silence ne devienne jamais un piège.
 
     La détection du format et de l'encodage est automatique.
     Si l'encodage n'est pas fourni, on tente UTF-8 puis Windows-1252 (cp1252).
@@ -717,7 +730,15 @@ def load_amazon_report(
     # La conversion vers une devise d'affichage locale se fait uniquement en
     # couche présentation (voir tva_intracom/ui/formatting.py, report.py,
     # excel_report.py), jamais ici.
+    _requested_target_currency = target_currency
     target_currency = "EUR"
+    if _requested_target_currency and _requested_target_currency.upper() != "EUR":
+        logger.debug(
+            "load_amazon_report : target_currency=%r demandé mais ignoré "
+            "(le moteur calcule toujours en EUR — conversion d'affichage "
+            "à faire en aval, voir docstring).",
+            _requested_target_currency,
+        )
     _process_rows(
         rows_to_process=rows_to_process,
         parser=parser,

@@ -170,6 +170,37 @@ def is_valid_vat_intracom(vat: str, reg_type: str = "VAT") -> bool:
     return vat.strip().upper()[:2] in EU_VAT_PREFIXES
 
 
+# PERF (audit du 2026-08-19) : ce dict était auparavant construit À CHAQUE
+# APPEL de is_national_tax_id() (donc à chaque ligne ayant un buyer_vat non
+# vide, dans la boucle la plus chaude de tout le pipeline de parsing Amazon
+# — voir loader._process_rows -> classify.classify_buyer). Sur un rapport
+# de 100k+ lignes très majoritairement B2B, ça revenait à reconstruire un
+# dict de 12 entrées + ~20 fermetures lambda pour rien, à chaque ligne.
+# Hissé au niveau module pour n'être construit qu'une seule fois au chargement.
+# Les deux patterns ES sont en plus précompilés (au lieu de re.match(pattern, s)
+# qui repasse par le cache interne du module re à chaque appel).
+_ES_NIF_PHYSIQUE = re.compile(r'^\d{8}[A-Z]$')
+_ES_CIF_ENTITE   = re.compile(r'^[A-Z]\d{7}[A-Z0-9]$')
+
+_NATIONAL_TAX_ID_PATTERNS: dict[str, list[Callable[[str], bool]]] = {
+    "ES": [
+        lambda s: bool(_ES_NIF_PHYSIQUE.match(s)),   # NIF personne physique
+        lambda s: bool(_ES_CIF_ENTITE.match(s)),      # CIF / NIF entité
+    ],
+    "IT": [lambda s: s.isdigit() and len(s) == 11],
+    "PL": [lambda s: s.isdigit() and len(s) == 10],
+    "CZ": [lambda s: s.isdigit() and len(s) in (8, 9, 10)],
+    "SK": [lambda s: s.isdigit() and len(s) == 10],
+    "HU": [lambda s: s.isdigit() and len(s) == 8],
+    "RO": [lambda s: s.isdigit() and 2 <= len(s) <= 10],
+    "BG": [lambda s: s.isdigit() and len(s) in (9, 10)],
+    "HR": [lambda s: s.isdigit() and len(s) == 11],
+    "LT": [lambda s: s.isdigit() and len(s) in (9, 11)],
+    "LV": [lambda s: s.isdigit() and len(s) == 11],
+    "EE": [lambda s: s.isdigit() and len(s) == 8],
+}
+
+
 def is_national_tax_id(vat: str, buyer_country: str) -> bool:
     """True si le numéro est un identifiant fiscal national (pas TVA intracom).
 
@@ -202,24 +233,7 @@ def is_national_tax_id(vat: str, buyer_country: str) -> bool:
         return False
     cc = buyer_country.strip().upper()
 
-    _PATTERNS: dict[str, list[Callable[[str], bool]]] = {
-        "ES": [
-            lambda s: bool(re.match(r'^\d{8}[A-Z]$', s)),           # NIF personne physique
-            lambda s: bool(re.match(r'^[A-Z]\d{7}[A-Z0-9]$', s)),   # CIF / NIF entité
-        ],
-        "IT": [lambda s: s.isdigit() and len(s) == 11],
-        "PL": [lambda s: s.isdigit() and len(s) == 10],
-        "CZ": [lambda s: s.isdigit() and len(s) in (8, 9, 10)],
-        "SK": [lambda s: s.isdigit() and len(s) == 10],
-        "HU": [lambda s: s.isdigit() and len(s) == 8],
-        "RO": [lambda s: s.isdigit() and 2 <= len(s) <= 10],
-        "BG": [lambda s: s.isdigit() and len(s) in (9, 10)],
-        "HR": [lambda s: s.isdigit() and len(s) == 11],
-        "LT": [lambda s: s.isdigit() and len(s) in (9, 11)],
-        "LV": [lambda s: s.isdigit() and len(s) == 11],
-        "EE": [lambda s: s.isdigit() and len(s) == 8],
-    }
-    for check in _PATTERNS.get(cc, []):
+    for check in _NATIONAL_TAX_ID_PATTERNS.get(cc, []):
         if check(v):
             return True
     return False
