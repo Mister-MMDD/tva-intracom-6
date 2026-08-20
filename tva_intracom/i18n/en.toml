@@ -227,6 +227,10 @@ amazon_config_error = "{platform} config gap"
 config_error_badge = "Action required on Seller Central"
 amazon_config_success = "{platform} config compliant"
 
+
+display_mode_label = "Display mode"
+display_mode_simple = "Simple"
+display_mode_detailed = "Detailed"
 # Tabs
 tab_declarations = "📋 Declarations"
 tab_sales_detail = "📑 Sales Detail"

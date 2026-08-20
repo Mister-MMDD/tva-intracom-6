@@ -227,6 +227,10 @@ amazon_config_error = "Konfigurationsabweichung bei {platform}"
 config_error_badge = "Aktion im Seller Central erforderlich"
 amazon_config_success = "Konfiguration von {platform} konform"
 
+
+display_mode_label = "Anzeigemodus"
+display_mode_simple = "Einfach"
+display_mode_detailed = "Detailliert"
 # Tabs
 tab_declarations = "📋 Erklärungen"
 tab_sales_detail = "📑 Verkaufsdetails"

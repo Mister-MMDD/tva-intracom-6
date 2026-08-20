@@ -179,17 +179,15 @@ def render_historical_rates_alert(results: List[VatResult]) -> None:
             names = ", ".join(
                 f"**{country_label(c)}**" for c in countries_with_multiple_rates
             )
-            st.warning(
+            st.caption(
                 f"⚡ Changement de taux en cours de période détecté pour : {names}. "
-                "Les taux ont été appliqués vente par vente selon la date de transaction.",
-                icon="⚠️",
+                "Les taux ont été appliqués vente par vente selon la date de transaction."
             )
         else:
-            st.info(
+            st.caption(
                 "Les pays ci-dessous ont connu un changement de taux TVA récent. "
                 "Toutes vos ventes se situent dans une seule période — "
-                "le taux correct a été appliqué uniformément.",
-                icon="ℹ️",
+                "le taux correct a été appliqué uniformément."
             )
 
         import pandas as pd

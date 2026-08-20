@@ -227,6 +227,11 @@ amazon_config_error = "Écart de config {platform}"
 config_error_badge = "Action requise sur Seller Central"
 amazon_config_success = "Config {platform} conforme"
 
+# Mode d'affichage (Simple / Détaillé)
+display_mode_label = "Mode d'affichage"
+display_mode_simple = "Simple"
+display_mode_detailed = "Détaillé"
+
 # Onglets
 tab_declarations = "📋 Déclarations"
 tab_sales_detail = "📑 Détail Ventes"

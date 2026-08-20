@@ -74,10 +74,23 @@ def render_audit() -> None:
     # libellés de colonnes dynamiques dans les deux sous-onglets ci-dessous.
     _target_currency = st.session_state.get("target_currency", "EUR")
 
-    audit_sub1, audit_sub2 = st.tabs([
-        _("subtab_amazon_gaps"),
-        _("subtab_fba_inventory"),
-    ])
+    # Mode simple : le sous-onglet "Mouvements stock FBA" (transferts FBA)
+    # est masqué -- ces données restent disponibles pour l'utilisateur via
+    # l'export Excel/CSV de l'onglet Téléchargements, plus lisible pour ce
+    # cas d'usage qu'un tableau brut dans l'app. Purement un choix
+    # d'affichage : `_aggregate_fba_local_sales` (utilisée par app.py pour
+    # décider si l'onglet Audit doit rester visible) est TOUJOURS calculée,
+    # que ce sous-onglet soit affiché ou non.
+    _is_detailed = st.session_state.get("display_mode") == "detaille"
+
+    if _is_detailed:
+        audit_sub1, audit_sub2 = st.tabs([
+            _("subtab_amazon_gaps"),
+            _("subtab_fba_inventory"),
+        ])
+    else:
+        (audit_sub1,) = st.tabs([_("subtab_amazon_gaps")])
+        audit_sub2 = None
 
     with audit_sub1:
         has_amazon_vat = any(getattr(r.sale,"amazon_vat_amount",Decimal("0"))>0 for r in results)
@@ -202,14 +215,14 @@ def render_audit() -> None:
                 else:
                     st.success(_("audit_vies_success"))
             with sub3:
-                st.info(_("audit_uk_info"))
+                st.caption(_("audit_uk_info"))
                 if ecarts_gb_tab:
                     st.metric(_("audit_uk_metric"), _fmt(sum(r[_lbl_gap] for r in ecarts_gb_tab)))
                     _audit_df(ecarts_gb_tab, "audit_gb")
                 else:
                     st.success(_("audit_uk_success"))
             with sub4:
-                st.info(_("audit_art194_info"))
+                st.caption(_("audit_art194_info"))
                 if ecarts_b2b_dom_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_b2b_dom_tab)
                     st.metric(_("audit_art194_metric"), _fmt(abs(total)))
@@ -237,7 +250,7 @@ def render_audit() -> None:
             if nb_arrondis > 0:
                 st.caption(_("audit_rounding_caption", count=nb_arrondis))
 
-    with audit_sub2:
+    def _render_fba_subtab() -> None:
         st.subheader(_("audit_fba_header"))
         by_c = _aggregate_fba_local_sales(all_sales, ctx.calc_key)
         if by_c:
@@ -271,3 +284,7 @@ def render_audit() -> None:
                 _gated_preview_table(_df_fc_filt.head(_lim_fc).copy(), _can_export, total_count=_n_fc)
         else:
             st.info(_("audit_fba_none"))
+
+    if audit_sub2 is not None:
+        with audit_sub2:
+            _render_fba_subtab()

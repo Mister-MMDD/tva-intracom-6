@@ -227,6 +227,10 @@ amazon_config_error = "Discrepanza config. {platform}"
 config_error_badge = "Azione richiesta su Seller Central"
 amazon_config_success = "Config. {platform} conforme"
 
+
+display_mode_label = "Modalità di visualizzazione"
+display_mode_simple = "Semplice"
+display_mode_detailed = "Dettagliata"
 # Tabs
 tab_declarations = "📋 Dichiarazioni"
 tab_sales_detail = "📑 Dettaglio Vendite"

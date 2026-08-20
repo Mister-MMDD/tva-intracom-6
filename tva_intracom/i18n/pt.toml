@@ -227,6 +227,10 @@ amazon_config_error = "Incoerência de config. {platform}"
 config_error_badge = "Ação necessária no Seller Central"
 amazon_config_success = "Configuração {platform} conforme"
 
+
+display_mode_label = "Modo de exibição"
+display_mode_simple = "Simples"
+display_mode_detailed = "Detalhado"
 # Tabs
 tab_declarations = "📋 Declarações"
 tab_sales_detail = "📑 Detalhe das Vendas"

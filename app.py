@@ -454,23 +454,35 @@ if uploaded_files:
     _credit_part  = _("summary_part_credits", count=_total_credit_note) if _total_credit_note else ""
     _skip_part    = _("summary_part_skipped", count=_total_skipped) if _total_skipped else ""
 
+    # =====================================================================
+    # MODE D'AFFICHAGE (Simple / Détaillé) — n'affecte QUE la présentation.
+    # Stocké dans session_state, jamais inclus dans _parse_cache_key ni
+    # _cache_key (voir plus bas) : basculer de mode ne redéclenche AUCUN
+    # recalcul, seule la partie affichage est reparcourue au rerun.
+    # =====================================================================
+    if "display_mode" not in st.session_state:
+        st.session_state["display_mode"] = "simple"
+    _is_detailed = st.session_state["display_mode"] == "detaille"
+
     if len(uploaded_files) == 1:
         fs = file_summaries[0]
-        st.info(_("import_summary_single", platform=platform_name, sales=fs[_('col_sales')], refunds=fs[_('col_refunds')], fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part))
+        if _is_detailed:
+            st.info(_("import_summary_single", platform=platform_name, sales=fs[_('col_sales')], refunds=fs[_('col_refunds')], fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part))
     else:
-        st.success(_("import_summary_multi", count=len(uploaded_files), sales=len(all_sales), refunds=len(all_refunds), fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part, total_rows=total_rows_sum))
-        with st.expander(_("file_detail_expander", count=len(uploaded_files))):
-            st.table(file_summaries)
-        if len(unique_platforms) > 1:
-            st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
-    if all_warnings:
+        if _is_detailed:
+            st.success(_("import_summary_multi", count=len(uploaded_files), sales=len(all_sales), refunds=len(all_refunds), fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part, total_rows=total_rows_sum))
+            with st.expander(_("file_detail_expander", count=len(uploaded_files))):
+                st.table(file_summaries)
+            if len(unique_platforms) > 1:
+                st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
+    if all_warnings and _is_detailed:
         with st.expander(_("import_warnings_header", count=len(all_warnings))):
             for w in all_warnings: st.text(w)
 
     all_period_mismatches = []
     for pr in _parse_results:
         all_period_mismatches.extend(getattr(pr, "period_mismatches", []))
-    if all_period_mismatches:
+    if all_period_mismatches and _is_detailed:
         with st.expander(
                 _("period_mismatch_title", count=len(all_period_mismatches)),
                 expanded=False,
@@ -702,7 +714,8 @@ if uploaded_files:
         # =====================================================================
         # ALERTES — toujours en haut, conditionnelles
         # =====================================================================
-        render_historical_rates_alert(results)
+        if _is_detailed:
+            render_historical_rates_alert(results)
 
         # On calcule pay_eu nécessaire pour le billing gate et les immatriculations
         pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
@@ -742,7 +755,7 @@ if uploaded_files:
         # Taux BCE de clôture de période réellement utilisés pour la
         # conversion OSS (Règl. UE 2020/194, art. 5 bis) — affiche les taux
         # par devise et par date de clôture si la période est multiple.
-        if convert_fx and _fx_currencies_used:
+        if convert_fx and _fx_currencies_used and _is_detailed:
             from tva_intracom.ecb_rates import get_oss_rate_date
             _used_rates_info = set()
             for _r in results:
@@ -854,7 +867,23 @@ if uploaded_files:
         # TABLEAU DE BORD
         # =====================================================================
         with st.container():
-            st.header(_("recapitulatif_header"))
+            _hdr_col, _toggle_col = st.columns([4, 1])
+            with _hdr_col:
+                st.header(_("recapitulatif_header"))
+            with _toggle_col:
+                _mode_options = [_("display_mode_simple"), _("display_mode_detailed")]
+                _mode_index = 1 if _is_detailed else 0
+                _mode_choice = st.segmented_control(
+                    _("display_mode_label"),
+                    _mode_options,
+                    default=_mode_options[_mode_index],
+                    key="_display_mode_widget",
+                    label_visibility="collapsed",
+                )
+                _new_mode = "detaille" if _mode_choice == _mode_options[1] else "simple"
+                if _new_mode != st.session_state["display_mode"]:
+                    st.session_state["display_mode"] = _new_mode
+                    st.rerun()
             c1, c2, c3, c4 = st.columns(4)
 
             ca_brut = float(summary.total_ht)
@@ -882,14 +911,34 @@ if uploaded_files:
         # =====================================================================
         # ONGLETS PRINCIPAUX
         # =====================================================================
-        tab_decl, tab_detail, tab_vies, tab_audit, tab_dl, tab_viz = st.tabs([
+        # Mode simple : l'onglet Audit Amazon n'apporte rien tant qu'aucun
+        # écart TVA Amazon significatif n'existe (KPI "Config Amazon
+        # conforme") ET qu'aucun pays de stock FBA local n'est à risque
+        # d'immatriculation manquante -- ce second point est calculé via
+        # `_aggregate_fba_local_sales`, la même fonction mise en cache
+        # (heavy_cache_data) qu'utilise déjà l'onglet Audit lui-même : aucun
+        # nouveau calcul, uniquement une lecture (potentiellement déjà en
+        # cache) réutilisée ici pour décider de l'affichage de l'onglet.
+        from tva_intracom.ui.tabs.audit import _aggregate_fba_local_sales
+        _fba_by_country = _aggregate_fba_local_sales(all_sales, _cache_key)
+        _fba_at_risk = any(c not in countries_with_vat for c in _fba_by_country)
+        _show_audit_tab = _is_detailed or abs(total_ecarts_autres) > 0.05 or _fba_at_risk
+
+        _tab_labels = [
             _("tab_declarations"),
             _("tab_sales_detail"),
             _("tab_vies"),
-            _("tab_amazon_audit", platform=platform_name),
-            _("tab_downloads"),
-            _("tab_visualizations"),
-        ])
+        ]
+        if _show_audit_tab:
+            _tab_labels.append(_("tab_amazon_audit", platform=platform_name))
+        _tab_labels += [_("tab_downloads"), _("tab_visualizations")]
+
+        _tabs = st.tabs(_tab_labels)
+        if _show_audit_tab:
+            tab_decl, tab_detail, tab_vies, tab_audit, tab_dl, tab_viz = _tabs
+        else:
+            tab_decl, tab_detail, tab_vies, tab_dl, tab_viz = _tabs
+            tab_audit = None
 
         # =====================================================================
         # CONSTRUCTION DU CONTEXTE PARTAGÉ + RENDU DES ONGLETS
@@ -945,7 +994,8 @@ if uploaded_files:
         with tab_decl: render_declarations(_tab_ctx)
         with tab_detail: render_detail_ventes()
         with tab_vies: render_vies(_tab_ctx)
-        with tab_audit: render_audit()
+        if tab_audit is not None:
+            with tab_audit: render_audit()
         with tab_dl: render_telechargements()
         with tab_viz: render_visualisations()
 

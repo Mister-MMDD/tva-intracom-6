@@ -3554,3 +3554,69 @@ mot-clé existant dans `app.py`.
 complète `pytest` : 174 passed / 4 failed — identique à la baseline
 (échecs pré-existants `SUPABASE_DB_URL` absente en sandbox), aucune
 régression.
+
+## 2026-08-20 — Mode d'affichage Simple / Détaillé (UX)
+
+Ajout d'un bouton bascule ("Simple" / "Détaillé") dans le tableau de bord,
+pour proposer une expérience allégée aux utilisateurs qui n'ont besoin que
+des résultats par pays, du statut VIES et des téléchargements. Uniquement
+de l'affichage — **aucun changement de calcul**, aucune nouvelle clé dans
+`_parse_cache_key` ni `_cache_key` (vérifié explicitement avant
+implémentation) : basculer de mode ne redéclenche donc aucun recalcul, la
+bascule se fait par simple rerun Streamlit lisant les résultats déjà en
+cache (`CalcCacheState`).
+
+**Masqué en mode Simple** (visible en mode Détaillé) :
+- Résumé fichiers analysés (`import_summary_single/multi`) + expander
+  "Détail par fichier"
+- `import_warnings_header`, `different_sources_warning`,
+  `period_mismatch_title`
+- Encart "📅 Taux TVA historiques détectés"
+- Encart "💱 Taux de change BCE utilisés"
+- Sous-onglet "Mouvements stock FBA" de l'onglet Audit (transferts FBA
+  toujours disponibles via l'export Excel/CSV, plus lisible pour cet usage
+  qu'un tableau brut dans l'app)
+- Onglet **Audit {platform} entier**, sauf si un écart TVA Amazon
+  significatif existe (`abs(total_ecarts_autres) > 0.05`, KPI "Config
+  Amazon conforme") **ou** qu'un pays de stock FBA local est à risque
+  d'immatriculation manquante — ce second critère réutilise
+  `_aggregate_fba_local_sales` (déjà mise en cache via `heavy_cache_data`),
+  aucun nouveau calcul introduit, uniquement une lecture pour décider de
+  l'affichage de l'onglet.
+
+Les alertes critiques (numéro de TVA d'origine manquant, blocage
+`critical_blocking`) restent affichées dans les deux modes, ainsi que les 4
+KPI cards et le plan d'action immatriculations.
+
+**Mode Détaillé également allégé** à cette occasion :
+- Bandeau explicatif de l'encart taux historiques (`historical_rates_widget.py`) :
+  `st.warning`/`st.info` colorés remplacés par `st.caption` discret — reste
+  informatif, n'est pas une alerte actionnable.
+- 3 des 4 textes d'intro des sous-onglets "Écarts TVA" (`audit_uk_info`,
+  `audit_art194_info`) passés en `st.caption` (non actionnables).
+  `audit_vies_info` et `audit_manquante_info` conservés en `st.info` :
+  le premier constitue tout le contenu du sous-onglet tant que VIES est
+  désactivé, le second pointe une action concrète ("vérifier le
+  paramétrage Amazon").
+  Correction en cours de session : une factorisation des 4 textes en un
+  seul intro commun avait été envisagée puis abandonnée après vérification
+  du contenu réel — ce ne sont pas des textes répétitifs mais 4
+  explications distinctes propres à chaque sous-onglet ; les factoriser
+  aurait fait perdre du contexte utile sans gain réel.
+
+**i18n** : 3 nouvelles clés (`display_mode_label`, `display_mode_simple`,
+`display_mode_detailed`) ajoutées symétriquement aux 7 fichiers TOML, juste
+avant le bloc "Onglets"/"Tabs". Comptage vérifié via `toml.load()` : 1137
+clés par langue (baseline 1134 + 3), identique dans les 7 fichiers.
+
+**Fichiers modifiés** : `app.py`, `tva_intracom/historical_rates_widget.py`,
+`tva_intracom/ui/tabs/audit.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Railway / scale-to-zero** : le toggle ne crée ni thread, ni connexion, ni
+polling — stockage `session_state` uniquement, aucun impact sur la
+détection d'inactivité.
+
+**Validation** : `py_compile` OK sur les 3 fichiers Python modifiés. Suite
+complète `pytest` : 174 passed / 4 failed — identique à la baseline
+(échecs pré-existants `SUPABASE_DB_URL` absente en sandbox), aucune
+régression.
