@@ -436,7 +436,7 @@ def render_telechargements() -> None:
         if not _local_countries:
             st.info(_("no_local_sales_info"))
         else:
-            export_country = st.selectbox(_("dl_selectcountry_label"), _local_countries, format_func=lambda c: f"{country_label(c)} ({c})", key="dl_country_select")
+            export_country = st.selectbox(_("dl_select_country_label"), _local_countries, format_func=lambda c: f"{country_label(c)} ({c})", key="dl_country_select")
 
             def _build_local_csv(country):
                 import io as _il, csv as _cl
