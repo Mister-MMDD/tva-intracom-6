@@ -3620,3 +3620,304 @@ détection d'inactivité.
 complète `pytest` : 174 passed / 4 failed — identique à la baseline
 (échecs pré-existants `SUPABASE_DB_URL` absente en sandbox), aucune
 régression.
+
+---
+
+## 2026-08-21 — Restructuration UX : barre de statut persistante, mode avancé global, sidebar et téléchargements allégés
+
+Suite du chantier UX du 2026-08-20. Quatre points traités :
+
+**1. Mode avancé global et unique (`tva_intracom/ui/display_mode.py`, nouveau).**
+Le mode "Simple/Détaillé" du 2026-08-20 vivait uniquement dans `app.py`
+(`_is_detailed`, lu localement dans ce fichier). Il est désormais le point
+de vérité unique consommé par `sidebar.py` et `telechargements.py` en plus
+d'`app.py`, via trois fonctions : `ensure_display_mode()` (init, à appeler
+tôt), `is_detailed()` (lecture pure, sans dépendance circulaire), et
+`render_mode_toggle()` (le widget lui-même, comportement de rerun
+strictement identique à l'ancien : un seul `st.rerun()` si la valeur
+change réellement). Invariant explicitement documenté dans le module :
+`display_mode` ne doit **jamais** entrer dans `_parse_cache_key` ni
+`calc_key` — vérifié, aucune des deux clés ne le contient.
+
+**2. Barre de statut persistante (`app.py`).**
+Bandeau visuel toujours affiché (fichier chargé ou non), positionné juste
+après le rendu de la sidebar, contenant : nom du/des fichier(s) importé(s)
+ou message d'attente, période détectée, statut du calcul (point vert "à
+jour" / orange "en attente"), et le sélecteur Simple/Détaillé (déplacé
+depuis son ancien emplacement au milieu du bloc KPI, `app.py` ex-L874-886,
+qui n'était visible qu'après un calcul complet). CSS ajouté dans
+`theme.py` (`.status-bar`, `.status-bar-dot`), même famille de variables
+(`--brand-blue`, `--secondary-background-color`) que les KPI cards
+existantes — pas de nouveau système visuel introduit.
+L'ancienne initialisation `if "display_mode" not in st.session_state:`
+(ex-L463) est supprimée, remplacée par l'appel unique à
+`ensure_display_mode()`.
+
+**3. Sidebar allégée (`tva_intracom/ui/sidebar.py`).**
+- Expander "Catalogue Produits" (taux réduits par ASIN) et expander
+  "Cache VIES" (TTL, stats, purge, certificat) : masqués entièrement en
+  mode Simple, visibles en mode Détaillé. `asin_to_category` reste
+  initialisé à `{}` et `encoding` à `"utf-8"` dans tous les cas — aucune
+  variable non définie plus loin dans le flux de parsing, quel que soit
+  le mode.
+- Bloc "Compte & Confidentialité" (changement de mot de passe, export
+  RGPD, suppression de compte) : sorti du corps de la sidebar (accord
+  explicite du 2026-08-21) vers une modale (`@st.dialog`, fonction
+  `_render_account_dialog`), ouverte par un bouton. Contenu strictement
+  inchangé, seul l'emplacement change — ce bloc n'a pas sa place dans un
+  panneau consulté à chaque session de calcul.
+- Compatibilité vérifiée : `st.dialog(title: str, ...)` sur Streamlit
+  1.58.0 (version épinglée du projet) n'accepte pas `None` pour `title`,
+  d'où `title=""` plutôt que `title=None`.
+
+**4. Téléchargements allégés (`tva_intracom/ui/tabs/telechargements.py`).**
+Sections IOSS, B2B et Déclarations Locales (hors pays d'origine) :
+masquées entièrement en mode Simple **uniquement si aucune donnée réelle
+correspondante n'existe** (`_has_ioss_sales`, `_has_b2b_sales`,
+`_local_countries`). Dès qu'une des trois catégories contient des données
+réelles, la section reste affichée dans les deux modes — on ne masque
+jamais un export dont l'utilisateur a effectivement besoin. Rapport
+principal, export OSS et déclaration pays d'origine (CA3/local) restent
+toujours visibles, dans les deux modes : ce sont les exports de base.
+
+**i18n** : 7 nouvelles clés ajoutées symétriquement aux 7 fichiers TOML
+(`status_bar_file_label`, `status_bar_no_file`, `status_bar_period_label`,
+`status_bar_period_pending`, `status_bar_status_label`,
+`status_bar_status_ready`, `status_bar_status_none`), juste après le bloc
+"Mode d'affichage". Comptage vérifié via `toml.load()` : 1144 clés par
+langue (baseline 1137 + 7), identique dans les 7 fichiers.
+
+**Fichiers modifiés** : `app.py`, `tva_intracom/ui/display_mode.py`
+(nouveau), `tva_intracom/ui/theme.py`, `tva_intracom/ui/sidebar.py`,
+`tva_intracom/ui/tabs/telechargements.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Railway / scale-to-zero** : aucune connexion, thread ou polling ajouté —
+uniquement `session_state`, widgets et rendu conditionnel. Aucun impact
+sur la détection d'inactivité.
+
+**Validation** : `py_compile` OK sur les 5 fichiers Python modifiés.
+`pyflakes` : aucun nouveau warning introduit (le seul avertissement
+existant, `sidebar.py` "import '_dt' shadowed by loop variable", est
+pré-existant et déjà documenté comme faux positif, confirmé identique
+sur le dépôt non modifié). Suite complète `pytest` : 174 passed / 4
+failed — identique à la baseline (échecs pré-existants
+`SUPABASE_DB_URL` absente en sandbox), confirmé également en relançant
+la suite sur le dépôt d'origine non modifié pour comparaison directe.
+Symétrie TOML vérifiée programmatiquement.
+
+**Correctif post-livraison (2026-08-21, même jour)** : `@st.dialog(title="")`
+levait `StreamlitAPIException` chez Matthieu (Streamlit exige un `title`
+non vide — passait par erreur sur l'environnement de test initial, pas sur
+le sien). Remplacé par `@st.dialog(title=_("account_privacy_header"))` ;
+suppression du `st.markdown(f"### ...")` en double devenu redondant dans
+le corps de la modale, le titre s'affichant désormais nativement en
+en-tête du dialog. `py_compile` + suite `pytest` complète relancés :
+174 passed / 4 failed, baseline inchangé.
+
+---
+
+## 2026-08-21 (2) — Correctifs mode Simple/Détaillé : recalcul intempestif, persistance par compte, barre de statut
+
+Trois signalements après mise en prod des changements du 2026-08-21 (1).
+
+**1. Bug racine : la bascule de mode déclenchait un recalcul complet (et
+donnait l'impression d'un plantage à l'affichage).**
+`asin_to_category` (catalogue ASIN → taux réduit) et `encoding` (encodage
+fichier) alimentent respectivement `calc_key` et `parse_key` (voir
+`app.py`). En masquant leurs expanders en mode Simple, ces deux variables
+retombaient à leur valeur par défaut (`{}` / `"utf-8"`) à chaque run où
+l'expander n'était pas rendu — ce qui changeait `calc_key`/`parse_key`
+dès qu'on quittait le mode Détaillé après avoir chargé un catalogue ou
+changé l'encodage, et déclenchait donc un **recalcul, voire un
+re-parsing complet des fichiers**, à chaque bascule de mode. Sur un jeu
+de données volumineux (plusieurs fichiers ~1 Mo, cas réel signalé), ce
+recalcul soudain donnait l'impression d'un plantage de l'interface.
+Corrigé : les deux valeurs sont désormais mises en cache dans
+`session_state` (`_asin_catalog_data`, `_file_encoding_choice`) et relues
+quel que soit le mode d'affichage — le contenu réel ne varie plus jamais
+en fonction du mode, seul l'affichage du réglage (visible/masqué) change.
+Le `file_uploader` du catalogue reçoit en plus une `key` explicite
+(`catalog_file_uploader`), absente avant, pour que Streamlit conserve son
+état correctement quand l'expander n'est pas rendu à chaque run.
+
+**2. Dernier mode choisi non sauvegardé par utilisateur.**
+Suit exactement le schéma déjà en place pour la langue préférée
+(`tva_users.language` / `set_language()`) : nouvelle colonne
+`tva_users.display_mode` (défaut `'simple'`, migration rétro-compatible
+via `ALTER TABLE ADD COLUMN IF NOT EXISTS`), nouvelle fonction
+`tva_intracom.auth.set_display_mode()`, `User.display_mode` ajouté à la
+dataclass et à `_row_to_user()`. Dans `app.py`, le bloc de synchro
+langue↔compte est étendu pour traiter aussi le mode d'affichage, sur un
+**flag `_prefs_synced_user` unique et partagé** (calculé une seule fois
+avant de traiter langue et mode, plutôt que deux blocs séquentiels
+indépendants — la première version aurait fait positionner le flag par
+le traitement de la langue avant que le mode n'ait pu le lire, empêchant
+sa restauration à la première connexion). À la première vue d'un compte
+dans la session : mode sauvegardé restauré s'il diffère. Ensuite : tout
+changement via le toggle est persisté sur le compte.
+
+**3. Barre de statut : noms de fichiers remplacés par un simple
+compteur.** `📁 Fichier :` affiche désormais "N fichier(s) importé(s)"
+au lieu de la liste des noms — sans intérêt pour l'utilisateur et prenait
+trop de place dans un bandeau censé rester compact. Nouvelle clé i18n
+`status_bar_files_count` (avec placeholder `{count}`), ajoutée
+symétriquement aux 7 langues. `_status_bar_filenames` (ancienne clé
+session_state) remplacée par `_status_bar_file_count` (entier) —
+volontairement **absente** de la whitelist de préservation d'état lors
+d'un vrai retrait de fichier (`app.py`, bloc "Vrai retrait de fichier") :
+le compteur doit repasser à 0 dans ce cas, contrairement à `display_mode`
+et aux deux caches ci-dessus qui doivent survivre à un retrait de fichier
+puisqu'ils ne dépendent pas du fichier chargé.
+
+**i18n** : 1 nouvelle clé (`status_bar_files_count`) ajoutée
+symétriquement aux 7 fichiers TOML. Comptage vérifié via `toml.load()` :
+1145 clés par langue (1144 + 1), identique dans les 7 fichiers.
+
+**Fichiers modifiés** : `app.py`, `tva_intracom/auth.py`,
+`tva_intracom/ui/sidebar.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Railway / scale-to-zero** : aucun changement — toujours uniquement
+`session_state` et une colonne SQL supplémentaire sur une table déjà
+lue/écrite par ailleurs (`tva_users`), aucune connexion, thread ou
+polling ajouté.
+
+**Validation** : `py_compile` OK sur les 4 fichiers Python modifiés.
+`pyflakes` : aucun nouveau warning (seul le faux positif pré-existant
+`sidebar.py` "import '_dt' shadowed by loop variable" subsiste, déjà
+documenté). Suite complète `pytest` : 174 passed / 4 failed — identique
+à la baseline (échecs pré-existants `SUPABASE_DB_URL` absente en
+sandbox), aucune régression. Symétrie TOML vérifiée programmatiquement.
+
+---
+
+## 2026-08-21 (3) — Correctif : avertissement d'interface à la bascule de mode
+
+`render_mode_toggle()` passait à la fois `default=` et `key=` à
+`st.segmented_control` alors que la clé du widget existait déjà en
+session_state dès le 2e rendu — combinaison que Streamlit désapprouve
+explicitement une fois le widget créé, ce qui produit un avertissement
+d'interface (pas une exception Python, donc invisible côté logs serveur)
+à chaque bascule de mode. C'est ce qui restait sous le nom de "bug
+d'affichage" après correction du recalcul intempestif (voir entrée
+2026-08-21 (2)) : les deux symptômes avaient des causes distinctes.
+
+Corrigé : la clé du widget (`_display_mode_widget`) n'est désormais
+initialisée qu'une seule fois par session, juste avant sa toute première
+instanciation — `default=` n'est plus jamais repassé au widget une fois
+créé. Le widget reste seul maître de sa valeur entre deux clics,
+conformément au pattern documenté par Streamlit pour un widget à clé
+stable. Le cas de synchro "mode restauré depuis le compte à la première
+connexion" (voir entrée précédente) reste correctement géré : cette
+synchro n'intervient qu'avant tout premier rendu du widget dans la
+session, exactement le moment où sa clé n'existe pas encore.
+
+Le log `asyncio ConnectionResetError` (`_ProactorBasePipeTransport`)
+rapporté au même moment est un artefact Windows/Tornado bénin (fermeture
+de socket websocket, généralement suite à un rafraîchissement de page
+côté navigateur) sans lien avec le code applicatif — aucune action prise
+sur ce point.
+
+**Fichiers modifiés** : `tva_intracom/ui/display_mode.py`.
+
+**Railway / scale-to-zero** : aucun impact — changement purement
+`session_state`, pas de nouvelle connexion/thread/polling.
+
+**Validation** : `py_compile` OK. Suite complète `pytest` : 174 passed /
+4 failed — identique à la baseline, aucune régression.
+
+---
+
+## 2026-08-21 (4) — Instrumentation diagnostique : bug d'affichage persistant à la bascule de mode
+
+Le correctif précédent (2026-08-21 (3)) n'a pas suffi — le bug
+d'affichage persiste à la bascule Simple/Détaillé. Faute de traceback
+exploitable (le problème ne semble pas être une exception Python non
+gérée), ajout de logs `INFO`/`EXCEPTION` ciblés le long de tout le
+chemin du toggle, pour capturer l'état exact au moment où Matthieu
+reproduira le problème :
+
+- **`app.py`**, bloc synchro préférences (langue + mode d'affichage) :
+  marqueur `=== RUN START user=... ===` à chaque run, état complet des
+  préférences (session vs compte), détection de première synchro,
+  détection de rerun forcé.
+- **`app.py`**, bloc barre de statut : état juste avant rendu (mode,
+  nombre de fichiers, résultats en cache, période) et confirmation de fin
+  de rendu sans rerun.
+- **`tva_intracom/ui/display_mode.py`**, `render_mode_toggle()` : état de
+  la clé du widget avant/après l'appel à `st.segmented_control`
+  (présente ou non, valeur), la sélection retournée, et détection d'un
+  changement de mode déclenchant `st.rerun()`. L'appel au widget est
+  entouré d'un `try/except` qui logue puis relaie toute exception —
+  jusqu'ici invisible si elle se produisait silencieusement côté client.
+
+**Robustesse ajoutée en parallèle** (pas seulement du diagnostic) :
+`tva_auth.set_display_mode()` est du code neuf, jamais éprouvé contre la
+base de production, contrairement à `set_language()` qui a fait ses
+preuves. Un échec de cet appel (DB indisponible, contrainte, etc.)
+interrompait tout le script Streamlit en plein milieu de run — plausible
+cause partielle du "bug d'affichage" selon la configuration client. Cet
+appel est désormais protégé par un `try/except` qui logue l'échec
+(`logger.exception`) et laisse le mode appliqué dans la session en
+cours, sans le persister pour la prochaine connexion cette fois-ci,
+plutôt que de faire planter tout le rendu de la page.
+
+**Fichiers modifiés** : `app.py`, `tva_intracom/ui/display_mode.py`.
+
+**Railway / scale-to-zero** : aucun impact — logs uniquement, aucune
+connexion/thread/polling supplémentaire.
+
+**Validation** : `py_compile` + `pyflakes` OK (aucun nouveau warning).
+Suite complète `pytest` : 174 passed / 4 failed — identique à la
+baseline, aucune régression.
+
+**À faire une fois le bug identifié** : retirer les logs `DEBUG`
+temporaires ci-dessus (clairement marqués comme tels dans les
+commentaires), ne conserver que ceux jugés utiles en routine.
+
+---
+
+## 2026-08-21 (5) — Cause racine réelle trouvée et corrigée : bug d'affichage à la bascule de mode
+
+Les logs de diagnostic ajoutés en (4) ont permis d'isoler la vraie cause,
+distincte du correctif (3) qui n'était qu'un problème connexe (warning
+d'interface) sans lien avec le symptôme principal.
+
+**Symptôme confirmé par capture d'écran** : à la bascule Simple/Détaillé
+(dans les deux sens), les tableaux, onglets et alertes disparaissaient
+et l'écran revenait à l'état "aucun fichier importé" avec les
+instructions d'accueil — alors que le fichier était toujours réellement
+présent.
+
+**Cause racine** : `render_mode_toggle()` (`display_mode.py`) appelait
+`st.rerun()` directement après un changement de mode. Or `app.py`
+distingue explicitement, via `preserve_upload_rerun()`
+(`rerun_utils.py`, mécanisme déjà existant et documenté), un rerun
+interne d'un vrai retrait de fichier par l'utilisateur — sans ce
+marquage, son filet de sécurité traite tout rerun où le
+`st.file_uploader` ressort vide comme "l'utilisateur a retiré son
+fichier" et exécute le nettoyage complet de `session_state` (résultats,
+période, etc.). Confirmé noir sur blanc par les logs de diagnostic : le
+run consécutif au clic sur le toggle affichait `file_count=0` /
+`has_results=False`, alors que le run juste avant montrait
+`file_count=1` / `has_results=True` / `period='2026-03'`.
+
+Corrigé : `render_mode_toggle()` appelle désormais
+`preserve_upload_rerun()` au lieu de `st.rerun()`.
+
+**Nettoyage** : les logs `INFO` de diagnostic temporaires ajoutés en (4)
+(`=== RUN START ===`, `PREFS_SYNC début run`, `STATUS_BAR début/fin
+rendu`, détail avant/après rendu du widget) sont retirés, leur rôle
+ayant été rempli. Conservé : un seul `logger.info` sobre sur le
+changement de mode effectif (utile en routine, faible volume), et la
+protection `try/except` autour de `tva_auth.set_display_mode()` ajoutée
+en (4) — robustesse réelle indépendante du bug ci-dessus, conservée.
+
+**Fichiers modifiés** : `app.py`, `tva_intracom/ui/display_mode.py`.
+
+**Railway / scale-to-zero** : aucun impact.
+
+**Validation** : `py_compile` + `pyflakes` OK (aucun nouveau warning).
+Suite complète `pytest` : 174 passed / 4 failed — identique à la
+baseline, aucune régression.

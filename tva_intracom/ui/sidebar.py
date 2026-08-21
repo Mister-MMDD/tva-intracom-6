@@ -39,6 +39,7 @@ from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOL
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.theme import _PLATFORM_OPTIONS
+from tva_intracom.ui.display_mode import is_detailed
 from tva_intracom.vies_engine import (
     get_cache_stats,
     purge_expired_cache,
@@ -369,6 +370,96 @@ def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
             for a, c in zip(df_cat[asin_col], df_cat[cat_col]) if pd.notna(a) and pd.notna(c)
         }
     return {}
+
+
+@st.dialog(title=_("account_privacy_header"))
+def _render_account_dialog(_current_user) -> None:
+    """Compte & Confidentialité, dans une modale plutôt que dans le corps de
+    la sidebar (voir appel dans render_sidebar). Contenu strictement
+    inchangé (mot de passe / export RGPD / suppression de compte), seul
+    l'emplacement change.
+    """
+    st.markdown(f"**{_('account_change_password_title')}**")
+    st.caption(_("account_change_password_help"))
+
+    _current_pwd = st.text_input(
+        _("current_password_label"), type="password", key="chg_pwd_current",
+    )
+    _new_pwd_1 = st.text_input(
+        _("new_password_label"), type="password", key="chg_pwd_new",
+    )
+    _new_pwd_2 = st.text_input(
+        _("confirm_new_password_label"), type="password", key="chg_pwd_confirm",
+    )
+    if st.button(_("change_password_btn"), key="btn_change_password"):
+        if not _current_pwd or not _new_pwd_1:
+            st.warning(_("change_password_missing_fields_warning"))
+        elif _new_pwd_1 != _new_pwd_2:
+            st.warning(_("change_password_mismatch_warning"))
+        else:
+            try:
+                # On vérifie le mot de passe actuel en tentant une
+                # authentification par mot de passe (sign_in) — cela
+                # renvoie un access_token valide pour l'utilisateur
+                # courant, qu'on utilise ensuite pour poser le nouveau
+                # mot de passe. Pas de session Supabase persistée
+                # ailleurs dans l'app (voir auth_flow.py) : ce jeton
+                # n'est utilisé qu'ici, immédiatement, puis jeté.
+                _sb_result = tva_sb_auth.sign_in_with_password(_current_user.email, _current_pwd)
+                tva_sb_auth.update_user_password(_sb_result.access_token, _new_pwd_1)
+                st.success(_("change_password_success"))
+            except Exception as _chg_pwd_err:
+                _msg = str(_chg_pwd_err)
+                if "400" in _msg or "invalid" in _msg.lower() or "credentials" in _msg.lower():
+                    st.error(_("change_password_wrong_current"))
+                else:
+                    st.error(_("change_password_error", error=_msg))
+
+    st.divider()
+    st.markdown(f"**{_('data_portability_title')}**")
+    st.caption(_("data_portability_help"))
+
+    if st.button(_("export_data_btn"), key="btn_export_user_data"):
+        try:
+            data = tva_auth.export_all_user_data(_current_user.id)
+            json_str = json.dumps(data, indent=2, ensure_ascii=False)
+            st.download_button(
+                label=_("download_export_btn"),
+                data=json_str,
+                file_name=f"export_donnees_tva_{_current_user.id}.json",
+                mime="application/json",
+            )
+        except Exception as _exp_err:
+            st.error(f"Erreur lors de l'export : {_exp_err}")
+
+    st.divider()
+    st.markdown(f"**{_('delete_account_title')}**")
+    st.warning(_("delete_account_warning"))
+
+    # Double confirmation pour la suppression
+    if "confirm_delete_account" not in st.session_state:
+        st.session_state["confirm_delete_account"] = False
+
+    if not st.session_state["confirm_delete_account"]:
+        if st.button(_("delete_account_btn"), key="btn_pre_delete_account"):
+            st.session_state["confirm_delete_account"] = True
+            preserve_upload_rerun()
+    else:
+        st.error(_("delete_account_final_confirmation"))
+        _col1, _col2 = st.columns(2)
+        if _col1.button(_("cancel_btn"), key="btn_cancel_delete"):
+            st.session_state["confirm_delete_account"] = False
+            preserve_upload_rerun()
+        if _col2.button(_("confirm_delete_btn"), key="btn_confirm_delete", type="primary"):
+            try:
+                tva_auth.delete_account(_current_user.id)
+                st.session_state["auth_user"] = None
+                st.session_state["manual_logout"] = True
+                st.success(_("account_deleted_success"))
+                time.sleep(0.5)
+                st.rerun()
+            except Exception as _del_err:
+                st.error(f"Erreur lors de la suppression : {_del_err}")
 
 
 def render_sidebar(auth_ctx) -> SidebarResult:
@@ -994,178 +1085,139 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             st.error(f"Erreur : {_cab_err}")
 
         # ── Catalogue Produits ────────────────────────────────────────────────────
-        with st.expander(_("catalog_header"), expanded=False):
-            catalog_file = st.file_uploader(_("catalog_upload"),
-                                            type=["csv","tsv","txt"],
-                                            help=_("catalog_help"))
-            asin_to_category = {}
-            if catalog_file is not None:
-                _size_mb = catalog_file.size / (1024 * 1024)
-                if _size_mb > _MAX_CATALOG_MB:
-                    st.error(_("catalog_too_large", size_mb=_size_mb, max_mb=_MAX_CATALOG_MB))
-                else:
-                    try:
-                        asin_to_category = _parse_catalog_bytes(catalog_file.getvalue(), catalog_file.name)
-                        if asin_to_category:
-                            st.success(_("catalog_success", count=len(asin_to_category)))
-                    except Exception as e:
-                        st.error(_("catalog_error", error=e))
+        # Fonctionnalité avancée (taux réduits par ASIN) — masquée en mode
+        # Simple (voir tva_intracom/ui/display_mode.py).
+        #
+        # BUGFIX (2026-08-21) : `asin_to_category` alimente `_cache_key`
+        # (calc_key, voir app.py) — le fixer à {} par défaut à chaque fois
+        # que ce bloc n'est pas rendu (mode Simple) changeait `calc_key`
+        # dès qu'on quittait le mode Détaillé après avoir chargé un
+        # catalogue, ce qui déclenchait un recalcul complet à CHAQUE
+        # bascule de mode (et faisait perdre le catalogue déjà chargé,
+        # widget file_uploader non rendu = state non conservé sans clé
+        # explicite). Le dict parsé est désormais mis en cache dans
+        # session_state, relu ici quel que soit le mode, pour que le
+        # toggle Simple/Détaillé ne touche plus jamais au calcul.
+        asin_to_category = st.session_state.get("_asin_catalog_data", {})
+        if is_detailed():
+            with st.expander(_("catalog_header"), expanded=False):
+                catalog_file = st.file_uploader(_("catalog_upload"),
+                                                type=["csv","tsv","txt"],
+                                                help=_("catalog_help"),
+                                                key="catalog_file_uploader")
+                if catalog_file is not None:
+                    _size_mb = catalog_file.size / (1024 * 1024)
+                    if _size_mb > _MAX_CATALOG_MB:
+                        st.error(_("catalog_too_large", size_mb=_size_mb, max_mb=_MAX_CATALOG_MB))
+                    else:
+                        try:
+                            _parsed_catalog = _parse_catalog_bytes(catalog_file.getvalue(), catalog_file.name)
+                            if _parsed_catalog:
+                                asin_to_category = _parsed_catalog
+                                st.session_state["_asin_catalog_data"] = asin_to_category
+                                st.success(_("catalog_success", count=len(asin_to_category)))
+                        except Exception as e:
+                            st.error(_("catalog_error", error=e))
 
         # ── Cache VIES ────────────────────────────────────────────────────────────
-        with st.expander(_("cache_vies_header"), expanded=False):
-            try:
-                _cs = vies_cache_stats(_vies_scope_id)
-                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=365,
-                                      value=_cs["ttl_days"], step=1,
-                                      help=_("ttl_cache_help"))
-                if _ttl_days != _cs["ttl_days"]:
-                    set_cache_ttl(_vies_scope_id, _ttl_days)
-                    vies_cache_stats.clear()
-                    preserve_upload_rerun()
-                _c1, _c2, _c3 = st.columns(3)
-                _c1.metric(_("total"), _cs["total"])
-                _c2.metric(_("fresh"), _cs["fresh"])
-                _c3.metric(_("expired"), _cs["expired"])
-                if _cs["total"] > 0:
-                    st.caption(
-                        f"{_('valid')} : {_cs['valid']} · {_('invalid')} : {_cs['invalid']} · "
-                        f"{_('oldest_check')} : {(_cs['oldest_check'] or '—')[:10]}")
-                if _cs.get("manual_total", 0) > 0:
-                    st.markdown(f"**{_('manual_classifications')}**")
-                    _m1, _m2 = st.columns(2)
-                    _m1.metric(_("manual_valid"), _cs["manual_valid"])
-                    _m2.metric(_("manual_invalid"), _cs["manual_invalid"])
-                if _cs["expired"] > 0:
-                    if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
-                        n = purge_expired_cache(_vies_scope_id)
-                        st.success(_("purge_success", count=n))
+        # Fonctionnalité avancée (réglage TTL, stats, purge, certificat) —
+        # masquée en mode Simple. N'alimente aucun champ de SidebarResult :
+        # masquage sans risque de variable non définie plus bas.
+        if is_detailed():
+            with st.expander(_("cache_vies_header"), expanded=False):
+                try:
+                    _cs = vies_cache_stats(_vies_scope_id)
+                    _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=365,
+                                          value=_cs["ttl_days"], step=1,
+                                          help=_("ttl_cache_help"))
+                    if _ttl_days != _cs["ttl_days"]:
+                        set_cache_ttl(_vies_scope_id, _ttl_days)
+                        vies_cache_stats.clear()
                         preserve_upload_rerun()
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.metric(_("total"), _cs["total"])
+                    _c2.metric(_("fresh"), _cs["fresh"])
+                    _c3.metric(_("expired"), _cs["expired"])
+                    if _cs["total"] > 0:
+                        st.caption(
+                            f"{_('valid')} : {_cs['valid']} · {_('invalid')} : {_cs['invalid']} · "
+                            f"{_('oldest_check')} : {(_cs['oldest_check'] or '—')[:10]}")
+                    if _cs.get("manual_total", 0) > 0:
+                        st.markdown(f"**{_('manual_classifications')}**")
+                        _m1, _m2 = st.columns(2)
+                        _m1.metric(_("manual_valid"), _cs["manual_valid"])
+                        _m2.metric(_("manual_invalid"), _cs["manual_invalid"])
+                    if _cs["expired"] > 0:
+                        if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
+                            n = purge_expired_cache(_vies_scope_id)
+                            st.success(_("purge_success", count=n))
+                            preserve_upload_rerun()
 
-                # ── Certificat de Validité VIES (PDF) ──
-                # Bouton de génération globale uniquement
-                st.divider()
-                st.markdown(f"**{_('vies_certificate_expander')}**")
-                st.caption(_("vies_certificate_caption"))
-                if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate_sidebar"):
-                    try:
-                        from tva_intracom.vies_engine import get_scope_vies_snapshot
-                        from tva_intracom.vies_certificate import generate_vies_certificate_pdf
-                        _snapshot = get_scope_vies_snapshot(_vies_scope_id)
-                        _pdf_bytes = generate_vies_certificate_pdf(
-                            _snapshot,
-                            company_name=nom_entreprise or _("default_company_name"),
-                            siren=siren_entreprise or "",
-                            scope_id=_vies_scope_id,
-                            period_label=_("vies_certificate_full_history"),
-                            country_label_fn=country_label,
-                            translator=_,
+                    # ── Certificat de Validité VIES (PDF) ──
+                    # Bouton de génération globale uniquement
+                    st.divider()
+                    st.markdown(f"**{_('vies_certificate_expander')}**")
+                    st.caption(_("vies_certificate_caption"))
+                    if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate_sidebar"):
+                        try:
+                            from tva_intracom.vies_engine import get_scope_vies_snapshot
+                            from tva_intracom.vies_certificate import generate_vies_certificate_pdf
+                            _snapshot = get_scope_vies_snapshot(_vies_scope_id)
+                            _pdf_bytes = generate_vies_certificate_pdf(
+                                _snapshot,
+                                company_name=nom_entreprise or _("default_company_name"),
+                                siren=siren_entreprise or "",
+                                scope_id=_vies_scope_id,
+                                period_label=_("vies_certificate_full_history"),
+                                country_label_fn=country_label,
+                                translator=_,
+                            )
+                            st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes
+                            if not _snapshot:
+                                st.info(_("vies_certificate_empty_info"))
+                        except Exception as _cert_err:
+                            st.error(_("vies_certificate_error", error=_cert_err))
+
+                    if st.session_state.get("_vies_certificate_pdf_sidebar"):
+                        st.download_button(
+                            _("vies_certificate_dl_btn"),
+                            data=st.session_state["_vies_certificate_pdf_sidebar"],
+                            file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_complet"),
+                            mime="application/pdf",
+                            type="primary",
+                            width="stretch",
                         )
-                        st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes
-                        if not _snapshot:
-                            st.info(_("vies_certificate_empty_info"))
-                    except Exception as _cert_err:
-                        st.error(_("vies_certificate_error", error=_cert_err))
-
-                if st.session_state.get("_vies_certificate_pdf_sidebar"):
-                    st.download_button(
-                        _("vies_certificate_dl_btn"),
-                        data=st.session_state["_vies_certificate_pdf_sidebar"],
-                        file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_complet"),
-                        mime="application/pdf",
-                        type="primary",
-                        width="stretch",
-                    )
-            except Exception as _e:
-                st.caption(_("cache_unavailable", error=_e))
+                except Exception as _e:
+                    st.caption(_("cache_unavailable", error=_e))
 
         # ── Paramètres du fichier ─────────────────────────────────────────────────
-        with st.expander(_("file_params_header"), expanded=False):
-            encoding = st.selectbox(_("file_encoding"), ["utf-8","latin-1","cp1252"], index=0, key="file_encoding_select")
-
+        # "utf-8" couvre l'immense majorité des exports Amazon — réglage
+        # avancé masqué en mode Simple.
+        #
+        # BUGFIX (2026-08-21) : même classe de bug que le catalogue
+        # ci-dessus — `encoding` alimente `parse_key` (voir app.py) ; le
+        # re-fixer à "utf-8" par défaut à chaque run où l'expander n'est
+        # pas rendu aurait fait perdre un encodage explicitement choisi
+        # (ex. "latin-1") dès la bascule vers le mode Simple, et forcé un
+        # RE-PARSING complet des fichiers à chaque bascule de mode. La
+        # valeur choisie est donc mise en cache dans session_state.
+        encoding = st.session_state.get("_file_encoding_choice", "utf-8")
+        if is_detailed():
+            with st.expander(_("file_params_header"), expanded=False):
+                encoding = st.selectbox(_("file_encoding"), ["utf-8","latin-1","cp1252"],
+                                        index=["utf-8","latin-1","cp1252"].index(encoding),
+                                        key="file_encoding_select")
+                st.session_state["_file_encoding_choice"] = encoding
 
         # ── Compte & Confidentialité ──────────────────────────────────────────────
-        with st.expander(_("account_privacy_header"), expanded=False):
-            st.markdown(f"**{_('account_change_password_title')}**")
-            st.caption(_("account_change_password_help"))
-
-            _current_pwd = st.text_input(
-                _("current_password_label"), type="password", key="chg_pwd_current",
-            )
-            _new_pwd_1 = st.text_input(
-                _("new_password_label"), type="password", key="chg_pwd_new",
-            )
-            _new_pwd_2 = st.text_input(
-                _("confirm_new_password_label"), type="password", key="chg_pwd_confirm",
-            )
-            if st.button(_("change_password_btn"), key="btn_change_password"):
-                if not _current_pwd or not _new_pwd_1:
-                    st.warning(_("change_password_missing_fields_warning"))
-                elif _new_pwd_1 != _new_pwd_2:
-                    st.warning(_("change_password_mismatch_warning"))
-                else:
-                    try:
-                        # On vérifie le mot de passe actuel en tentant une
-                        # authentification par mot de passe (sign_in) — cela
-                        # renvoie un access_token valide pour l'utilisateur
-                        # courant, qu'on utilise ensuite pour poser le nouveau
-                        # mot de passe. Pas de session Supabase persistée
-                        # ailleurs dans l'app (voir auth_flow.py) : ce jeton
-                        # n'est utilisé qu'ici, immédiatement, puis jeté.
-                        _sb_result = tva_sb_auth.sign_in_with_password(_current_user.email, _current_pwd)
-                        tva_sb_auth.update_user_password(_sb_result.access_token, _new_pwd_1)
-                        st.success(_("change_password_success"))
-                    except Exception as _chg_pwd_err:
-                        _msg = str(_chg_pwd_err)
-                        if "400" in _msg or "invalid" in _msg.lower() or "credentials" in _msg.lower():
-                            st.error(_("change_password_wrong_current"))
-                        else:
-                            st.error(_("change_password_error", error=_msg))
-
-            st.divider()
-            st.markdown(f"**{_('data_portability_title')}**")
-            st.caption(_("data_portability_help"))
-
-            if st.button(_("export_data_btn"), key="btn_export_user_data"):
-                try:
-                    data = tva_auth.export_all_user_data(_current_user.id)
-                    json_str = json.dumps(data, indent=2, ensure_ascii=False)
-                    st.download_button(
-                        label=_("download_export_btn"),
-                        data=json_str,
-                        file_name=f"export_donnees_tva_{_current_user.id}.json",
-                        mime="application/json",
-                    )
-                except Exception as _exp_err:
-                    st.error(f"Erreur lors de l'export : {_exp_err}")
-
-            st.divider()
-            st.markdown(f"**{_('delete_account_title')}**")
-            st.warning(_("delete_account_warning"))
-
-            # Double confirmation pour la suppression
-            if "confirm_delete_account" not in st.session_state:
-                st.session_state["confirm_delete_account"] = False
-
-            if not st.session_state["confirm_delete_account"]:
-                if st.button(_("delete_account_btn"), key="btn_pre_delete_account"):
-                    st.session_state["confirm_delete_account"] = True
-                    preserve_upload_rerun()
-            else:
-                st.error(_("delete_account_final_confirmation"))
-                _col1, _col2 = st.columns(2)
-                if _col1.button(_("cancel_btn"), key="btn_cancel_delete"):
-                    st.session_state["confirm_delete_account"] = False
-                    preserve_upload_rerun()
-                if _col2.button(_("confirm_delete_btn"), key="btn_confirm_delete", type="primary"):
-                    try:
-                        tva_auth.delete_account(_current_user.id)
-                        st.session_state["auth_user"] = None
-                        st.session_state["manual_logout"] = True
-                        st.success(_("account_deleted_success"))
-                        time.sleep(0.5)
-                        st.rerun()
-                    except Exception as _del_err:
-                        st.error(f"Erreur lors de la suppression : {_del_err}")
+        # Sorti du corps de la sidebar (validé) : accessible via un bouton
+        # discret + st.dialog plutôt qu'un expander permanent — mot de passe,
+        # export RGPD, suppression de compte n'ont pas leur place dans un
+        # panneau consulté à chaque session de calcul. Contenu inchangé,
+        # déplacé tel quel dans _render_account_dialog() (voir plus haut
+        # dans ce fichier).
+        if st.button(_("account_privacy_header"), key="btn_open_account_dialog", width="stretch"):
+            _render_account_dialog(_current_user)
 
         # ── Support ───────────────────────────────────────────────────────────────
         st.divider()

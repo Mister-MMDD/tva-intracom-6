@@ -232,6 +232,16 @@ display_mode_label = "Mode d'affichage"
 display_mode_simple = "Simple"
 display_mode_detailed = "Détaillé"
 
+# Barre de statut persistante
+status_bar_file_label = "Fichier"
+status_bar_no_file = "Aucun fichier importé"
+status_bar_files_count = "{count} fichier(s) importé(s)"
+status_bar_period_label = "Période"
+status_bar_period_pending = "Non détectée"
+status_bar_status_label = "Calcul"
+status_bar_status_ready = "À jour"
+status_bar_status_none = "En attente d'import"
+
 # Onglets
 tab_declarations = "📋 Déclarations"
 tab_sales_detail = "📑 Détail Ventes"

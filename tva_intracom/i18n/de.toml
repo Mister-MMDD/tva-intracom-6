@@ -231,6 +231,16 @@ amazon_config_success = "Konfiguration von {platform} konform"
 display_mode_label = "Anzeigemodus"
 display_mode_simple = "Einfach"
 display_mode_detailed = "Detailliert"
+
+# Barre de statut persistante
+status_bar_file_label = "Datei"
+status_bar_no_file = "Keine Datei importiert"
+status_bar_files_count = "{count} Datei(en) importiert"
+status_bar_period_label = "Zeitraum"
+status_bar_period_pending = "Nicht erkannt"
+status_bar_status_label = "Berechnung"
+status_bar_status_ready = "Aktuell"
+status_bar_status_none = "Warten auf Import"
 # Tabs
 tab_declarations = "📋 Erklärungen"
 tab_sales_detail = "📑 Verkaufsdetails"

@@ -97,7 +97,8 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
                     cabinet_parent_id TEXT,
                     home_country TEXT NOT NULL DEFAULT 'FR',
                     language TEXT NOT NULL DEFAULT 'fr',
-                    display_currency TEXT NOT NULL DEFAULT 'DEFAULT'
+                    display_currency TEXT NOT NULL DEFAULT 'DEFAULT',
+                    display_mode TEXT NOT NULL DEFAULT 'simple'
                 )
                 """
             )
@@ -112,6 +113,9 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
             )
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS display_currency TEXT NOT NULL DEFAULT 'DEFAULT'"
+            )
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS display_mode TEXT NOT NULL DEFAULT 'simple'"
             )
             cur.execute(
                 """
@@ -192,10 +196,11 @@ class User:
     home_country: str = "FR"
     language: str = "fr"
     display_currency: str = "DEFAULT"
+    display_mode: str = "simple"
 
 
 _USER_SELECT_COLS = (
-    "id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency"
+    "id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency, display_mode"
 )
 
 
@@ -203,6 +208,7 @@ def _row_to_user(row) -> User:
     return User(
         id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3],
         home_country=row[4] or "FR", language=row[5] or "fr", display_currency=row[6] or "DEFAULT",
+        display_mode=row[7] or "simple",
     )
 
 
@@ -267,6 +273,21 @@ def set_display_currency(user_id: str, currency: str) -> None:
         cur.execute(
             "UPDATE tva_users SET display_currency=%s WHERE id=%s",
             (currency, user_id),
+        )
+
+    _run(_fn)
+
+
+def set_display_mode(user_id: str, mode: str) -> None:
+    """Met à jour le mode d'affichage préféré (Simple/Détaillé — voir
+    tva_intracom/ui/display_mode.py), pour être restauré automatiquement à
+    la prochaine connexion, même logique de synchro que set_language()."""
+    mode = "detaille" if mode == "detaille" else "simple"
+
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_users SET display_mode=%s WHERE id=%s",
+            (mode, user_id),
         )
 
     _run(_fn)

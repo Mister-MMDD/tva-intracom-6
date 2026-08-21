@@ -39,6 +39,7 @@ from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_
 from tva_intracom.ui.sidebar import render_sidebar
 from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig
 from tva_intracom.ui.calc_cache import CalcCacheState
+from tva_intracom.ui.display_mode import ensure_display_mode, is_detailed, render_mode_toggle
 
 _ZERO = Decimal("0.00")
 
@@ -49,6 +50,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+logger = logging.getLogger(__name__)
 
 # --- Fermeture des connexions DB idle laissées par le run précédent ---
 #
@@ -140,15 +142,51 @@ _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 # - Sinon, si la langue de session a changé depuis (l'utilisateur vient
 #   d'utiliser le sélecteur) : on persiste ce choix sur le compte.
 _sess_lang = st.session_state.get("language", "fr")
-if st.session_state.get("_prefs_synced_user") != _current_user.id:
+ensure_display_mode()
+_sess_display_mode = st.session_state.get("display_mode", "simple")
+
+# Un seul indicateur "première vue de ce compte dans cette session", partagé
+# par toutes les préférences synchronisées (langue + mode d'affichage) — lu
+# UNE SEULE FOIS avant de traiter quoi que ce soit, pour ne pas que le
+# traitement de la langue positionne déjà le flag avant que le mode
+# d'affichage n'ait pu le lire à son tour.
+_is_first_prefs_sync = st.session_state.get("_prefs_synced_user") != _current_user.id
+_needs_prefs_rerun = False
+
+if _is_first_prefs_sync:
     if _current_user.language and _current_user.language != _sess_lang:
         st.session_state["language"] = _current_user.language
-        st.session_state["_prefs_synced_user"] = _current_user.id
-        preserve_upload_rerun()
+        _needs_prefs_rerun = True
+    if _current_user.display_mode and _current_user.display_mode != _sess_display_mode:
+        st.session_state["display_mode"] = _current_user.display_mode
+        _needs_prefs_rerun = True
     st.session_state["_prefs_synced_user"] = _current_user.id
-elif _current_user.language != _sess_lang:
-    tva_auth.set_language(_current_user.id, _sess_lang)
-    _current_user.language = _sess_lang
+    if _needs_prefs_rerun:
+        preserve_upload_rerun()
+else:
+    if _current_user.language != _sess_lang:
+        tva_auth.set_language(_current_user.id, _sess_lang)
+        _current_user.language = _sess_lang
+    if _current_user.display_mode != _sess_display_mode:
+        try:
+            tva_auth.set_display_mode(_current_user.id, _sess_display_mode)
+            _current_user.display_mode = _sess_display_mode
+        except Exception:
+            # Robustesse : set_display_mode() est du code neuf (2026-08-21),
+            # jamais éprouvé contre la base de production, contrairement à
+            # set_language() ci-dessus. Une exception DB ici cassait TOUTE
+            # la page au moment précis du basculement de mode (script
+            # interrompu en plein milieu), sans forcément produire de
+            # traceback visible selon la configuration Streamlit — plausible
+            # explication au "bug d'affichage" signalé. On log l'échec et on
+            # continue le run avec le mode déjà appliqué en session (juste
+            # non persisté en base pour cette fois) plutôt que de planter.
+            logger.exception(
+                "PREFS_SYNC échec de persistance display_mode en base (user=%s, mode=%s) "
+                "— le mode reste appliqué dans cette session, non sauvegardé pour la prochaine connexion.",
+                _current_user.id, _sess_display_mode,
+            )
+
 
 # BUGFIX : la sidebar (rendue ci-dessous) affiche `_period_label` tel qu'il
 # était à LA FIN DU RUN PRÉCÉDENT (upload/retrait de fichier/calcul n'ont pas
@@ -195,6 +233,58 @@ else:
 currency_symbol = CURRENCY_SYMBOLS.get(target_currency, "€")
 st.session_state["target_currency"] = target_currency
 st.session_state["currency_symbol"] = currency_symbol
+
+# =============================================================================
+# BARRE DE STATUT PERSISTANTE (fichier / période / calcul / mode d'affichage)
+# =============================================================================
+# Toujours rendue, fichier chargé ou non — contrairement à l'ancien toggle
+# Simple/Détaillé (ex-L874, déplacé ici via render_mode_toggle) qui n'existait
+# qu'après un calcul complet. `ensure_display_mode()` doit être appelé avant
+# toute lecture de is_detailed() plus bas dans ce script (sidebar.py et
+# telechargements.py lisent directement session_state, donc l'ordre exact de
+# CET appel importe peu pour eux, mais render_mode_toggle() l'appelle aussi
+# en interne par sécurité — idempotent).
+ensure_display_mode()
+
+_status_file_count = st.session_state.get("_status_bar_file_count", 0)
+_status_period = st.session_state.get("_period_label", "")
+_status_has_results = bool(CalcCacheState.load().results)
+
+_status_dot_class = "ok" if _status_has_results else ("pending" if _status_file_count else "off")
+_status_calc_text = (
+    _("status_bar_status_ready") if _status_has_results else _("status_bar_status_none")
+)
+_status_file_value = (
+    _("status_bar_files_count", count=_status_file_count) if _status_file_count
+    else _("status_bar_no_file")
+)
+
+_status_col_bar, _status_col_toggle = st.columns([3, 1])
+with _status_col_bar:
+    st.markdown(
+        f"""
+        <div class="status-bar">
+            <div class="status-bar-item">
+                <span class="status-bar-label">📁 {_('status_bar_file_label')} :</span>
+                <span class="status-bar-value">{_status_file_value}</span>
+            </div>
+            <span class="status-bar-sep">|</span>
+            <div class="status-bar-item">
+                <span class="status-bar-label">🗓️ {_('status_bar_period_label')} :</span>
+                <span class="status-bar-value">{_status_period or _('status_bar_period_pending')}</span>
+            </div>
+            <span class="status-bar-sep">|</span>
+            <div class="status-bar-item">
+                <span class="status-bar-dot {_status_dot_class}"></span>
+                <span class="status-bar-value">{_status_calc_text}</span>
+            </div>
+        </div>
+
+        """,
+        unsafe_allow_html=True,
+    )
+with _status_col_toggle:
+    render_mode_toggle()
 
 # =============================================================================
 # UPLOAD
@@ -266,6 +356,8 @@ else:
         "language_selector_ui", "home_country_select", "display_currency_select",
         "target_currency", "currency_symbol", "display_currency_choice",
         "confirm_delete_account", "_malformed_vies_purged",
+        "display_mode", "_display_mode_widget", "_asin_catalog_data",
+        "_file_encoding_choice",
     }
     for _stale_key in list(st.session_state.keys()):
         if _stale_key not in _WHITELIST:
@@ -296,6 +388,13 @@ if uploaded_files:
     if _dup_names:
         st.warning(_("duplicate_files_warning", count=len(_dup_names), files=", ".join(f"`{n}`" for n in _dup_names)))
     uploaded_files = _deduped
+
+    # Nombre affiché par la barre de statut (voir plus haut dans ce fichier)
+    # — mis à jour ici, avant tout parsing, pour rester correct même si le
+    # parsing échoue plus loin (st.stop()). Uniquement le nombre, pas les
+    # noms : peu d'intérêt pour l'utilisateur et prend trop de place dans un
+    # bandeau censé rester compact (accord 2026-08-21).
+    st.session_state["_status_bar_file_count"] = len(uploaded_files)
 
     # Cache de l'analyse des fichiers (indépendant du cache de calcul TVA plus
     # bas) : Streamlit ré-exécute tout le script à chaque interaction widget
@@ -460,9 +559,11 @@ if uploaded_files:
     # _cache_key (voir plus bas) : basculer de mode ne redéclenche AUCUN
     # recalcul, seule la partie affichage est reparcourue au rerun.
     # =====================================================================
-    if "display_mode" not in st.session_state:
-        st.session_state["display_mode"] = "simple"
-    _is_detailed = st.session_state["display_mode"] == "detaille"
+    # Initialisation déplacée en tête de script (voir ensure_display_mode(),
+    # appelée avant la barre de statut) — conservé ici comme alias local
+    # `_is_detailed` pour ne pas devoir toucher chacun de ses usages plus
+    # bas dans ce même bloc.
+    _is_detailed = is_detailed()
 
     if len(uploaded_files) == 1:
         fs = file_summaries[0]
@@ -867,23 +968,9 @@ if uploaded_files:
         # TABLEAU DE BORD
         # =====================================================================
         with st.container():
-            _hdr_col, _toggle_col = st.columns([4, 1])
-            with _hdr_col:
-                st.header(_("recapitulatif_header"))
-            with _toggle_col:
-                _mode_options = [_("display_mode_simple"), _("display_mode_detailed")]
-                _mode_index = 1 if _is_detailed else 0
-                _mode_choice = st.segmented_control(
-                    _("display_mode_label"),
-                    _mode_options,
-                    default=_mode_options[_mode_index],
-                    key="_display_mode_widget",
-                    label_visibility="collapsed",
-                )
-                _new_mode = "detaille" if _mode_choice == _mode_options[1] else "simple"
-                if _new_mode != st.session_state["display_mode"]:
-                    st.session_state["display_mode"] = _new_mode
-                    st.rerun()
+            # Toggle Simple/Détaillé déplacé dans la barre de statut
+            # persistante (voir render_mode_toggle(), tête de app.py).
+            st.header(_("recapitulatif_header"))
             c1, c2, c3, c4 = st.columns(4)
 
             ca_brut = float(summary.total_ht)

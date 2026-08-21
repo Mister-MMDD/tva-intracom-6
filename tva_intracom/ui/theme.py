@@ -180,6 +180,45 @@ button[data-testid="stBaseButton-secondary"]:hover {
     font-weight: 600;
     margin-top: 6px;
 }
+
+/* ---- Barre de statut persistante (fichier / période / mode) ---- */
+.status-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    border-radius: 10px;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+    background-color: var(--secondary-background-color);
+    border: 1px solid color-mix(in srgb, var(--brand-blue) 18%, transparent);
+    border-left: 4px solid var(--brand-blue);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-blue) 8%, transparent);
+}
+.status-bar-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+}
+.status-bar-item .status-bar-label {
+    opacity: 0.65;
+}
+.status-bar-item .status-bar-value {
+    font-weight: 600;
+}
+.status-bar-sep {
+    opacity: 0.25;
+}
+.status-bar-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+.status-bar-dot.ok { background-color: #2ca02c; }
+.status-bar-dot.pending { background-color: #d97706; }
+.status-bar-dot.off { background-color: color-mix(in srgb, currentColor 35%, transparent); }
 </style>
 """
 
