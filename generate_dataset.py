@@ -70,7 +70,7 @@ CASES = [
     "REFUND_DOMESTIC", "REFUND_OSS"
 ]
 
-def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=100000):
+def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
     print(f"Génération de {total_rows} lignes au format correct...")
     start_date = datetime(2024, 1, 1)
     end_date = datetime(2025, 12, 31)

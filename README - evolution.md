@@ -3921,3 +3921,125 @@ en (4) — robustesse réelle indépendante du bug ci-dessus, conservée.
 **Validation** : `py_compile` + `pyflakes` OK (aucun nouveau warning).
 Suite complète `pytest` : 174 passed / 4 failed — identique à la
 baseline, aucune régression.
+
+## 2026-08-21 (6) — Sidebar cassée : IOSS/DDP/OSS sans effet ; nettoyage zone Entreprise & Paramètres
+
+**Symptôme signalé** : aucun des boutons IOSS/DDP/OSS sous 10 000 €
+ne déclenchait de recalcul — cocher/décocher n'avait visuellement aucun
+effet sur les déclarations affichées.
+
+**Cause racine confirmée** (code réel lu, pas de déduction) :
+`_edit_siren_form_fragment` (`sidebar.py`) est un `@st.fragment` —
+introduit lors d'un refactor précédent pour éviter qu'une frappe dans un
+champ texte ne redessine les 6 onglets déjà calculés à chaque caractère.
+Mais les 4 toggles fiscaux (IOSS actif, DDP, seuil OSS, OSS N-1) et le
+multiselect des pays TVA vivaient EUX AUSSI dans ce fragment isolé. Un
+fragment isolé ne redessine que lui-même : cliquer un toggle ne relance
+jamais `render_sidebar()`, donc les valeurs "effectives" retournées par
+`SidebarResult` (et donc `_cache_key` dans `app.py`) restaient celles de
+`_match` (dernière sauvegarde en base) tant que "Enregistrer les
+modifications" n'était pas cliqué (seul point relançant un rerun complet
+et rechargeant `_match`). Régression directe de l'isolation en fragment.
+
+**Corrigé** :
+- Les 4 toggles + le multiselect pays TVA sont sortis du fragment et
+  rendus en LIVE dans `render_sidebar()` : leur valeur courante est
+  immédiatement utilisée pour le calcul. Un clic déclenche désormais un
+  rerun complet — coût attendu et voulu, ces réglages changent le
+  résultat fiscal (contrairement à la frappe d'un nom ou d'un numéro de
+  TVA, qui reste isolée dans `_edit_siren_form_fragment`, désormais
+  réduit à : saisie IOSS non verrouillée, saisie TVA des pays
+  nouvellement ajoutés, bouton de sauvegarde).
+- **Bug latent découvert au passage** : `ioss_own_number_active`
+  influence bien `engine.compute_vat()` (voir `engine.py` ~l.312) mais
+  était absent de `_cache_key` (`app.py`) — même une fois ce toggle rendu
+  live, son changement n'aurait jamais invalidé le cache de calcul.
+  Ajouté à `_cache_key`.
+- **Zone "Pays où vous avez un numéro TVA local"** : recentrée sur
+  l'ajout plutôt que la re-consultation d'un stock. Les pays déjà
+  verrouillés (numéro enregistré) sont désormais résumés en une seule
+  ligne compacte (`🔒 FR FR123456789 · DE DE987654321 — ...`) au lieu
+  d'une ligne complète + éventuel champ texte par pays à chaque rendu ;
+  le multiselect ne sert plus qu'à ajouter un nouveau pays pas encore
+  enregistré (le retrait d'un pays de la liste reste possible via le
+  multiselect, comportement inchangé).
+- **Section "Période fiscale" retirée** de la sidebar : strictement
+  redondante avec la barre de statut sous le titre (`app.py`, ajoutée le
+  2026-08-21) qui affiche déjà la période détectée. `oss_period` reste
+  figé à `"__auto__"` (aucun sélecteur manuel n'existait réellement, seul
+  l'affichage informatif est retiré).
+- Import `CalcCacheState` devenu inutile dans `sidebar.py` (ne servait
+  qu'à la détection de période retirée) — supprimé.
+
+**Évalué et non modifié** : `_new_siren_form_fragment` (formulaire de
+création d'un SIREN pas encore enregistré) garde ses toggles à
+l'intérieur du fragment. Contrairement au cas d'édition, il n'y a ici
+aucun calcul déjà en cours à invalider avant le premier enregistrement —
+risque de régression jugé disproportionné par rapport au gain pour un
+cas d'usage (onboarding) qui n'était pas signalé comme cassé.
+
+**Fichiers modifiés** : `tva_intracom/ui/sidebar.py`, `app.py`.
+
+**Railway / scale-to-zero** : aucun impact (placement de widgets
+Streamlit uniquement, aucune connexion/thread/polling touché).
+
+**Validation** : `py_compile` + `pyflakes` OK (seul le faux positif
+pré-existant documenté sur `_dt`/boucle dans `sidebar.py` remonte,
+inchangé). Suite complète `pytest` : 174 passed / 4 failed — identique à
+la baseline, aucune régression.
+
+## 2026-08-21 (7) — Export Excel : ligne "Guichet IOSS" manquante dans le récapitulatif
+
+**Symptôme signalé** : dans l'export Excel, la zone récapitulatif
+n'affiche pas de ligne "Guichet IOSS (propre numéro vendeur)".
+
+**Cause confirmée** : `ReportSummary` (`report.py`) calcule bien
+`ioss_ht` / `ioss_vat` / `refund_ioss_ht` / `refund_ioss_vat` (branche
+`Channel.IOSS`), et `total_you_owe` les intègre déjà correctement côté
+modèle. Mais `_write_recap()` (`excel_report.py`) — qui construit le
+tableau récapitulatif de l'export Excel — omettait entièrement la ligne
+IOSS dans sa liste `data_structure`, et le total final ("TVA nette à
+payer") ne sommait que CA3 + OSS + local, sans IOSS.
+
+**Vérifié — n'affecte QUE ce tableau récapitulatif** : l'onglet Détail
+des ventes (`_write_details_tab`) liste chaque `VatResult` sans filtre
+par scénario — les ventes IOSS_DIRECT y apparaissent normalement, avec
+leur vrai montant de TVA. Le calcul fiscal lui-même (`engine.py`,
+`report.py`) n'est pas affecté, seul l'export Excel manquait cette
+ligne.
+
+**Corrigé** :
+- Ajout de la ligne "Guichet IOSS (numéro propre vendeur)" dans
+  `data_structure`, alimentée par `summary.ioss_ht` /
+  `summary.refund_ioss_ht` / `summary.ioss_vat` /
+  `summary.refund_ioss_vat`.
+- Formule du total final ("TVA nette à payer") mise à jour pour inclure
+  cette ligne, cohérent avec `ReportSummary.total_you_owe` côté modèle.
+- Nouvelle clé i18n `xl_indicator_vat_ioss` ajoutée symétriquement dans
+  les 7 fichiers TOML (fr/en/de/es/it/pl/pt), symétrie vérifiée via
+  `toml.load()` (1146 clés dans chaque locale).
+
+**Vérification complémentaire (question posée)** : IOSS et DDP
+(`seller_is_importer` / `Scenario.IMPORT_SELLER_AS_IMPORTER`) dans la
+CA3 (`ca3_report.py`) — DDP est correctement inclus (déjà couvert par un
+correctif antérieur documenté sur place : filtre `channel ==
+FR_DOMESTIC`, qui inclut nommément le cas DDP requalifié en
+FR_DOMESTIC). IOSS est volontairement EXCLU de la CA3 (aucune branche
+`Channel.IOSS` dans `_aggregate()`), ce qui est le comportement fiscal
+correct — l'IOSS se déclare via son propre guichet, pas via la CA3.
+Cependant, il n'existe à ce jour AUCUN document de déclaration IOSS
+dédié généré par l'outil (pas d'export XML IOSS, pas d'onglet IOSS
+spécifique) — seul le récapitulatif Excel (corrigé ici) et l'onglet
+Détail des ventes en gardent trace. Roadmap déjà identifiée
+("IOSS separate XML export").
+
+**Fichiers modifiés** : `tva_intracom/excel_report.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Railway / scale-to-zero** : aucun impact.
+
+**Validation** : `py_compile` OK. `pyflakes` : seuls 3 avertissements
+pré-existants sans lien (ailleurs dans le fichier, lignes ~1656/1751)
+remontent, inchangés par rapport à avant cette modification. Suite
+complète `pytest` : 174 passed / 4 failed — identique à la baseline,
+aucune régression. Symétrie i18n vérifiée programmatiquement.

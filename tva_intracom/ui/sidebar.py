@@ -37,7 +37,6 @@ from tva_intracom.i18n import _, country_label
 from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
     oss_threshold_in_currency
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
-from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.theme import _PLATFORM_OPTIONS
 from tva_intracom.ui.display_mode import is_detailed
 from tva_intracom.vies_engine import (
@@ -218,26 +217,39 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
 def _edit_siren_form_fragment(
         *, current_user, home_country: str, match: dict | None,
         siren_entreprise: str, nom_entreprise: str, tva_fr_fixed: str,
-        existing_vats: dict, default_vat_countries: list[str], ioss_val: str,
+        existing_vats: dict, ioss_val: str,
+        seller_is_importer: bool, apply_fr_under_threshold: bool,
+        oss_threshold_exceeded_prev_year: bool, ioss_own_number_active: bool,
+        countries_with_vat: list[str], new_vat_countries: list[str],
 ) -> None:
-    """Formulaire d'édition d'un SIREN déjà enregistré, isolé en fragment —
-    même raison que _new_siren_form_fragment ci-dessus : taper dans un champ,
-    cocher "déverrouiller la modification" ou ajouter un pays à la liste ne
-    doit redessiner que ce formulaire, pas les 6 onglets déjà affichés. Les
-    valeurs manipulées ici sont un pur BROUILLON local : les valeurs
-    réellement utilisées pour le calcul (voir juste avant l'appel à cette
-    fonction dans render_sidebar) restent celles de `match`, donc inchangées
-    tant que "Enregistrer les modifications" n'a pas été cliqué.
+    """Formulaire d'édition d'un SIREN déjà enregistré, isolé en fragment.
+
+    BUGFIX (2026-08-21) : les 4 toggles fiscaux (IOSS actif, DDP, seuil OSS,
+    OSS N-1) et le multiselect des pays TVA vivaient auparavant DANS ce
+    fragment. Un fragment isolé ne redessine QUE lui-même quand un de ses
+    widgets change — `render_sidebar()` ne se relance pas, donc les valeurs
+    "effectives" retournées par `SidebarResult` (et donc `_cache_key` dans
+    app.py) restaient celles de `match` (dernière sauvegarde en base) tant
+    que le bouton "Enregistrer les modifications" n'était pas cliqué :
+    cocher/décocher ces toggles n'avait AUCUN effet visible, aucun
+    recalcul. Ces widgets sont désormais rendus en LIVE dans le corps de
+    render_sidebar() (voir juste avant l'appel à cette fonction) : leur
+    valeur courante est passée ici en paramètre, déjà "vraie" pour le
+    calcul en cours. Ce fragment ne conserve QUE ce qui bénéficie
+    réellement de l'isolation anti-rerun-par-frappe : la saisie d'un
+    numéro IOSS ou d'un numéro de TVA non encore verrouillé (`local_vat_numbers`
+    n'entre pas dans `_cache_key`, donc taper ici ne redessine plus que ce
+    fragment sans déclencher de recalcul prématuré), et le bouton de
+    sauvegarde.
     """
     # ⚠️ Verrouillage définitif : une fois un IOSS ou un numéro de TVA
-    # enregistré pour ce SIREN, il n'est PLUS modifiable (la case
-    # "déverrouiller la modification" qui permettait de le réécrire a été
-    # retirée) — seuls les champs encore VIDES restent éditables, pour
-    # permettre d'ajouter un IOSS non renseigné au départ, ou un numéro de
-    # TVA pour un nouveau pays ajouté à la liste. But : ces numéros
-    # engagent fiscalement le compte (déclarations déjà potentiellement
-    # transmises avec ces valeurs) — les modifier après coup serait risqué.
-    if any([not ioss_val, not all(existing_vats.get(c) for c in default_vat_countries)]):
+    # enregistré pour ce SIREN, il n'est PLUS modifiable — seuls les champs
+    # encore VIDES restent éditables, pour permettre d'ajouter un IOSS non
+    # renseigné au départ, ou un numéro de TVA pour un nouveau pays ajouté à
+    # la liste. But : ces numéros engagent fiscalement le compte
+    # (déclarations déjà potentiellement transmises avec ces valeurs) — les
+    # modifier après coup serait risqué.
+    if any([not ioss_val, not all(existing_vats.get(c) for c in countries_with_vat)]):
         st.warning(_("fiscal_fields_lock_warning"))
     else:
         st.caption(_("fiscal_fields_all_locked_caption"))
@@ -250,43 +262,21 @@ def _edit_siren_form_fragment(
                                            placeholder="ex: IM1234567890", key="ioss_edit",
                                            help=_("ioss_help"))
 
-    _draft_ioss_own_number_active = match.get("ioss_own_number_active") or False if match else False
-    if _draft_ioss_number.strip():
-        _draft_ioss_own_number_active = st.toggle(
-            _("ioss_own_number_active_label"), value=_draft_ioss_own_number_active, key="ioss_own_active_edit",
-            help=_("ioss_own_number_active_help", platform="Amazon"),
-        )
-
-    _draft_seller_is_importer = st.toggle(_("ddp_label"), value=match.get("seller_is_importer") or False if match else False, key="ddp_edit")
-    _draft_apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=match.get("apply_fr_under_threshold") or False if match else False, key="oss_thr_edit")
-    _draft_oss_threshold_exceeded_prev_year = st.toggle(
-        _("oss_threshold_prev_year_label"),
-        value=match.get("oss_threshold_exceeded_prev_year") or False if match else False,
-        key="oss_thr_prevyear_edit", help=_("oss_threshold_prev_year_help"),
-    )
-    if _draft_oss_threshold_exceeded_prev_year and _draft_apply_fr_under_threshold:
-        st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
-        _draft_apply_fr_under_threshold = False
-
-    _draft_countries_with_vat = st.multiselect(_("local_vat_countries_label"),
-                                               options=sorted(list(EU_COUNTRIES)), default=default_vat_countries, key="vat_countries_edit")
-
-    _draft_local_vat_numbers = {}
+    # ── Numéros de TVA : uniquement la saisie des pays NOUVELLEMENT
+    # ajoutés (pas encore verrouillés) — les pays déjà enregistrés sont
+    # affichés en lecture seule dans render_sidebar(), cette zone ne sert
+    # qu'à l'AJOUT, pas à la re-consultation du stock existant.
+    _draft_local_vat_numbers = dict(existing_vats)
     _missing_vat_input = False
-    if _draft_countries_with_vat:
+    if new_vat_countries:
         st.caption(_("local_vat_numbers_caption"))
-        for ccode in sorted(_draft_countries_with_vat):
-            _val = existing_vats.get(ccode, "")
-            if _val:
-                st.caption(f"🔒 {ccode} : **{_val}** — {_('fiscal_field_locked_note')}")
-                _draft_local_vat_numbers[ccode] = _val
-            else:
-                _v = st.text_input(_("vat_number_for", country=ccode),
-                                   key=f"vat_num_edit_{ccode}",
-                                   placeholder=f"ex: {ccode}123456789")
-                _draft_local_vat_numbers[ccode] = _v.strip()
-                if not _v.strip():
-                    _missing_vat_input = True
+        for ccode in sorted(new_vat_countries):
+            _v = st.text_input(_("vat_number_for", country=ccode),
+                               key=f"vat_num_edit_{ccode}",
+                               placeholder=f"ex: {ccode}123456789")
+            _draft_local_vat_numbers[ccode] = _v.strip()
+            if not _v.strip():
+                _missing_vat_input = True
 
     # Mise à jour de tva_fr pour le XML OSS (toujours basé sur le numéro FR)
     _draft_tva_fr = _draft_local_vat_numbers.get("FR", tva_fr_fixed)
@@ -300,12 +290,12 @@ def _edit_siren_form_fragment(
                     current_user.id, siren_entreprise.strip(),
                     nom_entreprise.strip(), _draft_tva_fr.strip(),
                     ioss_number=_draft_ioss_number.strip(),
-                    seller_is_importer=_draft_seller_is_importer,
-                    apply_fr_under_threshold=_draft_apply_fr_under_threshold,
-                    countries_with_vat=",".join(_draft_countries_with_vat),
+                    seller_is_importer=seller_is_importer,
+                    apply_fr_under_threshold=apply_fr_under_threshold,
+                    countries_with_vat=",".join(countries_with_vat),
                     vat_numbers_json=json.dumps(_draft_local_vat_numbers),
-                    oss_threshold_exceeded_prev_year=_draft_oss_threshold_exceeded_prev_year,
-                    ioss_own_number_active=_draft_ioss_own_number_active,
+                    oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
+                    ioss_own_number_active=ioss_own_number_active,
                 )
                 st.success(_("update_success"))
                 _invalidate_db_cache(f"sirens_{current_user.id}")
@@ -560,72 +550,16 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         convert_fx = True
 
         with st.expander(_("company_header"), expanded=True):
-            st.markdown(f"**{_('fiscal_period_title')}**")
-            st.caption(_("fiscal_period_caption"))
-
-            # ── Affichage de la période auto-détectée (depuis session_state) ──
-            # Le tri + la détection de bornes ne coûtent rien sur un petit
-            # fichier mais deviennent sensibles sur de gros volumes (100k+
-            # lignes) — sans compter que ce bloc s'exécute à CHAQUE rerun de
-            # la sidebar (changement de n'importe quel widget), pas
-            # uniquement après un nouveau traitement de fichier. On met donc
-            # le résultat en cache dans session_state, invalidé uniquement
-            # quand `_sidebar_results` change réellement (nouvel objet et/ou
-            # nouvelle taille — un même objet muté en place n'est pas prévu
-            # par ce pipeline, donc cette clé suffit).
-            _sidebar_results = CalcCacheState.get_results()
-            if _sidebar_results:
-                _period_cache_key = (id(_sidebar_results), len(_sidebar_results))
-                _period_cache = st.session_state.get("_period_detect_cache")
-                if _period_cache and _period_cache.get("key") == _period_cache_key:
-                    _detected = _period_cache["detected"]
-                    _start = _period_cache["start"]
-                    _end = _period_cache["end"]
-                else:
-                    _detected = None
-                    _start = _end = None
-                    _sd = sorted(
-                        r.sale.transaction_date for r in _sidebar_results
-                        if r.sale.transaction_date and len(r.sale.transaction_date) >= 7
-                    )
-                    if _sd:
-                        from datetime import datetime as _dt2
-                        _sd_min = _dt2.fromisoformat(_sd[0][:10])
-                        _sd_max = _dt2.fromisoformat(_sd[-1][:10])
-                        _sy, _sm = _sd_min.year, _sd_min.month
-                        _ey, _em = _sd_max.year, _sd_max.month
-                        if _sy != _ey:
-                            _detected = f"{_sy}-{_ey}"
-                        elif _sm == _em:
-                            _detected = f"{_sy}-{_sm:02d}"
-                        elif _sm == 1 and _em == 12:
-                            _detected = str(_sy)
-                        elif _sm == 1 and _em == 6:
-                            _detected = f"{_sy}-S1"
-                        elif _sm == 7 and _em == 12:
-                            _detected = f"{_sy}-S2"
-                        else:
-                            _qmin = (_sm - 1) // 3 + 1
-                            _qmax = (_em - 1) // 3 + 1
-                            _detected = f"{_sy}-Q{_qmin}" if _qmin == _qmax else f"{_sy}-Q{_qmin}_Q{_qmax}"
-                        _start, _end = _sd[0][:10], _sd[-1][:10]
-                    st.session_state["_period_detect_cache"] = {
-                        "key": _period_cache_key,
-                        "detected": _detected,
-                        "start": _start,
-                        "end": _end,
-                    }
-                if _detected:
-                    st.markdown(
-                        _("fiscal_period_detected", period=_detected, start=_start, end=_end),
-                        unsafe_allow_html=True,
-                    )
-            elif not _sidebar_results:
-                st.caption(_("fiscal_period_none"))
-
+            # ── Section "Période fiscale" retirée (2026-08-21, voir README -
+            # évolution.md) : strictement redondante avec le status bar
+            # affiché sous le titre (app.py, `_status_bar_period_label`), qui
+            # montre déjà la période détectée. `oss_period` reste figé à
+            # "__auto__" (aucun sélecteur manuel n'existait réellement ici,
+            # seul l'affichage informatif est retiré) — ne pas réintroduire de
+            # logique de sélection de période sans concertation avec le
+            # cabinet comptable.
             oss_period = "__auto__"
 
-            st.divider()
             st.markdown(f"**{_('identity_vat_params_title')}**")
             try:
                 _registered_sirens = _cached_db_read(
@@ -719,30 +653,87 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 st.markdown("---")
                 st.markdown(f"**{_('fiscal_params_title')}**")
 
-                # ── Valeurs EFFECTIVES (persistées, utilisées pour le calcul) ──
-                # Ne dépendent QUE de _match (dernière donnée enregistrée en
-                # base) — jamais des widgets ci-dessous, qui vivent dans un
-                # fragment isolé (voir _edit_siren_form_fragment) et ne
-                # servent qu'à construire le brouillon de sauvegarde.
                 _ioss_val = _match.get("ioss_number") or ""
                 _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
                 _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
 
                 ioss_number = _ioss_val
-                seller_is_importer = _match.get("seller_is_importer") or False if _match else False
-                apply_fr_under_threshold = _match.get("apply_fr_under_threshold") or False if _match else False
-                ioss_own_number_active = _match.get("ioss_own_number_active") or False if _match else False
-                if _match and _match.get("oss_threshold_exceeded_prev_year"):
+
+                # ── Toggles fiscaux : LIVE, hors fragment ──────────────────────
+                # BUGFIX (2026-08-21, voir README - évolution.md) : ces widgets
+                # vivaient auparavant dans _edit_siren_form_fragment (isolé).
+                # Un fragment ne redessinant que lui-même, cocher/décocher ici
+                # n'avait jamais d'effet sur `_cache_key` (app.py) tant que
+                # "Enregistrer les modifications" n'était pas cliqué : IOSS,
+                # DDP et seuil OSS semblaient ne "rien faire". Rendus ici, en
+                # dehors du fragment, leur valeur courante est immédiatement
+                # celle utilisée pour le calcul — un clic déclenche un rerun
+                # complet (coût attendu et voulu : ces réglages changent le
+                # résultat fiscal, contrairement à la frappe d'un nom ou d'un
+                # numéro de TVA, qui reste isolée dans le fragment).
+                ioss_own_number_active = False
+                if _ioss_val:
+                    ioss_own_number_active = st.toggle(
+                        _("ioss_own_number_active_label"),
+                        value=_match.get("ioss_own_number_active") or False if _match else False,
+                        key="ioss_own_active_view",
+                        help=_("ioss_own_number_active_help", platform="Amazon"),
+                    )
+
+                seller_is_importer = st.toggle(
+                    _("ddp_label"),
+                    value=_match.get("seller_is_importer") or False if _match else False,
+                    key="ddp_view",
+                )
+                apply_fr_under_threshold = st.toggle(
+                    _("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)),
+                    value=_match.get("apply_fr_under_threshold") or False if _match else False,
+                    key="oss_thr_view",
+                )
+                oss_threshold_exceeded_prev_year = st.toggle(
+                    _("oss_threshold_prev_year_label"),
+                    value=_match.get("oss_threshold_exceeded_prev_year") or False if _match else False,
+                    key="oss_thr_prevyear_view",
+                    help=_("oss_threshold_prev_year_help"),
+                )
+                if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
+                    st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
                     apply_fr_under_threshold = False
-                countries_with_vat = list(_default_vat_countries)
+
+                # ── Pays où la TVA locale est enregistrée : zone d'AJOUT, pas
+                # de gestion de stock (voir README - évolution.md). Les pays
+                # déjà verrouillés (numéro enregistré) sont résumés en une
+                # seule ligne compacte au lieu de ré-afficher une ligne par
+                # pays à chaque rendu ; le multiselect ne sert qu'à ajouter un
+                # nouveau pays pas encore enregistré (ou à retirer un pays,
+                # verrouillé ou non, de la liste active).
+                countries_with_vat = st.multiselect(
+                    _("local_vat_countries_label"),
+                    options=sorted(list(EU_COUNTRIES)),
+                    default=_default_vat_countries,
+                    key="vat_countries_edit",
+                )
+                _locked_selected = sorted(c for c in countries_with_vat if _existing_vats.get(c))
+                _new_vat_countries = sorted(c for c in countries_with_vat if not _existing_vats.get(c))
+                if _locked_selected:
+                    st.caption(
+                        "🔒 " + " · ".join(f"{c} {_existing_vats[c]}" for c in _locked_selected)
+                        + f" — {_('fiscal_field_locked_note')}"
+                    )
+
                 tva_fr = _tva_fr_fixed
-                local_vat_numbers = dict(_existing_vats)
+                local_vat_numbers = {c: _existing_vats[c] for c in _locked_selected}
 
                 _edit_siren_form_fragment(
                     current_user=_current_user, home_country=home_country,
                     match=_match, siren_entreprise=siren_entreprise, nom_entreprise=nom_entreprise,
-                    tva_fr_fixed=_tva_fr_fixed, existing_vats=_existing_vats,
-                    default_vat_countries=_default_vat_countries, ioss_val=_ioss_val,
+                    tva_fr_fixed=_tva_fr_fixed, existing_vats=_existing_vats, ioss_val=_ioss_val,
+                    seller_is_importer=seller_is_importer,
+                    apply_fr_under_threshold=apply_fr_under_threshold,
+                    oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
+                    ioss_own_number_active=ioss_own_number_active,
+                    countries_with_vat=countries_with_vat,
+                    new_vat_countries=_new_vat_countries,
                 )
 
 

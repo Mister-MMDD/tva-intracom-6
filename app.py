@@ -648,6 +648,11 @@ if uploaded_files:
             ioss_number, seller_is_importer,
             tuple(sorted(countries_with_vat)),
             apply_fr_under_threshold,
+            # BUGFIX (voir README - évolution.md) : `ioss_own_number_active`
+            # influence bien engine.compute_vat() (voir engine.py ~l.312)
+            # mais était absent de cette clé — cocher/décocher ce toggle
+            # réutilisait silencieusement l'ancien résultat en cache.
+            ioss_own_number_active,
             home_country,
             target_currency,
             _vies_retry_nonce,

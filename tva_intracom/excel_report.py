@@ -437,6 +437,7 @@ def _write_recap(
         (i18n_("xl_indicator_ca_ht"),          summary.total_ht,          summary.refund_total_ht,   _z,                       _z),
         (_home_label,                      summary.fr_domestic_ht,    summary.refund_fr_domestic_ht, summary.fr_domestic_vat, summary.refund_fr_domestic_vat),
         (i18n_("xl_indicator_vat_oss"),        oss_ht_brut,               oss_ht_remb,               oss_vat_brut,             oss_vat_remb),
+        (i18n_("xl_indicator_vat_ioss"),       summary.ioss_ht,           summary.refund_ioss_ht,    summary.ioss_vat,         summary.refund_ioss_vat),
         (i18n_("xl_indicator_vat_amazon"),     summary.amazon_ht,         summary.refund_amazon_ht,  summary.amazon_vat,       summary.refund_amazon_vat),
         (i18n_("xl_indicator_vat_local"),      local_ht_brut,             local_ht_remb,             local_vat_brut,           local_vat_remb),
         (i18n_("xl_indicator_vat_import"),     summary.import_ht,         summary.refund_import_ht,  summary.import_vat,       summary.refund_import_vat),
@@ -447,6 +448,7 @@ def _write_recap(
     current_row = 4
     _row_ca3: int | None = None
     _row_oss: int | None = None
+    _row_ioss: int | None = None
     _row_local: int | None = None
 
     for idx, (label, ht_brut, ht_remb, vat_brut, vat_remb) in enumerate(data_structure):
@@ -455,8 +457,8 @@ def _write_recap(
         _vb_f = float(_conv(vat_brut))
         _vr_f = float(_conv(vat_remb))
 
-        # Lignes HT uniquement : CA global (0), B2B exonéré (6), Export (7)
-        is_ht_only_row = idx in (0, 6, 7)
+        # Lignes HT uniquement : CA global (0), B2B exonéré (7), Export (8)
+        is_ht_only_row = idx in (0, 7, 8)
 
         # Construction des cellules de la ligne
         row_cells = [
@@ -481,7 +483,8 @@ def _write_recap(
 
         if idx == 1: _row_ca3   = current_row
         if idx == 2: _row_oss   = current_row
-        if idx == 4: _row_local = current_row
+        if idx == 3: _row_ioss  = current_row
+        if idx == 5: _row_local = current_row
 
         current_row += 1
 
@@ -489,8 +492,14 @@ def _write_recap(
     ws.append([])
     current_row += 1
 
-    _tva_brute_formula = f"=E{_row_ca3}+E{_row_oss}+E{_row_local}"
-    _tva_remb_formula  = f"=F{_row_ca3}+F{_row_oss}+F{_row_local}"
+    # BUGFIX (voir README - évolution.md) : la ligne "Guichet IOSS" était
+    # absente de ce tableau (et donc du total ci-dessous), alors que
+    # summary.ioss_vat / ReportSummary.total_you_owe l'intègrent déjà
+    # correctement côté modèle — seul l'export Excel était en décalage.
+    # N'affecte ni l'onglet Détail des ventes (qui liste chaque VatResult
+    # sans filtre par scénario) ni le calcul fiscal lui-même.
+    _tva_brute_formula = f"=E{_row_ca3}+E{_row_oss}+E{_row_ioss}+E{_row_local}"
+    _tva_remb_formula  = f"=F{_row_ca3}+F{_row_oss}+F{_row_ioss}+F{_row_local}"
 
     ws.append([
         _wcell(ws, i18n_("xl_recap_total_remit"), font=_BOLD_FONT),
