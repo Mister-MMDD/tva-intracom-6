@@ -369,6 +369,14 @@ def _render_account_dialog(_current_user) -> None:
     inchangé (mot de passe / export RGPD / suppression de compte), seul
     l'emplacement change.
     """
+    st.markdown(f"**{_('onboarding_restart_title')}**")
+    st.caption(_("onboarding_restart_help"))
+    if st.button(_("onboarding_restart_btn"), key="btn_restart_onboarding"):
+        from tva_intracom.ui.onboarding import restart_onboarding
+        restart_onboarding()
+        preserve_upload_rerun()
+
+    st.divider()
     st.markdown(f"**{_('account_change_password_title')}**")
     st.caption(_("account_change_password_help"))
 
@@ -1111,20 +1119,25 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             st.error(_("catalog_error", error=e))
 
         # ── Cache VIES ────────────────────────────────────────────────────────────
-        # Fonctionnalité avancée (réglage TTL, stats, purge, certificat) —
-        # masquée en mode Simple. N'alimente aucun champ de SidebarResult :
-        # masquage sans risque de variable non définie plus bas.
-        if is_detailed():
-            with st.expander(_("cache_vies_header"), expanded=False):
-                try:
-                    _cs = vies_cache_stats(_vies_scope_id)
-                    _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=365,
-                                          value=_cs["ttl_days"], step=1,
-                                          help=_("ttl_cache_help"))
-                    if _ttl_days != _cs["ttl_days"]:
-                        set_cache_ttl(_vies_scope_id, _ttl_days)
-                        vies_cache_stats.clear()
-                        preserve_upload_rerun()
+        # BUGFIX (2026-08-22) : la durée de validité du cache VIES (slider
+        # TTL) est une donnée que l'utilisateur doit voir/régler dès la
+        # prise en main (checklist d'onboarding) — l'expander lui-même
+        # reste donc toujours visible, y compris en mode Simple. Seuls les
+        # réglages avancés (stats détaillées, purge, certificat PDF)
+        # restent réservés au mode Détaillé. N'alimente aucun champ de
+        # SidebarResult : masquage partiel sans risque de variable non
+        # définie plus bas.
+        with st.expander(_("cache_vies_header"), expanded=False):
+            try:
+                _cs = vies_cache_stats(_vies_scope_id)
+                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=365,
+                                      value=_cs["ttl_days"], step=1,
+                                      help=_("ttl_cache_help"))
+                if _ttl_days != _cs["ttl_days"]:
+                    set_cache_ttl(_vies_scope_id, _ttl_days)
+                    vies_cache_stats.clear()
+                    preserve_upload_rerun()
+                if is_detailed():
                     _c1, _c2, _c3 = st.columns(3)
                     _c1.metric(_("total"), _cs["total"])
                     _c2.metric(_("fresh"), _cs["fresh"])
@@ -1178,8 +1191,8 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                             type="primary",
                             width="stretch",
                         )
-                except Exception as _e:
-                    st.caption(_("cache_unavailable", error=_e))
+            except Exception as _e:
+                st.caption(_("cache_unavailable", error=_e))
 
         # ── Paramètres du fichier ─────────────────────────────────────────────────
         # "utf-8" couvre l'immense majorité des exports Amazon — réglage

@@ -4043,3 +4043,306 @@ pré-existants sans lien (ailleurs dans le fichier, lignes ~1656/1751)
 remontent, inchangés par rapport à avant cette modification. Suite
 complète `pytest` : 174 passed / 4 failed — identique à la baseline,
 aucune régression. Symétrie i18n vérifiée programmatiquement.
+
+## 2026-08-22 — Nouvel onboarding guidé (le précédent avait été retiré :
+ralentissait l'app, recalculait à chaque clic, désynchronisait une copie
+parallèle des champs fiscaux)
+
+**Contraintes posées avant conception** :
+1. Le stepper doit vivre dans son propre `@st.fragment`, piloté
+   uniquement par un flag d'affichage — jamais par un champ qui entre
+   dans `calc_key`/`parse_key`.
+2. Les vrais champs fiscaux (SIREN, IOSS…) affichés pendant l'onboarding
+   doivent rester exactement les mêmes widgets que la sidebar normale
+   (mêmes `key=`), pas une copie parallèle.
+3. Le calcul ne doit se déclencher qu'au moment réel où il y a une
+   valeur nouvelle à calculer, pas à chaque clic "suivant" du stepper.
+
+**Décision de conception (validée avec Matthieu avant implémentation)** :
+le bloc SIREN/IOSS/DDP/seuils OSS (`render_sidebar()`, ~450 lignes,
+verrouillage fiscal irréversible, quotas cabinet, lookup DB) est resté
+**intégralement inchangé**. Plutôt que d'extraire ce bloc pour le
+rejouer dans une zone principale (chantier jugé disproportionné/risqué
+sur du code fiscal sensible), le nouveau stepper **guide** vers la
+sidebar (section "Entreprise", déjà `expanded=True` en permanence,
+aucune ouverture forcée nécessaire) au lieu de dupliquer ses champs.
+Conséquence directe : la contrainte 2 est satisfaite de la façon la
+plus forte possible — les champs fiscaux ne sont ni déplacés ni recréés,
+donc aucune désynchronisation n'est même possible par construction.
+
+**Implémenté** :
+- `tva_intracom/auth.py` : colonne `tva_users.onboarding_seen`
+  (BOOLEAN, défaut FALSE) ajoutée au schéma (`CREATE TABLE IF NOT
+  EXISTS` + `ALTER TABLE ADD COLUMN IF NOT EXISTS` pour les bases
+  existantes, même pattern que `display_mode`). Nouveau champ sur
+  `User`, colonne ajoutée à `_USER_SELECT_COLS`/`_row_to_user`, et
+  nouvelle fonction `set_onboarding_seen(user_id, seen)`.
+- `tva_intracom/ui/onboarding.py` (nouveau module) :
+  - `ensure_onboarding_state(current_user, has_siren, has_results)` —
+    calcule l'étape (`"fiscal"` / `"upload"` / `"done"`) à partir de
+    signaux déjà fiables et déjà calculés ailleurs dans `app.py` :
+    `has_siren` = `siren_quota_status.registered_count > 0` (un SIREN
+    réellement **enregistré** en base, pas juste tapé dans un champ non
+    sauvegardé), `has_results` = `bool(CalcCacheState.load().results)`
+    (déjà utilisé par la barre de statut). Écrit uniquement
+    `session_state["_onboarding_step"]` — jamais lu par `calc_key` ni
+    `parse_key` (vérifié : aucune référence croisée dans
+    `ui/calc_cache.py`). Persiste `onboarding_seen=True` en base
+    uniquement au moment précis où l'étape "done" est atteinte pour la
+    première fois (best-effort, non bloquant si la base est
+    momentanément indisponible).
+  - `render_onboarding_banner()` — `@st.fragment`, zone principale,
+    juste au-dessus de l'uploader. Checklist 2 étapes (✅/🔵/⚪) + un
+    texte pointant vers la section sidebar concernée. Ne crée AUCUN
+    widget fiscal — lecture seule de `_onboarding_step`.
+  - `restart_onboarding()` — remet le stepper à l'étape "fiscal" sans
+    toucher à un seul champ fiscal déjà saisi.
+- `tva_intracom/ui/sidebar.py` (`_render_account_dialog`) : bouton
+  "Relancer la visite guidée" ajouté en tête de la modale "Compte &
+  Confidentialité", appelle `restart_onboarding()` puis
+  `preserve_upload_rerun()` (pas `st.rerun()` — cohérent avec le filet
+  de sécurité upload existant).
+- `app.py` : `ensure_onboarding_state()` appelé juste après le calcul de
+  `_status_has_results` (barre de statut) ; `render_onboarding_banner()`
+  appelé juste avant `st.file_uploader(...)`.
+- i18n : 8 nouvelles clés (`onboarding_title`, `onboarding_step_fiscal`,
+  `onboarding_step_upload`, `onboarding_hint_fiscal`,
+  `onboarding_hint_upload`, `onboarding_restart_title`,
+  `onboarding_restart_help`, `onboarding_restart_btn`) ajoutées
+  symétriquement dans les 7 fichiers TOML (fr/en/de/es/it/pl/pt) —
+  symétrie vérifiée programmatiquement via `toml.load()` : 1146 → 1154
+  clés dans chacune des 7 locales.
+
+**Pourquoi la contrainte 3 est déjà satisfaite sans code supplémentaire** :
+le mécanisme `calc_key` existant dans `app.py` (comparaison avant tout
+recalcul, voir `CalcCacheState`) ne déclenche déjà un calcul QUE si sa
+valeur change. Le stepper n'écrit que `_onboarding_step`, qui n'entre
+dans aucune des deux clés de cache — un clic "suivant" ne peut donc,
+par construction, jamais provoquer de recalcul prématuré. Aucune
+modification de `calc_key`/`parse_key` n'a été nécessaire ni effectuée.
+
+**Railway / scale-to-zero** : aucun impact — aucune connexion, thread ou
+polling ajouté. Le seul accès DB nouveau (`set_onboarding_seen`) est un
+UPDATE ponctuel déclenché par une interaction utilisateur réelle (fin
+d'onboarding ou clic sur "Relancer"), pas une vérification périodique.
+
+**Fichiers modifiés** : `tva_intracom/auth.py`,
+`tva_intracom/ui/onboarding.py` (nouveau), `tva_intracom/ui/sidebar.py`,
+`app.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Validation** : `py_compile` OK sur les 4 fichiers modifiés/créés.
+`pyflakes` : seul le faux positif pré-existant documenté (`_dt` masqué
+par une variable de boucle, `sidebar.py` L858, zone non touchée par ce
+lot) remonte, inchangé. Suite complète `pytest` : 174 passed / 4 failed
+— identique à la baseline, aucune régression. Symétrie i18n vérifiée
+programmatiquement (1154 clés × 7 locales).
+
+## 2026-08-22 (suite) — Bandeau onboarding illisible en mode sombre +
+contenu insuffisant (retour utilisateur, capture d'écran)
+
+**Bug signalé** : le bandeau onboarding utilisait des couleurs codées en
+dur (fond `#F7F6FF`, texte `#26215C`) au lieu des variables de thème
+Streamlit — en mode sombre, le fond du composant HTML restait clair
+alors que le texte héritait du blanc du thème global : texte blanc sur
+fond quasi-blanc, illisible (cf. capture).
+
+**Cause confirmée** : contrairement à `.status-bar` (déjà correct dans
+`theme.py`, basé sur `var(--secondary-background-color)` /
+`var(--brand-blue)`, aucune couleur en dur), le bandeau onboarding avait
+été écrit avec un `style=` inline en dur au lieu de réutiliser ce même
+pattern de variables adaptatives.
+
+**Corrigé** :
+- Nouveau bloc CSS `.onboarding-banner` / `.onboarding-banner-title` /
+  `.onboarding-banner-step` / `.onboarding-banner-substep` dans
+  `tva_intracom/ui/theme.py`, calqué sur `.status-bar` — uniquement des
+  variables de thème (`--secondary-background-color`, `--brand-blue`),
+  aucune couleur figée. `onboarding.py` utilise désormais ces classes au
+  lieu d'un `style=` inline.
+- Contenu enrichi (2e retour utilisateur : le bandeau n'expliquait rien
+  au-delà de 2 lignes génériques, sans mentionner ce que recouvre
+  concrètement l'étape fiscale) : sous-liste affichée à l'étape
+  "fiscal" — SIREN + TVA FR, numéro IOSS (optionnel), numéros de TVA
+  locaux dans d'autres pays UE (optionnel) — plus une précision : la
+  validation VIES des acheteurs B2B est automatique (aucune action
+  requise, elle a lieu au moment du calcul), pour éviter toute confusion
+  sur ce que l'utilisateur doit réellement saisir.
+- 4 nouvelles clés i18n (`onboarding_step_fiscal_sub_siren`,
+  `onboarding_step_fiscal_sub_ioss`, `onboarding_step_fiscal_sub_localvat`,
+  `onboarding_hint_vies`) ajoutées symétriquement dans les 7 TOML.
+  Symétrie vérifiée : 1154 → 1158 clés dans chacune des 7 locales.
+
+**Fichiers modifiés** : `tva_intracom/ui/theme.py`,
+`tva_intracom/ui/onboarding.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Railway / scale-to-zero** : aucun impact (CSS + texte uniquement).
+
+**Validation** : `py_compile` OK. `pyflakes` inchangé (même faux positif
+pré-existant, sans lien). Suite complète `pytest` : 174 passed / 4
+failed — identique à la baseline. Symétrie i18n vérifiée
+programmatiquement (1158 clés × 7 locales).
+
+## 2026-08-22 (suite 2) — Bloc HTML affiché en texte brut + onboarding
+jugé sans intérêt réel (retour utilisateur, 2e capture d'écran)
+
+**Bug signalé** : à l'étape "upload", la ligne `<p class="onboarding-
+banner-step">...</p>` s'affichait littéralement en texte au lieu d'être
+rendue.
+
+**Cause confirmée** : le HTML était construit avec un f-string
+multi-lignes indenté, avec un placeholder `{_fiscal_substeps}` vide à
+l'étape "upload" — une ligne vide au milieu d'un bloc HTML met fin à ce
+bloc pour le parseur Markdown de Streamlit ; la ligne suivante, encore
+indentée par la mise en forme Python du f-string (8-12 espaces), était
+alors interprétée comme un bloc de code (règle Markdown : 4 espaces
+d'indentation = code), d'où l'affichage du tag brut.
+
+**Corrigé** : le HTML est désormais assemblé via une liste de fragments
+sans indentation ni ligne vide, jointe par `"".join(...)` — une seule
+ligne HTML continue, structurellement impossible à casser de la même
+façon.
+
+**2e retour ("aucun intérêt, juste SIREN + upload")** : le bandeau ne
+présentait effectivement rien du produit lui-même. Ajouté :
+- une phrase d'intro (`onboarding_intro`) expliquant l'objectif (générer
+  les déclarations OSS/CA3/IOSS à partir des exports Amazon, en 2
+  étapes) ;
+- à l'étape "upload", une sous-ligne (`onboarding_step_upload_sub_tabs`)
+  annonçant les 6 onglets où les résultats apparaîtront (Déclarations,
+  Détail Ventes, VIES, Audit, Téléchargements, Graphiques) — noms
+  génériques, volontairement découplés du nom de plateforme dynamique
+  (`platform_name`) pour rester traduisibles simplement ;
+- un `st.caption` (`onboarding_hint_tabs`) détaillant en une phrase ce
+  que couvre chaque onglet.
+
+**Fichiers modifiés** : `tva_intracom/ui/onboarding.py`,
+`tva_intracom/ui/theme.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Railway / scale-to-zero** : aucun impact (texte + CSS uniquement).
+
+**Validation** : `py_compile` OK. `pyflakes` inchangé (même faux positif
+pré-existant). Suite complète `pytest` : 174 passed / 4 failed —
+identique à la baseline. Symétrie i18n vérifiée programmatiquement
+(1161 clés × 7 locales).
+
+## 2026-08-22 (suite 3) — Doublon avec le bloc "Comment utiliser cette
+application ?" + checklist enrichie (retour utilisateur)
+
+**Doublon signalé** : la checklist onboarding et l'ancien bloc statique
+"Comment utiliser cette application ?" (affiché en bas d'app.py quand
+aucun fichier n'est importé) faisaient doublon.
+
+**Corrigé** : bloc `### {how_to_use_title}` + 4 étapes retiré d'app.py
+(c'était un simple `st.markdown` isolé, sans lien avec le calcul — aucun
+risque). Les 5 clés i18n `how_to_use_*` associées, devenues mortes,
+retirées symétriquement des 7 TOML.
+
+**Refonte de la checklist** (remplace le stepper séquentiel à 2 étapes) :
+chaque item a désormais sa propre coche verte, indépendamment des
+autres :
+1. Nom de l'entreprise + SIREN (`_ob_entreprise_ok` = SIREN réellement
+   enregistré en base ET nom/SIREN non vides)
+2. Numéro de TVA local — FR (`_ob_tva_local_ok` = `tva_fr` non vide)
+3. Numéro IOSS, optionnel (`_ob_ioss_filled` — n'affiche jamais 🔵
+   bloquant, seulement ⚪/✅, et n'entre pas dans les critères de
+   complétion globale)
+4. Durée de validation du cache VIES — toujours ✅ (une valeur par
+   défaut, 7 jours, est déjà appliquée dès la création du compte ; item
+   purement informatif, pointe vers le réglage)
+5. Importer un premier fichier Amazon (`_status_has_results`, déjà
+   utilisé par la barre de statut)
+
+Ces 4 booléens sont calculés dans `app.py` à partir des champs déjà
+produits par `render_sidebar()` (`nom_entreprise`, `siren_entreprise`,
+`tva_fr`, `ioss_number`, `ioss_own_number_active`,
+`siren_quota_status.registered_count`) — aucun nouveau champ, toujours
+zéro widget fiscal recréé.
+
+**Cache VIES visible en mode Simple** : la durée de validité (slider
+TTL) doit être visible/réglable dès la prise en main (item 4 de la
+checklist), donc l'expander "Cache VIES" reste désormais toujours
+visible (y compris en mode Simple) ; seuls les réglages avancés (stats
+détaillées, purge, certificat PDF) restent réservés au mode Détaillé
+(`if is_detailed():` déplacé pour ne plus couvrir que cette partie).
+`_ttl_days` n'alimentant aucun champ de `SidebarResult`
+(commentaire déjà présent, vérifié), ce déplacement ne touche à aucun
+`calc_key`/`parse_key`.
+
+**i18n** : 6 clés `onboarding_step_fiscal*`/`onboarding_step_upload*`
+retirées (remplacées par la nouvelle checklist), 6 nouvelles clés
+ajoutées (`onboarding_check_entreprise`, `onboarding_check_tva_local`,
+`onboarding_check_ioss`, `onboarding_check_vies_ttl`,
+`onboarding_check_vies_ttl_detail`, `onboarding_check_upload`) — solde
+neutre, symétrie confirmée à 1156 clés × 7 locales.
+
+**Fichiers modifiés** : `app.py`, `tva_intracom/ui/onboarding.py`
+(entièrement réécrit), `tva_intracom/ui/sidebar.py` (cache VIES),
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Railway / scale-to-zero** : aucun impact — pas de nouvelle connexion,
+thread ou polling ; le seul accès DB reste l'UPDATE ponctuel de
+`onboarding_seen` déjà en place.
+
+**Validation** : `py_compile` OK sur les 4 fichiers modifiés. `pyflakes`
+inchangé (même faux positif pré-existant, `sidebar.py` L858, zone non
+touchée par ce lot). Suite complète `pytest` : 174 passed / 4 failed —
+identique à la baseline, aucune régression. Symétrie i18n vérifiée
+programmatiquement (1156 clés × 7 locales).
+
+## 2026-08-22 (suite 4) — 3 retours utilisateur sur la checklist
+
+**1. Bouton "Passer l'onboarding" manquant** : jusqu'ici seul un compte
+déjà marqué "vu" en base masquait la checklist — impossible de la
+fermer volontairement sans tout renseigner. Ajouté :
+`onboarding.py::dismiss_onboarding(current_user)`, appelée par un
+bouton "Passer" sous la checklist. Marque `onboarding_seen=True` en
+base immédiatement (comme la complétion normale), sans exiger les 3
+items obligatoires. Ne touche à aucun champ fiscal.
+
+**2. Libellé "Numéro de TVA local (France)" trompeur** : le SIREN
+implique une implantation française, mais rien n'impose que
+`home_country` reste "FR" (sélecteur modifiable, voir
+`sidebar.py::home_country_select` — convention Monaco notamment,
+mentionnée dans les principes fiscaux du projet). Annoncer "(France)"
+en dur était donc trompeur. Reformulé génériquement : "Numéro de TVA
+intracommunautaire (le pays dépend de votre implantation)" — la valeur
+vérifiée (`tva_fr`, champ toujours FR côté moteur de calcul — voir
+`sidebar.py` L186/282, non modifié) reste inchangée, seul le texte
+affiché change.
+
+**3. `**gras**` affiché tel quel + mauvais emplacement pour "Cache
+VIES"** : les `**...**` markdown ne sont jamais interprétés dans ce
+bandeau car le HTML est inséré via des `<p>` bruts (pas de passage par
+le rendu Markdown pour ce texte précis) — remplacés par `<strong>`.
+Par ailleurs "Cache VIES" (`cache_vies_header`) est une section
+**indépendante** de la sidebar, pas une sous-section d'"Entreprise" —
+le texte "Entreprise › Cache VIES" était donc factuellement faux.
+Corrigé en "la section **Cache VIES** de la barre latérale" (avec
+`<strong>`).
+
+**Bug introduit puis corrigé pendant ce lot** (attrapé par `pyflakes`,
+avant tout envoi) : `_dismiss_col, _ = st.columns([1, 5])` écrasait la
+variable `_` importée depuis `tva_intracom.i18n` (fonction de
+traduction) par la variable de déballage inutilisée de la 2ᵉ colonne —
+cassant tous les appels `_(...)` suivants dans la même portée. Renommé
+en `_spacer_col`.
+
+**i18n** : 2 clés existantes corrigées en place (`onboarding_check_tva_
+local`, `onboarding_check_vies_ttl_detail`) + 1 nouvelle clé
+(`onboarding_dismiss_btn`, "Passer"). Symétrie vérifiée : 1156 → 1157
+clés dans chacune des 7 locales.
+
+**Fichiers modifiés** : `tva_intracom/ui/onboarding.py`, `app.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+**Railway / scale-to-zero** : aucun impact — le seul accès DB nouveau
+(`dismiss_onboarding`) est un UPDATE ponctuel déclenché par un clic
+utilisateur réel, identique au mécanisme déjà en place pour la
+complétion normale.
+
+**Validation** : `py_compile` OK. `pyflakes` propre (bug `_` shadowing
+détecté et corrigé avant livraison ; seul le faux positif pré-existant
+`sidebar.py` L858 subsiste). Suite complète `pytest` : 174 passed / 4
+failed — identique à la baseline. Symétrie i18n vérifiée
+programmatiquement (1157 clés × 7 locales).

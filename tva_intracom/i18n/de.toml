@@ -486,11 +486,6 @@ nov = "Nov"
 dec = "Dez"
 
 # Home
-how_to_use_title = "Wie benutze ich diese Anwendung?"
-how_to_use_step1 = "1. **Konfigurieren** Sie Ihre Informationen in der Seitenleiste (USt-IdNrn. etc.)."
-how_to_use_step2 = "2. **Laden** Sie Ihre Verkaufsberichte (Amazon) oben hoch."
-how_to_use_step3 = "3. **Überprüfen** Sie die Warnmeldungen und Berechnungen in den verschiedenen Tabs."
-how_to_use_step4 = "4. **Laden** Sie Ihre Erklärungsdateien herunter (OSS, CA3, FEC)."
 
 # Auth Flow
 magic_link_welcome = "👋 Willkommen! Klicken Sie auf die Schaltfläche unten, um Ihre Anmeldung abzuschließen."
@@ -684,6 +679,27 @@ managed_sirens_qty_help = "Mindestens 3 SIREN für den Kanzlei-Plan. Muss mindes
 
 # Sidebar - Konto & Datenschutz
 account_privacy_header = "👤 Konto & Datenschutz"
+onboarding_title = "Schnellstart"
+onboarding_hint_fiscal = "👈 Öffnen Sie den Bereich **Unternehmen** in der Seitenleiste, um Ihre SIREN-Nummer zu registrieren — das ist der erste Schritt."
+onboarding_hint_upload = "Ihre SIREN-Nummer ist registriert ✅ — laden Sie jetzt unten eine Amazon-Exportdatei hoch, um Ihre erste Berechnung zu starten."
+onboarding_intro = "Erstellen Sie Ihre innergemeinschaftlichen USt-Meldungen (OSS, CA3, IOSS...) aus Ihren Amazon-Exporten, in 2 Schritten."
+onboarding_hint_tabs = "ℹ️ Sobald die Berechnung läuft, deckt jeder Reiter einen anderen Zweck ab — Meldungen (OSS/CA3 zum Herunterladen), Verkaufsdetails (zeilenweise), VIES (Prüfung der USt-IdNr. der Käufer), Audit (Konsistenzprüfungen), Downloads (Excel/XML/CSV-Exporte), Grafiken (Überblick)."
+
+onboarding_hint_vies = "ℹ️ Die VIES-Prüfung der USt-IdNr. Ihrer B2B-Käufer erfolgt automatisch — hier ist nichts zu tun, sie geschieht bei der Berechnung."
+
+onboarding_check_entreprise = "Firmenname + SIREN"
+onboarding_check_tva_local = "Innergemeinschaftliche USt-IdNr. (Land hängt von Ihrem Sitzland ab)"
+onboarding_check_ioss = "IOSS-Nummer (optional — Importe ≤ 150 €)"
+onboarding_check_vies_ttl = "Gültigkeitsdauer des VIES-Caches"
+onboarding_check_vies_ttl_detail = "Standardmäßig 7 Tage — einstellbar im Bereich <strong>VIES-Cache</strong> der Seitenleiste"
+onboarding_check_upload = "Erste Amazon-Exportdatei hochladen"
+
+onboarding_dismiss_btn = "Überspringen"
+
+onboarding_restart_title = "Geführte Tour"
+onboarding_restart_help = "Zeigt das Einstiegsbanner erneut an (SIREN + erster Import), ohne Ihre bereits gespeicherten Daten zu ändern."
+onboarding_restart_btn = "Geführte Tour neu starten"
+
 account_change_password_title = "Passwort ändern"
 account_change_password_help = "Gilt nur für Konten, die mit E-Mail + Passwort erstellt wurden. Wenn Sie sich über Google, GitHub oder Amazon angemeldet haben, gilt dieser Abschnitt nicht für Ihr Konto."
 current_password_label = "Aktuelles Passwort"

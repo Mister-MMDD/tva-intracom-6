@@ -485,11 +485,6 @@ nov = "Nov"
 dec = "Dic"
 
 # Home
-how_to_use_title = "Come usare questa applicazione?"
-how_to_use_step1 = "1. **Configura** le tue informazioni nella barra laterale (numeri IVA, ecc.)."
-how_to_use_step2 = "2. **Carica** i tuoi report delle vendite (Amazon) qui sopra."
-how_to_use_step3 = "3. **Controlla** gli avvisi e i calcoli nelle diverse schede."
-how_to_use_step4 = "4. **Scarica** i tuoi file di dichiarazione (OSS, CA3, FEC)."
 
 
 # Auth Flow
@@ -684,6 +679,27 @@ managed_sirens_qty_help = "Minimo 3 SIREN per il piano Studio. Deve coprire alme
 
 # Sidebar - Account e Privacy
 account_privacy_header = "👤 Account e Privacy"
+onboarding_title = "Avvio rapido"
+onboarding_hint_fiscal = "👈 Apri il pannello **Azienda** nella barra laterale per registrare il tuo SIREN — questo è il primo passo."
+onboarding_hint_upload = "Il tuo SIREN è registrato ✅ — carica ora un file di esportazione Amazon qui sotto per avviare il primo calcolo."
+onboarding_intro = "Genera le tue dichiarazioni IVA intracomunitarie (OSS, CA3, IOSS...) a partire dalle tue esportazioni Amazon, in 2 passaggi."
+onboarding_hint_tabs = "ℹ️ Una volta avviato il calcolo, ogni scheda copre un uso diverso — Dichiarazioni (OSS/CA3 da scaricare), Dettaglio Vendite (riga per riga), VIES (convalida dei numeri di partita IVA degli acquirenti), Audit (controlli di coerenza), Download (esportazioni Excel/XML/CSV), Grafici (panoramica)."
+
+onboarding_hint_vies = "ℹ️ La convalida VIES dei numeri di partita IVA dei tuoi acquirenti B2B è automatica — nulla da fare qui, avviene durante il calcolo."
+
+onboarding_check_entreprise = "Nome dell'azienda + SIREN"
+onboarding_check_tva_local = "Numero di partita IVA intracomunitaria (il paese dipende dalla tua sede)"
+onboarding_check_ioss = "Numero IOSS (facoltativo — importazioni ≤ 150 €)"
+onboarding_check_vies_ttl = "Durata di validità della cache VIES"
+onboarding_check_vies_ttl_detail = "7 giorni per impostazione predefinita — modificabile nella sezione <strong>Cache VIES</strong> della barra laterale"
+onboarding_check_upload = "Carica un primo file di esportazione Amazon"
+
+onboarding_dismiss_btn = "Salta"
+
+onboarding_restart_title = "Tour guidato"
+onboarding_restart_help = "Mostra di nuovo il banner introduttivo (SIREN + primo import), senza modificare i dati già salvati."
+onboarding_restart_btn = "Riavvia il tour guidato"
+
 account_change_password_title = "Cambia password"
 account_change_password_help = "Applicabile solo agli account creati con e-mail + password. Se ti sei registrato tramite Google, GitHub o Amazon, questa sezione non si applica al tuo account."
 current_password_label = "Password attuale"

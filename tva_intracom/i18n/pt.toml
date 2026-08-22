@@ -485,11 +485,6 @@ nov = "Nov"
 dec = "Dez"
 
 # Home
-how_to_use_title = "Como utilizar esta aplicação?"
-how_to_use_step1 = "1. **Configure** a sua informação na barra lateral (números de IVA, etc.)."
-how_to_use_step2 = "2. **Carregue** os seus relatórios de vendas (Amazon) acima."
-how_to_use_step3 = "3. **Verifique** os alertas e cálculos nos diferentes separadores."
-how_to_use_step4 = "4. **Descarregue** os seus ficheiros de declaração (OSS, CA3, FEC)."
 
 
 # Auth Flow
@@ -684,6 +679,27 @@ managed_sirens_qty_help = "Mínimo 3 SIRENs para o plano Cabinet. Deve cobrir pe
 
 # Sidebar - Conta e Privacidade
 account_privacy_header = "👤 Conta e Privacidade"
+onboarding_title = "Início rápido"
+onboarding_hint_fiscal = "👈 Abra o painel **Empresa** na barra lateral para registar o seu SIREN — este é o primeiro passo."
+onboarding_hint_upload = "O seu SIREN está registado ✅ — carregue agora um ficheiro de exportação da Amazon abaixo para executar o primeiro cálculo."
+onboarding_intro = "Gere as suas declarações de IVA intracomunitário (OSS, CA3, IOSS...) a partir das suas exportações da Amazon, em 2 etapas."
+onboarding_hint_tabs = "ℹ️ Assim que o cálculo for executado, cada separador cobre um uso diferente — Declarações (OSS/CA3 para descarregar), Detalhe Vendas (linha a linha), VIES (validação dos números de IVA dos compradores), Auditoria (verificações de consistência), Transferências (exportações Excel/XML/CSV), Gráficos (visão geral)."
+
+onboarding_hint_vies = "ℹ️ A validação VIES dos números de IVA dos seus compradores B2B é automática — nada a fazer aqui, acontece durante o cálculo."
+
+onboarding_check_entreprise = "Nome da empresa + SIREN"
+onboarding_check_tva_local = "Número de IVA intracomunitário (o país depende da sua sede)"
+onboarding_check_ioss = "Número IOSS (opcional — importações ≤ 150 €)"
+onboarding_check_vies_ttl = "Duração de validade da cache VIES"
+onboarding_check_vies_ttl_detail = "7 dias por predefinição — ajustável na secção <strong>Cache VIES</strong> da barra lateral"
+onboarding_check_upload = "Carregue um primeiro ficheiro de exportação da Amazon"
+
+onboarding_dismiss_btn = "Ignorar"
+
+onboarding_restart_title = "Visita guiada"
+onboarding_restart_help = "Mostra novamente a faixa de introdução (SIREN + primeira importação), sem alterar os dados já guardados."
+onboarding_restart_btn = "Reiniciar visita guiada"
+
 account_change_password_title = "Alterar senha"
 account_change_password_help = "Aplicavel apenas a contas criadas com e-mail + senha. Se voce se cadastrou via Google, GitHub ou Amazon, esta secao nao se aplica a sua conta."
 current_password_label = "Senha atual"

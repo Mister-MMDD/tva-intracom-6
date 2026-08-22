@@ -485,11 +485,6 @@ nov = "Nov"
 dec = "Dec"
 
 # Home
-how_to_use_title = "How to use this application?"
-how_to_use_step1 = "1. **Configure** your information in the sidebar (VAT numbers, etc.)."
-how_to_use_step2 = "2. **Upload** your sales reports (Amazon) above."
-how_to_use_step3 = "3. **Check** alerts and calculations in the different tabs."
-how_to_use_step4 = "4. **Download** your declaration files (OSS, CA3, FEC)."
 
 
 # Auth Flow
@@ -684,6 +679,27 @@ managed_sirens_qty_help = "Minimum 3 SIRENs for the Cabinet plan. Must cover at 
 
 # Sidebar - Account & Privacy
 account_privacy_header = "👤 Account & Privacy"
+onboarding_title = "Quick start"
+onboarding_hint_fiscal = "👈 Open the **Company** panel in the sidebar to register your SIREN — this is the first step."
+onboarding_hint_upload = "Your SIREN is registered ✅ — now upload an Amazon export file below to run your first calculation."
+onboarding_intro = "Generate your intra-community VAT filings (OSS, CA3, IOSS...) from your Amazon exports, in 2 steps."
+onboarding_hint_tabs = "ℹ️ Once the calculation runs, each tab covers a different use — Filings (OSS/CA3 to download), Sales Detail (line by line), VIES (buyer VAT number validation), Audit (consistency checks), Downloads (Excel/XML/CSV exports), Charts (overview)."
+
+onboarding_hint_vies = "ℹ️ VIES validation of your B2B buyers' VAT numbers is automatic — nothing to do here, it happens during calculation."
+
+onboarding_check_entreprise = "Company name + SIREN"
+onboarding_check_tva_local = "Intra-community VAT number (country depends on where you're established)"
+onboarding_check_ioss = "IOSS number (optional — imports ≤ €150)"
+onboarding_check_vies_ttl = "VIES cache validity period"
+onboarding_check_vies_ttl_detail = "7 days by default — adjustable in the <strong>VIES Cache</strong> section of the sidebar"
+onboarding_check_upload = "Upload a first Amazon export file"
+
+onboarding_dismiss_btn = "Skip"
+
+onboarding_restart_title = "Guided tour"
+onboarding_restart_help = "Shows the getting-started banner again (SIREN + first import), without touching your already saved data."
+onboarding_restart_btn = "Restart guided tour"
+
 account_change_password_title = "Change password"
 account_change_password_help = "Only applicable to accounts created with email + password. If you signed up via Google, GitHub, or Amazon, this section doesn't apply to your account."
 current_password_label = "Current password"

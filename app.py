@@ -40,6 +40,7 @@ from tva_intracom.ui.sidebar import render_sidebar
 from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig
 from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.display_mode import ensure_display_mode, is_detailed, render_mode_toggle
+from tva_intracom.ui.onboarding import ensure_onboarding_state, render_onboarding_banner
 
 _ZERO = Decimal("0.00")
 
@@ -250,6 +251,25 @@ _status_file_count = st.session_state.get("_status_bar_file_count", 0)
 _status_period = st.session_state.get("_period_label", "")
 _status_has_results = bool(CalcCacheState.load().results)
 
+# --- Onboarding guidé (checklist) ---
+# Chaque signal reflète un champ RÉELLEMENT enregistré/saisi côté
+# render_sidebar() (mêmes valeurs que celles utilisées pour le calcul) —
+# aucun nouveau champ, aucune copie parallèle. Ce flag d'étape ne rentre
+# dans aucun calc_key/parse_key (voir ui/onboarding.py) : la checklist ne
+# peut donc pas, par construction, déclencher de recalcul.
+_ob_entreprise_ok = bool(
+    _siren_quota_status and _siren_quota_status.registered_count > 0
+    and nom_entreprise and siren_entreprise
+)
+_ob_tva_local_ok = bool(tva_fr)
+_ob_ioss_filled = bool(ioss_number or ioss_own_number_active)
+ensure_onboarding_state(
+    _current_user,
+    entreprise_ok=_ob_entreprise_ok,
+    tva_local_ok=_ob_tva_local_ok,
+    upload_ok=_status_has_results,
+)
+
 _status_dot_class = "ok" if _status_has_results else ("pending" if _status_file_count else "off")
 _status_calc_text = (
     _("status_bar_status_ready") if _status_has_results else _("status_bar_status_none")
@@ -285,6 +305,14 @@ with _status_col_bar:
     )
 with _status_col_toggle:
     render_mode_toggle()
+
+render_onboarding_banner(
+    _current_user,
+    entreprise_ok=_ob_entreprise_ok,
+    tva_local_ok=_ob_tva_local_ok,
+    ioss_filled=_ob_ioss_filled,
+    upload_ok=_status_has_results,
+)
 
 # =============================================================================
 # UPLOAD
@@ -1116,14 +1144,3 @@ else:
     # indéfiniment tant qu'aucune autre interaction serveur ne survenait.
     if _period_label_shown_by_sidebar:
         preserve_upload_rerun()
-    st.markdown("---")
-    col_a, col_b = st.columns([2,1])
-    with col_a:
-        st.markdown(f"""
-            ### {_('how_to_use_title')}
-
-            {_('how_to_use_step1')}
-            {_('how_to_use_step2')}
-            {_('how_to_use_step3')}
-            {_('how_to_use_step4')}
-        """)

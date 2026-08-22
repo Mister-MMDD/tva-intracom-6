@@ -219,6 +219,40 @@ button[data-testid="stBaseButton-secondary"]:hover {
 .status-bar-dot.ok { background-color: #2ca02c; }
 .status-bar-dot.pending { background-color: #d97706; }
 .status-bar-dot.off { background-color: color-mix(in srgb, currentColor 35%, transparent); }
+
+/* ---- Bandeau onboarding (checklist démarrage) ----
+   Mêmes variables de thème que .status-bar (pas de couleur codée en dur) :
+   BUGFIX 2026-08-22 — un fond/texte en dur (#F7F6FF / #26215C) restait
+   clair en mode sombre alors que le texte, lui, devenait blanc via le
+   thème global -> texte invisible (blanc sur blanc). */
+.onboarding-banner {
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    background-color: var(--secondary-background-color);
+    border: 1px solid color-mix(in srgb, var(--brand-blue) 25%, transparent);
+    border-left: 4px solid var(--brand-blue);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-blue) 8%, transparent);
+}
+.onboarding-banner-title {
+    margin: 0 0 10px;
+    font-weight: 700;
+    font-size: 1rem;
+}
+.onboarding-banner-intro {
+    margin: 0 0 10px;
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+.onboarding-banner-step {
+    margin: 0 0 6px;
+    font-size: 0.9rem;
+}
+.onboarding-banner-substep {
+    margin: 2px 0 6px 26px;
+    font-size: 0.8rem;
+    opacity: 0.75;
+}
 </style>
 """
 

@@ -98,7 +98,8 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
                     home_country TEXT NOT NULL DEFAULT 'FR',
                     language TEXT NOT NULL DEFAULT 'fr',
                     display_currency TEXT NOT NULL DEFAULT 'DEFAULT',
-                    display_mode TEXT NOT NULL DEFAULT 'simple'
+                    display_mode TEXT NOT NULL DEFAULT 'simple',
+                    onboarding_seen BOOLEAN NOT NULL DEFAULT FALSE
                 )
                 """
             )
@@ -116,6 +117,16 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
             )
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS display_mode TEXT NOT NULL DEFAULT 'simple'"
+            )
+            # Onboarding guidé (2026-08-22) : marque le compte comme ayant
+            # déjà vu le stepper d'onboarding (SIREN + premier import), pour
+            # ne plus le réafficher automatiquement aux connexions
+            # suivantes. Un bouton dans "Compte & Confidentialité" permet à
+            # l'utilisateur de le relancer volontairement (repasse ce flag
+            # à FALSE, voir set_onboarding_seen ci-dessous et
+            # ui/onboarding.py).
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS onboarding_seen BOOLEAN NOT NULL DEFAULT FALSE"
             )
             cur.execute(
                 """
@@ -197,10 +208,11 @@ class User:
     language: str = "fr"
     display_currency: str = "DEFAULT"
     display_mode: str = "simple"
+    onboarding_seen: bool = False
 
 
 _USER_SELECT_COLS = (
-    "id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency, display_mode"
+    "id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency, display_mode, onboarding_seen"
 )
 
 
@@ -208,7 +220,7 @@ def _row_to_user(row) -> User:
     return User(
         id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3],
         home_country=row[4] or "FR", language=row[5] or "fr", display_currency=row[6] or "DEFAULT",
-        display_mode=row[7] or "simple",
+        display_mode=row[7] or "simple", onboarding_seen=bool(row[8]),
     )
 
 
@@ -288,6 +300,20 @@ def set_display_mode(user_id: str, mode: str) -> None:
         cur.execute(
             "UPDATE tva_users SET display_mode=%s WHERE id=%s",
             (mode, user_id),
+        )
+
+    _run(_fn)
+
+
+def set_onboarding_seen(user_id: str, seen: bool) -> None:
+    """Marque (ou remet à zéro) le flag d'onboarding pour ce compte — voir
+    tva_intracom/ui/onboarding.py. `seen=False` sert au bouton "Relancer la
+    visite guidée" (Compte & Confidentialité, sidebar.py)."""
+
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_users SET onboarding_seen=%s WHERE id=%s",
+            (bool(seen), user_id),
         )
 
     _run(_fn)

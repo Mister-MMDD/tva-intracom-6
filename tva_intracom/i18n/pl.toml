@@ -485,11 +485,6 @@ nov = "Lis"
 dec = "Gru"
 
 # Home
-how_to_use_title = "Jak korzystać z tej aplikacji?"
-how_to_use_step1 = "1. **Skonfiguruj** swoje informacje na pasku bocznym (numery VAT itp.)."
-how_to_use_step2 = "2. **Prześlij** swoje raporty sprzedaży (Amazon) powyżej."
-how_to_use_step3 = "3. **Sprawdź** alerty i obliczenia w różnych zakładkach."
-how_to_use_step4 = "4. **Pobierz** swoje pliki deklaracji (OSS, CA3, FEC)."
 
 
 # Auth Flow
@@ -684,6 +679,27 @@ managed_sirens_qty_help = "Minimum 3 numery SIREN dla planu Gabinet. Musi obejmo
 
 # Sidebar - Konto i prywatność
 account_privacy_header = "👤 Konto i prywatność"
+onboarding_title = "Szybki start"
+onboarding_hint_fiscal = "👈 Otwórz panel **Firma** na pasku bocznym, aby zarejestrować numer SIREN — to pierwszy krok."
+onboarding_hint_upload = "Twój numer SIREN został zarejestrowany ✅ — prześlij teraz poniżej plik eksportu Amazon, aby uruchomić pierwsze obliczenia."
+onboarding_intro = "Generuj deklaracje VAT wewnątrzwspólnotowego (OSS, CA3, IOSS...) na podstawie eksportów z Amazon, w 2 krokach."
+onboarding_hint_tabs = "ℹ️ Po uruchomieniu obliczeń każda zakładka obejmuje inne zastosowanie — Deklaracje (OSS/CA3 do pobrania), Szczegóły Sprzedaży (wiersz po wierszu), VIES (walidacja numerów VAT nabywców), Audyt (kontrole spójności), Pobieranie (eksporty Excel/XML/CSV), Wykresy (przegląd)."
+
+onboarding_hint_vies = "ℹ️ Walidacja VIES numerów VAT Twoich nabywców B2B jest automatyczna — nic tu nie trzeba robić, odbywa się podczas obliczeń."
+
+onboarding_check_entreprise = "Nazwa firmy + SIREN"
+onboarding_check_tva_local = "Wewnątrzwspólnotowy numer VAT (kraj zależy od siedziby firmy)"
+onboarding_check_ioss = "Numer IOSS (opcjonalnie — import ≤ 150 €)"
+onboarding_check_vies_ttl = "Czas ważności pamięci podręcznej VIES"
+onboarding_check_vies_ttl_detail = "Domyślnie 7 dni — do zmiany w sekcji <strong>Pamięć podręczna VIES</strong> na pasku bocznym"
+onboarding_check_upload = "Prześlij pierwszy plik eksportu z Amazon"
+
+onboarding_dismiss_btn = "Pomiń"
+
+onboarding_restart_title = "Wycieczka z przewodnikiem"
+onboarding_restart_help = "Ponownie wyświetla baner powitalny (SIREN + pierwszy import), bez zmiany już zapisanych danych."
+onboarding_restart_btn = "Uruchom ponownie wycieczkę"
+
 account_change_password_title = "Zmien haslo"
 account_change_password_help = "Dotyczy wylacznie kont utworzonych za pomoca e-mail + haslo. Jesli zarejestrowales sie przez Google, GitHub lub Amazon, ta sekcja nie dotyczy Twojego konta."
 current_password_label = "Obecne haslo"

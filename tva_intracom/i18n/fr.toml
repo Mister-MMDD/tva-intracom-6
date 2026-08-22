@@ -486,11 +486,6 @@ nov = "Nov"
 dec = "Déc"
 
 # Accueil
-how_to_use_title = "Comment utiliser cette application ?"
-how_to_use_step1 = "1. **Configurez** vos informations dans la barre latérale (SIREN, numéros de TVA, etc.)."
-how_to_use_step2 = "2. **Déposez** vos rapports de ventes (Amazon) ci-dessus."
-how_to_use_step3 = "3. **Vérifiez** les alertes et les calculs dans les différents onglets."
-how_to_use_step4 = "4. **Téléchargez** vos fichiers de déclaration (OSS, CA3, FEC)."
 
 # Auth Flow
 magic_link_welcome = "👋 Bienvenue ! Cliquez sur le bouton ci-dessous pour finaliser votre connexion."
@@ -685,6 +680,27 @@ managed_sirens_qty_help = "Minimum 3 SIREN pour le forfait Cabinet. Doit couvrir
 
 # Sidebar - Compte & Confidentialité
 account_privacy_header = "👤 Compte & Confidentialité"
+onboarding_title = "Prise en main rapide"
+onboarding_hint_fiscal = "👈 Ouvrez le panneau **Entreprise** dans la barre latérale pour enregistrer votre SIREN — c'est la première étape."
+onboarding_hint_upload = "Votre SIREN est enregistré ✅ — importez maintenant un fichier d'export Amazon ci-dessous pour lancer votre premier calcul."
+onboarding_intro = "Générez vos déclarations de TVA intracommunautaire (OSS, CA3, IOSS...) à partir de vos exports Amazon, en 2 étapes."
+onboarding_hint_tabs = "ℹ️ Une fois le calcul lancé, chaque onglet couvre un usage différent — Déclarations (OSS/CA3 à télécharger), Détail Ventes (ligne par ligne), VIES (validation des n° TVA acheteurs), Audit (contrôles de cohérence), Téléchargements (exports Excel/XML/CSV), Graphiques (vue d'ensemble)."
+
+onboarding_hint_vies = "ℹ️ La validation VIES des numéros de TVA de vos acheteurs B2B est automatique — rien à faire ici, elle se fait au moment du calcul."
+
+onboarding_check_entreprise = "Nom de l'entreprise + SIREN"
+onboarding_check_tva_local = "Numéro de TVA intracommunautaire (le pays dépend de votre implantation)"
+onboarding_check_ioss = "Numéro IOSS (optionnel — ventes import ≤ 150 €)"
+onboarding_check_vies_ttl = "Durée de validation du cache VIES"
+onboarding_check_vies_ttl_detail = "7 jours par défaut — réglable dans la section <strong>Cache VIES</strong> de la barre latérale"
+onboarding_check_upload = "Importer un premier fichier d'export Amazon"
+
+onboarding_dismiss_btn = "Passer"
+
+onboarding_restart_title = "Visite guidée"
+onboarding_restart_help = "Réaffiche le bandeau d'aide au démarrage (SIREN + premier import), sans toucher à vos données déjà enregistrées."
+onboarding_restart_btn = "Relancer la visite guidée"
+
 account_change_password_title = "Changer le mot de passe"
 account_change_password_help = "Applicable uniquement aux comptes créés par e-mail + mot de passe. Si vous vous êtes inscrit via Google, GitHub ou Amazon, cette section ne s'applique pas à votre compte."
 current_password_label = "Mot de passe actuel"
