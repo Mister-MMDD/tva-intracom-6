@@ -43,9 +43,12 @@
         <h2>Checklist de Conformité & Sécurité</h2>
         <ul style="list-style-type: '✅ ';">
             <li>Vérifier la validité des numéros TVA B2B via l'onglet <strong>VIES</strong>.</li>
+            <li>Sécuriser vos exonérations avec le <strong>Certificat VIES PDF</strong>.</li>
             <li>S'assurer que le <strong>Pays de Siège</strong> est correctement configuré.</li>
             <li>Vérifier les alertes de <strong>Stock FBA</strong> pour les immatriculations locales.</li>
             <li>Vérifier les <strong>taux de change BCE</strong> de clôture pour l'OSS (Règl. 2020/194).</li>
+            <li>Valider le dépassement du <strong>seuil OSS 10 000 €</strong> (Année N et Année N-1).</li>
+            <li>Gérer les soldes négatifs OSS via le <strong>Rattachement automatique des avoirs</strong>.</li>
             <li>Réconcilier le <strong>CA HT Net</strong> avec votre comptabilité via l'export FEC.</li>
             <li>Conserver les preuves de <strong>Pseudonymisation VIES</strong> pour votre piste d'audit.</li>
             <li>Télécharger et conserver le <strong>Rapport Principal Excel</strong> pour chaque période.</li>
@@ -106,11 +109,13 @@ tva-intracom/
 │   │   └── woocommerce.py            Parser WooCommerce
 │   ├── ui/                           Interface Streamlit modulaire
 │   │   ├── tabs/                     Modules d'onglets (OSS, Ventes, VIES...)
-│   │   ├── theme.py                  Thème et CSS
+│   │   ├── theme.py                  Thème, CSS et barre de statut
 │   │   ├── formatting.py             Helpers d'affichage
 │   │   ├── auth_flow.py              Flux d'authentification UI
+│   │   ├── display_mode.py           Gestion du mode Simple/Détaillé
 │   │   ├── sidebar.py                Barre latérale de configuration
 │   │   ├── billing_gate.py           Gating de facturation
+│   │   ├── rerun_utils.py            Gestion des reruns et persistance
 │   │   └── background_calc.py        Calculs longs en thread séparé
 │   ├── amazon_adapter.py             Passerelle de compatibilité modèles
 │   ├── auth_supabase.py              Authentification Supabase Auth

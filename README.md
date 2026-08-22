@@ -105,9 +105,10 @@ tva-intracom/
 │   │   ├── formatting.py             Helpers d'affichage partagés.
 │   │   ├── files.py                  Gestion du cache et signatures des fichiers uploadés (gzip/MD5).
 │   │   ├── calc_cache.py             Gestion centralisée de l'état du cache de calcul (dataclass CalcCacheState).
-│   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth via Supabase Auth.
-│   │   ├── rerun_utils.py            Gestion fine des st.rerun().
-│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe).
+│   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth (Google, Microsoft, GitHub, Amazon) via Supabase Auth.
+│   │   ├── display_mode.py           Gestion du mode d'affichage (Simple/Détaillé) et persistance.
+│   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'état (upload, widgets).
+│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe, catalogue).
 │   │   ├── billing_gate.py           Gating de facturation et conformité.
 │   │   ├── background_calc.py        Exécution des calculs longs en thread séparé.
 │   │   └── tabs/                     Modules d'onglets (Déclarations, Ventes, VIES, etc.).
@@ -158,9 +159,11 @@ tva-intracom/
 | `ui/formatting.py` | Helpers d'affichage vectorisés, formatage monétaire et tri robuste |
 | `ui/files.py` | Gestion du cache et signatures des fichiers uploadés (gzip/MD5) |
 | `ui/calc_cache.py` | Gestion centralisée de l'état du cache de calcul (`CalcCacheState`) |
-| `ui/auth_flow.py` | Flux d'authentification complet (PKCE Supabase, Social OAuth, Sessions) |
-| `ui/sidebar.py` | Barre latérale de configuration (SIREN, IOSS, Catalogue, Abonnements) |
+| `ui/auth_flow.py` | Flux d'authentification complet (PKCE Supabase, Social OAuth, Sessions, Persistance) |
+| `ui/display_mode.py` | Gestion du mode d'affichage "Simple/Détaillé" et persistance par compte |
+| `ui/sidebar.py` | Barre latérale (SIREN, IOSS, Catalogue, VIES, Abonnements) avec isolation par fragments |
 | `ui/billing_gate.py` | Gating crédit PAYG, quotas SIREN et conformité fiscale |
+| `ui/theme.py` | Thème visuel, injection CSS et barre de statut persistante |
 | `ui/background_calc.py` | Exécution asynchrone des calculs longs avec suivi de progression |
 | `ui/tabs/` | Modules d'onglets isolés consommant un `TabContext` partagé |
 
@@ -178,7 +181,7 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
 
 ## Authentification & Facturation
 
-- **Supabase Auth** : Authentification sécurisée via flux PKCE. Supporte e-mail/mot de passe et OAuth (Google, Microsoft, GitHub, Amazon). Gestion des sessions persistantes par cookie (30 jours).
+- **Supabase Auth** : Authentification sécurisée via flux PKCE. Supporte e-mail/mot de passe et OAuth (Google, Microsoft, GitHub, Amazon). Gestion des sessions persistantes par cookie (30 jours). Persistance des préférences utilisateur (langue, mode d'affichage).
 - **Facturation Stripe** :
     - **Pay-as-you-go** : Déblocage par période fiscale détectée dans les transactions.
     - **Pro** : Abonnement illimité pour 1 SIREN client.
@@ -330,12 +333,16 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 
 ### Performance & Réactivité
 - **String Interning** : Réduction drastique de l'empreinte RAM (codes pays, devises, ASINs) via `sys.intern()`.
-- **Fragments Streamlit** : Isolation du rendu pour éviter les reruns complets lors des interactions locales.
+- **Fragments Streamlit** : Isolation du rendu (`st.fragment`) pour éviter les reruns complets lors des interactions locales (VIES, sidebar, etc.).
 - **Gestion d'état explicite** : Centralisation du cache de calcul via `CalcCacheState` pour une meilleure fiabilité des reruns.
 - **Cache intelligent** : Mise en cache des parsers, du catalogue ASIN et des exports via signatures MD5.
 - **Pooling thread-safe** : Gestion optimisée des connexions Postgres pour supporter les calculs parallèles.
+- **Optimisation de la RAM** : Nettoyage proactif du cache et mode "Veille" automatique après 30 min d'inactivité.
 
 ### UX & Fiabilité
+- **Mode Simple / Détaillé** : Bascule d'affichage globale pour simplifier l'interface ou accéder aux détails d'audit.
+- **Barre de statut persistante** : Affichage constant du fichier chargé, de la période détectée et de l'état du calcul.
+- **Gestion de la confidentialité** : Sortie des paramètres sensibles vers une modale dédiée (`st.dialog`).
 - **MD5 Upload Signature** : Détection fiable des modifications de fichiers pour invalider le cache.
 - **Feedback utilisateur enrichi** : Usage de `st.status` pour le suivi détaillé du parsing et de la validation VIES.
 - **Persistance multilingue** : Interface et exports localisés en 7 langues (FR, EN, DE, ES, IT, PL, PT).
