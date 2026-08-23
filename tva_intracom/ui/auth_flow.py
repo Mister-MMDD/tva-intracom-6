@@ -152,6 +152,20 @@ def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
     except PermissionError as _e:
         st.error(f"⛔ {_e}")
         return
+    # Verrouillage rétroactif (2026-08-23) : un compte qui avait DÉJÀ un
+    # abonnement payant actif AVANT l'introduction des rôles n'a jamais
+    # déclenché lock_org_for_user (câblé uniquement sur le webhook Stripe
+    # d'un NOUVEL abonnement) — son organisation reste donc "non verrouillée"
+    # tant qu'il ne se reconnecte pas. On rattrape ça ici, une fois par
+    # connexion, sans coût significatif (lock_org_for_user est déjà
+    # idempotent — no-op si l'organisation est déjà verrouillée).
+    try:
+        if not tva_auth.is_solo_org(_user.org_id) and not tva_auth.is_org_locked(_user.org_id):
+            if tva_billing.get_subscription_status(_user.id).active:
+                tva_auth.lock_org_for_user(_user.id)
+    except Exception:
+        # Ne bloque jamais la connexion pour ce rattrapage best-effort.
+        pass
     st.session_state["auth_user"] = _user
     st.session_state["manual_logout"] = False
     _token = tva_auth.create_session_token(_user.id)
@@ -527,15 +541,19 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
             if _col_signup.button(_("password_signup_btn"), key="btn_password_signup", width="stretch"):
                 if _login_email and "@" in _login_email and _login_password:
-                    try:
-                        _sb_res = tva_sb_auth.sign_up_with_password(_login_email, _login_password)
-                        if _sb_res.access_token:
-                            _finalize_login(_sb_res.email, cookie_manager)
-                            st.rerun()
-                        else:
-                            st.success(_("password_signup_confirm_email_info"))
-                    except Exception as _sb_err:
-                        st.error(_("password_login_error", error=str(_sb_err)))
+                    _allowed, _reason = tva_auth.can_signup(_login_email)
+                    if not _allowed:
+                        st.error(f"⛔ {_reason}")
+                    else:
+                        try:
+                            _sb_res = tva_sb_auth.sign_up_with_password(_login_email, _login_password)
+                            if _sb_res.access_token:
+                                _finalize_login(_sb_res.email, cookie_manager)
+                                st.rerun()
+                            else:
+                                st.success(_("password_signup_confirm_email_info"))
+                        except Exception as _sb_err:
+                            st.error(_("password_login_error", error=str(_sb_err)))
                 else:
                     st.warning(_("invalid_email_warning"))
 
@@ -571,13 +589,17 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 width="stretch",
             ):
                 if _login_email and "@" in _login_email:
-                    try:
-                        _magic_token = tva_auth.create_magic_link(_login_email)
-                        _magic_url = f"{_app_base_url_login}/?login_token={_magic_token}"
-                        tva_auth.send_magic_link_email(_login_email, _magic_url)
-                        st.success(_("magic_link_sent_success", email=_login_email))
-                    except Exception as _e:
-                        st.error(_("magic_link_sent_error", error=str(_e)))
+                    _allowed, _reason = tva_auth.can_signup(_login_email)
+                    if not _allowed:
+                        st.error(f"⛔ {_reason}")
+                    else:
+                        try:
+                            _magic_token = tva_auth.create_magic_link(_login_email)
+                            _magic_url = f"{_app_base_url_login}/?login_token={_magic_token}"
+                            tva_auth.send_magic_link_email(_login_email, _magic_url)
+                            st.success(_("magic_link_sent_success", email=_login_email))
+                        except Exception as _e:
+                            st.error(_("magic_link_sent_error", error=str(_e)))
                 else:
                     st.warning(_("invalid_email_warning"))
 

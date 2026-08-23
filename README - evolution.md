@@ -4738,3 +4738,45 @@ L971 import masqué par variable de boucle, déjà documenté) ; pytest 174
 passed / 4 failed — baseline inchangée après correction de 3 régressions
 transitoires introduites par `_require_write_access` (tests
 `TestRequestSirenRemoval`, corrigés en conséquence).
+
+## 2026-08-23 (suite 5) — Correctifs rôles/organisation : verrouillage rétroactif manquant, message d'inscription trompeur
+
+**Bug 1 — comptes déjà abonnés avant l'introduction des rôles.**
+`lock_org_for_user()` n'était câblé QUE sur le webhook Stripe d'un
+**nouvel** abonnement (`_fulfill_checkout_session`) — un compte ayant déjà
+un abonnement payant actif avant cette fonctionnalité ne déclenchait donc
+jamais le verrouillage, et `ui/admin.py` affichait à tort "aucun abonnement
+payant actif". **Correctif :** rattrapage best-effort dans
+`ui/auth_flow.py::_finalize_login`, à chaque connexion — si l'organisation
+n'est pas encore verrouillée et que le compte a un abonnement actif
+(`billing.get_subscription_status`), verrouille rétroactivement
+(`lock_org_for_user`, déjà idempotent). Aucun coût significatif (une requête
+`SELECT` supplémentaire par connexion, uniquement tant que l'organisation
+n'est pas verrouillée).
+
+**Bug 2 — message d'inscription trompeur pour une adresse non autorisée.**
+Le flux mot de passe créait le compte Supabase (et envoyait l'e-mail de
+confirmation) **avant** toute vérification de la whitelist — un e-mail non
+autorisé recevait donc "Compte créé — vérifiez votre boîte mail", puis
+n'était bloqué (message générique) qu'au moment de la confirmation, une
+fois le compte Supabase déjà créé. **Correctif :**
+- Nouvelle fonction `auth.py::can_signup(email)` — contrôle en LECTURE
+  SEULE (aucune écriture), appelée par l'UI (`ui/auth_flow.py`) AVANT de
+  déclencher `sign_up_with_password` (mot de passe) ou l'envoi d'un lien
+  magique. Ne bloque jamais un e-mail qui a déjà un compte existant (laisse
+  Supabase gérer le cas "déjà inscrit").
+- Message harmonisé et explicite (repris aussi dans le `PermissionError`
+  de `get_or_create_user`, chemin OAuth compris) : *"L'administrateur de
+  votre entreprise a restreint l'accès à cette application. Il doit
+  d'abord autoriser votre adresse e-mail depuis Sidebar → 🛡️ Administration
+  avant que vous puissiez créer un compte."*
+- Le flux OAuth n'avait pas ce problème (aucun e-mail de confirmation
+  envoyé par l'app avant `get_or_create_user`) — inchangé.
+
+**Scale-to-zero.** Aucun changement d'architecture — requêtes ponctuelles
+supplémentaires uniquement, aucune connexion persistante.
+
+Fichiers modifiés : `tva_intracom/auth.py`, `tva_intracom/ui/auth_flow.py`.
+
+Validation : `py_compile` + pyflakes propres (aucune nouvelle alerte) ;
+pytest 174 passed / 4 failed — baseline inchangée.

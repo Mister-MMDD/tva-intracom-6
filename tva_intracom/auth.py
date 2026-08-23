@@ -319,6 +319,44 @@ def is_solo_org(org_id: str) -> bool:
     return org_id.startswith("solo:")
 
 
+def can_signup(email: str) -> tuple[bool, Optional[str]]:
+    """Contrôle SANS effet de bord (aucune écriture) si cet e-mail peut créer
+    un compte MAINTENANT : à appeler par l'UI avant de déclencher l'envoi
+    d'un e-mail de confirmation Supabase ou d'un lien magique, pour ne pas
+    faire croire à une inscription en cours alors qu'elle sera refusée au
+    moment de la première connexion réelle (voir get_or_create_user, qui
+    reste la vérification faisant foi). Retourne (True, None) si autorisé,
+    (False, message) sinon."""
+    email = (email or "").strip().lower()
+    org_id = resolve_org_id(email)
+
+    def _fn(conn, cur):
+        cur.execute("SELECT 1 FROM tva_users WHERE email=%s", (email,))
+        if cur.fetchone():
+            return True  # compte déjà existant : pas une inscription, Supabase gère le doublon
+        cur.execute("SELECT locked_at FROM tva_orgs WHERE org_id=%s", (org_id,))
+        row = cur.fetchone()
+        if row is None or row[0] is None or is_solo_org(org_id):
+            return True
+        cur.execute(
+            "SELECT 1 FROM tva_org_allowed_emails WHERE org_id=%s AND email=%s",
+            (org_id, email),
+        )
+        return cur.fetchone() is not None
+
+    allowed = _run(_fn)
+    if allowed:
+        return True, None
+    return False, _SIGNUP_BLOCKED_MESSAGE
+
+
+_SIGNUP_BLOCKED_MESSAGE = (
+    "L'administrateur de votre entreprise a restreint l'accès à cette "
+    "application. Il doit d'abord autoriser votre adresse e-mail depuis "
+    "Sidebar → 🛡️ Administration avant que vous puissiez créer un compte."
+)
+
+
 def get_or_create_user(email: str) -> User:
     """Retourne le compte existant pour cet e-mail (toujours autorisé,
     quel que soit l'état de verrouillage de l'organisation — un compte déjà
@@ -366,12 +404,7 @@ def get_or_create_user(email: str) -> User:
             )
             allowed_row = cur.fetchone()
             if not allowed_row:
-                raise PermissionError(
-                    "Création de compte impossible : votre adresse n'a pas été "
-                    "autorisée par l'administrateur de votre organisation. "
-                    "Contactez-le pour qu'il vous ajoute depuis le module "
-                    "Administration."
-                )
+                raise PermissionError(_SIGNUP_BLOCKED_MESSAGE)
             role = allowed_row[0] or "reader"
 
         user_id = secrets.token_hex(12)
