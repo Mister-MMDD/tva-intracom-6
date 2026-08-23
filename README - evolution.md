@@ -4780,3 +4780,25 @@ Fichiers modifiés : `tva_intracom/auth.py`, `tva_intracom/ui/auth_flow.py`.
 
 Validation : `py_compile` + pyflakes propres (aucune nouvelle alerte) ;
 pytest 174 passed / 4 failed — baseline inchangée.
+
+## 2026-08-23 (suite 6) — Correctif du correctif : le rattrapage de verrouillage ne s'exécutait jamais pour une session restaurée par cookie
+
+**Cause racine réelle.** Le rattrapage ajouté en (suite 5) était placé dans
+`_finalize_login`, appelée uniquement lors d'une connexion FRAÎCHE (mot de
+passe, OAuth, lien magique). Or la session Matthieu était restaurée via le
+**cookie** `tva_session_token` (30 jours, voir `run_auth_flow` §0,
+`get_user_by_session_token`) — un chemin qui ne passe jamais par
+`_finalize_login`. Résultat : aucun changement observé, confirmé.
+
+**Correctif.** Rattrapage déplacé dans `run_auth_flow`, juste avant la
+construction de `AuthContext` — ce point est traversé par TOUS les chemins
+d'authentification (cookie, mot de passe, OAuth, lien magique), donc
+`_current_user` y est toujours déjà résolu quel que soit le mode de
+connexion. Gardé par un flag `session_state["_org_lock_catchup_done"]`
+pour ne s'exécuter qu'une fois par session Streamlit (ce point est
+traversé à chaque rerun/clic, pas seulement à la connexion).
+
+Fichiers modifiés : `tva_intracom/ui/auth_flow.py`.
+
+Validation : `py_compile` + pyflakes propres ; pytest 174 passed / 4 failed
+— baseline inchangée.

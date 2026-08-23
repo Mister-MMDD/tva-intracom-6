@@ -152,20 +152,6 @@ def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
     except PermissionError as _e:
         st.error(f"⛔ {_e}")
         return
-    # Verrouillage rétroactif (2026-08-23) : un compte qui avait DÉJÀ un
-    # abonnement payant actif AVANT l'introduction des rôles n'a jamais
-    # déclenché lock_org_for_user (câblé uniquement sur le webhook Stripe
-    # d'un NOUVEL abonnement) — son organisation reste donc "non verrouillée"
-    # tant qu'il ne se reconnecte pas. On rattrape ça ici, une fois par
-    # connexion, sans coût significatif (lock_org_for_user est déjà
-    # idempotent — no-op si l'organisation est déjà verrouillée).
-    try:
-        if not tva_auth.is_solo_org(_user.org_id) and not tva_auth.is_org_locked(_user.org_id):
-            if tva_billing.get_subscription_status(_user.id).active:
-                tva_auth.lock_org_for_user(_user.id)
-    except Exception:
-        # Ne bloque jamais la connexion pour ce rattrapage best-effort.
-        pass
     st.session_state["auth_user"] = _user
     st.session_state["manual_logout"] = False
     _token = tva_auth.create_session_token(_user.id)
@@ -792,6 +778,25 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
         _app_base_url = _resolve_app_base_url()
         _vies_scope_id = _vies_resolve_scope_id(_current_user.email)
+
+        # Verrouillage rétroactif (2026-08-23, correctif) : un compte qui
+        # avait DÉJÀ un abonnement payant actif AVANT l'introduction des
+        # rôles ne déclenche `lock_org_for_user` que via le webhook Stripe
+        # d'un NOUVEL abonnement — jamais rétroactivement. Le premier essai
+        # (dans _finalize_login) ratait le cas très fréquent d'une session
+        # restaurée par COOKIE (30 jours), qui ne passe jamais par
+        # _finalize_login. Centralisé ici à la place, une seule fois par
+        # session Streamlit (flag session_state) puisque ce point est
+        # traversé à CHAQUE rerun, quel que soit le chemin d'authentification
+        # (cookie, mot de passe, OAuth, lien magique).
+        if not st.session_state.get("_org_lock_catchup_done"):
+            st.session_state["_org_lock_catchup_done"] = True
+            try:
+                if not tva_auth.is_solo_org(_current_user.org_id) and not tva_auth.is_org_locked(_current_user.org_id):
+                    if tva_billing.get_subscription_status(_current_user.id).active:
+                        tva_auth.lock_org_for_user(_current_user.id)
+            except Exception:
+                pass  # rattrapage best-effort : ne bloque jamais la connexion
 
         return AuthContext(
             current_user=_current_user,
