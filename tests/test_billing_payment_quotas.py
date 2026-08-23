@@ -363,8 +363,18 @@ class TestRequestSirenRemoval:
     def test_removal_writes_pending_removal_at_via_sql(self, fake_db, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda user_id: billing.SubscriptionStatus(active=False))
+        # Le mock de cursor.fetchone() (utilisé par _require_write_access
+        # pour vérifier le rôle) renvoie None par défaut sur ce MagicMock
+        # non configuré explicitement -> traité comme "pas lecteur" (rôle
+        # inconnu / compte absent), ce qui est le comportement voulu ici :
+        # ne jamais bloquer sur une erreur de lecture du rôle.
+        fake_db.cursor.fetchone.return_value = None
         billing.request_siren_removal("user-42", "999888777")
-        fake_db.cursor.execute.assert_called_once()
+        # 2 requêtes désormais : 1) lecture du rôle (_require_write_access),
+        # 2) UPDATE pending_removal_at — le dernier appel est bien l'écriture.
+        assert fake_db.cursor.execute.call_count == 2
+        _last_sql = fake_db.cursor.execute.call_args_list[-1][0][0]
+        assert "pending_removal_at" in _last_sql
         sql, params = fake_db.cursor.execute.call_args[0]
         assert "pending_removal_at" in sql
         assert params[1:] == ("user-42", "999888777")

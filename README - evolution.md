@@ -4657,3 +4657,84 @@ pyflakes ne remonte aucune nouvelle alerte (seul finding, L963 de
 `sidebar.py`, pré-existant) ; pytest 174 passed / 4 failed — baseline
 inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en
 sandbox).
+
+## 2026-08-23 (suite 4) — Rôles admin/lecteur par organisation, whitelist d'e-mails, verrouillage au 1er abonnement payant
+
+**Contexte.** N'importe quel employé possédant une adresse @domaine pouvait
+jusqu'ici créer un compte et modifier librement SIREN/n° TVA/paramètres.
+Aucune notion de rôle ni de contrôle d'accès n'existait entre collaborateurs
+d'une même structure.
+
+**1. Notion d'organisation (`auth.py::resolve_org_id`).** Même principe que
+`vies_engine.resolve_scope_id` (réutilise `PERSONAL_EMAIL_DOMAINS`) : domaine
+professionnel → organisation partagée (`domain:xxx`) ; domaine public
+(gmail.com...) → organisation "solo" (`solo:email`), jamais de verrouillage,
+toujours admin de son propre compte.
+
+**2. Schéma.** 2 nouvelles tables : `tva_orgs` (`org_id`, `locked_at`,
+`created_at`) et `tva_org_allowed_emails` (`org_id`, `email`, `role`,
+`added_by`, `created_at`). 2 nouvelles colonnes sur `tva_users` : `org_id`,
+`role` (défaut `'admin'`, rétrocompatible). Backfill automatique et
+idempotent dans `_init_schema()` : chaque compte existant devient sa propre
+organisation "solo" (aucune fusion silencieuse avec d'éventuels collègues du
+même domaine).
+
+**3. Cycle de vie des rôles (`get_or_create_user` / `lock_org_for_user`).**
+- Organisation non verrouillée (aucun abonnement payant) : inscription
+  libre pour toute adresse du domaine, chaque nouveau compte devient admin
+  (permet de tester — ajout d'un 1er SIREN — avant tout paiement).
+- 1er abonnement payant souscrit (`billing.py::_fulfill_checkout_session`,
+  branche `mode == "subscription"`) → `lock_org_for_user()` : le payeur
+  reste/devient admin, **tous les autres comptes existants du domaine
+  basculent en lecture seule** (écrase tout rôle antérieur). Idempotent :
+  un renouvellement ou changement de plan ne réinitialise pas les rôles
+  déjà réajustés manuellement par un admin après le 1er verrouillage.
+- Organisation verrouillée : toute nouvelle inscription est refusée
+  (`PermissionError`, capturé dans `ui/auth_flow.py::_finalize_login`) sauf
+  si l'adresse figure dans `tva_org_allowed_emails` (rôle choisi par
+  l'admin à l'ajout).
+- Comptes déjà créés avant le verrouillage : jamais supprimés
+  automatiquement, restent en lecture seule — à l'admin de les supprimer
+  s'il le souhaite.
+
+**4. Nouveau module `ui/admin.py`.** Modale réservée aux comptes admin
+(bouton conditionnel dans `sidebar.py`, `tva_auth.is_admin(...)`) : liste
+des membres (promotion/rétrogradation, suppression de compte — sauf
+soi-même), ajout d'une adresse autorisée avec case à cocher admin/lecteur,
+liste et retrait des adresses autorisées.
+
+**5. Contrôle lecture seule — UI ET serveur.** `sidebar.py` : bannière
+d'info + boutons "Enregistrer"/"Mettre à jour" le SIREN désactivés pour un
+compte lecteur. Serveur : `billing.py::_require_write_access(user_id)`
+(nouvelle fonction, requête directe `tva_users.role` via le pool de
+`billing.py`) appelée en tête de `register_siren`, `request_siren_removal`,
+`cancel_siren_removal` — lève `PermissionError` même en cas d'appel direct
+contournant l'UI.
+
+**Limite connue / reporté.** L'abonnement et les SIREN restent rattachés au
+`user_id` du payeur (pas encore à l'organisation) — un lecteur voit donc
+son propre compte comme non abonné mais bénéficie malgré tout du contrôle
+d'accès en lecture seule sur SES propres appels. Le partage effectif d'un
+même quota de SIREN entre tous les membres d'une organisation (`user_id` →
+`org_id` dans `tva_siren_registrations`/`tva_subscriptions`/`tva_customers`)
+est un chantier distinct, plus risqué (touche le webhook Stripe), à traiter
+dans une session dédiée.
+
+**Scale-to-zero.** Aucune connexion persistante, aucun thread, aucun
+polling — uniquement des requêtes ponctuelles déclenchées par des clics ou
+par le webhook Stripe existant.
+
+Fichiers modifiés : `tva_intracom/auth.py`, `tva_intracom/billing.py`,
+`tva_intracom/ui/sidebar.py`, `tva_intracom/ui/auth_flow.py`,
+`tva_intracom/ui/admin.py` (nouveau), `tests/test_billing_payment_quotas.py`
+(adapté à la requête SQL supplémentaire de `_require_write_access`), et les
+7 fichiers i18n (+21 clés nettes : `admin_*`, `readonly_account_banner` —
+symétrie vérifiée, 1194 clés dans chacun des 7 fichiers, contre 1173 avant).
+
+Validation : `py_compile` OK sur les 5 fichiers Python modifiés ; pyflakes
+ne remonte aucune nouvelle alerte (2 findings pré-existants, non liés à
+cette session : `billing.py` L319 f-string sans placeholder, `sidebar.py`
+L971 import masqué par variable de boucle, déjà documenté) ; pytest 174
+passed / 4 failed — baseline inchangée après correction de 3 régressions
+transitoires introduites par `_require_write_access` (tests
+`TestRequestSirenRemoval`, corrigés en conséquence).

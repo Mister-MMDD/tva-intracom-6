@@ -147,7 +147,11 @@ def _finalize_login(email: str, cookie_manager: "stx.CookieManager") -> None:
     """Mappe un e-mail authentifié (mot de passe ou OAuth Supabase) sur un
     tva_users local, ouvre la session applicative (session_state + cookie
     30 jours), exactement comme le faisait historiquement le lien magique."""
-    _user = tva_auth.get_or_create_user(email)
+    try:
+        _user = tva_auth.get_or_create_user(email)
+    except PermissionError as _e:
+        st.error(f"⛔ {_e}")
+        return
     st.session_state["auth_user"] = _user
     st.session_state["manual_logout"] = False
     _token = tva_auth.create_session_token(_user.id)

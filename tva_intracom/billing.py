@@ -565,6 +565,29 @@ def can_register_new_siren(user_id: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _require_write_access(user_id: str) -> None:
+    """Lève PermissionError si ce compte est en lecture seule (`role`
+    "reader" — voir auth.py/ui/admin.py). Utilisé par toutes les fonctions
+    d'écriture SIREN/TVA de ce module.
+
+    Requête directement `tva_users` via le pool de CE module (billing._run)
+    plutôt que d'appeler auth.get_user_by_id — auth.py maintient son propre
+    pool/schéma (partagé via database.py, mais initialisé indépendamment) ;
+    passer par le pool de billing.py évite une dépendance croisée inutile et
+    reste cohérent avec les tests existants qui mockent billing._get_pool()."""
+    def _fn(conn, cur):
+        cur.execute("SELECT role FROM tva_users WHERE id=%s", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    role = _run(_fn)
+    if role == "reader":
+        raise PermissionError(
+            "Votre compte est en lecture seule — contactez l'administrateur "
+            "de votre organisation pour modifier ces données."
+        )
+
+
 def register_siren(
         user_id: str, siren: str, company_name: str = "", tva_number: str = "",
         ioss_number: str = "", seller_is_importer: bool = False,
@@ -598,7 +621,14 @@ def register_siren(
     toutes les lignes existantes ; le fail-open de `decrypt_data` a été
     retiré en conséquence (security.py) — une valeur non chiffrée en base
     lève désormais une erreur explicite plutôt que d'être acceptée.
+
+    RÔLES (2026-08-23) : un compte lecteur (`role="reader"`, voir auth.py)
+    ne peut pas enregistrer/modifier de SIREN — contrôle fait ici, côté
+    serveur, en plus du masquage des champs côté UI (sidebar.py), pour ne
+    pas dépendre uniquement du frontend.
     """
+    _require_write_access(user_id)
+
     def _fn(conn, cur):
         cur.execute(
             """
@@ -655,6 +685,7 @@ def request_siren_removal(user_id: str, siren: str) -> float:
     éviter les abus (retirer/ajouter un SIREN à volonté en cours de période).
     Sans abonnement actif, le retrait est immédiat (pas de notion de période).
     Retourne le timestamp d'échéance effective."""
+    _require_write_access(user_id)
     sub = get_subscription_status(user_id)
     effective_at = sub.current_period_end if (sub.active and sub.current_period_end) else time.time()
 
@@ -672,6 +703,8 @@ def request_siren_removal(user_id: str, siren: str) -> float:
 
 def cancel_siren_removal(user_id: str, siren: str) -> None:
     """Annule une demande de retrait en attente."""
+    _require_write_access(user_id)
+
     def _fn(conn, cur):
         cur.execute(
             "UPDATE tva_siren_registrations SET pending_removal_at=NULL WHERE user_id=%s AND siren=%s",
@@ -1436,6 +1469,19 @@ def _fulfill_checkout_session(data: dict) -> None:
             billing_interval=interval,
             siren_quantity=quantity,
         )
+        # Rôles & organisation (2026-08-23) : le 1er abonnement payant
+        # verrouille l'organisation du souscripteur (voir
+        # auth.lock_org_for_user — idempotent, sans effet sur un
+        # renouvellement ou un changement de plan puisque l'organisation
+        # est déjà verrouillée à ce moment-là).
+        try:
+            from .auth import lock_org_for_user
+            lock_org_for_user(user_id)
+        except Exception:
+            logger.warning(
+                "lock_org_for_user a échoué pour user_id=%s (abonnement quand même activé)",
+                user_id, exc_info=True,
+            )
 
 
 def _set_scheduled_change(user_id: str, plan: str, interval: Optional[str], change_at: float) -> None:

@@ -128,6 +128,46 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS onboarding_seen BOOLEAN NOT NULL DEFAULT FALSE"
             )
+            # Rôles & organisations (2026-08-23) : une organisation = un
+            # domaine e-mail professionnel (ou le compte seul pour un
+            # domaine public type gmail.com, même logique que
+            # vies_engine.resolve_scope_id). Tant qu'aucun abonnement payant
+            # n'a été souscrit pour l'organisation, l'inscription reste
+            # ouverte à quiconque possède une adresse du domaine et chaque
+            # nouveau compte devient admin (facilite les tests en mode
+            # gratuit). Au premier paiement, `lock_org_for_user()` verrouille
+            # l'organisation (tva_orgs.locked_at) : le payeur reste admin,
+            # tous les autres comptes basculent en lecture seule, et toute
+            # nouvelle inscription nécessite désormais une adresse
+            # pré-autorisée par un admin (tva_org_allowed_emails) — voir
+            # get_or_create_user() et ui/admin.py.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tva_orgs (
+                    org_id TEXT PRIMARY KEY,
+                    locked_at DOUBLE PRECISION,
+                    created_at DOUBLE PRECISION NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tva_org_allowed_emails (
+                    org_id TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'reader',
+                    added_by TEXT,
+                    created_at DOUBLE PRECISION NOT NULL,
+                    PRIMARY KEY (org_id, email)
+                )
+                """
+            )
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS org_id TEXT"
+            )
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'"
+            )
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS tva_magic_links (
@@ -194,6 +234,30 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
             cur.execute(
                 "ALTER TABLE tva_oauth_pkce ADD COLUMN IF NOT EXISTS consumed_at DOUBLE PRECISION"
             )
+            # Backfill org_id pour les comptes créés avant l'introduction des
+            # rôles/organisations : chaque compte existant devient sa propre
+            # organisation "solo" (aucun impact sur son fonctionnement actuel
+            # — il reste admin, `role` vaut déjà 'admin' par défaut). Un tel
+            # compte ne rejoint l'organisation partagée de son domaine que
+            # s'il se réinscrit plus tard (non applicable, un compte existe
+            # déjà) ; il n'est pas automatiquement fusionné avec d'éventuels
+            # collègues du même domaine pour ne pas modifier silencieusement
+            # des données déjà en place.
+            cur.execute("SELECT id, email FROM tva_users WHERE org_id IS NULL")
+            _rows = cur.fetchall()
+            for _uid, _email in _rows:
+                cur.execute(
+                    "UPDATE tva_users SET org_id=%s WHERE id=%s",
+                    (f"solo:{(_email or '').strip().lower()}", _uid),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO tva_orgs (org_id, locked_at, created_at)
+                    VALUES (%s, NULL, %s)
+                    ON CONFLICT (org_id) DO NOTHING
+                    """,
+                    (f"solo:{(_email or '').strip().lower()}", time.time()),
+                )
     finally:
         pool.putconn(conn)
 
@@ -209,10 +273,13 @@ class User:
     display_currency: str = "DEFAULT"
     display_mode: str = "simple"
     onboarding_seen: bool = False
+    org_id: str = ""
+    role: str = "admin"
 
 
 _USER_SELECT_COLS = (
-    "id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency, display_mode, onboarding_seen"
+    "id, email, is_cabinet, cabinet_parent_id, home_country, language, display_currency, "
+    "display_mode, onboarding_seen, org_id, role"
 )
 
 
@@ -221,11 +288,54 @@ def _row_to_user(row) -> User:
         id=row[0], email=row[1], is_cabinet=bool(row[2]), cabinet_parent_id=row[3],
         home_country=row[4] or "FR", language=row[5] or "fr", display_currency=row[6] or "DEFAULT",
         display_mode=row[7] or "simple", onboarding_seen=bool(row[8]),
+        org_id=row[9] or "", role=row[10] or "admin",
     )
 
 
+def resolve_org_id(email: str) -> str:
+    """Détermine l'organisation d'un compte à partir de son e-mail — même
+    principe que vies_engine.resolve_scope_id (réutilise la même liste de
+    domaines de messagerie personnelle) : domaine professionnel → tous les
+    collaborateurs partagent la même organisation (whitelist, rôles) ;
+    domaine public (gmail.com, outlook.com...) → l'organisation est le
+    compte lui-même (toujours admin de son propre compte, jamais de
+    whitelist ni de verrouillage)."""
+    from .vies_engine import PERSONAL_EMAIL_DOMAINS
+
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        return f"solo:{email or 'inconnu'}"
+    domain = email.rsplit("@", 1)[1]
+    if domain in PERSONAL_EMAIL_DOMAINS:
+        return f"solo:{email}"
+    return f"domain:{domain}"
+
+
+def is_admin(user: "User") -> bool:
+    return user.role == "admin"
+
+
+def is_solo_org(org_id: str) -> bool:
+    return org_id.startswith("solo:")
+
+
 def get_or_create_user(email: str) -> User:
+    """Retourne le compte existant pour cet e-mail (toujours autorisé,
+    quel que soit l'état de verrouillage de l'organisation — un compte déjà
+    créé n'est jamais bloqué a posteriori), ou en crée un nouveau.
+
+    Création d'un NOUVEAU compte :
+    - organisation pas encore verrouillée (aucun abonnement payant souscrit
+      pour ce domaine) : inscription libre, le nouveau compte devient admin
+      (permet de tester le SIREN/l'app avant tout paiement) ;
+    - organisation verrouillée : l'e-mail doit figurer dans
+      `tva_org_allowed_emails` (ajouté par un admin, voir ui/admin.py), sinon
+      lève `PermissionError` — la création de compte est refusée.
+    - domaine public (gmail.com...) : jamais de verrouillage, toujours admin
+      de son propre compte (organisation "solo").
+    """
     email = email.strip().lower()
+    org_id = resolve_org_id(email)
 
     def _fn(conn, cur):
         cur.execute(
@@ -235,14 +345,167 @@ def get_or_create_user(email: str) -> User:
         row = cur.fetchone()
         if row:
             return _row_to_user(row)
+
+        cur.execute("SELECT locked_at FROM tva_orgs WHERE org_id=%s", (org_id,))
+        org_row = cur.fetchone()
+
+        if org_row is None:
+            cur.execute(
+                "INSERT INTO tva_orgs (org_id, locked_at, created_at) VALUES (%s, NULL, %s)",
+                (org_id, time.time()),
+            )
+            role = "admin"
+        elif org_row[0] is None or is_solo_org(org_id):
+            # Phase libre (pas encore d'abonnement payant) : inscription
+            # ouverte, nouveau compte admin par défaut.
+            role = "admin"
+        else:
+            cur.execute(
+                "SELECT role FROM tva_org_allowed_emails WHERE org_id=%s AND email=%s",
+                (org_id, email),
+            )
+            allowed_row = cur.fetchone()
+            if not allowed_row:
+                raise PermissionError(
+                    "Création de compte impossible : votre adresse n'a pas été "
+                    "autorisée par l'administrateur de votre organisation. "
+                    "Contactez-le pour qu'il vous ajoute depuis le module "
+                    "Administration."
+                )
+            role = allowed_row[0] or "reader"
+
         user_id = secrets.token_hex(12)
         cur.execute(
-            "INSERT INTO tva_users (id, email, created_at) VALUES (%s, %s, %s)",
-            (user_id, email, time.time()),
+            "INSERT INTO tva_users (id, email, created_at, org_id, role) VALUES (%s, %s, %s, %s, %s)",
+            (user_id, email, time.time(), org_id, role),
         )
-        return User(id=user_id, email=email)
+        conn.commit()
+        return User(id=user_id, email=email, org_id=org_id, role=role)
 
     return _run(_fn)
+
+
+def lock_org_for_user(user_id: str) -> None:
+    """Verrouille l'organisation de cet utilisateur lors de son 1er
+    abonnement payant : il reste (ou devient) admin, tous les AUTRES comptes
+    du même domaine basculent en lecture seule — écrase tout rôle antérieur.
+    Idempotent : ne fait rien si l'organisation est déjà verrouillée (un
+    renouvellement ou changement de plan ne doit pas réinitialiser des rôles
+    déjà réajustés manuellement par l'admin). Sans effet pour une
+    organisation "solo" (domaine public) — un seul compte, déjà admin."""
+    def _fn(conn, cur):
+        cur.execute("SELECT org_id, email FROM tva_users WHERE id=%s", (user_id,))
+        row = cur.fetchone()
+        if not row:
+            return
+        org_id, email = row
+        if is_solo_org(org_id):
+            return
+
+        cur.execute("SELECT locked_at FROM tva_orgs WHERE org_id=%s", (org_id,))
+        org_row = cur.fetchone()
+        if org_row and org_row[0] is not None:
+            return  # déjà verrouillée : ne pas écraser les rôles ajustés depuis
+
+        now = time.time()
+        cur.execute(
+            """
+            INSERT INTO tva_orgs (org_id, locked_at, created_at) VALUES (%s, %s, %s)
+            ON CONFLICT (org_id) DO UPDATE SET locked_at = EXCLUDED.locked_at
+            """,
+            (org_id, now, now),
+        )
+        cur.execute("UPDATE tva_users SET role='admin' WHERE id=%s", (user_id,))
+        cur.execute("UPDATE tva_users SET role='reader' WHERE org_id=%s AND id<>%s", (org_id, user_id))
+        cur.execute(
+            """
+            INSERT INTO tva_org_allowed_emails (org_id, email, role, added_by, created_at)
+            VALUES (%s, %s, 'admin', %s, %s)
+            ON CONFLICT (org_id, email) DO UPDATE SET role='admin'
+            """,
+            (org_id, email, user_id, now),
+        )
+        conn.commit()
+
+    _run(_fn)
+
+
+def is_org_locked(org_id: str) -> bool:
+    def _fn(conn, cur):
+        cur.execute("SELECT locked_at FROM tva_orgs WHERE org_id=%s", (org_id,))
+        row = cur.fetchone()
+        return bool(row and row[0] is not None)
+
+    return _run(_fn)
+
+
+def list_org_members(org_id: str) -> list["User"]:
+    """Liste les comptes de l'organisation — pour le module admin."""
+    def _fn(conn, cur):
+        cur.execute(
+            f"SELECT {_USER_SELECT_COLS} FROM tva_users WHERE org_id=%s ORDER BY created_at",
+            (org_id,),
+        )
+        return cur.fetchall()
+
+    rows = _run(_fn)
+    return [_row_to_user(r) for r in rows]
+
+
+def list_allowed_emails(org_id: str) -> list[dict]:
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT email, role, added_by, created_at FROM tva_org_allowed_emails "
+            "WHERE org_id=%s ORDER BY created_at",
+            (org_id,),
+        )
+        return cur.fetchall()
+
+    rows = _run(_fn)
+    return [{"email": r[0], "role": r[1], "added_by": r[2], "created_at": r[3]} for r in rows]
+
+
+def add_allowed_email(org_id: str, email: str, role: str, added_by: str) -> None:
+    """Ajoute (ou met à jour) une adresse autorisée à créer un compte sur
+    cette organisation, avec le rôle choisi par l'admin (case à cocher
+    admin/lecteur dans ui/admin.py)."""
+    email = email.strip().lower()
+    role = "admin" if role == "admin" else "reader"
+
+    def _fn(conn, cur):
+        cur.execute(
+            """
+            INSERT INTO tva_org_allowed_emails (org_id, email, role, added_by, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (org_id, email) DO UPDATE SET role=EXCLUDED.role, added_by=EXCLUDED.added_by
+            """,
+            (org_id, email, role, added_by, time.time()),
+        )
+        conn.commit()
+
+    _run(_fn)
+
+
+def remove_allowed_email(org_id: str, email: str) -> None:
+    email = email.strip().lower()
+
+    def _fn(conn, cur):
+        cur.execute("DELETE FROM tva_org_allowed_emails WHERE org_id=%s AND email=%s", (org_id, email))
+        conn.commit()
+
+    _run(_fn)
+
+
+def set_user_role(user_id: str, role: str) -> None:
+    """Change le rôle d'un compte existant — action réservée à un admin
+    (contrôle fait par l'appelant, voir ui/admin.py)."""
+    role = "admin" if role == "admin" else "reader"
+
+    def _fn(conn, cur):
+        cur.execute("UPDATE tva_users SET role=%s WHERE id=%s", (role, user_id))
+        conn.commit()
+
+    _run(_fn)
 
 
 def set_home_country(user_id: str, country: str) -> None:

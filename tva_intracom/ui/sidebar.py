@@ -189,7 +189,7 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
         st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
         apply_fr_under_threshold = False
 
-    if st.button(_("save_siren_btn"), key="btn_register_siren"):
+    if st.button(_("save_siren_btn"), key="btn_register_siren", disabled=(current_user.role == "reader")):
         if not siren_entreprise.strip():
             st.warning(_("siren_required"))
         elif siren_entreprise.strip() in siren_options:
@@ -322,7 +322,7 @@ def _edit_siren_form_fragment(
     # Mise à jour de tva_fr pour le XML OSS (toujours basé sur le numéro FR)
     _draft_tva_fr = _draft_local_vat_numbers.get("FR", tva_fr_fixed)
 
-    if st.button(_("save_changes_btn"), key="btn_update_siren"):
+    if st.button(_("save_changes_btn"), key="btn_update_siren", disabled=(current_user.role == "reader")):
         if not countries_with_vat:
             st.warning(_("at_least_one_vat_required"))
         elif _missing_vat_input:
@@ -609,7 +609,15 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         if pulse_target == "entreprise":
             with st.container(key="onb_pulse_entreprise"):
                 pass
+        # Rôles (2026-08-23) : un compte lecteur ne peut pas modifier
+        # SIREN/TVA/paramètres entreprise — contrôle UI (champs désactivés)
+        # + contrôle serveur (voir billing._require_write_access), la vraie
+        # protection restant côté serveur.
+        _is_reader = _current_user.role == "reader"
+
         with st.expander(_("company_header"), expanded=True):
+            if _is_reader:
+                st.info(_("readonly_account_banner"))
             # ── Section "Période fiscale" retirée (2026-08-21, voir README -
             # évolution.md) : strictement redondante avec le status bar
             # affiché sous le titre (app.py, `_status_bar_period_label`), qui
@@ -1361,6 +1369,15 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         # dans ce fichier).
         if st.button(_("account_privacy_header"), key="btn_open_account_dialog", width="stretch"):
             _render_account_dialog(_current_user)
+
+        # ── Administration (rôles & whitelist d'e-mails) ─────────────────────────
+        # Réservé aux comptes admin — voir tva_intracom/ui/admin.py. Le
+        # contrôle d'accès se fait ici (le bouton n'est simplement pas
+        # affiché aux lecteurs) : admin.py lui-même ne revérifie pas le rôle.
+        if tva_auth.is_admin(_current_user):
+            if st.button(_("admin_module_header"), key="btn_open_admin_dialog", width="stretch"):
+                from tva_intracom.ui.admin import render_admin_dialog
+                render_admin_dialog(_current_user)
 
         # ── Support ───────────────────────────────────────────────────────────────
         st.divider()
