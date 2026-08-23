@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import secrets
 import time
 from dataclasses import dataclass
@@ -36,12 +37,31 @@ import streamlit as st
 
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
+from tva_intracom import billing as tva_billing
 from tva_intracom.i18n import _
 from tva_intracom.vies_engine import (
     resolve_scope_id as _vies_resolve_scope_id,
     purge_malformed_entries as _vies_purge_malformed_entries,
 )
 from ..config import get_secret
+
+
+_DB_CACHE_TTL_SECONDS = 20
+
+
+def _cached_db_read(cache_key: str, fetch_fn, force: bool = False):
+    """Copie volontaire de `sidebar.py::_cached_db_read` (même schéma de clé
+    `_sb_dbcache_{cache_key}`, même TTL) plutôt qu'un import croisé entre
+    modules UI : les deux se partagent naturellement le même cache en
+    session_state (clé identique), sans lecture DB en double."""
+    _skey = f"_sb_dbcache_{cache_key}"
+    _cached = st.session_state.get(_skey)
+    _now = time.time()
+    if (not force) and _cached is not None and (_now - _cached[0]) < _DB_CACHE_TTL_SECONDS:
+        return _cached[1]
+    _value = fetch_fn()
+    st.session_state[_skey] = (_now, _value)
+    return _value
 
 
 @dataclass
@@ -669,7 +689,34 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
 
     if _current_user is not None:
         _col_user, _col_logout = st.columns([5, 1])
-        _col_user.caption(_("logged_in_as", email=_current_user.email))
+        # Badge de plan (gratuit / pro / cabinet) à côté de l'email — même
+        # source de vérité que l'expander "Abonnements & forfaits" de la
+        # sidebar (tva_billing.get_subscription_status, dérivé du price_id
+        # Stripe actif). Mémoïsé via le même cache que sidebar.py (clé
+        # partagée `sub_status_{user_id}`) : pas de lecture DB en double.
+        try:
+            _acct_sub_status = _cached_db_read(
+                f"sub_status_{_current_user.id}",
+                lambda: tva_billing.get_subscription_status(_current_user.id),
+            )
+        except Exception:
+            _acct_sub_status = None
+        _acct_plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
+            _acct_sub_status.plan if (_acct_sub_status and _acct_sub_status.active) else None,
+            _("plan_free"),
+        )
+        _acct_plan_css = {"business": "plan-business", "cabinet": "plan-cabinet"}.get(
+            _acct_sub_status.plan if (_acct_sub_status and _acct_sub_status.active) else None,
+            "plan-free",
+        )
+        _col_user.markdown(
+            f"""<div class="account-badge">
+                <span class="account-badge-dot"></span>
+                <span class="account-badge-email">{html.escape(_current_user.email)}</span>
+                <span class="account-badge-plan {_acct_plan_css}">{html.escape(_acct_plan_label)}</span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
         if _col_logout.button(_("logout_btn"), key="btn_logout"):
             # 1. Invalidation côté serveur
             try:

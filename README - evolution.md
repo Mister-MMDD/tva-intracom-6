@@ -4346,3 +4346,254 @@ détecté et corrigé avant livraison ; seul le faux positif pré-existant
 `sidebar.py` L858 subsiste). Suite complète `pytest` : 174 passed / 4
 failed — identique à la baseline. Symétrie i18n vérifiée
 programmatiquement (1157 clés × 7 locales).
+
+## 2026-08-22 (suite 5) — Améliorations onboarding : guidage visuel, dashboard premier lancement, animation de succès
+
+Suite à une liste de 4 pistes d'amélioration soumise par l'utilisateur.
+Traité 3 sur 4 ; le 4e (auto-configuration à partir du fichier importé,
+"Magic Start") a été **explicitement écarté par l'utilisateur** avant
+tout développement — touchait le parser Amazon et le bloc SIREN de
+`sidebar.py`, déjà signalés comme zones à haut risque d'extraction.
+
+**1. Guidage visuel "Lighthouse"** : un léger pulse CSS (`@keyframes
+onboarding-pulse`, `theme.py`) met en avant l'expander "Entreprise" (ou
+l'uploader principal) tant que l'étape correspondante n'est pas validée.
+Implémenté via `st.container(key="onb_pulse_xxx")` placé juste avant
+l'élément ciblé (classe générée `.st-key-onb_pulse_xxx` + sélecteur CSS
+`+ div[data-testid=...]`) plutôt qu'une injection CSS dynamique par
+sélecteur de texte (fragile). La cible est calculée en fin de run
+(`onboarding.py::compute_pulse_target`) et relue en DÉBUT du run suivant
+(même schéma que `_period_label_shown_by_sidebar` déjà en place) car
+`render_sidebar()` s'exécute avant que les booléens d'onboarding du run
+courant ne soient connus — décalage d'un run sans conséquence puisque
+purement décoratif. Zéro JS, zéro thread, zéro rerun forcé : aucun impact
+sur le scale-to-zero Railway.
+
+**2. Dashboard "premier lancement"** : tant qu'aucun fichier n'est
+chargé, 2 cartes (`zero-state-card`, CSS ajouté dans `theme.py`)
+remplacent la zone principale vide, reflétant l'état réel de la
+checklist (fiche entreprise complète ou non). Volontairement limité à 2
+cartes utiles et honnêtes plutôt que 4 : "fichier d'exemple" et "démo
+vidéo" (suggérés initialement) ont été écartés — aucun de ces deux
+assets n'existe dans le projet, les ajouter sans contenu réel aurait
+produit des boutons non fonctionnels.
+
+**4. Micro-interaction de succès** : `st.balloons()` déclenché une
+seule fois par session via `onboarding.py::maybe_trigger_success_animation`,
+au moment exact où `entreprise_ok and tva_local_ok and upload_ok`
+passent ensemble à `True` pour la première fois (flag
+`_onboarding_success_shown`, remis à zéro automatiquement par la purge
+de session déjà existante en cas de vrai retrait de fichier — donc
+re-déclenchable pour un nouveau SIREN dans la même session).
+
+Fichiers modifiés : `app.py`, `tva_intracom/ui/onboarding.py`,
+`tva_intracom/ui/sidebar.py` (nouveau paramètre optionnel
+`pulse_target` sur `render_sidebar()`), `tva_intracom/ui/theme.py`, et
+les 7 fichiers i18n (5 nouvelles clés `zero_state_card_*`, symétrie
+vérifiée : 1162 clés dans chacun des 7 fichiers).
+
+Validation : `py_compile` OK sur les 4 fichiers Python modifiés ;
+pyflakes ne remonte aucune nouvelle alerte (le seul finding, L867 de
+`sidebar.py`, est pré-existant et sans lien avec cette modification) ;
+pytest 174 passed / 4 failed — baseline inchangée (échecs dus à
+`SUPABASE_DB_URL` absente en sandbox, pré-existants).
+
+## 2026-08-22 (suite 6) — Retours sur l'onboarding : retrait des ballons, ordre du bloc Entreprise, rappel de verrouillage repositionné
+
+Quatre retours sur la livraison précédente (suite 5).
+
+**1. `st.balloons()` retiré.** Jugé pas assez sérieux pour une application
+fiscale. Fonction `onboarding.py::maybe_trigger_success_animation`
+supprimée intégralement (plus d'appel, plus de flag
+`_onboarding_success_shown`).
+
+**2. Texte du dashboard zéro-state corrigé** : les `**...**` markdown
+n'étaient jamais interprétés (le bloc est injecté via `unsafe_allow_html`
+sans passer par le rendu Markdown, comme déjà noté pour le bandeau
+onboarding le 2026-08-22 (3)) — remplacés par `<strong>`. Le nom du
+panneau visé était aussi inexact ("Entreprise" au lieu d'"Entreprise &
+Paramètres", le vrai libellé de `company_header`). Corrigé dans les 7
+fichiers i18n (clé `zero_state_card_company_body`).
+
+**3. Bloc "Pays où vous avez un numéro TVA local" remonté** : déplacé
+juste sous le SIREN (formulaire de création) / juste sous l'identité
+(formulaire d'édition), au-dessus d'IOSS, DDP et seuil OSS — ces
+immatriculations locales priment fiscalement sur le régime DDP et les
+autres réglages. Pur réordonnancement visuel dans `sidebar.py`, aucune
+variable ni logique de calcul déplacée.
+
+**4. Rappel de verrouillage repositionné et non-persistant** : le
+bandeau `fiscal_fields_lock_warning_new` ("Vérifiez attentivement ces
+informations avant d'enregistrer...") vivait dans
+`_new_siren_form_fragment`, après le champ SIREN. Déplacé au-dessus du
+titre "Identité & Paramètres TVA" dans `render_sidebar()`, et affiché
+uniquement pendant la création effective d'un SIREN (aucun SIREN
+enregistré, ou sélecteur sur "+ Nouveau SIREN") — plus jamais lié à la
+présence ou non d'un IOSS (ce dernier restant, lui, volontairement
+optionnel). Pour que le rappel disparaisse bien après le 1er
+enregistrement ET réapparaisse temporairement à l'ajout d'un 2e (ou
+Ne) SIREN avant de redisparaître après sauvegarde,
+`_new_siren_form_fragment` force désormais le sélecteur
+(`st.session_state["siren_select_box"]`) sur le SIREN qu'on vient de
+créer juste avant le rerun — sans cela le sélecteur restait sur
+"+ Nouveau SIREN" après sauvegarde et le rappel ne disparaissait
+jamais. Détection de "mode création" basée sur une lecture anticipée du
+sélecteur (valeur du run précédent le temps qu'il existe déjà des
+SIREN enregistrés, immédiate sinon) — même principe que
+`pulse_target`/`_period_label_shown_by_sidebar` déjà en place ailleurs
+dans ce fichier ; tolérable car purement visuel, ne conditionne aucun
+calcul fiscal.
+
+Validation : `py_compile` OK sur les 3 fichiers Python modifiés ;
+pyflakes ne remonte aucune nouvelle alerte (seul finding, L913 de
+`sidebar.py`, pré-existant) ; pytest 174 passed / 4 failed — baseline
+inchangée ; symétrie TOML confirmée (1162 clés × 7 langues).
+
+## 2026-08-23 — Bloc Entreprise : TVA obligatoire, saisie remontée, badge de plan
+
+Suite à un retour terrain avec capture d'écran (SIREN déjà enregistré sans
+aucun numéro de TVA).
+
+**1. Numéro de TVA local rendu obligatoire à l'enregistrement.** Il était
+possible de sauvegarder un SIREN avec `countries_with_vat` vide (aucun pays
+sélectionné), contournant la validation `_missing_vat_input` qui ne
+s'appliquait qu'aux pays effectivement sélectionnés. Ajout d'une garde
+`elif not countries_with_vat: st.warning(_("at_least_one_vat_required"))`
+dans les DEUX formulaires (création `_new_siren_form_fragment` ET édition
+`_edit_siren_form_fragment`), avant toute autre validation TVA.
+
+**2. Saisie du numéro de TVA remontée à côté du sélecteur de pays
+(formulaire d'édition).** Le multiselect "Pays où vous avez un numéro TVA
+local" avait été remonté le 2026-08-22, mais les champs de saisie du
+numéro pour un pays nouvellement ajouté restaient dans
+`_edit_siren_form_fragment`, rendu bien plus bas (après IOSS/DDP/seuil
+OSS) — d'où le "Numéro de TVA FR" retrouvé tout en bas malgré "FR" déjà
+sélectionné en haut. Ces champs sont désormais rendus en LIVE juste après
+le multiselect (mêmes clés `vat_num_edit_{pays}`) ; le fragment se
+contente de relire leur valeur courante via `st.session_state[key]` au
+moment de l'enregistrement, sans les redessiner. Ceci ne réintroduit PAS
+le bug de fragment isolé corrigé le 2026-08-21 (toggles fiscaux sans
+effet) : `session_state` est mis à jour de façon synchrone par Streamlit
+dès l'interaction, avant toute exécution de script — le relire dans ce
+fragment, même lors d'un rerun isolé à lui seul, donne toujours la valeur
+à jour. Le formulaire de création avait déjà les deux zones regroupées
+depuis le 2026-08-22, aucun changement nécessaire là.
+
+Le message jaune "Vérifiez attentivement..." qui persistait dans la
+capture d'écran n'était pas un bug distinct : le SIREN concerné avait été
+enregistré (avant ce correctif) sans aucune TVA, donc `countries_with_vat`
+contenait "FR" mais `existing_vats` était vide — le message reste
+correctement affiché tant que ce numéro n'est pas rempli ET enregistré.
+Avec le correctif du point 1, ce cas ne pourra plus être créé pour un
+nouveau SIREN ; pour celui déjà existant en base, il suffit de renseigner
+le numéro FR et cliquer "Enregistrer les modifications" pour que le
+message disparaisse (comportement déjà correct, testé).
+
+**3. Badge de plan à côté de l'email connecté.** La barre "Connecté :
+email" (`auth_flow.py`) affichait l'email seul. Elle affiche maintenant
+`✅ email — Forfait **Pro**` (ou **Gratuit** / **Cabinet**), même source
+de vérité que l'expander "Abonnements & forfaits" de la sidebar
+(`tva_billing.get_subscription_status`, dérivé du `price_id` Stripe actif
+— jamais des métadonnées d'abonnement obsolètes). Nouvelle clé i18n
+`plan_free` ; nouvelle clé `logged_in_as_with_plan` remplaçant
+`logged_in_as` (retirée, plus aucun usage). Mise en cache via une copie
+volontaire de `_cached_db_read` (même clé de session `sub_status_{user_id}`,
+même TTL 20s) plutôt qu'un import croisé entre modules UI — partage
+naturellement le cache avec la lecture déjà faite par `sidebar.py`, donc
+aucune requête DB supplémentaire.
+
+Fichiers modifiés : `tva_intracom/ui/sidebar.py`,
+`tva_intracom/ui/auth_flow.py`, et les 7 fichiers i18n (+2 clés nettes :
+`at_least_one_vat_required`, `plan_free`, `logged_in_as_with_plan` ;
+−1 clé : `logged_in_as` — symétrie vérifiée : 1164 clés dans chacun des 7
+fichiers).
+
+Validation : `py_compile` OK sur les 2 fichiers Python modifiés ;
+pyflakes ne remonte aucune nouvelle alerte (seul finding, L947 de
+`sidebar.py`, pré-existant) ; pytest 174 passed / 4 failed — baseline
+inchangée.
+
+## 2026-08-23 (suite) — Vrai correctif du message jaune persistant, badge de plan en pilule
+
+**1. Message "Vérifiez attentivement les numéros..." (formulaire d'édition)
+: correctif de fond.** Confirmé par capture d'écran : après avoir
+enregistré un numéro de TVA, le message ne disparaissait pas, simplement
+déplacé plus bas — car sa condition d'affichage était
+`any([not ioss_val, not all(existing_vats.get(c) for c in
+countries_with_vat)])` : il restait vrai indéfiniment tant qu'aucun IOSS
+n'était renseigné, alors que l'IOSS est volontairement optionnel. Condition
+réécrite : le message ne s'affiche désormais que s'il y a réellement
+quelque chose sur le point d'être verrouillé à la PROCHAINE sauvegarde —
+un nouveau pays de TVA pas encore verrouillé, ou un numéro IOSS en cours
+de frappe dans le champ (lu via `st.session_state["ioss_edit"]` avant
+même le rendu du widget ce run-ci ; sûr, car Streamlit synchronise
+`session_state` depuis l'interaction AVANT toute exécution de script,
+indépendamment de l'ordre des lignes). Une fois tous les pays de TVA
+sélectionnés verrouillés et sans frappe IOSS en cours, le message
+disparaît, remplacé par une legend discrète adaptée à si l'IOSS est
+présent ou non — nouvelle clé i18n `fiscal_fields_vat_locked_caption`
+("verrouillé, IOSS non renseigné — optionnel") distincte de
+`fiscal_fields_all_locked_caption` (IOSS ET TVA tous deux verrouillés),
+pour ne plus jamais affirmer à tort qu'un IOSS est enregistré alors qu'il
+ne l'est pas.
+
+**2. Badge de plan en pilule.** Le texte brut "✅ email — Forfait Gratuit"
+(`auth_flow.py`) est remplacé par une pilule compacte
+(`.account-badge` + `.account-badge-plan`, nouvelles classes CSS dans
+`theme.py`, même langage visuel que `.status-bar` déjà existant — mêmes
+variables de thème, aucune couleur codée en dur) : point vert + email +
+badge de forfait coloré (gris = gratuit, bleu marque = pro, doré =
+cabinet). Email et libellé de forfait échappés via `html.escape()` avant
+injection HTML (défense en profondeur, l'email provient de Supabase Auth
+donc déjà validé, mais coût nul). Conservé au même emplacement (haut de
+sidebar) pour l'instant — l'info détaillée (intervalle de facturation,
+SIREN gérés...) reste dans l'expander "Abonnements & forfaits" existant
+plus bas.
+
+Fichiers modifiés : `tva_intracom/ui/sidebar.py`,
+`tva_intracom/ui/auth_flow.py`, `tva_intracom/ui/theme.py`, et les 7
+fichiers i18n (+1 clé nette `fiscal_fields_vat_locked_caption` ;
+`logged_in_as_with_plan` retirée aussitôt qu'ajoutée, remplacée par la
+pilule HTML directe, symétrie vérifiée : 1164 clés dans chacun des 7
+fichiers).
+
+Validation : `py_compile` OK sur les 3 fichiers Python modifiés ;
+pyflakes ne remonte aucune nouvelle alerte (seul finding, L963 de
+`sidebar.py`, pré-existant) ; pytest 174 passed / 4 failed — baseline
+inchangée.
+
+## 2026-08-23 (suite 2) — Pulse "Cache VIES" câblé, TTL plafonné à 30 jours
+
+**1. Pulse "Lighthouse" sur le Cache VIES, jamais déclenché — corrigé.**
+Le rendu conditionnel (`sidebar.py`, marqueur `onb_pulse_vies` + CSS
+`.st-key-onb_pulse_vies` dans `theme.py`) avait été mis en place dès la
+première implémentation du guidage visuel (2026-08-22), mais
+`onboarding.py::compute_pulse_target` ne retournait jamais la valeur
+`"vies_ttl"` correspondante — le pulse ne s'affichait donc jamais, alors
+que la checklist textuelle ("Durée de validation du cache VIES — 7 jours
+par défaut...") était bien présente et correcte depuis le début. Ajout de
+la logique manquante : une fois la fiche entreprise complète et avant le
+premier import de fichier, le pulse se porte une seule fois sur la
+section Cache VIES (flag session `_onboarding_vies_ttl_pulse_done`, cette
+étape n'ayant pas de condition de "complétion" propre contrairement à
+entreprise/upload), puis bascule sur l'uploader comme avant.
+
+**2. TTL du cache VIES plafonné à 30 jours (était 365).** Slider UI
+(`sidebar.py`) et fonction `vies_engine.py::set_cache_ttl` (défense en
+profondeur, pour un futur appel hors UI) tous deux mis à jour. Un scope
+ayant déjà une valeur > 30 enregistrée avant ce changement voit son
+affichage clampé sans que la valeur stockée en base ne soit modifiée tant
+que l'utilisateur ne retouche pas le slider lui-même (évite tout
+"changement silencieux" d'un réglage existant). Textes i18n
+(`onboarding_check_vies_ttl_detail`, `ttl_cache_help`) mis à jour dans
+les 7 langues pour mentionner ce plafond.
+
+Fichiers modifiés : `tva_intracom/ui/sidebar.py`,
+`tva_intracom/ui/onboarding.py`, `tva_intracom/vies_engine.py`, et les 7
+fichiers i18n (textes existants modifiés, aucune clé ajoutée/retirée —
+symétrie inchangée : 1164 clés dans chacun des 7 fichiers).
+
+Validation : `py_compile` OK sur les 3 fichiers Python modifiés ;
+pyflakes ne remonte aucune nouvelle alerte (seul finding, L963 de
+`sidebar.py`, pré-existant) ; pytest 174 passed / 4 failed — baseline
+inchangée ; aucun test ne référence `set_cache_ttl`.

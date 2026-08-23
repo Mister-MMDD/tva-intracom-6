@@ -86,6 +86,42 @@ def restart_onboarding() -> None:
     st.session_state["_onboarding_step"] = "active"
 
 
+def compute_pulse_target(
+    *, step: str, entreprise_ok: bool, tva_local_ok: bool, upload_ok: bool
+) -> str | None:
+    """Détermine quel élément mettre en avant ("Lighthouse") au PROCHAIN run.
+
+    Volontairement calculé et stocké en session_state à la fin d'un run
+    pour être relu au DÉBUT du suivant, avant `render_sidebar()` — voir
+    app.py. Cela évite toute dépendance circulaire (la sidebar doit savoir
+    quel expander pulser avant que ses propres champs n'aient produit les
+    booléens entreprise_ok/tva_local_ok/upload_ok du run courant). Un
+    décalage d'un run est sans conséquence : c'est un indice visuel, pas
+    une donnée fiscale.
+
+    BUGFIX (2026-08-23) : la cible "vies_ttl" (section Cache VIES) était
+    déjà câblée côté rendu (sidebar.py, theme.py) mais jamais retournée
+    ici — le pulse correspondant ne s'affichait donc jamais, alors que le
+    TTL du cache VIES (7 jours par défaut, voir onboarding_check_vies_ttl)
+    est une info que l'utilisateur doit voir tôt. Affiché une seule fois
+    par session, juste après que la fiche entreprise soit complète et
+    avant le premier import de fichier — flag
+    `_onboarding_vies_ttl_pulse_done` pour ne pas rester bloqué dessus
+    indéfiniment (l'étape n'a pas de condition de "complétion" propre,
+    contrairement à entreprise/upload).
+    """
+    if step == "done":
+        return None
+    if not (entreprise_ok and tva_local_ok):
+        return "entreprise"  # SIREN + n° TVA locale vivent dans le même expander
+    if not upload_ok:
+        if not st.session_state.get("_onboarding_vies_ttl_pulse_done"):
+            st.session_state["_onboarding_vies_ttl_pulse_done"] = True
+            return "vies_ttl"
+        return "upload"
+    return None
+
+
 def _check_row(done: bool, optional: bool, label: str, detail: str = "") -> str:
     if done:
         icon = "✅"

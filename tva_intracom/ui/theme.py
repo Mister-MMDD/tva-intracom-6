@@ -253,6 +253,101 @@ button[data-testid="stBaseButton-secondary"]:hover {
     font-size: 0.8rem;
     opacity: 0.75;
 }
+
+/* ---- Guidage visuel "Lighthouse" (onboarding) ----
+   Un marqueur invisible (st.container(key=...)) est placé juste avant
+   l'élément à mettre en avant (expander sidebar ou uploader) ; sa classe
+   générée par Streamlit (.st-key-<key>) sert de point d'ancrage au
+   sélecteur "+ " ci-dessous, qui cible le frère direct suivant dans le
+   DOM. Pur CSS, aucun JS, aucune requête serveur — n'a donc aucun impact
+   sur le mécanisme de scale-to-zero de Railway. */
+@keyframes onboarding-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-blue) 45%, transparent); }
+    50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand-blue) 0%, transparent); }
+}
+.st-key-onb_pulse_entreprise + div[data-testid="stExpander"],
+.st-key-onb_pulse_vies + div[data-testid="stExpander"],
+.st-key-onb_pulse_upload + div[data-testid="stFileUploaderDropzone"],
+.st-key-onb_pulse_upload + div[data-testid="stFileUploader"] {
+    border-radius: 10px;
+    animation: onboarding-pulse 2.2s ease-in-out infinite;
+}
+
+/* ---- Dashboard "premier lancement" (zéro state, aucun fichier importé) ---- */
+.zero-state-grid {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 6px 0 18px;
+}
+.zero-state-card {
+    flex: 1 1 220px;
+    border-radius: 12px;
+    padding: 16px 18px;
+    background-color: var(--secondary-background-color);
+    border: 1px solid color-mix(in srgb, var(--brand-blue) 20%, transparent);
+    border-top: 3px solid var(--brand-blue);
+}
+.zero-state-card.done {
+    border-top-color: #2ca02c;
+    opacity: 0.75;
+}
+.zero-state-card-title {
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin: 0 0 6px;
+}
+.zero-state-card-body {
+    font-size: 0.82rem;
+    opacity: 0.8;
+    margin: 0;
+}
+
+/* ---- Badge "compte connecté" (email + forfait) ----
+   Remplace le texte brut "✅ email — Forfait X" par une pilule compacte,
+   dans le même langage visuel que .status-bar ci-dessus (mêmes variables
+   de thème, aucune couleur codée en dur). */
+.account-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    border-radius: 999px;
+    padding: 5px 12px 5px 10px;
+    background-color: var(--secondary-background-color);
+    border: 1px solid color-mix(in srgb, var(--brand-blue) 18%, transparent);
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+.account-badge-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: #2ca02c;
+    flex-shrink: 0;
+}
+.account-badge-email {
+    opacity: 0.85;
+}
+.account-badge-plan {
+    font-weight: 700;
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+}
+.account-badge-plan.plan-free {
+    background-color: color-mix(in srgb, currentColor 12%, transparent);
+    opacity: 0.75;
+}
+.account-badge-plan.plan-business {
+    background-color: color-mix(in srgb, var(--brand-blue) 22%, transparent);
+    color: var(--brand-blue);
+}
+.account-badge-plan.plan-cabinet {
+    background-color: color-mix(in srgb, #b8860b 25%, transparent);
+    color: #d4a017;
+}
 </style>
 """
 

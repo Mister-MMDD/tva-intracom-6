@@ -149,7 +149,26 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
     nom_entreprise   = st.text_input(_("company_name_label"), placeholder=f"ex: {_('default_company_name')}", key="nom_new")
     siren_entreprise = st.text_input(_("siren_number_label"), placeholder="ex: 123456789", key="siren_new")
 
-    st.warning(_("fiscal_fields_lock_warning_new"))
+    # ── Pays où la TVA locale est enregistrée : remonté juste sous le SIREN,
+    # au-dessus d'IOSS/DDP/seuil OSS. Priorité fiscale : ces immatriculations
+    # locales priment sur le régime DDP et les autres réglages (une TVA
+    # locale déjà enregistrée dans un pays change la façon dont ce pays doit
+    # être traité, indépendamment des toggles ci-dessous).
+    countries_with_vat = st.multiselect(_("local_vat_countries_label"),
+                                        options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
+
+    local_vat_numbers = {}
+    _missing_vat_input = False
+    if countries_with_vat:
+        st.caption(_("local_vat_numbers_caption"))
+        for ccode in sorted(countries_with_vat):
+            _v = st.text_input(_("vat_number_for", country=ccode), key=f"vat_num_new_{ccode}",
+                               placeholder=f"ex: {ccode}123456789")
+            local_vat_numbers[ccode] = _v.strip()
+            if not _v.strip():
+                _missing_vat_input = True
+
+    tva_fr = local_vat_numbers.get("FR", "")
 
     st.markdown("---")
     ioss_number = st.text_input(_("ioss_number_label"), placeholder="ex: IM1234567890", key="ioss_new",
@@ -169,27 +188,14 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
     if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
         st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
         apply_fr_under_threshold = False
-    countries_with_vat = st.multiselect(_("local_vat_countries_label"),
-                                        options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
-
-    local_vat_numbers = {}
-    _missing_vat_input = False
-    if countries_with_vat:
-        st.caption(_("local_vat_numbers_caption"))
-        for ccode in sorted(countries_with_vat):
-            _v = st.text_input(_("vat_number_for", country=ccode), key=f"vat_num_new_{ccode}",
-                               placeholder=f"ex: {ccode}123456789")
-            local_vat_numbers[ccode] = _v.strip()
-            if not _v.strip():
-                _missing_vat_input = True
-
-    tva_fr = local_vat_numbers.get("FR", "")
 
     if st.button(_("save_siren_btn"), key="btn_register_siren"):
         if not siren_entreprise.strip():
             st.warning(_("siren_required"))
         elif siren_entreprise.strip() in siren_options:
             st.error(_("siren_already_registered", siren=siren_entreprise.strip()))
+        elif not countries_with_vat:
+            st.warning(_("at_least_one_vat_required"))
         elif _missing_vat_input:
             st.warning(_("missing_vat_numbers"))
         else:
@@ -208,6 +214,13 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
                 st.success(_("siren_save_success"))
                 _invalidate_db_cache(f"sirens_{current_user.id}")
                 _invalidate_db_cache(f"siren_quota_{current_user.id}")
+                # Fait pointer le sélecteur sur le SIREN qu'on vient de créer
+                # (au lieu de laisser "+ Nouveau SIREN" sélectionné) : sans
+                # cela, le rappel de verrouillage affiché au-dessus
+                # d'"Identité & Paramètres TVA" (voir render_sidebar)
+                # resterait affiché indéfiniment après l'enregistrement,
+                # puisqu'il se base sur la valeur de ce même sélecteur.
+                st.session_state["siren_select_box"] = siren_entreprise.strip()
                 preserve_upload_rerun()  # rerun complet volontaire : il faut recharger _registered_sirens
             except Exception as _reg_err:
                 st.error(_("siren_save_error", error=_reg_err))
@@ -235,12 +248,27 @@ def _edit_siren_form_fragment(
     recalcul. Ces widgets sont désormais rendus en LIVE dans le corps de
     render_sidebar() (voir juste avant l'appel à cette fonction) : leur
     valeur courante est passée ici en paramètre, déjà "vraie" pour le
-    calcul en cours. Ce fragment ne conserve QUE ce qui bénéficie
-    réellement de l'isolation anti-rerun-par-frappe : la saisie d'un
-    numéro IOSS ou d'un numéro de TVA non encore verrouillé (`local_vat_numbers`
-    n'entre pas dans `_cache_key`, donc taper ici ne redessine plus que ce
-    fragment sans déclencher de recalcul prématuré), et le bouton de
-    sauvegarde.
+    calcul en cours.
+
+    BUGFIX (2026-08-23) : les champs de saisie des numéros de TVA pour les
+    pays nouvellement ajoutés vivaient aussi DANS ce fragment, très loin en
+    dessous du multiselect qui sélectionne ces mêmes pays (après IOSS/DDP/
+    seuil OSS) — perdu de vue par l'utilisateur. Ils sont désormais rendus
+    en LIVE juste après le multiselect (voir render_sidebar()), avec les
+    mêmes clés `vat_num_edit_{pays}` : ce fragment se contente de RELIRE
+    leur valeur courante via `st.session_state[key]` au moment de l'enregis-
+    trement, sans les redessiner (éviterait un conflit de clé). Cela ne
+    réintroduit PAS le bug ci-dessus : `st.session_state` est mis à jour de
+    façon synchrone par Streamlit dès l'interaction, avant toute exécution
+    de script — le lire ici, dans ce fragment exécuté après coup dans le
+    même run, donne toujours la valeur à jour, y compris lors d'un rerun
+    isolé à ce seul fragment (clic sur "Enregistrer").
+
+    Ce fragment ne conserve que ce qui bénéficie réellement de l'isolation
+    anti-rerun-par-frappe : la saisie du numéro IOSS non encore verrouillé
+    (`ioss_val` vide — n'entre pas dans `_cache_key`, donc taper ici ne
+    redessine plus que ce fragment sans déclencher de recalcul prématuré),
+    et le bouton de sauvegarde.
     """
     # ⚠️ Verrouillage définitif : une fois un IOSS ou un numéro de TVA
     # enregistré pour ce SIREN, il n'est PLUS modifiable — seuls les champs
@@ -249,10 +277,26 @@ def _edit_siren_form_fragment(
     # la liste. But : ces numéros engagent fiscalement le compte
     # (déclarations déjà potentiellement transmises avec ces valeurs) — les
     # modifier après coup serait risqué.
-    if any([not ioss_val, not all(existing_vats.get(c) for c in countries_with_vat)]):
+    #
+    # BUGFIX (2026-08-23) : le message se basait sur `not ioss_val`, donc
+    # restait affiché indéfiniment tant qu'aucun IOSS n'était renseigné —
+    # alors que l'IOSS est volontairement optionnel (beaucoup de comptes
+    # n'en auront jamais). Il ne doit s'afficher que s'il y a réellement
+    # quelque chose sur le point d'être verrouillé à CE prochain
+    # enregistrement : un nouveau pays de TVA pas encore verrouillé
+    # (`new_vat_countries`, déjà obligatoirement rempli avant sauvegarde,
+    # voir `at_least_one_vat_required`), ou un numéro IOSS en cours de
+    # frappe dans le champ ci-dessous (lu via `st.session_state["ioss_edit"]`
+    # avant même que ce widget ne soit redessiné ce run-ci : sûr, Streamlit
+    # synchronise session_state depuis l'interaction AVANT toute exécution
+    # de script, indépendamment de l'ordre des lignes).
+    _ioss_draft_typed = bool(not ioss_val and str(st.session_state.get("ioss_edit", "") or "").strip())
+    if new_vat_countries or _ioss_draft_typed:
         st.warning(_("fiscal_fields_lock_warning"))
-    else:
+    elif ioss_val:
         st.caption(_("fiscal_fields_all_locked_caption"))
+    elif existing_vats:
+        st.caption(_("fiscal_fields_vat_locked_caption"))
 
     if ioss_val:
         st.caption(f"🔒 IOSS : **{ioss_val}** — {_('fiscal_field_locked_note')}")
@@ -262,27 +306,26 @@ def _edit_siren_form_fragment(
                                            placeholder="ex: IM1234567890", key="ioss_edit",
                                            help=_("ioss_help"))
 
-    # ── Numéros de TVA : uniquement la saisie des pays NOUVELLEMENT
-    # ajoutés (pas encore verrouillés) — les pays déjà enregistrés sont
-    # affichés en lecture seule dans render_sidebar(), cette zone ne sert
-    # qu'à l'AJOUT, pas à la re-consultation du stock existant.
+    # ── Numéros de TVA : les pays déjà enregistrés sont affichés en lecture
+    # seule dans render_sidebar() ; les pays NOUVELLEMENT ajoutés (pas
+    # encore verrouillés) y sont aussi saisis désormais (juste après le
+    # multiselect, voir BUGFIX 2026-08-23 ci-dessus) — on relit simplement
+    # leur valeur courante ici via st.session_state, sans les redessiner.
     _draft_local_vat_numbers = dict(existing_vats)
     _missing_vat_input = False
-    if new_vat_countries:
-        st.caption(_("local_vat_numbers_caption"))
-        for ccode in sorted(new_vat_countries):
-            _v = st.text_input(_("vat_number_for", country=ccode),
-                               key=f"vat_num_edit_{ccode}",
-                               placeholder=f"ex: {ccode}123456789")
-            _draft_local_vat_numbers[ccode] = _v.strip()
-            if not _v.strip():
-                _missing_vat_input = True
+    for ccode in sorted(new_vat_countries):
+        _v = str(st.session_state.get(f"vat_num_edit_{ccode}", "") or "")
+        _draft_local_vat_numbers[ccode] = _v.strip()
+        if not _v.strip():
+            _missing_vat_input = True
 
     # Mise à jour de tva_fr pour le XML OSS (toujours basé sur le numéro FR)
     _draft_tva_fr = _draft_local_vat_numbers.get("FR", tva_fr_fixed)
 
     if st.button(_("save_changes_btn"), key="btn_update_siren"):
-        if _missing_vat_input:
+        if not countries_with_vat:
+            st.warning(_("at_least_one_vat_required"))
+        elif _missing_vat_input:
             st.warning(_("missing_vat_numbers"))
         else:
             try:
@@ -460,12 +503,18 @@ def _render_account_dialog(_current_user) -> None:
                 st.error(f"Erreur lors de la suppression : {_del_err}")
 
 
-def render_sidebar(auth_ctx) -> SidebarResult:
+def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResult:
     """Affiche la sidebar complète et retourne les paramètres résolus.
 
     Args:
         auth_ctx: AuthContext (voir tva_intracom.ui.auth_flow) — fournit
                   current_user, vies_scope_id, stripe_success_url/cancel_url.
+        pulse_target: "entreprise" | "vies_ttl" | None — élément de
+                  l'onboarding "Lighthouse" à mettre en avant visuellement
+                  (voir ui/onboarding.py::compute_pulse_target et
+                  ui/theme.py pour le CSS). Calculé au run PRÉCÉDENT :
+                  purement décoratif, ne conditionne aucune valeur
+                  retournée ni aucun calcul.
     """
     _current_user = auth_ctx.current_user
     _vies_scope_id = auth_ctx.vies_scope_id
@@ -557,6 +606,9 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         on_invalid_behavior = "reclassify"
         convert_fx = True
 
+        if pulse_target == "entreprise":
+            with st.container(key="onb_pulse_entreprise"):
+                pass
         with st.expander(_("company_header"), expanded=True):
             # ── Section "Période fiscale" retirée (2026-08-21, voir README -
             # évolution.md) : strictement redondante avec le status bar
@@ -567,6 +619,39 @@ def render_sidebar(auth_ctx) -> SidebarResult:
             # logique de sélection de période sans concertation avec le
             # cabinet comptable.
             oss_period = "__auto__"
+
+            # ── Rappel de verrouillage (uniquement en création de SIREN) ──
+            # Lecture anticipée du statut, AVANT le sélecteur de SIREN rendu
+            # plus bas, pour pouvoir afficher le rappel au-dessus du titre
+            # "Identité & Paramètres TVA" comme demandé. `_cached_db_read`
+            # mémoïse en session_state (TTL 20s, voir plus haut) : cet appel
+            # anticipé ne déclenche PAS de requête DB supplémentaire, il
+            # réutilise la même valeur que la lecture "officielle" un peu
+            # plus bas.
+            #
+            # Avec au moins un SIREN déjà enregistré, la valeur du
+            # sélecteur lue ici est celle du run PRÉCÉDENT (le sélecteur
+            # n'a pas encore été redessiné ce run-ci) — même principe que
+            # `pulse_target`/`_period_label_shown_by_sidebar` ailleurs dans
+            # ce fichier : un rappel visuel tolère un décalage d'un run,
+            # aucune donnée fiscale n'en dépend. Le sélecteur est forcé sur
+            # le SIREN nouvellement créé juste après l'enregistrement (voir
+            # `_new_siren_form_fragment`), ce qui fait disparaître ce rappel
+            # dès le run suivant plutôt que de rester affiché indéfiniment.
+            try:
+                _registered_sirens_early = _cached_db_read(
+                    f"sirens_{_current_user.id}",
+                    lambda: tva_billing.list_registered_sirens(_current_user.id),
+                )
+            except Exception:
+                _registered_sirens_early = []
+            _new_siren_label_early = _("new_siren_option")
+            _creating_new_siren = (
+                not _registered_sirens_early
+                or st.session_state.get("siren_select_box") == _new_siren_label_early
+            )
+            if _creating_new_siren:
+                st.warning(_("fiscal_fields_lock_warning_new"))
 
             st.markdown(f"**{_('identity_vat_params_title')}**")
             try:
@@ -658,14 +743,58 @@ def render_sidebar(auth_ctx) -> SidebarResult:
 
                 _tva_fr_fixed = _existing_vats.get("FR") or _match.get("tva_number") or ""
 
-                st.markdown("---")
-                st.markdown(f"**{_('fiscal_params_title')}**")
-
                 _ioss_val = _match.get("ioss_number") or ""
                 _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
                 _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
 
                 ioss_number = _ioss_val
+
+                # ── Pays où la TVA locale est enregistrée : remonté juste
+                # sous l'identité, au-dessus d'IOSS/DDP/seuil OSS. Priorité
+                # fiscale : ces immatriculations locales priment sur le
+                # régime DDP et les autres réglages. Zone d'AJOUT, pas de
+                # gestion de stock (voir README - évolution.md) — les pays
+                # déjà verrouillés (numéro enregistré) sont résumés en une
+                # seule ligne compacte, le multiselect ne sert qu'à ajouter
+                # un nouveau pays pas encore enregistré (ou à en retirer un,
+                # verrouillé ou non, de la liste active).
+                countries_with_vat = st.multiselect(
+                    _("local_vat_countries_label"),
+                    options=sorted(list(EU_COUNTRIES)),
+                    default=_default_vat_countries,
+                    key="vat_countries_edit",
+                )
+                _locked_selected = sorted(c for c in countries_with_vat if _existing_vats.get(c))
+                _new_vat_countries = sorted(c for c in countries_with_vat if not _existing_vats.get(c))
+                if _locked_selected:
+                    st.caption(
+                        "🔒 " + " · ".join(f"{c} {_existing_vats[c]}" for c in _locked_selected)
+                        + f" — {_('fiscal_field_locked_note')}"
+                    )
+
+                # Saisie des numéros de TVA pour les pays NOUVELLEMENT ajoutés
+                # (pas encore verrouillés) : rendue ICI, juste sous le
+                # multiselect, plutôt que dans `_edit_siren_form_fragment`
+                # (rendu bien plus bas, après IOSS/DDP/seuil OSS) — c'était la
+                # cause du champ "Numéro de TVA FR" retrouvé tout en bas de
+                # panneau alors que le pays est sélectionné ici. Ces champs
+                # restent des `st.text_input` normaux (hors fragment) : leur
+                # valeur est lue par `_edit_siren_form_fragment` via
+                # `st.session_state[key]` au moment de l'enregistrement (la
+                # clé du widget), donc aucune perte de saisie malgré le
+                # découplage — voir commentaire dans ce fragment.
+                if _new_vat_countries:
+                    st.caption(_("local_vat_numbers_caption"))
+                    for _ccode in _new_vat_countries:
+                        st.text_input(_("vat_number_for", country=_ccode),
+                                      key=f"vat_num_edit_{_ccode}",
+                                      placeholder=f"ex: {_ccode}123456789")
+
+                tva_fr = _tva_fr_fixed
+                local_vat_numbers = {c: _existing_vats[c] for c in _locked_selected}
+
+                st.markdown("---")
+                st.markdown(f"**{_('fiscal_params_title')}**")
 
                 # ── Toggles fiscaux : LIVE, hors fragment ──────────────────────
                 # BUGFIX (2026-08-21, voir README - évolution.md) : ces widgets
@@ -707,30 +836,6 @@ def render_sidebar(auth_ctx) -> SidebarResult:
                 if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
                     st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
                     apply_fr_under_threshold = False
-
-                # ── Pays où la TVA locale est enregistrée : zone d'AJOUT, pas
-                # de gestion de stock (voir README - évolution.md). Les pays
-                # déjà verrouillés (numéro enregistré) sont résumés en une
-                # seule ligne compacte au lieu de ré-afficher une ligne par
-                # pays à chaque rendu ; le multiselect ne sert qu'à ajouter un
-                # nouveau pays pas encore enregistré (ou à retirer un pays,
-                # verrouillé ou non, de la liste active).
-                countries_with_vat = st.multiselect(
-                    _("local_vat_countries_label"),
-                    options=sorted(list(EU_COUNTRIES)),
-                    default=_default_vat_countries,
-                    key="vat_countries_edit",
-                )
-                _locked_selected = sorted(c for c in countries_with_vat if _existing_vats.get(c))
-                _new_vat_countries = sorted(c for c in countries_with_vat if not _existing_vats.get(c))
-                if _locked_selected:
-                    st.caption(
-                        "🔒 " + " · ".join(f"{c} {_existing_vats[c]}" for c in _locked_selected)
-                        + f" — {_('fiscal_field_locked_note')}"
-                    )
-
-                tva_fr = _tva_fr_fixed
-                local_vat_numbers = {c: _existing_vats[c] for c in _locked_selected}
 
                 _edit_siren_form_fragment(
                     current_user=_current_user, home_country=home_country,
@@ -1127,11 +1232,23 @@ def render_sidebar(auth_ctx) -> SidebarResult:
         # restent réservés au mode Détaillé. N'alimente aucun champ de
         # SidebarResult : masquage partiel sans risque de variable non
         # définie plus bas.
+        if pulse_target == "vies_ttl":
+            with st.container(key="onb_pulse_vies"):
+                pass
         with st.expander(_("cache_vies_header"), expanded=False):
             try:
                 _cs = vies_cache_stats(_vies_scope_id)
-                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=365,
-                                      value=_cs["ttl_days"], step=1,
+                # Plafond réduit de 365 à 30 jours (2026-08-23) : une donnée
+                # VIES valide il y a plusieurs mois n'a plus de valeur
+                # probante fiscalement. `value` est bornée au même plafond
+                # pour ne pas planter st.slider() si un scope avait déjà une
+                # valeur > 30 enregistrée avant ce changement (le TTL réel
+                # stocké n'est PAS modifié tant que l'utilisateur ne
+                # retouche pas le slider — seul l'affichage est clampé).
+                _ttl_max_days = 30
+                _ttl_current = min(_cs["ttl_days"], _ttl_max_days)
+                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=_ttl_max_days,
+                                      value=_ttl_current, step=1,
                                       help=_("ttl_cache_help"))
                 if _ttl_days != _cs["ttl_days"]:
                     set_cache_ttl(_vies_scope_id, _ttl_days)

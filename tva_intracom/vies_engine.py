@@ -275,8 +275,13 @@ def set_cache_ttl(scope_id: str, days: int) -> None:
     informé. En cas d'erreur DB, le TTL reste appliqué pour le run courant
     (mémoire) mais la personnalisation ne survivra pas au redémarrage —
     on log l'erreur plutôt que de faire planter l'UI pour ce geste mineur.
+
+    Plafonné à 30 jours (2026-08-23, était 365) : au-delà, une validation
+    VIES n'a plus de valeur probante fiscalement. Plafond appliqué ici en
+    plus du slider UI (défense en profondeur, valable aussi pour un futur
+    appel direct hors UI).
     """
-    _days = max(1, int(days))
+    _days = max(1, min(int(days), 30))
     _SCOPE_TTL_DAYS[scope_id] = _days
     try:
         with _conn() as conn, conn.cursor() as cur:

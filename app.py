@@ -40,7 +40,11 @@ from tva_intracom.ui.sidebar import render_sidebar
 from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig
 from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.display_mode import ensure_display_mode, is_detailed, render_mode_toggle
-from tva_intracom.ui.onboarding import ensure_onboarding_state, render_onboarding_banner
+from tva_intracom.ui.onboarding import (
+    ensure_onboarding_state,
+    render_onboarding_banner,
+    compute_pulse_target,
+)
 
 _ZERO = Decimal("0.00")
 
@@ -199,7 +203,12 @@ else:
 # comme un retrait de fichier sans interaction serveur ultérieure.
 _period_label_shown_by_sidebar = st.session_state.get("_period_label", "")
 
-_sb = render_sidebar(_auth_ctx)
+# Cible du guidage visuel "Lighthouse" (voir ui/onboarding.py::compute_pulse_target) :
+# calculée à la fin du run PRÉCÉDENT, relue ici avant render_sidebar() pour que le
+# marqueur CSS puisse être placé au bon endroit dans la sidebar dès ce run.
+_onboarding_pulse_target = st.session_state.get("_onboarding_pulse_target")
+
+_sb = render_sidebar(_auth_ctx, pulse_target=_onboarding_pulse_target)
 file_format = _sb.file_format
 enable_vies = _sb.enable_vies
 on_invalid_behavior = _sb.on_invalid_behavior
@@ -270,6 +279,15 @@ ensure_onboarding_state(
     upload_ok=_status_has_results,
 )
 
+# Mémorise la cible du prochain "Lighthouse" (voir plus haut, avant
+# render_sidebar).
+st.session_state["_onboarding_pulse_target"] = compute_pulse_target(
+    step=st.session_state.get("_onboarding_step", "done"),
+    entreprise_ok=_ob_entreprise_ok,
+    tva_local_ok=_ob_tva_local_ok,
+    upload_ok=_status_has_results,
+)
+
 _status_dot_class = "ok" if _status_has_results else ("pending" if _status_file_count else "off")
 _status_calc_text = (
     _("status_bar_status_ready") if _status_has_results else _("status_bar_status_none")
@@ -317,6 +335,9 @@ render_onboarding_banner(
 # =============================================================================
 # UPLOAD
 # =============================================================================
+if _onboarding_pulse_target == "upload":
+    with st.container(key="onb_pulse_upload"):
+        pass
 uploaded_files = st.file_uploader(
     _("upload_label"),
     type=["csv","tsv","txt"],
@@ -394,6 +415,36 @@ else:
     # Force le nettoyage de la mémoire après suppression de gros objets
     from tva_intracom.mem_utils import release_memory
     release_memory()
+
+# ── Dashboard d'onboarding (checklist visuelle) ──────────────────────────
+# Affiche les étapes clés sous forme de cartes.
+# - Apparaît si aucun fichier n'est chargé (Zero State).
+# - Persiste si un fichier est chargé MAIS que la configuration entreprise 
+#   n'est pas terminée ET que l'utilisateur n'a pas masqué l'onboarding.
+_ob_step = st.session_state.get("_onboarding_step", "active")
+_zs_entreprise_done = _ob_entreprise_ok and _ob_tva_local_ok
+_show_onboarding_cards = (not uploaded_files) or (_ob_step == "active" and not _zs_entreprise_done)
+
+if _show_onboarding_cards:
+    st.markdown(
+        f"""
+        <div class="zero-state-grid">
+            <div class="zero-state-card {'done' if _zs_entreprise_done else ''}">
+                <p class="zero-state-card-title">{'✅' if _zs_entreprise_done else '1️⃣'} {_('zero_state_card_company_title')}</p>
+                <p class="zero-state-card-body">{_('zero_state_card_company_done_body') if _zs_entreprise_done else _('zero_state_card_company_body')}</p>
+            </div>
+            <div class="zero-state-card">
+                <p class="zero-state-card-title">ℹ️ {_('zero_state_card_vies_title')}</p>
+                <p class="zero-state-card-body">{_('zero_state_card_vies_body')}</p>
+            </div>
+            <div class="zero-state-card {'done' if uploaded_files else ''}">
+                <p class="zero-state-card-title">{'✅' if uploaded_files else '2️⃣'} {_('zero_state_card_upload_title')}</p>
+                <p class="zero-state-card-body">{_('zero_state_card_upload_body')}</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 if uploaded_files:
     from tva_intracom.parsers import amazon as parser_amazon
