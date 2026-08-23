@@ -4802,3 +4802,53 @@ Fichiers modifiés : `tva_intracom/ui/auth_flow.py`.
 
 Validation : `py_compile` + pyflakes propres ; pytest 174 passed / 4 failed
 — baseline inchangée.
+
+## 2026-08-23 (suite 7) — Cause racine réelle : le backfill forçait "solo:" pour TOUS les comptes existants
+
+**Symptôme rapporté.** Aucun changement observé après (suite 6) ; en base,
+`tva_orgs` ne contenait que des `org_id` préfixés `solo:...`, y compris
+pour des adresses de domaines professionnels manifestement hors liste
+grand public.
+
+**Cause racine.** Le backfill écrit en (suite initiale) forçait
+littéralement `f"solo:{email}"` pour CHAQUE compte existant, sans jamais
+appeler `resolve_org_id()` (qui, lui, distingue correctement domaine
+professionnel vs domaine public). Ce choix avait été fait volontairement
+pour "ne pas fusionner silencieusement des comptes existants" — mais il
+neutralisait de fait TOUTE la fonctionnalité rôles/organisation sur une
+installation déjà en production : deux collègues du même domaine se
+retrouvaient chacun dans leur propre organisation "solo", jamais dans une
+organisation partagée, donc jamais de whitelist ni de verrouillage
+possible entre eux. Le rattrapage de (suite 5)/(suite 6) ne pouvait rien
+changer : `is_solo_org(org_id)` était vrai pour tout le monde, l'org
+"solo" ne se verrouille jamais par design.
+
+**Correctif.** Le backfill dans `_init_schema()` recalcule désormais le
+VRAI `org_id` via la même logique que `resolve_org_id()` (domaine
+professionnel → `domain:xxx` partagé, domaine public → `solo:email`
+inchangé). Boucle de normalisation étendue à TOUS les comptes (pas
+seulement `org_id IS NULL`) et rejouée à chaque démarrage (idempotente,
+no-op dès que la valeur est correcte) : corrige aussi les `org_id` déjà
+écrits en base par le bug initial, sans action manuelle nécessaire.
+Vérifié en local : `resolve_org_id('collegue@masociete.fr')` et
+`resolve_org_id('matthieu@masociete.fr')` renvoient bien
+`domain:masociete.fr` pour les deux.
+
+**Logs ajoutés** (pour tracer sans deviner, en cas de nouveau signalement) :
+- `auth.py` : `resolve_org_id` (debug), `get_or_create_user` (info : org_id
+  résolu, compte existant vs nouveau, décision libre/verrouillé/refusé),
+  `lock_org_for_user` (info : verrouillage effectué / no-op / solo),
+  normalisation du backfill (info : nombre de comptes corrigés + détail
+  par compte).
+- `ui/auth_flow.py` : rattrapage `_org_lock_catchup_done` (info : org_id,
+  solo, locked, abonnement actif, à chaque première évaluation de
+  session).
+- `ui/admin.py` : ouverture du dialogue (info : org_id lu, verrouillé ou
+  non).
+
+Fichiers modifiés : `tva_intracom/auth.py`, `tva_intracom/ui/auth_flow.py`,
+`tva_intracom/ui/admin.py`.
+
+Validation : `py_compile` + pyflakes propres ; pytest 174 passed / 4 failed
+— baseline inchangée ; vérification manuelle `resolve_org_id()` sur 3 cas
+(2 domaines pro identiques, 1 gmail.com).

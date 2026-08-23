@@ -26,6 +26,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import html
+import logging
 import secrets
 import time
 from dataclasses import dataclass
@@ -792,11 +793,19 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         if not st.session_state.get("_org_lock_catchup_done"):
             st.session_state["_org_lock_catchup_done"] = True
             try:
-                if not tva_auth.is_solo_org(_current_user.org_id) and not tva_auth.is_org_locked(_current_user.org_id):
-                    if tva_billing.get_subscription_status(_current_user.id).active:
-                        tva_auth.lock_org_for_user(_current_user.id)
+                _locked_already = tva_auth.is_org_locked(_current_user.org_id)
+                _is_solo = tva_auth.is_solo_org(_current_user.org_id)
+                _sub_active = tva_billing.get_subscription_status(_current_user.id).active
+                logging.getLogger("tva_intracom.auth_flow").info(
+                    "[org_lock_catchup] user=%r org_id=%r solo=%s locked=%s sub_active=%s",
+                    _current_user.email, _current_user.org_id, _is_solo, _locked_already, _sub_active,
+                )
+                if not _is_solo and not _locked_already and _sub_active:
+                    tva_auth.lock_org_for_user(_current_user.id)
             except Exception:
-                pass  # rattrapage best-effort : ne bloque jamais la connexion
+                logging.getLogger("tva_intracom.auth_flow").warning(
+                    "[org_lock_catchup] échec pour user=%r", _current_user.email, exc_info=True,
+                )
 
         return AuthContext(
             current_user=_current_user,

@@ -25,11 +25,18 @@ import streamlit as st
 from tva_intracom import auth as tva_auth
 from tva_intracom.i18n import _
 
+import logging
+_logger = logging.getLogger("tva_intracom.ui.admin")
+
 
 @st.dialog(title=_("admin_module_header"))
 def render_admin_dialog(current_user: "tva_auth.User") -> None:
     org_id = current_user.org_id
     locked = tva_auth.is_org_locked(org_id)
+    _logger.info(
+        "[admin_dialog] Ouvert par %r — org_id=%r locked=%s",
+        current_user.email, org_id, locked,
+    )
 
     if locked:
         st.caption(_("admin_org_locked_caption"))

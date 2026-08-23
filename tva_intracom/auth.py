@@ -234,21 +234,45 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
             cur.execute(
                 "ALTER TABLE tva_oauth_pkce ADD COLUMN IF NOT EXISTS consumed_at DOUBLE PRECISION"
             )
-            # Backfill org_id pour les comptes créés avant l'introduction des
-            # rôles/organisations : chaque compte existant devient sa propre
-            # organisation "solo" (aucun impact sur son fonctionnement actuel
-            # — il reste admin, `role` vaut déjà 'admin' par défaut). Un tel
-            # compte ne rejoint l'organisation partagée de son domaine que
-            # s'il se réinscrit plus tard (non applicable, un compte existe
-            # déjà) ; il n'est pas automatiquement fusionné avec d'éventuels
-            # collègues du même domaine pour ne pas modifier silencieusement
-            # des données déjà en place.
-            cur.execute("SELECT id, email FROM tva_users WHERE org_id IS NULL")
+            # Backfill org_id (2026-08-23, CORRIGÉ) : chaque compte créé
+            # avant l'introduction des rôles rejoint désormais la VRAIE
+            # organisation de son domaine (via resolve_org_id — domaine
+            # professionnel partagé, ou "solo:" uniquement pour un domaine
+            # public type gmail.com). Version précédente (bug) : forçait
+            # "solo:{email}" pour TOUS les comptes existants, y compris les
+            # domaines professionnels — plusieurs comptes du même domaine
+            # ne se retrouvaient donc jamais dans la même organisation, et
+            # les rôles/whitelist/verrouillage restaient sans aucun effet
+            # sur une installation déjà en production. Boucle de
+            # normalisation ci-dessous : rejoue le calcul pour TOUS les
+            # comptes (pas seulement org_id IS NULL) à chaque démarrage
+            # (cheap, idempotent — no-op dès que la valeur est déjà
+            # correcte) afin de corriger aussi les org_id déjà écrits en
+            # base par le bug initial.
+            from .vies_engine import PERSONAL_EMAIL_DOMAINS as _PERSONAL_DOMAINS
+            cur.execute("SELECT id, email, org_id FROM tva_users")
             _rows = cur.fetchall()
-            for _uid, _email in _rows:
+            logger.info("[auth] Normalisation org_id : %d compte(s) à vérifier.", len(_rows))
+            _fixed = 0
+            for _uid, _email, _current_org_id in _rows:
+                _email_norm = (_email or "").strip().lower()
+                if "@" not in _email_norm:
+                    _correct_org_id = f"solo:{_email_norm or 'inconnu'}"
+                else:
+                    _domain = _email_norm.rsplit("@", 1)[1]
+                    _correct_org_id = (
+                        f"solo:{_email_norm}" if _domain in _PERSONAL_DOMAINS
+                        else f"domain:{_domain}"
+                    )
+                if _current_org_id == _correct_org_id:
+                    continue
+                logger.info(
+                    "[auth] Correction org_id pour %s : %r -> %r",
+                    _email_norm, _current_org_id, _correct_org_id,
+                )
                 cur.execute(
                     "UPDATE tva_users SET org_id=%s WHERE id=%s",
-                    (f"solo:{(_email or '').strip().lower()}", _uid),
+                    (_correct_org_id, _uid),
                 )
                 cur.execute(
                     """
@@ -256,8 +280,11 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
                     VALUES (%s, NULL, %s)
                     ON CONFLICT (org_id) DO NOTHING
                     """,
-                    (f"solo:{(_email or '').strip().lower()}", time.time()),
+                    (_correct_org_id, time.time()),
                 )
+                _fixed += 1
+            if _fixed:
+                logger.info("[auth] Normalisation org_id : %d compte(s) corrigé(s).", _fixed)
     finally:
         pool.putconn(conn)
 
@@ -304,11 +331,17 @@ def resolve_org_id(email: str) -> str:
 
     email = (email or "").strip().lower()
     if "@" not in email:
-        return f"solo:{email or 'inconnu'}"
+        _org_id = f"solo:{email or 'inconnu'}"
+        logger.debug("[auth] resolve_org_id(%r) -> %r (pas de domaine)", email, _org_id)
+        return _org_id
     domain = email.rsplit("@", 1)[1]
     if domain in PERSONAL_EMAIL_DOMAINS:
-        return f"solo:{email}"
-    return f"domain:{domain}"
+        _org_id = f"solo:{email}"
+        logger.debug("[auth] resolve_org_id(%r) -> %r (domaine public %s)", email, _org_id, domain)
+        return _org_id
+    _org_id = f"domain:{domain}"
+    logger.debug("[auth] resolve_org_id(%r) -> %r", email, _org_id)
+    return _org_id
 
 
 def is_admin(user: "User") -> bool:
@@ -374,6 +407,7 @@ def get_or_create_user(email: str) -> User:
     """
     email = email.strip().lower()
     org_id = resolve_org_id(email)
+    logger.info("[auth] get_or_create_user(%r) — org_id=%r", email, org_id)
 
     def _fn(conn, cur):
         cur.execute(
@@ -382,20 +416,28 @@ def get_or_create_user(email: str) -> User:
         )
         row = cur.fetchone()
         if row:
-            return _row_to_user(row)
+            _existing = _row_to_user(row)
+            logger.info(
+                "[auth] Compte existant %r : org_id=%r role=%r",
+                email, _existing.org_id, _existing.role,
+            )
+            return _existing
 
         cur.execute("SELECT locked_at FROM tva_orgs WHERE org_id=%s", (org_id,))
         org_row = cur.fetchone()
 
         if org_row is None:
+            logger.info("[auth] Nouvelle organisation %r (bootstrap, %r devient admin)", org_id, email)
             cur.execute(
                 "INSERT INTO tva_orgs (org_id, locked_at, created_at) VALUES (%s, NULL, %s)",
                 (org_id, time.time()),
             )
             role = "admin"
         elif org_row[0] is None or is_solo_org(org_id):
-            # Phase libre (pas encore d'abonnement payant) : inscription
-            # ouverte, nouveau compte admin par défaut.
+            logger.info(
+                "[auth] Organisation %r non verrouillée (ou solo) — inscription libre, %r devient admin",
+                org_id, email,
+            )
             role = "admin"
         else:
             cur.execute(
@@ -404,8 +446,16 @@ def get_or_create_user(email: str) -> User:
             )
             allowed_row = cur.fetchone()
             if not allowed_row:
+                logger.warning(
+                    "[auth] Inscription REFUSÉE pour %r — organisation %r verrouillée, "
+                    "e-mail absent de la whitelist.", email, org_id,
+                )
                 raise PermissionError(_SIGNUP_BLOCKED_MESSAGE)
             role = allowed_row[0] or "reader"
+            logger.info(
+                "[auth] Inscription autorisée pour %r (organisation %r verrouillée, rôle whitelisté=%r)",
+                email, org_id, role,
+            )
 
         user_id = secrets.token_hex(12)
         cur.execute(
@@ -430,16 +480,20 @@ def lock_org_for_user(user_id: str) -> None:
         cur.execute("SELECT org_id, email FROM tva_users WHERE id=%s", (user_id,))
         row = cur.fetchone()
         if not row:
+            logger.warning("[auth] lock_org_for_user(%r) : utilisateur introuvable.", user_id)
             return
         org_id, email = row
         if is_solo_org(org_id):
+            logger.info("[auth] lock_org_for_user(%r) : organisation solo %r, aucun verrouillage.", user_id, org_id)
             return
 
         cur.execute("SELECT locked_at FROM tva_orgs WHERE org_id=%s", (org_id,))
         org_row = cur.fetchone()
         if org_row and org_row[0] is not None:
+            logger.info("[auth] lock_org_for_user(%r) : organisation %r déjà verrouillée, no-op.", user_id, org_id)
             return  # déjà verrouillée : ne pas écraser les rôles ajustés depuis
 
+        logger.info("[auth] Verrouillage de l'organisation %r par %r (%r)", org_id, email, user_id)
         now = time.time()
         cur.execute(
             """
