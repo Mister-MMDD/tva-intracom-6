@@ -4852,3 +4852,28 @@ Fichiers modifiés : `tva_intracom/auth.py`, `tva_intracom/ui/auth_flow.py`,
 Validation : `py_compile` + pyflakes propres ; pytest 174 passed / 4 failed
 — baseline inchangée ; vérification manuelle `resolve_org_id()` sur 3 cas
 (2 domaines pro identiques, 1 gmail.com).
+
+## 2026-08-23 (suite 8) — Nettoyage des organisations "solo:" orphelines
+
+**Constat.** La normalisation (suite 7) migre bien les comptes vers leur
+vrai `org_id` ("domain:xxx" partagé apparaît en base, confirmé), mais ne
+supprimait pas les anciennes lignes "solo:email" devenues orphelines dans
+`tva_orgs` — laissées intentionnellement en base par prudence.
+
+**Livré :**
+- Script SQL ponctuel (`cleanup_orphan_solo_orgs.sql`, à exécuter une fois
+  dans l'éditeur SQL Supabase) — aperçu puis suppression des lignes
+  `tva_orgs`/`tva_org_allowed_emails` dont le `org_id` n'est plus référencé
+  par AUCUN compte dans `tva_users`. Ne touche jamais une ligne encore
+  référencée.
+- Nettoyage automatique équivalent ajouté dans `_init_schema()` (auth.py) :
+  rejoué à chaque démarrage après la normalisation, supprime toute
+  organisation orpheline (log `[auth] Organisations orphelines
+  supprimées : [...]`) — plus besoin d'intervention manuelle pour les
+  futures migrations de domaine.
+
+Fichiers modifiés : `tva_intracom/auth.py`.
+Fichier fourni séparément : `cleanup_orphan_solo_orgs.sql`.
+
+Validation : `py_compile` + pyflakes propres ; pytest 174 passed / 4 failed
+— baseline inchangée.

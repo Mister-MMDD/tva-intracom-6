@@ -285,6 +285,27 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
                 _fixed += 1
             if _fixed:
                 logger.info("[auth] Normalisation org_id : %d compte(s) corrigé(s).", _fixed)
+
+            # Nettoyage des organisations orphelines (2026-08-23) : après
+            # migration d'un compte vers son vrai org_id "domain:xxx",
+            # l'ancienne ligne "solo:email" dans tva_orgs (et son éventuelle
+            # whitelist) ne référence plus aucun compte — on la supprime
+            # pour ne pas laisser traîner des lignes mortes en base.
+            # N'affecte JAMAIS une ligne "domain:xxx" encore référencée.
+            cur.execute(
+                "DELETE FROM tva_org_allowed_emails WHERE org_id NOT IN "
+                "(SELECT DISTINCT org_id FROM tva_users WHERE org_id IS NOT NULL)"
+            )
+            cur.execute(
+                "DELETE FROM tva_orgs WHERE org_id NOT IN "
+                "(SELECT DISTINCT org_id FROM tva_users WHERE org_id IS NOT NULL) RETURNING org_id"
+            )
+            _orphans = cur.fetchall()
+            if _orphans:
+                logger.info(
+                    "[auth] Organisations orphelines supprimées : %s",
+                    [r[0] for r in _orphans],
+                )
     finally:
         pool.putconn(conn)
 
