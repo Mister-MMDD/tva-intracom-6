@@ -1279,6 +1279,13 @@ vies_certificate_scope_account = "🗂️ Compte entier (historique complet)"
 vies_certificate_scope_file_hint = "Ne liste que les numéros de TVA B2B présents dans le fichier actuellement chargé — utile pour isoler un client précis dans un cabinet suivant plusieurs comptes."
 vies_certificate_scope_account_hint = "Liste tous les numéros de TVA B2B jamais vérifiés sur ce compte, tous imports confondus."
 vies_certificate_full_history = "Historique complet du compte"
+vies_certificate_history_checkbox = "Historique complet des vérifications (au lieu de la situation à date)"
+vies_certificate_history_hint = "Chaque vérification VIES effectuée dans le temps, avec sa date et son heure (UTC) — piste d'audit détaillée, format paysage."
+vies_certificate_history_subtitle = "Document d'audit fiscal — Historique détaillé de chaque vérification VIES effectuée"
+vies_certificate_history_detail_header = "Détail de l'historique des vérifications VIES"
+vies_certificate_history_detail_desc = "Ce tableau liste chaque vérification VIES automatique effectuée, dans l'ordre chronologique, avec le statut obtenu à cette date précise."
+vies_certificate_history_count = "Nb vérifications VIES listées :"
+vies_certificate_history_empty_info = "Aucune vérification VIES n'a encore été enregistrée pour ce périmètre."
 
 # ── Verrouillage des champs fiscaux (IOSS / n° TVA) ─────────────────────────
 fiscal_fields_lock_warning = "⚠️ Vérifiez attentivement les numéros ci-dessous avant d'enregistrer : une fois un IOSS ou un numéro de TVA enregistré pour ce SIREN, il ne pourra plus être modifié (vous pourrez seulement en ajouter de nouveaux — ex. un IOSS non renseigné au départ, ou un numéro de TVA pour un pays supplémentaire)."

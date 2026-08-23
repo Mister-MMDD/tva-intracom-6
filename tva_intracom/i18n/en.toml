@@ -1278,6 +1278,13 @@ vies_certificate_scope_account = "🗂️ Whole account (full history)"
 vies_certificate_scope_file_hint = "Only lists the B2B VAT numbers present in the currently loaded file — useful to isolate one client in an accounting firm tracking several accounts."
 vies_certificate_scope_account_hint = "Lists every B2B VAT number ever checked for this account, across all imports."
 vies_certificate_full_history = "Full account history"
+vies_certificate_history_checkbox = "Full verification history (instead of current status)"
+vies_certificate_history_hint = "Every VIES check performed over time, with its date and time (UTC) — detailed audit trail, landscape format."
+vies_certificate_history_subtitle = "Tax audit document — Detailed history of every VIES check performed"
+vies_certificate_history_detail_header = "VIES check history detail"
+vies_certificate_history_detail_desc = "This table lists every automatic VIES check performed, in chronological order, with the status obtained on that exact date."
+vies_certificate_history_count = "Number of VIES checks listed:"
+vies_certificate_history_empty_info = "No VIES check has been recorded yet for this scope."
 
 # ── Locking fiscal fields (IOSS / VAT numbers) ──────────────────────────────
 fiscal_fields_lock_warning = "⚠️ Please check the numbers below carefully before saving: once an IOSS or VAT number is saved for this SIREN, it can no longer be changed (you'll only be able to add new ones later — e.g. an IOSS not set yet, or a VAT number for an extra country)."

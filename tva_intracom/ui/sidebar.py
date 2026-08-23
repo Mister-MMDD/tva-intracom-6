@@ -1279,31 +1279,53 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     st.divider()
                     st.markdown(f"**{_('vies_certificate_expander')}**")
                     st.caption(_("vies_certificate_caption"))
+                    _cert_history_mode_sb = st.checkbox(
+                        _("vies_certificate_history_checkbox"),
+                        key="vies_cert_history_mode_sidebar",
+                    )
                     if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate_sidebar"):
                         try:
-                            from tva_intracom.vies_engine import get_scope_vies_snapshot
-                            from tva_intracom.vies_certificate import generate_vies_certificate_pdf
-                            _snapshot = get_scope_vies_snapshot(_vies_scope_id)
-                            _pdf_bytes = generate_vies_certificate_pdf(
-                                _snapshot,
-                                company_name=nom_entreprise or _("default_company_name"),
-                                siren=siren_entreprise or "",
-                                scope_id=_vies_scope_id,
-                                period_label=_("vies_certificate_full_history"),
-                                country_label_fn=country_label,
-                                translator=_,
-                            )
+                            if _cert_history_mode_sb:
+                                from tva_intracom.vies_engine import get_scope_vies_history_flat
+                                from tva_intracom.vies_certificate import generate_vies_history_pdf
+                                _history_rows = get_scope_vies_history_flat(_vies_scope_id, full_vats=None)
+                                _pdf_bytes = generate_vies_history_pdf(
+                                    _history_rows,
+                                    company_name=nom_entreprise or _("default_company_name"),
+                                    siren=siren_entreprise or "",
+                                    scope_id=_vies_scope_id,
+                                    period_label=_("vies_certificate_full_history"),
+                                    country_label_fn=country_label,
+                                    translator=_,
+                                )
+                                _is_empty_sb = not _history_rows
+                            else:
+                                from tva_intracom.vies_engine import get_scope_vies_snapshot
+                                from tva_intracom.vies_certificate import generate_vies_certificate_pdf
+                                _snapshot = get_scope_vies_snapshot(_vies_scope_id)
+                                _pdf_bytes = generate_vies_certificate_pdf(
+                                    _snapshot,
+                                    company_name=nom_entreprise or _("default_company_name"),
+                                    siren=siren_entreprise or "",
+                                    scope_id=_vies_scope_id,
+                                    period_label=_("vies_certificate_full_history"),
+                                    country_label_fn=country_label,
+                                    translator=_,
+                                )
+                                _is_empty_sb = not _snapshot
                             st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes
-                            if not _snapshot:
-                                st.info(_("vies_certificate_empty_info"))
+                            st.session_state["_vies_certificate_history_mode_sidebar"] = _cert_history_mode_sb
+                            if _is_empty_sb:
+                                st.info(_("vies_certificate_history_empty_info") if _cert_history_mode_sb else _("vies_certificate_empty_info"))
                         except Exception as _cert_err:
                             st.error(_("vies_certificate_error", error=_cert_err))
 
                     if st.session_state.get("_vies_certificate_pdf_sidebar"):
+                        _suffix_sb = "complet_historique" if st.session_state.get("_vies_certificate_history_mode_sidebar") else "complet"
                         st.download_button(
                             _("vies_certificate_dl_btn"),
                             data=st.session_state["_vies_certificate_pdf_sidebar"],
-                            file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_complet"),
+                            file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_{_suffix_sb}"),
                             mime="application/pdf",
                             type="primary",
                             width="stretch",

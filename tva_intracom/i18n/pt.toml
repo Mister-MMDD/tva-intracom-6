@@ -1278,6 +1278,13 @@ vies_certificate_scope_account = "🗂️ Conta inteira (histórico completo)"
 vies_certificate_scope_file_hint = "Lista apenas os números de IVA B2B presentes no ficheiro atualmente carregado — útil para isolar um cliente específico num gabinete que acompanha várias contas."
 vies_certificate_scope_account_hint = "Lista todos os números de IVA B2B já verificados para esta conta, em todas as importações."
 vies_certificate_full_history = "Histórico completo da conta"
+vies_certificate_history_checkbox = "Histórico completo de verificações (em vez da situação atual)"
+vies_certificate_history_hint = "Cada verificação VIES efetuada ao longo do tempo, com data e hora (UTC) — trilha de auditoria detalhada, formato paisagem."
+vies_certificate_history_subtitle = "Documento de auditoria fiscal — Histórico detalhado de cada verificação VIES efetuada"
+vies_certificate_history_detail_header = "Detalhe do histórico de verificações VIES"
+vies_certificate_history_detail_desc = "Esta tabela lista cada verificação VIES automática efetuada, em ordem cronológica, com o estado obtido nessa data exata."
+vies_certificate_history_count = "N.º de verificações VIES listadas:"
+vies_certificate_history_empty_info = "Ainda não foi registada nenhuma verificação VIES para este âmbito."
 
 # ── Bloqueio dos campos fiscais (IOSS / números de IVA) ─────────────────────
 fiscal_fields_lock_warning = "⚠️ Verifique atentamente os números abaixo antes de guardar: assim que um IOSS ou um número de IVA for guardado para este SIREN, deixará de poder ser alterado (mais tarde só poderá adicionar novos — por exemplo, um IOSS não indicado inicialmente, ou um número de IVA para um país adicional)."

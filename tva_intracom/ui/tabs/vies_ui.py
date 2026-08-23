@@ -118,53 +118,86 @@ def render_vies(ctx: TabContext) -> None:
         )
         st.caption(_("vies_certificate_scope_account_hint") if _cert_scope == "account" else _("vies_certificate_scope_file_hint"))
 
+        _cert_history_mode = st.checkbox(
+            _("vies_certificate_history_checkbox"),
+            key="vies_cert_history_mode",
+        )
+        st.caption(_("vies_certificate_history_hint"))
+
         if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate"):
             try:
-                from tva_intracom.vies_engine import get_scope_vies_snapshot, normalize_full_vat
-                from tva_intracom.vies_certificate import generate_vies_certificate_pdf
+                from tva_intracom.vies_engine import normalize_full_vat
 
-                _snapshot = get_scope_vies_snapshot(_vies_scope_id)
-
+                # Périmètre "fichier importé" : utile pour un cabinet
+                # comptable qui suit plusieurs clients dans le même scope —
+                # ne garder que les n° de TVA B2B présents dans les ventes
+                # actuellement chargées, pas tout l'historique du
+                # compte/cabinet. Ventes + avoirs : un n° de TVA peut
+                # n'apparaître que sur un avoir (remboursement d'une vente
+                # d'une période antérieure non présente dans le lot importé
+                # aujourd'hui). Sans les avoirs ici, ce numéro est écarté du
+                # certificat en mode "Fichier" alors qu'il est bien compté
+                # dans le KPI affiché à l'écran (engine.py,
+                # vies_summary.total_checked, qui lui boucle sur ventes +
+                # avoirs) et bien présent dans le cache scope (mode
+                # "Compte") — même correctif que
+                # excel_report.py::_write_vies_history_tab.
+                _file_vat_ids = None
                 if _cert_scope == "file":
-                    # Périmètre "fichier importé" : utile pour un cabinet
-                    # comptable qui suit plusieurs clients dans le même
-                    # scope — ne garder que les n° de TVA B2B présents dans
-                    # les ventes actuellement chargées, pas tout l'historique
-                    # du compte/cabinet.
-                    # Ventes + avoirs : un n° de TVA peut n'apparaître que sur un
-                    # avoir (remboursement d'une vente d'une période antérieure
-                    # non présente dans le lot importé aujourd'hui). Sans les
-                    # avoirs ici, ce numéro est écarté du certificat en mode
-                    # "Fichier" alors qu'il est bien compté dans le KPI affiché
-                    # à l'écran (engine.py, vies_summary.total_checked, qui lui
-                    # boucle sur ventes + avoirs) et bien présent dans le cache
-                    # scope (mode "Compte") — même correctif que
-                    # excel_report.py::_write_vies_history_tab.
                     _file_vat_ids = set()
                     for _r in ctx.results + (ctx.refund_results or []):
                         _bvn = getattr(_r.sale, "buyer_vat_number", None)
                         if _bvn:
                             _file_vat_ids.add(normalize_full_vat(_bvn, _r.sale.buyer_country))
-                    _snapshot = [row for row in _snapshot if row["vat_id"] in _file_vat_ids]
 
-                _pdf_bytes = generate_vies_certificate_pdf(
-                    _snapshot,
-                    company_name=nom_entreprise,
-                    siren=siren_entreprise,
-                    scope_id=_vies_scope_id,
-                    period_label=period_label if _cert_scope == "file" else _("vies_certificate_full_history"),
-                    country_label_fn=country_label,
-                    translator=_,
-                )
+                if _cert_history_mode:
+                    from tva_intracom.vies_engine import get_scope_vies_history_flat
+                    from tva_intracom.vies_certificate import generate_vies_history_pdf
+
+                    _history_rows = get_scope_vies_history_flat(
+                        _vies_scope_id,
+                        full_vats=sorted(_file_vat_ids) if _file_vat_ids is not None else None,
+                    )
+                    _pdf_bytes = generate_vies_history_pdf(
+                        _history_rows,
+                        company_name=nom_entreprise,
+                        siren=siren_entreprise,
+                        scope_id=_vies_scope_id,
+                        period_label=period_label if _cert_scope == "file" else _("vies_certificate_full_history"),
+                        country_label_fn=country_label,
+                        translator=_,
+                    )
+                    _is_empty = not _history_rows
+                else:
+                    from tva_intracom.vies_engine import get_scope_vies_snapshot
+                    from tva_intracom.vies_certificate import generate_vies_certificate_pdf
+
+                    _snapshot = get_scope_vies_snapshot(_vies_scope_id)
+                    if _file_vat_ids is not None:
+                        _snapshot = [row for row in _snapshot if row["vat_id"] in _file_vat_ids]
+                    _pdf_bytes = generate_vies_certificate_pdf(
+                        _snapshot,
+                        company_name=nom_entreprise,
+                        siren=siren_entreprise,
+                        scope_id=_vies_scope_id,
+                        period_label=period_label if _cert_scope == "file" else _("vies_certificate_full_history"),
+                        country_label_fn=country_label,
+                        translator=_,
+                    )
+                    _is_empty = not _snapshot
+
                 st.session_state["_vies_certificate_pdf"] = _pdf_bytes
                 st.session_state["_vies_certificate_scope"] = _cert_scope
-                if not _snapshot:
-                    st.info(_("vies_certificate_empty_info"))
+                st.session_state["_vies_certificate_history_mode"] = _cert_history_mode
+                if _is_empty:
+                    st.info(_("vies_certificate_history_empty_info") if _cert_history_mode else _("vies_certificate_empty_info"))
             except Exception as _cert_err:
                 st.error(_("vies_certificate_error", error=_cert_err))
 
         if st.session_state.get("_vies_certificate_pdf"):
             _cert_suffix = "fichier" if st.session_state.get("_vies_certificate_scope") == "file" else "compte"
+            if st.session_state.get("_vies_certificate_history_mode"):
+                _cert_suffix += "_historique"
             # Le certificat VIES est gratuit au téléchargement (preuve de bonne foi)
             st.download_button(
                 _("vies_certificate_dl_btn"),

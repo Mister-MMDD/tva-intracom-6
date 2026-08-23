@@ -829,6 +829,47 @@ def get_vies_history_bulk(scope_id: str, full_vats: list[str]) -> dict[str, list
     return result
 
 
+def get_scope_vies_history_flat(scope_id: str, full_vats: list[str] | None = None) -> list[dict]:
+    """Historique VIES à plat (une ligne par vérification automatique, avec
+    `vat_id` inclus dans chaque ligne) — sert au certificat PDF d'historique
+    (vies_certificate.generate_vies_history_pdf).
+
+    `full_vats=None` : tout l'historique du scope, tous n° de TVA confondus
+    ("base entière" — cf. sidebar Cache VIES et onglet VIES en mode Compte).
+    `full_vats=[...]` : restreint aux n° de TVA fournis (mode "Fichier
+    importé" de l'onglet VIES, mêmes n° que get_vies_history_bulk).
+
+    Comme get_vies_history_bulk(), ne lit que vies_check_history (piste
+    d'audit des vérifications automatiques) — jamais vies_manual_overrides,
+    une classification manuelle n'étant pas une preuve VIES opposable.
+    """
+    with _conn() as conn, conn.cursor() as cur:
+        if full_vats is None:
+            cur.execute("""
+                SELECT vat_id, checked_at, valid, country_code, vat_number, name, address, error
+                FROM vies_check_history WHERE scope_id=%s
+                ORDER BY vat_id ASC, checked_at ASC
+            """, (scope_id,))
+        else:
+            if not full_vats:
+                return []
+            cur.execute("""
+                SELECT vat_id, checked_at, valid, country_code, vat_number, name, address, error
+                FROM vies_check_history WHERE scope_id=%s AND vat_id = ANY(%s)
+                ORDER BY vat_id ASC, checked_at ASC
+            """, (scope_id, list(full_vats)))
+        rows = cur.fetchall()
+    return [
+        {
+            "vat_id": r["vat_id"],
+            "checked_at": r["checked_at"].isoformat() if r["checked_at"] else "",
+            "valid": bool(r["valid"]), "country_code": r["country_code"], "vat_number": r["vat_number"],
+            "name": _dec(r["name"]), "address": _dec(r["address"]), "error": r["error"] or "",
+        }
+        for r in rows
+    ]
+
+
 def get_vies_status_as_of(scope_id: str, full_vat: str, as_of_date_iso: str) -> Optional[dict]:
     """Statut VIES tel que connu par CE scope à une date donnée (ex: date
     d'une vente), pour justifier une exonération B2B lors d'un contrôle

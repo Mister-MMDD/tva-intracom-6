@@ -4597,3 +4597,63 @@ Validation : `py_compile` OK sur les 3 fichiers Python modifiés ;
 pyflakes ne remonte aucune nouvelle alerte (seul finding, L963 de
 `sidebar.py`, pré-existant) ; pytest 174 passed / 4 failed — baseline
 inchangée ; aucun test ne référence `set_cache_ttl`.
+
+## 2026-08-23 (suite 3) — Certificat VIES : historique complet en PDF (paysage), en plus de l'instantané
+
+**Contexte.** L'historique détaillé des vérifications VIES (une ligne par
+vérification, avec date/heure UTC) n'était téléchargeable qu'en Excel
+(onglet "Historique VIES", `excel_report.py::_write_vies_history_tab`,
+toujours restreint aux n° de TVA du fichier importé) — jamais en PDF, ni
+pour la "base entière" du compte. Seul le certificat "situation à date"
+(1 ligne par n° de TVA, premier/dernier contrôle) existait en PDF.
+
+**1. Nouveau générateur PDF d'historique.**
+`vies_certificate.py::generate_vies_history_pdf()` — format **paysage**
+(A4 landscape, nécessaire pour la colonne "Raison sociale" une fois les 5
+autres posées), une ligne par vérification, colonnes identiques à
+l'onglet Excel : N° TVA / Date vérification (UTC, avec heure — pas
+seulement la date, deux contrôles pouvant survenir le même jour) / Statut
+/ Pays / Raison sociale / Erreur (clés i18n `xl_vies_col_*` déjà
+existantes, réutilisées telles quelles). N'inclut que les vérifications
+VIES automatiques (`vies_check_history`), jamais les classifications
+manuelles — même exclusion que le certificat "situation à date" existant.
+
+**2. Nouvelle fonction moteur.**
+`vies_engine.py::get_scope_vies_history_flat(scope_id, full_vats=None)` —
+`full_vats=None` renvoie tout l'historique du scope ("base entière"),
+`full_vats=[...]` restreint à une liste de n° de TVA ("fichier importé").
+Réutilise le même schéma de requête que `get_vies_history_bulk()` (déjà
+utilisée par l'onglet Excel), mais à plat avec `vat_id` inclus dans
+chaque ligne.
+
+**3. UI — onglet VIES (`vies_ui.py`).** Ajout d'une case à cocher
+"Historique complet des vérifications (au lieu de la situation à date)"
+sous le radio Fichier/Compte existant → **4 combinaisons** possibles
+(Fichier+instantané, Fichier+historique, Compte+instantané,
+Compte+historique). Le nom du fichier téléchargé reflète le mode
+(`_historique` ajouté au suffixe si la case est cochée).
+
+**4. UI — sidebar Cache VIES (`sidebar.py`).** Même case à cocher ajoutée
+au bloc certificat existant, qui reste "base entière" uniquement → **2
+options** (instantané / historique), pas de radio fichier/compte ici
+(cohérent avec l'existant, ce bouton n'a jamais eu accès au contexte
+"fichier importé").
+
+**Scale-to-zero.** Génération PDF synchrone au clic, aucune connexion
+persistante ni thread — même profil que le certificat "situation à date"
+existant.
+
+Fichiers modifiés : `tva_intracom/vies_certificate.py`,
+`tva_intracom/vies_engine.py`, `tva_intracom/ui/tabs/vies_ui.py`,
+`tva_intracom/ui/sidebar.py`, et les 7 fichiers i18n (+7 clés nettes :
+`vies_certificate_history_checkbox`, `vies_certificate_history_hint`,
+`vies_certificate_history_subtitle`, `vies_certificate_history_detail_header`,
+`vies_certificate_history_detail_desc`, `vies_certificate_history_count`,
+`vies_certificate_history_empty_info` — symétrie vérifiée : 1173 clés
+dans chacun des 7 fichiers, contre 1166 avant).
+
+Validation : `py_compile` OK sur les 4 fichiers Python modifiés ;
+pyflakes ne remonte aucune nouvelle alerte (seul finding, L963 de
+`sidebar.py`, pré-existant) ; pytest 174 passed / 4 failed — baseline
+inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en
+sandbox).

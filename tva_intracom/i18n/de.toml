@@ -1277,6 +1277,13 @@ vies_certificate_scope_account = "🗂️ Gesamtes Konto (vollständiger Verlauf
 vies_certificate_scope_file_hint = "Listet nur die USt-IdNr. der B2B-Kunden auf, die in der aktuell geladenen Datei enthalten sind — nützlich, um einen einzelnen Mandanten in einer Kanzlei mit mehreren Konten herauszufiltern."
 vies_certificate_scope_account_hint = "Listet alle jemals für dieses Konto geprüften B2B-USt-IdNr. auf, über alle Importe hinweg."
 vies_certificate_full_history = "Vollständiger Kontoverlauf"
+vies_certificate_history_checkbox = "Vollständiger Prüfverlauf (statt aktueller Status)"
+vies_certificate_history_hint = "Jede im Zeitverlauf durchgeführte VIES-Prüfung mit Datum und Uhrzeit (UTC) — detaillierter Prüfpfad, Querformat."
+vies_certificate_history_subtitle = "Steuerprüfungsdokument — Detaillierter Verlauf jeder durchgeführten VIES-Prüfung"
+vies_certificate_history_detail_header = "Detail des VIES-Prüfverlaufs"
+vies_certificate_history_detail_desc = "Diese Tabelle listet jede automatische VIES-Prüfung in chronologischer Reihenfolge mit dem an diesem Datum erhaltenen Status auf."
+vies_certificate_history_count = "Anzahl aufgeführter VIES-Prüfungen:"
+vies_certificate_history_empty_info = "Für diesen Bereich wurde noch keine VIES-Prüfung erfasst."
 
 # ── Sperrung der Steuerfelder (IOSS / USt-IdNr.) ────────────────────────────
 fiscal_fields_lock_warning = "⚠️ Bitte prüfen Sie die untenstehenden Nummern sorgfältig, bevor Sie speichern: Sobald eine IOSS- oder USt-IdNr. für dieses SIREN gespeichert wurde, kann sie nicht mehr geändert werden (Sie können später nur noch neue hinzufügen — z. B. eine noch nicht angegebene IOSS-Nummer oder eine USt-IdNr. für ein weiteres Land)."

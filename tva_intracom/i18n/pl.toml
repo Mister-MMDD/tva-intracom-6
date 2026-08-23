@@ -1278,6 +1278,13 @@ vies_certificate_scope_account = "🗂️ Całe konto (pełna historia)"
 vies_certificate_scope_file_hint = "Wyświetla tylko numery VAT B2B obecne w aktualnie wczytanym pliku — przydatne, aby wyodrębnić jednego klienta w biurze rachunkowym obsługującym wiele kont."
 vies_certificate_scope_account_hint = "Wyświetla wszystkie numery VAT B2B kiedykolwiek zweryfikowane dla tego konta, ze wszystkich importów."
 vies_certificate_full_history = "Pełna historia konta"
+vies_certificate_history_checkbox = "Pełna historia weryfikacji (zamiast stanu bieżącego)"
+vies_certificate_history_hint = "Każda weryfikacja VIES wykonana w czasie, z datą i godziną (UTC) — szczegółowa ścieżka audytu, format poziomy."
+vies_certificate_history_subtitle = "Dokument audytu podatkowego — szczegółowa historia każdej wykonanej weryfikacji VIES"
+vies_certificate_history_detail_header = "Szczegóły historii weryfikacji VIES"
+vies_certificate_history_detail_desc = "Ta tabela zawiera listę każdej automatycznej weryfikacji VIES, w porządku chronologicznym, ze statusem uzyskanym w danym dniu."
+vies_certificate_history_count = "Liczba wymienionych weryfikacji VIES:"
+vies_certificate_history_empty_info = "Dla tego zakresu nie zarejestrowano jeszcze żadnej weryfikacji VIES."
 
 # ── Blokada pól podatkowych (IOSS / numery VAT) ─────────────────────────────
 fiscal_fields_lock_warning = "⚠️ Sprawdź uważnie poniższe numery przed zapisaniem: po zapisaniu numeru IOSS lub VAT dla tego SIREN nie będzie można go już zmienić (później będzie można jedynie dodawać nowe — np. nieuzupełniony na początku IOSS lub numer VAT dla dodatkowego kraju)."
