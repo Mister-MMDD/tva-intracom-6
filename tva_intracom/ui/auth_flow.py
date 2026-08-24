@@ -706,11 +706,12 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         # source de vérité que l'expander "Abonnements & forfaits" de la
         # sidebar (tva_billing.get_subscription_status, dérivé du price_id
         # Stripe actif). Mémoïsé via le même cache que sidebar.py (clé
-        # partagée `sub_status_{user_id}`) : pas de lecture DB en double.
+        # partagée `sub_status_{org_id}` — ORG_ID 2026-08-24, abonnement
+        # partagé par toute l'organisation) : pas de lecture DB en double.
         try:
             _acct_sub_status = _cached_db_read(
-                f"sub_status_{_current_user.id}",
-                lambda: tva_billing.get_subscription_status(_current_user.id),
+                f"sub_status_{_current_user.org_id}",
+                lambda: tva_billing.get_subscription_status(_current_user.org_id),
             )
         except Exception:
             _acct_sub_status = None
@@ -795,7 +796,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             try:
                 _locked_already = tva_auth.is_org_locked(_current_user.org_id)
                 _is_solo = tva_auth.is_solo_org(_current_user.org_id)
-                _sub_active = tva_billing.get_subscription_status(_current_user.id).active
+                _sub_active = tva_billing.get_subscription_status(_current_user.org_id).active
                 logging.getLogger("tva_intracom.auth_flow").info(
                     "[org_lock_catchup] user=%r org_id=%r solo=%s locked=%s sub_active=%s",
                     _current_user.email, _current_user.org_id, _is_solo, _locked_already, _sub_active,

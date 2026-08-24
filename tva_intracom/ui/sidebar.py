@@ -201,7 +201,7 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
         else:
             try:
                 tva_billing.register_siren(
-                    current_user.id, siren_entreprise.strip(),
+                    current_user.org_id, current_user.id, siren_entreprise.strip(),
                     nom_entreprise.strip(), tva_fr.strip(),
                     ioss_number=ioss_number.strip(),
                     seller_is_importer=seller_is_importer,
@@ -212,8 +212,8 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
                     ioss_own_number_active=ioss_own_number_active,
                 )
                 st.success(_("siren_save_success"))
-                _invalidate_db_cache(f"sirens_{current_user.id}")
-                _invalidate_db_cache(f"siren_quota_{current_user.id}")
+                _invalidate_db_cache(f"sirens_{current_user.org_id}")
+                _invalidate_db_cache(f"siren_quota_{current_user.org_id}")
                 # Fait pointer le sélecteur sur le SIREN qu'on vient de créer
                 # (au lieu de laisser "+ Nouveau SIREN" sélectionné) : sans
                 # cela, le rappel de verrouillage affiché au-dessus
@@ -330,7 +330,7 @@ def _edit_siren_form_fragment(
         else:
             try:
                 tva_billing.register_siren(
-                    current_user.id, siren_entreprise.strip(),
+                    current_user.org_id, current_user.id, siren_entreprise.strip(),
                     nom_entreprise.strip(), _draft_tva_fr.strip(),
                     ioss_number=_draft_ioss_number.strip(),
                     seller_is_importer=seller_is_importer,
@@ -341,8 +341,8 @@ def _edit_siren_form_fragment(
                     ioss_own_number_active=ioss_own_number_active,
                 )
                 st.success(_("update_success"))
-                _invalidate_db_cache(f"sirens_{current_user.id}")
-                _invalidate_db_cache(f"siren_quota_{current_user.id}")
+                _invalidate_db_cache(f"sirens_{current_user.org_id}")
+                _invalidate_db_cache(f"siren_quota_{current_user.org_id}")
                 preserve_upload_rerun()  # rerun complet volontaire : il faut recharger _match à jour
             except Exception as _reg_err:
                 st.error(_("update_error", error=_reg_err))
@@ -648,8 +648,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
             # dès le run suivant plutôt que de rester affiché indéfiniment.
             try:
                 _registered_sirens_early = _cached_db_read(
-                    f"sirens_{_current_user.id}",
-                    lambda: tva_billing.list_registered_sirens(_current_user.id),
+                    f"sirens_{_current_user.org_id}",
+                    lambda: tva_billing.list_registered_sirens(_current_user.org_id),
                 )
             except Exception:
                 _registered_sirens_early = []
@@ -664,12 +664,12 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
             st.markdown(f"**{_('identity_vat_params_title')}**")
             try:
                 _registered_sirens = _cached_db_read(
-                    f"sirens_{_current_user.id}",
-                    lambda: tva_billing.list_registered_sirens(_current_user.id),
+                    f"sirens_{_current_user.org_id}",
+                    lambda: tva_billing.list_registered_sirens(_current_user.org_id),
                 )
                 _siren_quota_status = _cached_db_read(
-                    f"siren_quota_{_current_user.id}",
-                    lambda: tva_billing.get_siren_quota_status(_current_user.id),
+                    f"siren_quota_{_current_user.org_id}",
+                    lambda: tva_billing.get_siren_quota_status(_current_user.org_id),
                 )
             except Exception as _siren_list_err:
                 _registered_sirens = []
@@ -698,7 +698,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
             if _siren_choice == _new_siren_label:
                 _can_add_siren, _siren_quota_msg = (True, "")
                 try:
-                    _can_add_siren, _siren_quota_msg = tva_billing.can_register_new_siren(_current_user.id)
+                    _can_add_siren, _siren_quota_msg = tva_billing.can_register_new_siren(_current_user.org_id)
                 except Exception as _quota_err:
                     _can_add_siren, _siren_quota_msg = True, ""
                     st.caption(_("quota_check_unavailable", error=_quota_err))
@@ -866,18 +866,18 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                         _eff_date = _dt.datetime.fromtimestamp(_match["pending_removal_at"]).strftime("%d/%m/%Y")
                         st.warning(_("removal_pending", date=_eff_date))
                         if st.button(_("cancel_removal_btn"), key=f"btn_cancel_removal_{siren_entreprise}", width="stretch"):
-                            tva_billing.cancel_siren_removal(_current_user.id, siren_entreprise)
-                            _invalidate_db_cache(f"sirens_{_current_user.id}")
-                            _invalidate_db_cache(f"siren_quota_{_current_user.id}")
+                            tva_billing.cancel_siren_removal(_current_user.org_id, _current_user.id, siren_entreprise)
+                            _invalidate_db_cache(f"sirens_{_current_user.org_id}")
+                            _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
                             preserve_upload_rerun()
                     else:
                         if st.button(_("remove_siren_btn"), key=f"btn_remove_entreprise_{siren_entreprise}",
                                      help=_("remove_siren_help"),
                                      width="stretch"):
                             # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
-                            _eff = tva_billing.request_siren_removal(_current_user.id, siren_entreprise)
-                            _invalidate_db_cache(f"sirens_{_current_user.id}")
-                            _invalidate_db_cache(f"siren_quota_{_current_user.id}")
+                            _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, siren_entreprise)
+                            _invalidate_db_cache(f"sirens_{_current_user.org_id}")
+                            _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
                             import datetime as _dt
                             if _eff <= time.time() + 5:
                                 st.success(_("remove_success"))
@@ -890,8 +890,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
             _sub_status = None
             try:
                 _sub_status = _cached_db_read(
-                    f"sub_status_{_current_user.id}",
-                    lambda: tva_billing.get_subscription_status(_current_user.id),
+                    f"sub_status_{_current_user.org_id}",
+                    lambda: tva_billing.get_subscription_status(_current_user.org_id),
                 )
             except Exception as _sub_err:
                 st.caption(_("sub_status_unavailable", error=_sub_err))
@@ -931,9 +931,9 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                         else:
                             _c1.caption(_label)
                             if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", width="stretch"):
-                                _eff = tva_billing.request_siren_removal(_current_user.id, _r["siren"])
-                                _invalidate_db_cache(f"sirens_{_current_user.id}")
-                                _invalidate_db_cache(f"siren_quota_{_current_user.id}")
+                                _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, _r["siren"])
+                                _invalidate_db_cache(f"sirens_{_current_user.org_id}")
+                                _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
                                 import datetime as _dt
                                 st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
                                 preserve_upload_rerun()
@@ -949,7 +949,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 if st.button(_("manage_sub_stripe_btn"), key="btn_open_billing_portal"):
                     try:
                         st.session_state["_billing_portal_url"] = tva_billing.create_billing_portal_session(
-                            _current_user.id,
+                            _current_user.org_id,
                             return_url=_stripe_cancel_url(),
                         )
                     except Exception as _portal_err:
@@ -961,8 +961,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
             # ── Crédits PAYG (Achats uniques) ─────────────────────────────────────
             try:
                 _credits = _cached_db_read(
-                    f"purchased_credits_{_current_user.id}",
-                    lambda: tva_billing.list_purchased_credits(_current_user.id),
+                    f"purchased_credits_{_current_user.org_id}",
+                    lambda: tva_billing.list_purchased_credits(_current_user.org_id),
                 )
                 if _credits:
                     st.markdown("---")
@@ -1012,8 +1012,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     with st.expander(_("pricing_grid_expander"), expanded=False):
                         try:
                             _grid = _cached_db_read(
-                                f"pricing_grid_{_current_user.id}",
-                                lambda: tva_billing.get_pricing_grid(_current_user.id),
+                                f"pricing_grid_{_current_user.org_id}",
+                                lambda: tva_billing.get_pricing_grid(_current_user.org_id),
                             )
                         except Exception as _grid_err:
                             _grid = None
@@ -1022,8 +1022,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                         if _grid:
                             try:
                                 _promotions = _cached_db_read(
-                                    f"promotions_{_current_user.id}",
-                                    lambda: tva_billing.list_available_promotions(_current_user.id),
+                                    f"promotions_{_current_user.org_id}",
+                                    lambda: tva_billing.list_available_promotions(_current_user.org_id),
                                 )
                             except Exception as _promo_list_err:
                                 _promotions = []
@@ -1151,7 +1151,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                 _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}"
                                 if _payg_cache_key not in st.session_state:
                                     st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
-                                        user_id=_current_user.id, email=_current_user.email,
+                                        org_id=_current_user.org_id, acting_user_id=_current_user.id,
+                                        email=_current_user.email,
                                         period_label=_detected_period_for_payg,
                                         success_url=_stripe_success_url("export_ok=1"),
                                         cancel_url=_stripe_cancel_url(),
@@ -1169,7 +1170,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     if st.button(_("subscribe_pro_btn"), key="btn_sub_business"):
                         try:
                             _url = tva_billing.create_subscription_checkout_session(
-                                user_id=_current_user.id, email=_current_user.email,
+                                org_id=_current_user.org_id, acting_user_id=_current_user.id,
+                                email=_current_user.email,
                                 plan="business", interval=_interval_code,
                                 success_url=_stripe_success_url("export_ok=1"),
                                 cancel_url=_stripe_cancel_url(),
@@ -1186,7 +1188,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     if st.button(_("subscribe_cabinet_btn"), key="btn_sub_cabinet"):
                         try:
                             _url = tva_billing.create_subscription_checkout_session(
-                                user_id=_current_user.id, email=_current_user.email,
+                                org_id=_current_user.org_id, acting_user_id=_current_user.id,
+                                email=_current_user.email,
                                 plan="cabinet", interval=_interval_code,
                                 quantity=int(_cabinet_qty),
                                 success_url=_stripe_success_url("export_ok=1"),

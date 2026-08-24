@@ -4,10 +4,14 @@ vérifier pourquoi le tableau VIES "N° TVA rejeté" semble non verrouillé
 pour un compte gratuit.
 
 Usage :
-    python3 debug_can_export.py <user_id> <period_label>
+    python3 debug_can_export.py <org_id> <period_label>
 
 Exemple :
-    python3 debug_can_export.py 3f2504e0-... "Août 2026"
+    python3 debug_can_export.py "domain:cabinet.fr" "Août 2026"
+
+ORG_ID (2026-08-24) : abonnement et crédits PAYG sont désormais partagés
+par organisation (org_id), plus par compte individuel — voir org_id dans
+tva_users, ou logs applicatifs ("[org_lock_catchup] ... org_id=...").
 
 Nécessite les mêmes variables d'environnement que l'app en local
 (SUPABASE_DB_URL notamment).
@@ -22,11 +26,11 @@ def main():
         print(__doc__)
         sys.exit(1)
 
-    user_id, period_label = sys.argv[1], sys.argv[2]
+    org_id, period_label = sys.argv[1], sys.argv[2]
 
-    print(f"── Diagnostic can_export pour user_id={user_id} / période={period_label!r} ──\n")
+    print(f"── Diagnostic can_export pour org_id={org_id} / période={period_label!r} ──\n")
 
-    sub_status = tva_billing.get_subscription_status(user_id)
+    sub_status = tva_billing.get_subscription_status(org_id)
     print("1. get_subscription_status() :")
     print(f"   active   = {sub_status.active}")
     print(f"   plan     = {sub_status.plan}")
@@ -34,8 +38,8 @@ def main():
     print(f"   period_end = {sub_status.current_period_end}")
     print()
 
-    has_credit = tva_billing.has_export_credit(user_id, period_label)
-    print(f"2. has_export_credit(user_id, {period_label!r}) = {has_credit}")
+    has_credit = tva_billing.has_export_credit(org_id, period_label)
+    print(f"2. has_export_credit(org_id, {period_label!r}) = {has_credit}")
     print("   (ce helper retourne True si abonnement actif OU crédit PAYG")
     print("   pour CETTE période exacte — vérifie que period_label matche")
     print("   EXACTEMENT le format utilisé par l'app, espaces/accents compris)")

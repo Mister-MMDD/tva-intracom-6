@@ -241,7 +241,7 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
     def _mock_dependencies(self, monkeypatch):
         monkeypatch.setattr(billing, "_stripe_configured", lambda: True)
         monkeypatch.setattr(billing, "_get_or_create_stripe_customer",
-                             lambda user_id, email: "cus_fake")
+                             lambda org_id, email, acting_user_id="": "cus_fake")
         monkeypatch.setattr(billing, "_env", lambda key, default="": f"price_fake_{key}")
 
         self.captured_kwargs = {}
@@ -260,7 +260,7 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
 
     def test_business_plan_quantity_forced_to_one(self):
         billing.create_subscription_checkout_session(
-            user_id="u1", email="a@b.fr", plan="business", interval="month",
+            org_id="org1", acting_user_id="u1", email="a@b.fr", plan="business", interval="month",
             success_url="https://x/success", cancel_url="https://x/cancel",
             quantity=42,  # doit être ignoré
         )
@@ -268,7 +268,7 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
 
     def test_cabinet_plan_quantity_below_minimum_is_clamped(self):
         billing.create_subscription_checkout_session(
-            user_id="u1", email="a@b.fr", plan="cabinet", interval="month",
+            org_id="org1", acting_user_id="u1", email="a@b.fr", plan="cabinet", interval="month",
             success_url="https://x/success", cancel_url="https://x/cancel",
             quantity=1,
         )
@@ -276,7 +276,7 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
 
     def test_cabinet_plan_quantity_above_minimum_is_kept(self):
         billing.create_subscription_checkout_session(
-            user_id="u1", email="a@b.fr", plan="cabinet", interval="year",
+            org_id="org1", acting_user_id="u1", email="a@b.fr", plan="cabinet", interval="year",
             success_url="https://x/success", cancel_url="https://x/cancel",
             quantity=10,
         )
@@ -284,7 +284,7 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
 
     def test_cabinet_plan_quantity_exactly_minimum_is_kept(self):
         billing.create_subscription_checkout_session(
-            user_id="u1", email="a@b.fr", plan="cabinet", interval="month",
+            org_id="org1", acting_user_id="u1", email="a@b.fr", plan="cabinet", interval="month",
             success_url="https://x/success", cancel_url="https://x/cancel",
             quantity=billing._CABINET_MIN_QUANTITY,
         )
@@ -293,14 +293,14 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
     def test_unknown_plan_raises(self):
         with pytest.raises(RuntimeError, match="Plan inconnu"):
             billing.create_subscription_checkout_session(
-                user_id="u1", email="a@b.fr", plan="entreprise", interval="month",
+                org_id="org1", acting_user_id="u1", email="a@b.fr", plan="entreprise", interval="month",
                 success_url="https://x/success", cancel_url="https://x/cancel",
             )
 
     def test_unknown_interval_raises(self):
         with pytest.raises(RuntimeError, match="[Ii]ntervalle"):
             billing.create_subscription_checkout_session(
-                user_id="u1", email="a@b.fr", plan="business", interval="week",
+                org_id="org1", acting_user_id="u1", email="a@b.fr", plan="business", interval="week",
                 success_url="https://x/success", cancel_url="https://x/cancel",
             )
 
@@ -310,18 +310,18 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
         l'objet Subscription lui-même — cf. bug corrigé en production où le
         plan restait 'unknown' sur les events customer.subscription.*."""
         billing.create_subscription_checkout_session(
-            user_id="u42", email="a@b.fr", plan="cabinet", interval="year",
+            org_id="org42", acting_user_id="u42", email="a@b.fr", plan="cabinet", interval="year",
             success_url="https://x/success", cancel_url="https://x/cancel",
             quantity=5,
         )
         sub_metadata = self.captured_kwargs["subscription_data"]["metadata"]
-        assert sub_metadata == {"user_id": "u42", "plan": "cabinet", "interval": "year"}
+        assert sub_metadata == {"org_id": "org42", "user_id": "u42", "plan": "cabinet", "interval": "year"}
 
     def test_no_trial_period(self):
         """L'essai gratuit de 14 jours a été retiré (cf. historique : faussait
         les tests de bout en bout, aucune transaction visible dans Stripe)."""
         billing.create_subscription_checkout_session(
-            user_id="u1", email="a@b.fr", plan="business", interval="month",
+            org_id="org1", acting_user_id="u1", email="a@b.fr", plan="business", interval="month",
             success_url="https://x/success", cancel_url="https://x/cancel",
         )
         assert "trial_period_days" not in self.captured_kwargs["subscription_data"]
@@ -330,7 +330,7 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
         monkeypatch.setattr(billing, "_env", lambda key, default="": "")
         with pytest.raises(RuntimeError, match="price_id"):
             billing.create_subscription_checkout_session(
-                user_id="u1", email="a@b.fr", plan="business", interval="month",
+                org_id="org1", acting_user_id="u1", email="a@b.fr", plan="business", interval="month",
                 success_url="https://x/success", cancel_url="https://x/cancel",
             )
 
@@ -346,30 +346,30 @@ class TestRequestSirenRemoval:
 
     def test_immediate_removal_without_active_subscription(self, fake_db, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",
-                             lambda user_id: billing.SubscriptionStatus(active=False))
+                             lambda org_id: billing.SubscriptionStatus(active=False))
         before = time.time()
-        effective_at = billing.request_siren_removal("user-1", "123456789")
+        effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
         after = time.time()
         assert before <= effective_at <= after
 
     def test_deferred_removal_with_active_subscription(self, fake_db, monkeypatch):
         period_end = time.time() + 30 * 24 * 3600  # dans 30 jours
         monkeypatch.setattr(billing, "get_subscription_status",
-                             lambda user_id: billing.SubscriptionStatus(
+                             lambda org_id: billing.SubscriptionStatus(
                                  active=True, plan="cabinet", current_period_end=period_end))
-        effective_at = billing.request_siren_removal("user-1", "123456789")
+        effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
         assert effective_at == period_end
 
     def test_removal_writes_pending_removal_at_via_sql(self, fake_db, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",
-                             lambda user_id: billing.SubscriptionStatus(active=False))
+                             lambda org_id: billing.SubscriptionStatus(active=False))
         # Le mock de cursor.fetchone() (utilisé par _require_write_access
         # pour vérifier le rôle) renvoie None par défaut sur ce MagicMock
         # non configuré explicitement -> traité comme "pas lecteur" (rôle
         # inconnu / compte absent), ce qui est le comportement voulu ici :
         # ne jamais bloquer sur une erreur de lecture du rôle.
         fake_db.cursor.fetchone.return_value = None
-        billing.request_siren_removal("user-42", "999888777")
+        billing.request_siren_removal("org-42", "user-42", "999888777")
         # 2 requêtes désormais : 1) lecture du rôle (_require_write_access),
         # 2) UPDATE pending_removal_at — le dernier appel est bien l'écriture.
         assert fake_db.cursor.execute.call_count == 2
@@ -377,7 +377,9 @@ class TestRequestSirenRemoval:
         assert "pending_removal_at" in _last_sql
         sql, params = fake_db.cursor.execute.call_args[0]
         assert "pending_removal_at" in sql
-        assert params[1:] == ("user-42", "999888777")
+        # (effective_at, acting_user_id, org_id, siren) — org_id est
+        # désormais la clé de l'UPDATE, acting_user_id est l'audit.
+        assert params[1:] == ("user-42", "org-42", "999888777")
 
 
 # ---------------------------------------------------------------------------
@@ -387,20 +389,20 @@ class TestRequestSirenRemoval:
 class TestHasExportCredit:
 
     def test_active_subscription_grants_access_without_credit_lookup(self, monkeypatch):
-        monkeypatch.setattr(billing, "has_active_subscription_direct", lambda user_id: True)
+        monkeypatch.setattr(billing, "has_active_subscription_direct", lambda org_id: True)
         # Si le crédit à l'unité était consulté, ceci ferait planter le test
         # (pas de fake_db fourni) — on vérifie donc aussi le court-circuit.
-        assert billing.has_export_credit("user-1", "2026-Q1") is True
+        assert billing.has_export_credit("org-1", "2026-Q1") is True
 
     def test_no_subscription_checks_export_credit_table(self, fake_db, monkeypatch):
-        monkeypatch.setattr(billing, "has_active_subscription_direct", lambda user_id: False)
+        monkeypatch.setattr(billing, "has_active_subscription_direct", lambda org_id: False)
         fake_db.cursor.fetchone.return_value = (1,)
-        assert billing.has_export_credit("user-1", "2026-Q1") is True
+        assert billing.has_export_credit("org-1", "2026-Q1") is True
 
     def test_no_subscription_and_no_credit_denies_access(self, fake_db, monkeypatch):
-        monkeypatch.setattr(billing, "has_active_subscription_direct", lambda user_id: False)
+        monkeypatch.setattr(billing, "has_active_subscription_direct", lambda org_id: False)
         fake_db.cursor.fetchone.return_value = None
-        assert billing.has_export_credit("user-1", "2026-Q1") is False
+        assert billing.has_export_credit("org-1", "2026-Q1") is False
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +514,7 @@ class TestSubscriptionScheduleWebhookEvents:
         schedule["customer"] = "cus_123"
         event = self._make_event("subscription_schedule.created", schedule)
         monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *a, **k: event)
-        monkeypatch.setattr(billing, "_user_id_for_stripe_customer", lambda cid: "user-42")
+        monkeypatch.setattr(billing, "_org_id_for_stripe_customer", lambda cid: "org-42")
 
         os.environ["STRIPE_PRICE_SUB_BUSINESS_MONTHLY"] = "price_business_month"
         os.environ["STRIPE_PRICE_SUB_CABINET_YEARLY"] = "price_cabinet_year"
@@ -525,28 +527,28 @@ class TestSubscriptionScheduleWebhookEvents:
         assert params[0] == "cabinet"
         assert params[1] == "year"
         assert params[2] == 2000.0
-        assert params[-1] == "user-42"
+        assert params[-1] == "org-42"
 
     def test_schedule_released_clears_scheduled_change(self, fake_db, monkeypatch):
         monkeypatch.setattr(billing, "_stripe_configured", lambda: True)
         monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
         event = self._make_event("subscription_schedule.released", {"customer": "cus_123"})
         monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *a, **k: event)
-        monkeypatch.setattr(billing, "_user_id_for_stripe_customer", lambda cid: "user-42")
+        monkeypatch.setattr(billing, "_org_id_for_stripe_customer", lambda cid: "org-42")
 
         billing.handle_stripe_webhook_event(b"{}", "sig")
 
         fake_db.cursor.execute.assert_called_once()
         sql, params = fake_db.cursor.execute.call_args[0]
         assert "scheduled_plan=NULL" in sql
-        assert params[-1] == "user-42"
+        assert params[-1] == "org-42"
 
-    def test_schedule_event_without_user_id_is_noop(self, fake_db, monkeypatch):
+    def test_schedule_event_without_org_id_is_noop(self, fake_db, monkeypatch):
         monkeypatch.setattr(billing, "_stripe_configured", lambda: True)
         monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
         event = self._make_event("subscription_schedule.canceled", {"customer": "cus_unknown"})
         monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *a, **k: event)
-        monkeypatch.setattr(billing, "_user_id_for_stripe_customer", lambda cid: None)
+        monkeypatch.setattr(billing, "_org_id_for_stripe_customer", lambda cid: None)
 
         billing.handle_stripe_webhook_event(b"{}", "sig")
 

@@ -4877,3 +4877,88 @@ Fichier fourni séparément : `cleanup_orphan_solo_orgs.sql`.
 
 Validation : `py_compile` + pyflakes propres ; pytest 174 passed / 4 failed
 — baseline inchangée.
+
+## 2026-08-24 — Abonnement, client Stripe, crédits PAYG et SIREN passent de `user_id` à `org_id` (partage cabinet multi-comptes)
+
+**Constat.** L'abonnement Stripe, le SIREN enregistré et les crédits PAYG
+restaient rattachés au `user_id` du payeur, pas à son organisation
+(`org_id`, voir "suite 4" ci-dessus). Pour un cabinet à plusieurs comptes
+(`domain:xxx`), un collègue non-payeur ne voyait ni l'abonnement actif ni
+les SIREN enregistrés par l'autre — la logique de rôles admin/lecteur
+existait déjà, mais les données de facturation elles-mêmes restaient
+isolées par compte individuel.
+
+**Diagnostic préalable (obligatoire avant toute fusion de données réelles).**
+Script `scripts/diag_org_migration.py` (lecture seule, exécuté manuellement
+contre la base de production) : recherche par organisation multi-comptes
+d'éventuels doublons d'abonnement actif, de client Stripe, ou de SIREN
+enregistrés sous des `user_id` différents de la même org. Résultat sur la
+base actuelle : une seule organisation multi-comptes (`domain:yy.com`,
+2 comptes), aucun conflit détecté (1 seul SIREN, réparti sur 1 seul compte).
+La migration ci-dessous a donc pu être appliquée en confiance, sans perte
+de données ni arbitrage manuel nécessaire.
+
+**Livré :**
+- Migration de schéma idempotente (`_migrate_billing_to_org_id`, dans
+  `_init_schema()` de `billing.py`) : ajoute `org_id` sur `tva_customers`,
+  `tva_subscriptions`, `tva_export_credits`, `tva_siren_registrations`,
+  backfill depuis `tva_users.org_id`, puis bascule la `PRIMARY KEY` de
+  `user_id` vers `org_id` (ou `(org_id, siren)` / `(org_id, period_label)`
+  pour les tables composites). La colonne `user_id` reste en place, mais
+  change de rôle : de clé, elle devient une colonne d'audit ("qui a
+  effectué la dernière écriture"), toujours alimentée via un nouveau
+  paramètre `acting_user_id` distinct de `org_id` sur les fonctions
+  d'écriture.
+- Toutes les fonctions SIREN (`register_siren`, `request_siren_removal`,
+  `cancel_siren_removal`, `list_registered_sirens`, quotas), l'abonnement
+  (`get_subscription_status`, `has_active_subscription_direct`) et les
+  crédits PAYG (`grant_export_credit`, `list_purchased_credits`,
+  `has_export_credit`) : repris en `org_id`, partagés par toute
+  l'organisation. Le contrôle de rôle (`_require_write_access`) et l'audit
+  restent sur le véritable `acting_user_id` du membre qui agit.
+- Un seul client Stripe et un seul abonnement par organisation désormais
+  (`_get_or_create_stripe_customer`, `create_payg_checkout_session`,
+  `create_subscription_checkout_session`, `create_billing_portal_session`) :
+  peu importe quel membre du cabinet paie en premier, tous les autres
+  membres voient immédiatement le même abonnement actif.
+- Webhook Stripe (`handle_stripe_webhook_event`, `_fulfill_checkout_session`,
+  `_upsert_subscription`, `_set_scheduled_change`, etc.) : entièrement
+  basculé sur `org_id` (résolu via `stripe_customer_id`, avec repli par
+  e-mail si la metadata `org_id` est absente — ex. session Checkout créée
+  avant ce déploiement).
+- **Bug latent corrigé au passage** : `_get_or_create_user_id_by_email`
+  (paiement via la Pricing Table externe, sans connexion préalable à
+  l'app) ne calculait pas `org_id` du tout — la ligne `tva_users` restait
+  avec `org_id` à `NULL` jusqu'à la première connexion réelle. Corrigé en
+  appelant `auth.resolve_org_id(email)` au moment de la création, même
+  logique qu'à la première connexion.
+- `delete_user_billing_data` / `export_user_billing_data` (suppression et
+  export RGPD, appelées par `auth.py` avec un vrai `user_id`) : revues
+  pour ne supprimer/exporter les données **partagées** de l'organisation
+  que si le compte supprimé est le **dernier membre** de son organisation
+  — sinon les autres membres du cabinet conservent leur abonnement et
+  leurs SIREN intacts après le départ d'un collègue.
+- Point vérifié dans le code avant modification (pas deviné) :
+  `auth.lock_org_for_user` attend un véritable `user_id` (il fait
+  `WHERE id=%s` sur `tva_users` pour en déduire lui-même l'`org_id`) — les
+  deux points d'appel dans `billing.py` continuent donc de lui passer
+  `acting_user_id`, jamais `org_id`.
+- `scripts/diag_org_migration.py` conservé dans le dépôt pour resservir
+  avant une future migration similaire.
+- `debug_can_export.py` (script de diagnostic existant) mis à jour en
+  `org_id` en cohérence.
+
+Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/ui/sidebar.py`,
+`tva_intracom/ui/billing_gate.py`, `tva_intracom/ui/auth_flow.py`,
+`debug_can_export.py`, `tests/test_billing_payment_quotas.py`.
+Fichier ajouté : `scripts/diag_org_migration.py`.
+
+Railway / scale-to-zero : migration SQL exécutée une seule fois au
+démarrage (`_init_schema`, idempotente), aucune connexion persistante ni
+tâche de fond ajoutée.
+
+Validation : `py_compile` + pyflakes propres sur tous les fichiers
+modifiés ; pytest 174 passed / 4 failed — baseline inchangée (les 4 échecs
+restent `test_vies.py` ×3 pour `SUPABASE_DB_URL` absente du sandbox de
+test, et `test_parsers.py` ×1 pour un mismatch de casse `"Amazon"` déjà
+présent avant cette session, sans rapport avec cette migration).

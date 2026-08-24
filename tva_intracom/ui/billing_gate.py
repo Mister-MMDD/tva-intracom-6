@@ -135,7 +135,8 @@ class BillingGate:
         if _cache_key not in st.session_state:
             try:
                 st.session_state[_cache_key] = tva_billing.create_payg_checkout_session(
-                    user_id=self.current_user.id,
+                    org_id=self.current_user.org_id,
+                    acting_user_id=self.current_user.id,
                     email=self.current_user.email,
                     period_label=self.period_label,
                     success_url=self.stripe_success_url("export_ok=1"),
@@ -333,12 +334,12 @@ def build_billing_gate(
     # doublon ; seule la table `tva_export_credits` (crédit ponctuel à la
     # période) nécessite une lecture propre à ce gate.
     _cached_sub_status = _cached_db_read(
-        f"sub_status_{current_user.id}",
-        lambda: tva_billing.get_subscription_status(current_user.id),
+        f"sub_status_{current_user.org_id}",
+        lambda: tva_billing.get_subscription_status(current_user.org_id),
     )
     can_export = bool(period_label) and (
         (_cached_sub_status and _cached_sub_status.active)
-        or tva_billing.has_export_credit(current_user.id, period_label)
+        or tva_billing.has_export_credit(current_user.org_id, period_label)
     )
     # État "financier" pur (abonnement actif OU crédit ponctuel), capturé
     # AVANT les gates de conformité (SIREN, quota, rattachement compte)
@@ -360,8 +361,8 @@ def build_billing_gate(
             _siren_ok = any(
                 r["siren"] == siren_entreprise
                 for r in _cached_db_read(
-                    f"sirens_{current_user.id}",
-                    lambda: tva_billing.list_registered_sirens(current_user.id),
+                    f"sirens_{current_user.org_id}",
+                    lambda: tva_billing.list_registered_sirens(current_user.org_id),
                 )
             )
         except Exception:
@@ -429,8 +430,8 @@ def build_billing_gate(
 
     try:
         _grid = _cached_db_read(
-            f"pricing_grid_{current_user.id}",
-            lambda: tva_billing.get_pricing_grid(current_user.id),
+            f"pricing_grid_{current_user.org_id}",
+            lambda: tva_billing.get_pricing_grid(current_user.org_id),
         )
         payg_price = _grid.get("payg")
     except Exception:
@@ -534,7 +535,7 @@ def render_account_link_panel(gate: BillingGate) -> None:
     # Libellés lisibles pour les SIREN déjà connus du compte (utilisé pour
     # les messages de conflit : "SIREN X" -> "Client Untel — 123456789").
     try:
-        _sirens = tva_billing.list_registered_sirens(gate.current_user.id)
+        _sirens = tva_billing.list_registered_sirens(gate.current_user.org_id)
         _siren_labels = {r["siren"]: f"{r['company_name'] or r['siren']} — {r['siren']}" for r in _sirens}
     except Exception:
         _siren_labels = {}
