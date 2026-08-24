@@ -146,8 +146,17 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
     recharger la liste des SIREN enregistrés et faire passer ce compte dans
     le cas "SIREN existant" au tour suivant).
     """
-    nom_entreprise   = st.text_input(_("company_name_label"), placeholder=f"ex: {_('default_company_name')}", key="nom_new")
-    siren_entreprise = st.text_input(_("siren_number_label"), placeholder="ex: 123456789", key="siren_new")
+    # RÔLES (2026-08-24) : `_is_reader_new` grise l'ensemble du formulaire de
+    # création pour un compte lecteur, par cohérence avec la vue "SIREN
+    # existant" — même si, ce formulaire étant isolé en fragment et ses
+    # valeurs non lues par le calcul tant qu'aucun SIREN n'est enregistré
+    # (voir render_sidebar, valeurs par défaut posées AVANT l'appel à ce
+    # fragment), il n'y avait ici aucun impact sur le résultat fiscal
+    # affiché — seulement une possibilité de saisie sans effet, déjà bloquée
+    # par le bouton "Enregistrer" désactivé plus bas.
+    _is_reader_new = current_user.role == "reader"
+    nom_entreprise   = st.text_input(_("company_name_label"), placeholder=f"ex: {_('default_company_name')}", key="nom_new", disabled=_is_reader_new)
+    siren_entreprise = st.text_input(_("siren_number_label"), placeholder="ex: 123456789", key="siren_new", disabled=_is_reader_new)
 
     # ── Pays où la TVA locale est enregistrée : remonté juste sous le SIREN,
     # au-dessus d'IOSS/DDP/seuil OSS. Priorité fiscale : ces immatriculations
@@ -155,7 +164,8 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
     # locale déjà enregistrée dans un pays change la façon dont ce pays doit
     # être traité, indépendamment des toggles ci-dessous).
     countries_with_vat = st.multiselect(_("local_vat_countries_label"),
-                                        options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new")
+                                        options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new",
+                                        disabled=_is_reader_new)
 
     local_vat_numbers = {}
     _missing_vat_input = False
@@ -163,7 +173,7 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
         st.caption(_("local_vat_numbers_caption"))
         for ccode in sorted(countries_with_vat):
             _v = st.text_input(_("vat_number_for", country=ccode), key=f"vat_num_new_{ccode}",
-                               placeholder=f"ex: {ccode}123456789")
+                               placeholder=f"ex: {ccode}123456789", disabled=_is_reader_new)
             local_vat_numbers[ccode] = _v.strip()
             if not _v.strip():
                 _missing_vat_input = True
@@ -172,18 +182,19 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
 
     st.markdown("---")
     ioss_number = st.text_input(_("ioss_number_label"), placeholder="ex: IM1234567890", key="ioss_new",
-                                help=_("ioss_help"))
+                                help=_("ioss_help"), disabled=_is_reader_new)
     ioss_own_number_active = False
     if ioss_number.strip():
         ioss_own_number_active = st.toggle(
             _("ioss_own_number_active_label"), value=False, key="ioss_own_active_new",
             help=_("ioss_own_number_active_help", platform="Amazon"),
+            disabled=_is_reader_new,
         )
-    seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new")
-    apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=False, key="oss_thr_new")
+    seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new", disabled=_is_reader_new)
+    apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=False, key="oss_thr_new", disabled=_is_reader_new)
     oss_threshold_exceeded_prev_year = st.toggle(
         _("oss_threshold_prev_year_label"), value=False, key="oss_thr_prevyear_new",
-        help=_("oss_threshold_prev_year_help"),
+        help=_("oss_threshold_prev_year_help"), disabled=_is_reader_new,
     )
     if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
         st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
@@ -771,6 +782,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     options=sorted(list(EU_COUNTRIES)),
                     default=_default_vat_countries,
                     key="vat_countries_edit",
+                    disabled=_is_reader,
                 )
                 _locked_selected = sorted(c for c in countries_with_vat if _existing_vats.get(c))
                 _new_vat_countries = sorted(c for c in countries_with_vat if not _existing_vats.get(c))
@@ -796,7 +808,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     for _ccode in _new_vat_countries:
                         st.text_input(_("vat_number_for", country=_ccode),
                                       key=f"vat_num_edit_{_ccode}",
-                                      placeholder=f"ex: {_ccode}123456789")
+                                      placeholder=f"ex: {_ccode}123456789",
+                                      disabled=_is_reader)
 
                 tva_fr = _tva_fr_fixed
                 local_vat_numbers = {c: _existing_vats[c] for c in _locked_selected}
@@ -816,6 +829,16 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 # complet (coût attendu et voulu : ces réglages changent le
                 # résultat fiscal, contrairement à la frappe d'un nom ou d'un
                 # numéro de TVA, qui reste isolée dans le fragment).
+                # RÔLES (2026-08-24) : ces toggles sont LIVE (hors fragment,
+                # voir commentaire ci-dessus) — sans `disabled=_is_reader`,
+                # un compte lecteur pouvait les basculer et voir le calcul
+                # fiscal affiché changer immédiatement, sans passer par
+                # "Enregistrer" (lui-même déjà désactivé pour les lecteurs).
+                # Contrairement aux pays TVA locale (juste au-dessus, sans
+                # grand impact tant que non enregistré), CES réglages
+                # (IOSS/DDP/seuil OSS) changent directement le résultat
+                # fiscal affiché/exporté pendant la session — critique à
+                # verrouiller, pas seulement à la sauvegarde.
                 ioss_own_number_active = False
                 if _ioss_val:
                     ioss_own_number_active = st.toggle(
@@ -823,23 +846,27 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                         value=_match.get("ioss_own_number_active") or False if _match else False,
                         key="ioss_own_active_view",
                         help=_("ioss_own_number_active_help", platform="Amazon"),
+                        disabled=_is_reader,
                     )
 
                 seller_is_importer = st.toggle(
                     _("ddp_label"),
                     value=_match.get("seller_is_importer") or False if _match else False,
                     key="ddp_view",
+                    disabled=_is_reader,
                 )
                 apply_fr_under_threshold = st.toggle(
                     _("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)),
                     value=_match.get("apply_fr_under_threshold") or False if _match else False,
                     key="oss_thr_view",
+                    disabled=_is_reader,
                 )
                 oss_threshold_exceeded_prev_year = st.toggle(
                     _("oss_threshold_prev_year_label"),
                     value=_match.get("oss_threshold_exceeded_prev_year") or False if _match else False,
                     key="oss_thr_prevyear_view",
                     help=_("oss_threshold_prev_year_help"),
+                    disabled=_is_reader,
                 )
                 if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
                     st.caption("⚠️ " + _("oss_threshold_prev_year_help"))

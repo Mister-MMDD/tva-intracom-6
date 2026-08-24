@@ -4962,3 +4962,45 @@ modifiés ; pytest 174 passed / 4 failed — baseline inchangée (les 4 échecs
 restent `test_vies.py` ×3 pour `SUPABASE_DB_URL` absente du sandbox de
 test, et `test_parsers.py` ×1 pour un mismatch de casse `"Amazon"` déjà
 présent avant cette session, sans rapport avec cette migration).
+
+## 2026-08-24 (suite) — Verrouillage lecteur : pays TVA locale et paramètres fiscaux restaient modifiables
+
+**Constat.** Le bouton "Enregistrer" était bien désactivé pour un compte
+lecteur (`role="reader"`), mais les widgets eux-mêmes (multiselect pays TVA
+locale, toggles IOSS actif / DDP / seuil OSS / seuil dépassé année
+précédente) ne l'étaient pas. Deux cas distincts :
+- **Pays TVA locale** : un lecteur pouvait retirer un pays de la liste,
+  sans effet réel (impossible d'enregistrer) — gênant mais pas critique.
+- **Paramètres fiscaux** (IOSS/DDP/seuil OSS) : ces toggles sont rendus
+  **hors fragment**, volontairement, pour que le calcul affiché se mette à
+  jour en direct sans clic sur "Enregistrer" (voir entrée du 2026-08-21).
+  Un lecteur pouvait donc changer le résultat fiscal affiché/exporté
+  pendant sa session, sans que rien ne soit sauvegardé ni qu'aucune trace
+  ne l'indique — **critique**, ce sont les réglages fixés par
+  l'administrateur qui doivent rester intangibles pour un lecteur.
+
+**Point vérifié (déjà correct, pas de bug).** Ces réglages sont-ils bien
+liés au SIREN et non globaux au compte (ex. DDP actif pour un SIREN, pas
+pour un autre) ? Oui — confirmé en lisant le code : `seller_is_importer`,
+`apply_fr_under_threshold`, `oss_threshold_exceeded_prev_year`,
+`ioss_own_number_active`, `countries_with_vat` sont des colonnes de
+`tva_siren_registrations`, une ligne par SIREN. Ils sont lus depuis
+`_match` (le SIREN sélectionné dans le menu déroulant), donc déjà
+indépendants d'un SIREN à l'autre.
+
+**Corrigé.** `disabled=_is_reader` ajouté sur tous les widgets concernés
+(vue "SIREN existant" — multiselect pays TVA locale, champs de saisie TVA
+locale, 4 toggles fiscaux) et, par cohérence, sur l'équivalent du
+formulaire de création d'un nouveau SIREN (`_new_siren_form_fragment`) —
+ce dernier cas était sans impact réel sur le calcul (fragment isolé, ses
+valeurs ne sont lues qu'après enregistrement), mais laissé actif il
+prêtait à confusion pour un lecteur.
+
+Fichier modifié : `tva_intracom/ui/sidebar.py`.
+
+Railway / scale-to-zero : aucun impact, changement purement UI (attribut
+`disabled=` sur des widgets Streamlit existants).
+
+Validation : `py_compile` + pyflakes propres (seul le warning pré-existant
+`import '_dt' shadowed` subsiste, décalé de quelques lignes, sans lien
+avec ce correctif) ; pytest 174 passed / 4 failed — baseline inchangée.
