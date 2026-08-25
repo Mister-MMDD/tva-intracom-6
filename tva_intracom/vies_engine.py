@@ -1791,6 +1791,31 @@ def force_revalidate(scope_id: str, vat_ids: list[str]) -> None:
     logger.info("Revalidation forcée [%s] pour %d numéro(s).", scope_id, len(vat_ids))
 
 
+def is_inconclusive_result(res: ViesResult) -> bool:
+    """Version publique de la définition \"inconclusif\" utilisée par
+    check_vat_with_retry (_is_unreliable / _is_empty_response ci-dessus) —
+    exposée pour que background_calc.py puisse évaluer la progression de
+    retry_vats_batch() SANS redéfinir son propre critère (voir incident
+    Allemagne du 31/07/2026 documenté sur _is_empty_response : un critère
+    dupliqué et divergent ferait regresser silencieusement ce filet de
+    sécurité)."""
+    return _is_unreliable(res) or _is_empty_response(res)
+
+
+def retry_vats_batch(scope_id: str, vat_ids: list[str]) -> dict[str, ViesResult]:
+    """Force une nouvelle vérification API pour `vat_ids` sur CE scope et
+    retourne le nouveau résultat par numéro.
+
+    Enchaînement pur de deux fonctions déjà existantes (pas de nouvelle
+    logique réseau) : force_revalidate() vide le cache scope pour ces
+    numéros, puis validate_vat_numbers_parallel() les revérifie (cascade
+    scope → global → API, avec le retry/backoff déjà géré par
+    check_vat_with_retry pour chaque appel individuel).
+    """
+    force_revalidate(scope_id, vat_ids)
+    return validate_vat_numbers_parallel(scope_id, vat_ids)
+
+
 # ---------------------------------------------------------------------------
 # Classification manuelle des numéros non vérifiables (inconclusifs)
 # ---------------------------------------------------------------------------

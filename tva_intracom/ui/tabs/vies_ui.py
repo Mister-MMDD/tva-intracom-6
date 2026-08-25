@@ -265,9 +265,50 @@ def render_vies(ctx: TabContext) -> None:
 
             render_manual_vies_classification()
 
-            if st.button(_("vies_reverify_btn"), key="retry_vies_btn"):
-                CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
-                st.rerun()
+            # ── Ré-essai VIES automatique en arrière-plan ────────────────
+            # Déclenché UNIQUEMENT ici (juste après un calcul qui laisse des
+            # inconclusifs) ou via le clic manuel plus bas (bump du nonce
+            # existant) — jamais sur une minuterie. job_id déterministe
+            # (scope + ensemble exact de numéros inconclusifs) : un rerun
+            # Streamlit qui repasse par ici pendant que le job tourne ne
+            # relance donc jamais un second thread pour le même lot, et un
+            # nouveau lot (après recalcul) obtient naturellement un nouveau
+            # job_id — voir background_calc.start_vies_retry_loop.
+            from tva_intracom.ui.background_calc import (
+                start_vies_retry_loop, vies_retry_job_id as _vies_retry_jid_fn,
+                get_job_state, is_job_done, render_job_progress, clear_job,
+            )
+
+            _vies_retry_vat_ids = list(vies_summary.inconclusive_vats)
+            _vies_retry_jid = (
+                _vies_retry_jid_fn(_vies_scope_id, _vies_retry_vat_ids)
+                if _vies_retry_vat_ids else None
+            )
+
+            if _vies_retry_jid and get_job_state(_vies_retry_jid) is None:
+                start_vies_retry_loop(_vies_scope_id, _vies_retry_vat_ids)
+
+            _vies_retry_running = (
+                _vies_retry_jid is not None and not is_job_done(_vies_retry_jid)
+            )
+
+            if _vies_retry_running:
+                # Bouton désactivé par sécurité tant que la boucle auto tourne
+                # (évite un second retry_vats_batch concurrent sur le même lot).
+                st.button(_("vies_reverify_btn"), key="retry_vies_btn", disabled=True)
+                st.caption(_("vies_retry_in_progress"))
+                render_job_progress(_vies_retry_jid, _("vies_retry_progress_label"))
+            else:
+                _vies_retry_state = get_job_state(_vies_retry_jid) if _vies_retry_jid else None
+                _vies_retry_result = _vies_retry_state.result if _vies_retry_state else None
+                if _vies_retry_result and _vies_retry_result.get("resolved", 0) > 0:
+                    st.info(_("vies_retry_done_info", count=_vies_retry_result["resolved"]))
+
+                if st.button(_("vies_reverify_btn"), key="retry_vies_btn"):
+                    if _vies_retry_jid:
+                        clear_job(_vies_retry_jid)
+                    CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
+                    st.rerun()
 
         # Overrides manuels en base (toujours accessible, replié par défaut)
         try:

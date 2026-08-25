@@ -5118,3 +5118,93 @@ complète : 175 passed / 3 failed, mêmes 3 échecs pré-existants
 (SUPABASE_DB_URL absente du sandbox) — aucune régression, y compris sur
 `TestCreateSubscriptionCheckoutSessionQuantity` (8 tests, tous verts après
 ajout de `fake_db`).
+
+## 2026-08-26 — Boucle de ré-essai VIES automatique (numéros inconclusifs)
+
+**Fonctionnalité.** Ajout d'une revérification automatique en arrière-plan
+des numéros de TVA VIES restés inconclusifs (erreurs serveur transitoires)
+après un calcul, sans action manuelle systématique de l'utilisateur.
+
+**Déclenchement** — uniquement dans les deux cas suivants, jamais sur une
+minuterie/périodique (contrainte scale-to-zero explicite) :
+- juste après un calcul (initial ou recalculé) qui laisse
+  `vies_summary.total_inconclusive > 0` ;
+- après un clic sur le bouton manuel existant `vies_reverify_btn`, qui bump
+  le nonce (`_vies_retry_nonce`) et déclenche un recalcul complet.
+
+`job_id` déterministe (`scope_id` + hash de l'ensemble exact des numéros
+inconclusifs, voir `background_calc.vies_retry_job_id`) : un rerun Streamlit
+pendant l'exécution ne relance jamais un second thread pour le même lot, et
+un nouveau lot (après recalcul) obtient naturellement un nouveau `job_id` —
+c'est ce mécanisme, pas un flag dédié, qui garantit qu'on ne relance jamais
+la boucle "toutes les X secondes" sur un lot déjà traité.
+
+**Plafond dur — 5 itérations maximum, PAS de plafond en durée.**
+Point discuté explicitement avec l'utilisateur : tant que l'onglet reste
+ouvert, la session Streamlit maintient de toute façon la connexion
+websocket active (aucun scale-to-zero possible dans ce cas, le thread de
+retry ne change donc rien). Le seul scénario où ce thread compte
+réellement pour Railway est celui d'un onglet fermé pendant que la boucle
+tourne encore — scénario couvert par la borne en nombre d'itérations
+(garantit la terminaison), un plafond en durée aurait été une garantie
+redondante. Arrêt sur le premier des trois cas suivants : 0 inconclusif
+restant, stagnation (aucune amélioration par rapport à l'itération
+précédente), ou 5 itérations atteintes. Pause de 5s entre deux itérations
+(backoff, éviter de saturer l'API VIES).
+
+**Réutilisation systématique de l'existant (pas de nouveau mécanisme
+parallèle)** :
+- `vies_engine.retry_vats_batch(scope_id, vat_ids)` = pur enchaînement de
+  `force_revalidate()` (vidage cache scope) + `validate_vat_numbers_parallel()`
+  (déjà existants) — aucune nouvelle logique réseau.
+- `vies_engine.is_inconclusive_result(res)` = exposition publique du
+  critère déjà utilisé en interne par `check_vat_with_retry`
+  (`_is_unreliable` OU `_is_empty_response`) — critère non redéfini
+  volontairement : `_is_empty_response` porte le correctif de l'incident
+  Allemagne du 31/07/2026 (panne nationale confondue avec un numéro
+  invalide) ; une redéfinition divergente aurait rouvert cette faille.
+- `background_calc.start_vies_retry_loop()` construit la boucle comme un
+  `target_fn` standard passé à `start_background_job()` déjà existant :
+  hérite gratuitement de la fermeture des connexions DB en fin de thread
+  (`_CLOSE_FNS`), du comptage `_active_jobs_count`, et de la garde
+  anti-double-lancement par `job_id` — pas de mécanisme de thread ad hoc.
+- Bouton final de mise à jour : réutilisation pure du bouton manuel
+  existant `vies_reverify_btn` (même action, bump nonce + recalcul complet)
+  plutôt qu'un second bouton dédié — le recalcul relit de toute façon le
+  cache scope déjà rafraîchi par la boucle de fond.
+
+**UX (`vies_ui.py`)** : pendant l'exécution, le bouton `vies_reverify_btn`
+est désactivé (`disabled=True`, évite un `retry_vats_batch` concurrent sur
+le même lot) et un message "Nouvelle tentative en cours en arrière-plan…"
+(`vies_retry_in_progress`) s'affiche, avec la barre de progression
+existante (`render_job_progress`, fragment `run_every=0.4`, réutilisé tel
+quel). À la fin, si au moins un numéro a été validé : `st.info`
+(`vies_retry_done_info`, compte affiché) au-dessus du bouton réactivé.
+
+**Écart volontaire par rapport au plan initial** : pas de nouvelle clé
+`_SS_VIES_RETRY_JOB_ID` dans `calc_cache.py` — le `job_id` étant
+déterministe et déjà suivi par les clés `_bgjob_*` internes de
+`background_calc.py`, une clé de session supplémentaire aurait été
+redondante.
+
+Fichiers modifiés : `tva_intracom/vies_engine.py` (`is_inconclusive_result`,
+`retry_vats_batch`), `tva_intracom/ui/background_calc.py`
+(`vies_retry_job_id`, `start_vies_retry_loop`), `tva_intracom/ui/tabs/vies_ui.py`
+(câblage déclenchement/bouton/notification), `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`
+(3 nouvelles clés : `vies_retry_in_progress`, `vies_retry_progress_label`,
+`vies_retry_done_info`).
+
+Railway / scale-to-zero : la boucle ne démarre jamais sur une minuterie —
+uniquement suite à une action utilisateur réelle (upload ou clic), moment
+où le process est par construction déjà actif. Plafond dur de 5 itérations
+(pas de plafond en durée, jugé redondant — voir discussion ci-dessus)
+garantit la terminaison du thread même si l'utilisateur ferme l'onglet en
+cours de route. Fermeture des connexions DB du thread gérée par les
+`_CLOSE_FNS` déjà en place dans `start_background_job` — aucun nouveau
+risque de connexion orpheline.
+
+Validation : `py_compile` et `pyflakes` propres sur les 4 fichiers modifiés ;
+symétrie TOML vérifiée programmatiquement (1202 clés, 7 langues, +3 par
+rapport à la baseline précédente de 1199) ; suite `pytest` complète :
+175 passed / 3 failed, mêmes 3 échecs pré-existants (SUPABASE_DB_URL
+absente du sandbox) — aucune régression.

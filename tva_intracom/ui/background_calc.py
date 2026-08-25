@@ -242,3 +242,81 @@ def render_job_progress(job_id: str, label: str) -> None:
     _elapsed = time.time() - state.started_at
     _suffix = f" ({_elapsed:.0f}s)" if _elapsed >= 3 else ""
     st.progress(_progress, text=f"{label}{(' — ' + _text) if _text else ''}{_suffix}")
+
+
+# =============================================================================
+# BOUCLE DE RÉ-ESSAI VIES AUTOMATIQUE (numéros inconclusifs)
+# =============================================================================
+# Déclenchée UNIQUEMENT après un calcul initial (nouvel upload) ou un clic
+# manuel sur le bouton de relance — jamais sur une minuterie/périodique. Dans
+# les deux cas le process est par construction déjà actif à ce moment-là
+# (action utilisateur réelle), donc ce thread ne modifie pas la détection
+# d'inactivité Railway TANT QUE l'onglet reste ouvert (la session Streamlit
+# maintient de toute façon la connexion websocket active dans ce cas). Le
+# seul scénario où ce thread compte réellement, c'est onglet fermé pendant
+# que la boucle tourne encore — d'où le plafond dur ci-dessous (5 itérations
+# maximum, PAS de plafond en durée : voir échange avec l'utilisateur,
+# 2026-08-25 — inutile de doubler la garantie tant que la borne en nombre
+# d'itérations suffit à garantir la terminaison).
+_VIES_RETRY_MAX_ITERATIONS = 5
+_VIES_RETRY_SLEEP_SECONDS = 5.0
+
+
+def vies_retry_job_id(scope_id: str, vat_ids: list[str]) -> str:
+    """Identifiant de job stable pour un (scope, ensemble de numéros) donné :
+    un rerun Streamlit pendant l'exécution ne relance donc jamais un second
+    thread pour le même lot (voir garde dans start_background_job)."""
+    return f"vies_retry_{scope_id}_{hash(tuple(sorted(vat_ids)))}"
+
+
+def start_vies_retry_loop(scope_id: str, vat_ids: list[str]) -> str:
+    """Démarre (si pas déjà en cours) la boucle de ré-essai en arrière-plan
+    pour les numéros de `vat_ids` actuellement inconclusifs sur `scope_id`.
+
+    Retourne le `job_id` à passer à get_job_state()/render_job_progress()
+    pour suivre son avancement. Le résultat final (`state.result`) est un
+    dict {"resolved": int, "remaining": int, "iterations": int}.
+    """
+    job_id = vies_retry_job_id(scope_id, vat_ids)
+
+    def _target(report) -> dict:
+        # Réutilise l'import module-level `_tva_vies_engine` déjà présent en
+        # tête de ce fichier (voir _CLOSE_FNS plus haut) — pas de nouvel
+        # import différé.
+        remaining = list(vat_ids)
+        initial_count = len(remaining)
+        iteration = 0
+
+        while remaining and iteration < _VIES_RETRY_MAX_ITERATIONS:
+            iteration += 1
+            report(
+                iteration / (_VIES_RETRY_MAX_ITERATIONS + 1),
+                f"Tentative {iteration}/{_VIES_RETRY_MAX_ITERATIONS} — {len(remaining)} numéro(s)",
+            )
+            results = _tva_vies_engine.retry_vats_batch(scope_id, remaining)
+            new_remaining = [
+                vat_id for vat_id in remaining
+                if _tva_vies_engine.is_inconclusive_result(results.get(vat_id))
+            ]
+
+            # Stagnation : aucune amélioration par rapport au tour précédent
+            # -> on arrête immédiatement (pas d'intérêt à retenter, voir
+            # échange 2026-08-25). "aucune amélioration" inclut le cas où
+            # le nombre remonte (dégradation VIES en cours).
+            if len(new_remaining) >= len(remaining):
+                remaining = new_remaining
+                break
+
+            remaining = new_remaining
+            if remaining and iteration < _VIES_RETRY_MAX_ITERATIONS:
+                time.sleep(_VIES_RETRY_SLEEP_SECONDS)
+
+        report(1.0, "Terminé")
+        return {
+            "resolved": initial_count - len(remaining),
+            "remaining": len(remaining),
+            "iterations": iteration,
+        }
+
+    start_background_job(job_id, _target)
+    return job_id
