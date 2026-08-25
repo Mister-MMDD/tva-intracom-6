@@ -301,7 +301,7 @@ def _edit_siren_form_fragment(
     # avant même que ce widget ne soit redessiné ce run-ci : sûr, Streamlit
     # synchronise session_state depuis l'interaction AVANT toute exécution
     # de script, indépendamment de l'ordre des lignes).
-    _ioss_draft_typed = bool(not ioss_val and str(st.session_state.get("ioss_edit", "") or "").strip())
+    _ioss_draft_typed = bool(not ioss_val and str(st.session_state.get(f"ioss_edit_{siren_entreprise}", "") or "").strip())
     if new_vat_countries or _ioss_draft_typed:
         st.warning(_("fiscal_fields_lock_warning"))
     elif ioss_val:
@@ -313,8 +313,13 @@ def _edit_siren_form_fragment(
         st.caption(f"🔒 IOSS : **{ioss_val}** — {_('fiscal_field_locked_note')}")
         _draft_ioss_number = ioss_val
     else:
+        # BUGFIX (2026-08-26) : clé scopée par SIREN (même raison que les
+        # autres champs ci-dessus) — un brouillon d'IOSS tapé pour un SIREN
+        # sans IOSS pouvait sinon réapparaître en changeant vers un autre
+        # SIREN sans IOSS non plus.
         _draft_ioss_number = st.text_input(_("ioss_number_label"),
-                                           placeholder="ex: IM1234567890", key="ioss_edit",
+                                           placeholder="ex: IM1234567890",
+                                           key=f"ioss_edit_{siren_entreprise}",
                                            help=_("ioss_help"))
 
     # ── Numéros de TVA : les pays déjà enregistrés sont affichés en lecture
@@ -322,10 +327,12 @@ def _edit_siren_form_fragment(
     # encore verrouillés) y sont aussi saisis désormais (juste après le
     # multiselect, voir BUGFIX 2026-08-23 ci-dessus) — on relit simplement
     # leur valeur courante ici via st.session_state, sans les redessiner.
+    # BUGFIX (2026-08-26) : clé alignée avec le scoping par SIREN du widget
+    # correspondant (voir render_sidebar(), `vat_num_edit_{siren}_{pays}`).
     _draft_local_vat_numbers = dict(existing_vats)
     _missing_vat_input = False
     for ccode in sorted(new_vat_countries):
-        _v = str(st.session_state.get(f"vat_num_edit_{ccode}", "") or "")
+        _v = str(st.session_state.get(f"vat_num_edit_{siren_entreprise}_{ccode}", "") or "")
         _draft_local_vat_numbers[ccode] = _v.strip()
         if not _v.strip():
             _missing_vat_input = True
@@ -796,11 +803,22 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 # seule ligne compacte, le multiselect ne sert qu'à ajouter
                 # un nouveau pays pas encore enregistré (ou à en retirer un,
                 # verrouillé ou non, de la liste active).
+                # BUGFIX (2026-08-26) : la clé de ce widget était statique
+                # ("vat_countries_edit"), partagée par TOUS les SIREN. Une
+                # fois qu'une valeur existe dans st.session_state pour cette
+                # clé, Streamlit ignore `default=` aux runs suivants et
+                # réaffiche la valeur mémorisée — donc changer de SIREN (ou
+                # revenir d'une création de SIREN) réaffichait la liste de
+                # pays du SIREN précédemment actif au lieu de celle du SIREN
+                # sélectionné. La clé est désormais scopée par `_siren_choice`
+                # pour forcer Streamlit à traiter chaque SIREN comme un
+                # widget distinct, ce qui réapplique bien `default=` (donc
+                # les données réelles de CE SIREN) à chaque changement.
                 countries_with_vat = st.multiselect(
                     _("local_vat_countries_label"),
                     options=sorted(list(EU_COUNTRIES)),
                     default=_default_vat_countries,
-                    key="vat_countries_edit",
+                    key=f"vat_countries_edit_{_siren_choice}",
                     disabled=_is_reader,
                 )
                 _locked_selected = sorted(c for c in countries_with_vat if _existing_vats.get(c))
@@ -822,11 +840,16 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 # `st.session_state[key]` au moment de l'enregistrement (la
                 # clé du widget), donc aucune perte de saisie malgré le
                 # découplage — voir commentaire dans ce fragment.
+                # BUGFIX (2026-08-26) : clé scopée par SIREN pour la même
+                # raison que le multiselect ci-dessus — sinon un brouillon de
+                # numéro de TVA tapé pour le SIREN A pouvait réapparaître en
+                # changeant vers le SIREN B si celui-ci a le même pays à
+                # compléter.
                 if _new_vat_countries:
                     st.caption(_("local_vat_numbers_caption"))
                     for _ccode in _new_vat_countries:
                         st.text_input(_("vat_number_for", country=_ccode),
-                                      key=f"vat_num_edit_{_ccode}",
+                                      key=f"vat_num_edit_{_siren_choice}_{_ccode}",
                                       placeholder=f"ex: {_ccode}123456789",
                                       disabled=_is_reader)
 
@@ -858,12 +881,27 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 # (IOSS/DDP/seuil OSS) changent directement le résultat
                 # fiscal affiché/exporté pendant la session — critique à
                 # verrouiller, pas seulement à la sauvegarde.
+                # BUGFIX (2026-08-26) : ces 4 toggles utilisaient des clés
+                # STATIQUES ("ioss_own_active_view", "ddp_view", "oss_thr_view",
+                # "oss_thr_prevyear_view"), partagées par tous les SIREN. Comme
+                # pour le multiselect ci-dessus, `value=` est ignoré par
+                # Streamlit dès qu'une valeur existe déjà en session_state
+                # pour cette clé — donc en changeant de SIREN, les toggles
+                # affichés pouvaient rester ceux du SIREN précédemment
+                # sélectionné au lieu de refléter `match` (l'état réel en base
+                # pour LE SIREN affiché). Impact critique signalé : un compte
+                # lecteur changeant de SIREN pouvait voir un DDP ou un seuil
+                # 10k€ qui ne correspondait pas au SIREN réellement affiché,
+                # sans qu'il y ait moyen de s'en rendre compte à l'écran.
+                # Les clés sont désormais scopées par `_siren_choice`, ce qui
+                # force Streamlit à réappliquer `value=` (donc l'état réel en
+                # base) à chaque changement de SIREN.
                 ioss_own_number_active = False
                 if _ioss_val:
                     ioss_own_number_active = st.toggle(
                         _("ioss_own_number_active_label"),
                         value=_match.get("ioss_own_number_active") or False if _match else False,
-                        key="ioss_own_active_view",
+                        key=f"ioss_own_active_view_{_siren_choice}",
                         help=_("ioss_own_number_active_help", platform="Amazon"),
                         disabled=_is_reader,
                     )
@@ -871,19 +909,19 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 seller_is_importer = st.toggle(
                     _("ddp_label"),
                     value=_match.get("seller_is_importer") or False if _match else False,
-                    key="ddp_view",
+                    key=f"ddp_view_{_siren_choice}",
                     disabled=_is_reader,
                 )
                 apply_fr_under_threshold = st.toggle(
                     _("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)),
                     value=_match.get("apply_fr_under_threshold") or False if _match else False,
-                    key="oss_thr_view",
+                    key=f"oss_thr_view_{_siren_choice}",
                     disabled=_is_reader,
                 )
                 oss_threshold_exceeded_prev_year = st.toggle(
                     _("oss_threshold_prev_year_label"),
                     value=_match.get("oss_threshold_exceeded_prev_year") or False if _match else False,
-                    key="oss_thr_prevyear_view",
+                    key=f"oss_thr_prevyear_view_{_siren_choice}",
                     help=_("oss_threshold_prev_year_help"),
                     disabled=_is_reader,
                 )

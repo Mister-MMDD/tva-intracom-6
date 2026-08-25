@@ -42,7 +42,7 @@
     <div class="card alert" style="margin-bottom: 30px;">
         <h2>Checklist de Conformité & Sécurité</h2>
         <ul style="list-style-type: '✅ ';">
-            <li>Vérifier la validité des numéros TVA B2B via l'onglet <strong>VIES</strong>.</li>
+            <li>Vérifier la validité des numéros TVA B2B via l'onglet <strong>VIES</strong> (ré-essai auto inclus).</li>
             <li>Sécuriser vos exonérations avec le <strong>Certificat VIES PDF</strong>.</li>
             <li>S'assurer que le <strong>Pays de Siège</strong> est correctement configuré.</li>
             <li>Vérifier les alertes de <strong>Stock FBA</strong> pour les immatriculations locales.</li>
@@ -72,9 +72,10 @@
                     <li><strong>engine.py</strong> : Moteur de classification fiscale (Directive 2006/112/CE).</li>
                     <li><strong>rates.py</strong> : Taux TVA historisés par pays et catégorie (Standard/Réduit).</li>
                     <li><strong>ecb_rates.py</strong> : Synchro auto avec la Banque Centrale Européenne (BCE).</li>
-                    <li><strong>vies_engine.py</strong> : Validation VIES avec cache et piste d'audit conforme (365 jours).</li>
+                    <li><strong>vies_engine.py</strong> : Validation VIES avec cache, ré-essai automatique en arrière-plan et piste d'audit conforme (365 jours).</li>
                     <li><strong>ca3_report.py / oss_xml.py</strong> : Générateurs de liasses fiscales (HTML/XML).</li>
                     <li><strong>local_vat_report.py</strong> : Rapports de TVA locaux pour les autres pays de l'UE.</li>
+                    <li><strong>models.py</strong> : Modèles de données Pydantic 2 durcis pour la stabilité (arbitrary_types_allowed).</li>
                     <li><strong>billing.py</strong> : Moteur de facturation Stripe et gestion des quotas.</li>
                 </ul>
             </div>

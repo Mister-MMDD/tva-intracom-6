@@ -5222,3 +5222,59 @@ Validation : `py_compile` et `pyflakes` propres sur tous les fichiers
 modifiés ; symétrie TOML vérifiée programmatiquement (1204 clés, 7 langues,
 +5 par rapport à la baseline de 1199) ; suite `pytest` complète : 175 passed
 / 3 failed (échecs connus DB URL).
+
+## 2026-08-26 (2) — Bugfix critique : widgets sidebar non scopés par SIREN
+(pays TVA locale + 4 toggles fiscaux)
+
+**Bug signalé.** Après ajout d'un nouveau SIREN, la liste "Pays où vous avez
+un numéro TVA local" du SIREN précédemment enregistré disparaissait ; la
+remettre faisait réapparaître les numéros de TVA déjà enregistrés, et
+rebasculer sur le nouveau SIREN gardait la liste précédemment affichée avec
+les zones de saisie pour les numéros manquants. Point additionnel signalé
+en même temps : les 4 toggles de "Paramètres fiscaux" (IOSS actif, DDP,
+seuil OSS 10k€, seuil OSS N-1) ne suivaient pas non plus le SIREN
+sélectionné — risque jugé critique pour un compte lecteur cabinet
+(affichage d'un régime fiscal ne correspondant pas au SIREN réellement
+affiché, sans indication visuelle du décalage).
+
+**Cause racine (confirmée dans le code, `tva_intracom/ui/sidebar.py`).**
+Ces widgets Streamlit utilisaient des clés (`key=`) **statiques**, partagées
+par tous les SIREN d'un même compte : `vat_countries_edit`,
+`vat_num_edit_{pays}`, `ioss_own_active_view`, `ddp_view`, `oss_thr_view`,
+`oss_thr_prevyear_view`, `ioss_edit`. Or dès qu'une valeur existe déjà dans
+`st.session_state` pour une clé donnée, Streamlit **ignore** `default=`/
+`value=` aux runs suivants et réaffiche systématiquement la valeur mémorisée
+en session — indépendamment du SIREN réellement sélectionné à l'écran.
+Changer de SIREN (ou créer un nouveau SIREN puis revenir à un SIREN existant)
+ne réinitialisait donc jamais ces widgets : ils continuaient d'afficher
+l'état laissé par le SIREN précédemment actif.
+
+**Correctif.** Toutes les clés concernées sont désormais scopées par
+`_siren_choice` (ou `siren_entreprise` côté fragment d'édition), ce qui
+force Streamlit à traiter chaque SIREN comme un jeu de widgets distinct et
+donc à réappliquer `default=`/`value=` (les données réelles en base pour
+CE SIREN) à chaque changement :
+- `vat_countries_edit` → `vat_countries_edit_{_siren_choice}`
+- `vat_num_edit_{pays}` → `vat_num_edit_{_siren_choice}_{pays}` (render ET
+  lecture dans `_edit_siren_form_fragment`)
+- `ioss_own_active_view` → `ioss_own_active_view_{_siren_choice}`
+- `ddp_view` → `ddp_view_{_siren_choice}`
+- `oss_thr_view` → `oss_thr_view_{_siren_choice}`
+- `oss_thr_prevyear_view` → `oss_thr_prevyear_view_{_siren_choice}`
+- `ioss_edit` → `ioss_edit_{siren_entreprise}` (widget ET lecture du
+  brouillon dans l'avertissement de verrouillage)
+
+Fichiers modifiés : `tva_intracom/ui/sidebar.py` uniquement (aucun autre
+fichier touché).
+
+Railway / scale-to-zero : aucun impact — changement purement UI (clés de
+widgets Streamlit), aucune connexion, thread ou polling ajouté/modifié.
+
+Validation : `py_compile` propre ; `pyflakes` propre sur la zone modifiée
+(un seul warning préexistant, ligne 1068, sans rapport, non touché) ;
+script de vérification dédié confirmant qu'aucune clé statique ne subsiste
+pour les 7 widgets concernés ; suite `pytest` complète : **190 passed / 3
+failed** (+15 tests réussis apportés par l'utilisateur depuis la baseline
+175/3 ; les 3 échecs restent uniquement ceux, déjà connus, liés à l'absence
+de `SUPABASE_DB_URL` en sandbox — aucune régression introduite par ce
+correctif).
