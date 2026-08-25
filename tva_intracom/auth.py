@@ -99,7 +99,9 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
                     language TEXT NOT NULL DEFAULT 'fr',
                     display_currency TEXT NOT NULL DEFAULT 'DEFAULT',
                     display_mode TEXT NOT NULL DEFAULT 'simple',
-                    onboarding_seen BOOLEAN NOT NULL DEFAULT FALSE
+                    onboarding_seen BOOLEAN NOT NULL DEFAULT FALSE,
+                    org_id TEXT,
+                    role TEXT NOT NULL DEFAULT 'admin'
                 )
                 """
             )
@@ -118,49 +120,8 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS display_mode TEXT NOT NULL DEFAULT 'simple'"
             )
-            # Onboarding guidé (2026-08-22) : marque le compte comme ayant
-            # déjà vu le stepper d'onboarding (SIREN + premier import), pour
-            # ne plus le réafficher automatiquement aux connexions
-            # suivantes. Un bouton dans "Compte & Confidentialité" permet à
-            # l'utilisateur de le relancer volontairement (repasse ce flag
-            # à FALSE, voir set_onboarding_seen ci-dessous et
-            # ui/onboarding.py).
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS onboarding_seen BOOLEAN NOT NULL DEFAULT FALSE"
-            )
-            # Rôles & organisations (2026-08-23) : une organisation = un
-            # domaine e-mail professionnel (ou le compte seul pour un
-            # domaine public type gmail.com, même logique que
-            # vies_engine.resolve_scope_id). Tant qu'aucun abonnement payant
-            # n'a été souscrit pour l'organisation, l'inscription reste
-            # ouverte à quiconque possède une adresse du domaine et chaque
-            # nouveau compte devient admin (facilite les tests en mode
-            # gratuit). Au premier paiement, `lock_org_for_user()` verrouille
-            # l'organisation (tva_orgs.locked_at) : le payeur reste admin,
-            # tous les autres comptes basculent en lecture seule, et toute
-            # nouvelle inscription nécessite désormais une adresse
-            # pré-autorisée par un admin (tva_org_allowed_emails) — voir
-            # get_or_create_user() et ui/admin.py.
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_orgs (
-                    org_id TEXT PRIMARY KEY,
-                    locked_at DOUBLE PRECISION,
-                    created_at DOUBLE PRECISION NOT NULL
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tva_org_allowed_emails (
-                    org_id TEXT NOT NULL,
-                    email TEXT NOT NULL,
-                    role TEXT NOT NULL DEFAULT 'reader',
-                    added_by TEXT,
-                    created_at DOUBLE PRECISION NOT NULL,
-                    PRIMARY KEY (org_id, email)
-                )
-                """
             )
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS org_id TEXT"

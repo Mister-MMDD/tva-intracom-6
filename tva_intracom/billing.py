@@ -313,22 +313,19 @@ def _migrate_billing_to_org_id(cur) -> None:
     # _upsert_subscription...), qui reçoivent désormais un paramètre
     # `acting_user_id` distinct de la clé `org_id`.
 
-    # Backfill org_id pour les 4 tables : COALESCE avec user_id en dernier
-    # recours (compte orphelin sans ligne tva_users — ne devrait pas
-    # arriver, mais évite un org_id NULL qui casserait la contrainte NOT
-    # NULL/PK posée plus bas).
-    for table in ("tva_customers", "tva_subscriptions", "tva_export_credits", "tva_siren_registrations"):
-        cur.execute(
-            f"""
-            UPDATE {table} t
-            SET org_id = COALESCE(
-                (SELECT u.org_id FROM tva_users u WHERE u.id = t.user_id),
-                t.user_id
-            )
-            WHERE t.org_id IS NULL
-            """
-        )
-        cur.execute(f"ALTER TABLE {table} ALTER COLUMN org_id SET NOT NULL")
+    # Migration PRIMARY KEY (idempotente)
+    cur.execute(
+        "ALTER TABLE tva_customers ALTER COLUMN org_id SET NOT NULL"
+    )
+    cur.execute(
+        "ALTER TABLE tva_subscriptions ALTER COLUMN org_id SET NOT NULL"
+    )
+    cur.execute(
+        "ALTER TABLE tva_export_credits ALTER COLUMN org_id SET NOT NULL"
+    )
+    cur.execute(
+        "ALTER TABLE tva_siren_registrations ALTER COLUMN org_id SET NOT NULL"
+    )
 
     # Bascule de la PRIMARY KEY : user_id -> org_id (ou (org_id, siren) /
     # (org_id, period_label) pour les tables composites). Gardée par
