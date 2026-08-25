@@ -713,6 +713,7 @@ if uploaded_files:
             home_country,
             target_currency,
             _vies_retry_nonce,
+            _vies_scope_id,  # Indispensable : les overrides VIES sont propres à chaque SIREN
             # BUGFIX (voir README - évolution.md) : ces trois variables
             # influencent bien le résultat du calcul (langue des notes
             # générées, taux BCE du seuil OSS affiché selon la période,

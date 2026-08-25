@@ -1404,6 +1404,12 @@ def normalize_full_vat(buyer_vat: str, buyer_country: str) -> str:
 
     cc = buyer_country.strip().upper() if buyer_country else ""
     cc = _ALIASES.get(cc, cc)
+
+    # Évite le double préfixage si le numéro commence déjà par le pays de
+    # destination (cas GB, US, etc. ou alias UK -> GB), même hors UE.
+    if cc and clean.startswith(cc):
+        return clean
+
     if cc:
         return f"{cc}{clean}"
     return clean

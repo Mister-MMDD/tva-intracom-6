@@ -5173,26 +5173,41 @@ parallèle)** :
   plutôt qu'un second bouton dédié — le recalcul relit de toute façon le
   cache scope déjà rafraîchi par la boucle de fond.
 
-**UX (`vies_ui.py`)** : pendant l'exécution, le bouton `vies_reverify_btn`
-est désactivé (`disabled=True`, évite un `retry_vats_batch` concurrent sur
-le même lot) et un message "Nouvelle tentative en cours en arrière-plan…"
-(`vies_retry_in_progress`) s'affiche, avec la barre de progression
-existante (`render_job_progress`, fragment `run_every=0.4`, réutilisé tel
-quel). À la fin, si au moins un numéro a été validé : `st.info`
-(`vies_retry_done_info`, compte affiché) au-dessus du bouton réactivé.
+**UX (`vies_ui.py`)** : 
+- **Réorganisation** : Le bouton de revérification VIES ainsi que
+  l'affichage de la progression du ré-essai automatique ont été remontés
+  tout en haut de la section des erreurs (juste sous l'avertissement "⚠️ x
+  numéro(s) non vérifiés"), AVANT la liste de classification manuelle et
+  le bloc d'erreur général (si 100% en erreur) — gain de lisibilité immédiat.
+- **Modale de succès automatique** : À la fin d'un ré-essai en arrière-plan
+  réussi, une fenêtre surgissante (`@st.dialog(title=_("vies_retry_done_title"))`)
+  apparaît automatiquement pour informer l'utilisateur.
+- **Bouton de mise à jour explicite** : Ajout du bouton "🚀 Mettre à jour le
+  calcul" (`vies_retry_update_btn`) dans la modale et dans l'onglet VIES.
+  Ce bouton remplace le bouton de revérification standard quand des
+  résultats sont prêts, rendant l'action de recalcul plus intuitive.
 
-**Écart volontaire par rapport au plan initial** : pas de nouvelle clé
-`_SS_VIES_RETRY_JOB_ID` dans `calc_cache.py` — le `job_id` étant
-déterministe et déjà suivi par les clés `_bgjob_*` internes de
-`background_calc.py`, une clé de session supplémentaire aurait été
-redondante.
+**Stabilité Pydantic & Isolation Cache (`models.py`, `app.py`)** :
+- **Fix `ValidationError` Streamlit** : Ajout de `ConfigDict(arbitrary_types_allowed=True)`
+  aux dataclasses Pydantic (`Sale`, `VatResult`, `OssThresholdSummary`,
+  `ViesReclassification`, `ViesValidationSummary`). Correctif critique
+  pour éviter les plantages lors des rechargements à chaud (hot-reload)
+  où Streamlit recrée les classes en mémoire, ce qui déclenchait des
+  erreurs de type chez Pydantic (conflit d'identité de classe).
+- **Isolation SIREN (scope_id)** : Ajout de `_vies_scope_id` dans la clé de
+  cache globale de `app.py`. Garantit que basculer entre deux clients
+  (SIREN) différents ayant les mêmes réglages fiscaux ne réutilise pas
+  par erreur le cache de l'autre (important pour l'étanchéité des
+  overrides VIES par client).
 
 Fichiers modifiés : `tva_intracom/vies_engine.py` (`is_inconclusive_result`,
 `retry_vats_batch`), `tva_intracom/ui/background_calc.py`
 (`vies_retry_job_id`, `start_vies_retry_loop`), `tva_intracom/ui/tabs/vies_ui.py`
-(câblage déclenchement/bouton/notification), `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`
-(3 nouvelles clés : `vies_retry_in_progress`, `vies_retry_progress_label`,
-`vies_retry_done_info`).
+(câblage déclenchement/bouton/notification/modale), `tva_intracom/models.py`
+(arbitrary_types_allowed), `app.py` (clé de cache),
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`
+(5 nouvelles clés : `vies_retry_in_progress`, `vies_retry_progress_label`,
+`vies_retry_done_info`, `vies_retry_done_title`, `vies_retry_update_btn`).
 
 Railway / scale-to-zero : la boucle ne démarre jamais sur une minuterie —
 uniquement suite à une action utilisateur réelle (upload ou clic), moment
@@ -5203,8 +5218,7 @@ cours de route. Fermeture des connexions DB du thread gérée par les
 `_CLOSE_FNS` déjà en place dans `start_background_job` — aucun nouveau
 risque de connexion orpheline.
 
-Validation : `py_compile` et `pyflakes` propres sur les 4 fichiers modifiés ;
-symétrie TOML vérifiée programmatiquement (1202 clés, 7 langues, +3 par
-rapport à la baseline précédente de 1199) ; suite `pytest` complète :
-175 passed / 3 failed, mêmes 3 échecs pré-existants (SUPABASE_DB_URL
-absente du sandbox) — aucune régression.
+Validation : `py_compile` et `pyflakes` propres sur tous les fichiers
+modifiés ; symétrie TOML vérifiée programmatiquement (1204 clés, 7 langues,
++5 par rapport à la baseline de 1199) ; suite `pytest` complète : 175 passed
+/ 3 failed (échecs connus DB URL).

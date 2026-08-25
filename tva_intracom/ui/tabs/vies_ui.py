@@ -20,6 +20,18 @@ from tva_intracom.ui.tabs.context import TabContext
 from tva_intracom.ui.calc_cache import CalcCacheState
 
 
+@st.dialog(title=_("vies_retry_done_title"))
+def _render_vies_retry_done_dialog(count: int, jid: str, nonce: int) -> None:
+    """Affiche une modale informant du succès du ré-essai VIES en arrière-plan."""
+    st.success(_("vies_retry_done_info", count=count))
+    if st.button(_("vies_retry_update_btn"), type="primary", use_container_width=True):
+        from tva_intracom.ui.background_calc import clear_job
+        if jid:
+            clear_job(jid)
+        CalcCacheState.save_vies_retry_nonce(nonce + 1)
+        st.rerun()
+
+
 @st.fragment
 def render_manual_vies_classification() -> None:
     """Isole la classification manuelle en fragment pour ne pas rerun toute l'app."""
@@ -252,18 +264,6 @@ def render_vies(ctx: TabContext) -> None:
 
         if vies_summary.total_inconclusive > 0:
             st.warning(_("vies_unverified_warning", count=vies_summary.total_inconclusive))
-            if vies_summary.total_inconclusive == vies_summary.total_checked:
-                st.error(_("vies_unverified_all_error"))
-                if st.button(_("vies_test_btn"), key="test_vies_conn"):
-                    from tva_intracom.vies_engine import check_vat
-                    with st.spinner(_("vies_testing")):
-                        test_res = check_vat("FR", "40303265045")
-                    if test_res.valid:
-                        st.success(_("vies_test_ok", name=test_res.name))
-                    else:
-                        st.error(_("vies_test_fail", valid=test_res.valid, error=test_res.error))
-
-            render_manual_vies_classification()
 
             # ── Ré-essai VIES automatique en arrière-plan ────────────────
             # Déclenché UNIQUEMENT ici (juste après un calcul qui laisse des
@@ -302,13 +302,39 @@ def render_vies(ctx: TabContext) -> None:
                 _vies_retry_state = get_job_state(_vies_retry_jid) if _vies_retry_jid else None
                 _vies_retry_result = _vies_retry_state.result if _vies_retry_state else None
                 if _vies_retry_result and _vies_retry_result.get("resolved", 0) > 0:
-                    st.info(_("vies_retry_done_info", count=_vies_retry_result["resolved"]))
+                    # Déclenchement automatique de la modale de succès
+                    _modal_key = f"_vies_retry_modal_done_{_vies_retry_jid}"
+                    if not st.session_state.get(_modal_key):
+                        st.session_state[_modal_key] = True
+                        _render_vies_retry_done_dialog(_vies_retry_result["resolved"], _vies_retry_jid, _vies_retry_nonce)
 
-                if st.button(_("vies_reverify_btn"), key="retry_vies_btn"):
-                    if _vies_retry_jid:
-                        clear_job(_vies_retry_jid)
-                    CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
-                    st.rerun()
+                    # On affiche aussi l'info et un bouton explicite "Mettre à jour"
+                    # au cas où la modale soit fermée par erreur.
+                    st.info(_("vies_retry_done_info", count=_vies_retry_result["resolved"]))
+                    if st.button(_("vies_retry_update_btn"), key="retry_vies_update_btn_manual", type="primary"):
+                        if _vies_retry_jid:
+                            clear_job(_vies_retry_jid)
+                        CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
+                        st.rerun()
+                else:
+                    if st.button(_("vies_reverify_btn"), key="retry_vies_btn"):
+                        if _vies_retry_jid:
+                            clear_job(_vies_retry_jid)
+                        CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
+                        st.rerun()
+
+            if vies_summary.total_inconclusive == vies_summary.total_checked:
+                st.error(_("vies_unverified_all_error"))
+                if st.button(_("vies_test_btn"), key="test_vies_conn"):
+                    from tva_intracom.vies_engine import check_vat
+                    with st.spinner(_("vies_testing")):
+                        test_res = check_vat("FR", "40303265045")
+                    if test_res.valid:
+                        st.success(_("vies_test_ok", name=test_res.name))
+                    else:
+                        st.error(_("vies_test_fail", valid=test_res.valid, error=test_res.error))
+
+            render_manual_vies_classification()
 
         # Overrides manuels en base (toujours accessible, replié par défaut)
         try:

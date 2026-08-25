@@ -8,7 +8,7 @@ from dataclasses import field
 from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import BeforeValidator
+from pydantic import BeforeValidator, ConfigDict
 from pydantic.dataclasses import dataclass
 
 
@@ -94,7 +94,7 @@ class Channel(enum.Enum):
     EXONERATION = "EXONERATION"      # Aucun reversement par le vendeur (exclu du flux de taxation vendeur)
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, config=ConfigDict(arbitrary_types_allowed=True))
 class OssThresholdSummary:
     """Synthese du seuil OSS 10 000 EUR."""
     total_oss_ht: Decimal = Decimal("0.00")
@@ -102,7 +102,7 @@ class OssThresholdSummary:
     oss_ht_by_year: dict[str, Decimal] = field(default_factory=dict)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, config=ConfigDict(arbitrary_types_allowed=True))
 class Sale:
     """Une ligne de vente.
 
@@ -189,7 +189,7 @@ class Sale:
         # exchange_rate/amazon_vat_amount en Decimal avant __post_init__).
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, config=ConfigDict(arbitrary_types_allowed=True))
 class VatResult:
     """Resultat du calcul de TVA pour une vente."""
 
@@ -206,7 +206,7 @@ class VatResult:
         object.__setattr__(self, "vat_country", sys.intern((self.vat_country or "").upper()))
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, config=ConfigDict(arbitrary_types_allowed=True))
 class ViesReclassification:
     """Detail d'une vente B2B reclassifiee en B2C."""
     sale_id: str
@@ -233,7 +233,7 @@ class ViesReclassification:
     scenario: str = ""
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, config=ConfigDict(arbitrary_types_allowed=True))
 class ViesValidationSummary:
     """Synthese de la validation VIES."""
     total_checked: int = 0

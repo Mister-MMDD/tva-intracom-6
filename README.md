@@ -207,7 +207,8 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
 ## Fonctionnalités clés
 
 ### Moteur fiscal
-- **Typage strict Pydantic** et précision absolue via **Decimal**.
+- **Typage strict Pydantic 2** et précision absolue via **Decimal**.
+- **Stabilité renforcée** via `arbitrary_types_allowed=True` pour supporter les rechargements à chaud (hot-reload) sans perte de type.
 - **Documentation fiscale intégrée** : Références légales précises (Bofip, CGI, Directives UE) dans les notes de résultats.
 - **Gestion des seuils** : Seuil OSS 10 000 € avec suivi multi-année et rattachement à l'année N-1.
 - **Reverse charge domestique** : Gestion de l'art. 194 pour les pays concernés (ES, IT, PL, etc.).
@@ -215,6 +216,7 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
 
 ### Validation VIES
 - **Architecture résiliente** à trois niveaux : Cache Privé > Cache Global > API UE.
+- **Ré-essai automatique en arrière-plan** des numéros inconclusifs avec notification par modale (`@st.dialog`) et bouton de mise à jour intelligent.
 - **Piste d'audit & Pseudonymisation** : Historique des vérifications avec pseudonymisation SHA-256 pour justifier les exonérations B2B en respectant la RGPD/DPRA.
 - **Certificat PDF** : Génération de preuve de validité opposable en cas de contrôle.
 
@@ -291,7 +293,7 @@ Le moteur respecte les exigences de protection des données personnelles (PII) e
 - **Protection contre l'injection de formules** : Sanitization systématique des exports Excel/CSV pour bloquer les attaques par injection de formules (`=`, `+`, `-`, `@`).
 - **Protection XSS & Injections** : Échappement systématique des données utilisateur (HTML/Markdown) et durcissement des clés de widgets Streamlit via hash.
 - **Validation des Redirects** : Contrôle du header `Host` via une allowlist pour prévenir les attaques de redirection ouverte (Open Redirect).
-- **Isolation Multi-tenant** : Clés de cache isolées par utilisateur (`current_user.id`) empêchant toute fuite de données entre comptes via le cache global.
+- **Isolation Multi-tenant & Multi-SIREN** : Clés de cache isolées par utilisateur (`current_user.id`) et par SIREN (`_vies_scope_id`) empêchant toute fuite de données entre comptes ou entre clients via le cache global.
 - **Sécurité Fail-Safe** : Interdiction de traitement si la clé de chiffrement est absente ; retrait du mécanisme de repli en clair (fail-open) pour garantir l'intégrité du chiffrement.
 - **Rétention limitée** : Suppression automatique des PII après 365 jours.
 - **TLS/SSL forcé** pour tous les échanges avec la base de données.
@@ -343,6 +345,7 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 - **Mode Simple / Détaillé** : Bascule d'affichage globale pour simplifier l'interface ou accéder aux détails d'audit.
 - **Barre de statut persistante** : Affichage constant du fichier chargé, de la période détectée et de l'état du calcul.
 - **Gestion de la confidentialité** : Sortie des paramètres sensibles vers une modale dédiée (`st.dialog`).
+- **Modale de succès VIES automatique** et bouton de synchronisation ("Mettre à jour le calcul") pour les calculs en arrière-plan.
 - **MD5 Upload Signature** : Détection fiable des modifications de fichiers pour invalider le cache.
 - **Feedback utilisateur enrichi** : Usage de `st.status` pour le suivi détaillé du parsing et de la validation VIES.
 - **Persistance multilingue** : Interface et exports localisés en 7 langues (FR, EN, DE, ES, IT, PL, PT).
