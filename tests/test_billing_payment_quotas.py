@@ -238,7 +238,16 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
     """
 
     @pytest.fixture(autouse=True)
-    def _mock_dependencies(self, monkeypatch):
+    def _mock_dependencies(self, monkeypatch, fake_db):
+        # BUGFIX (2026-08-25) : create_subscription_checkout_session() appelle
+        # désormais _require_write_access(acting_user_id) en tout premier
+        # (défense en profondeur RÔLES, cohérente avec register_siren/
+        # request_siren_removal) — nécessite `fake_db` pour que la lecture
+        # SQL du rôle (`SELECT role FROM tva_users ...`) résolve sans toucher
+        # une vraie base. Avec un cursor.fetchone() par défaut (MagicMock non
+        # configuré), `role` devient un MagicMock, jamais égal à "reader" :
+        # aucun de ces tests n'a besoin de simuler un rôle précis, ils testent
+        # la logique de quantité, pas les droits d'accès.
         monkeypatch.setattr(billing, "_stripe_configured", lambda: True)
         monkeypatch.setattr(billing, "_get_or_create_stripe_customer",
                              lambda org_id, email, acting_user_id="": "cus_fake")
@@ -430,14 +439,27 @@ def _fake_schedule_phase(start_date: float, price_id: str | None,
 
 class TestExtractScheduledChange:
 
-    def setup_method(self):
-        # _plan_from_price_id compare aux price_id configurés en variables
-        # d'environnement — on les fixe explicitement pour ces tests plutôt
-        # que de dépendre de l'environnement sandbox (souvent vide).
-        os.environ["STRIPE_PRICE_SUB_BUSINESS_MONTHLY"] = "price_business_month"
-        os.environ["STRIPE_PRICE_SUB_BUSINESS_YEARLY"] = "price_business_year"
-        os.environ["STRIPE_PRICE_SUB_CABINET_MONTHLY"] = "price_cabinet_month"
-        os.environ["STRIPE_PRICE_SUB_CABINET_YEARLY"] = "price_cabinet_year"
+    # BUGFIX (2026-08-25) : `_plan_from_price_id` lit les price_id via
+    # `billing._env()`, qui priorise `st.secrets` sur `os.environ` (voir
+    # docstring de `_env`) — fixer seulement `os.environ[...]` ici était
+    # silencieusement ignoré dès qu'un `secrets.toml` local contenait de
+    # vrais price_id Stripe (environnement de dev de Matthieu). On
+    # monkeypatch directement `billing._env` pour garantir que CES tests
+    # utilisent bien les price_id simulés, quel que soit l'environnement
+    # local.
+    _FAKE_PRICE_ENV = {
+        "STRIPE_PRICE_SUB_BUSINESS_MONTHLY": "price_business_month",
+        "STRIPE_PRICE_SUB_BUSINESS_YEARLY": "price_business_year",
+        "STRIPE_PRICE_SUB_CABINET_MONTHLY": "price_cabinet_month",
+        "STRIPE_PRICE_SUB_CABINET_YEARLY": "price_cabinet_year",
+    }
+
+    @pytest.fixture(autouse=True)
+    def _mock_price_env(self, monkeypatch):
+        monkeypatch.setattr(
+            billing, "_env",
+            lambda key, default="": self._FAKE_PRICE_ENV.get(key, os.environ.get(key, default)),
+        )
 
     def test_no_current_phase_returns_none(self):
         # Schedule pas encore démarré (statut "not_started") : rien à afficher.
@@ -516,8 +538,20 @@ class TestSubscriptionScheduleWebhookEvents:
         monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *a, **k: event)
         monkeypatch.setattr(billing, "_org_id_for_stripe_customer", lambda cid: "org-42")
 
-        os.environ["STRIPE_PRICE_SUB_BUSINESS_MONTHLY"] = "price_business_month"
-        os.environ["STRIPE_PRICE_SUB_CABINET_YEARLY"] = "price_cabinet_year"
+        # BUGFIX (2026-08-25) : voir commentaire de TestExtractScheduledChange
+        # — monkeypatch de billing._env, pas seulement os.environ, pour
+        # rester fiable même avec des secrets Streamlit locaux réels.
+        # Fallback sur os.environ pour les clés hors price_id (ex.
+        # STRIPE_WEBHOOK_SECRET, fixée juste au-dessus via monkeypatch.setenv)
+        # — sinon ce mock écraserait aussi la lecture du webhook secret.
+        _fake_prices = {
+            "STRIPE_PRICE_SUB_BUSINESS_MONTHLY": "price_business_month",
+            "STRIPE_PRICE_SUB_CABINET_YEARLY": "price_cabinet_year",
+        }
+        monkeypatch.setattr(
+            billing, "_env",
+            lambda key, default="": _fake_prices.get(key, os.environ.get(key, default)),
+        )
 
         billing.handle_stripe_webhook_event(b"{}", "sig")
 

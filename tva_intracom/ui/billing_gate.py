@@ -37,6 +37,7 @@ from typing import Any, Iterable, Optional
 
 import streamlit as st
 
+from tva_intracom import auth as tva_auth
 from tva_intracom import billing as tva_billing
 from tva_intracom.i18n import _, country_label
 from tva_intracom.models import Channel
@@ -130,7 +131,15 @@ class BillingGate:
 
     def get_payg_checkout_url(self) -> Optional[str]:
         """Crée la session Stripe Checkout une seule fois par période/session
-        (mise en cache dans session_state) et retourne son URL."""
+        (mise en cache dans session_state) et retourne son URL.
+
+        RÔLES (2026-08-25) : un lecteur ne peut pas engager de dépense pour
+        l'organisation (crédits PAYG désormais partagés par `org_id`) — on
+        ne crée même pas la session Stripe dans ce cas (évite un appel
+        réseau inutile en plus du blocage) ; voir gated_download() pour le
+        traitement UI (bouton visible mais désactivé, pas masqué)."""
+        if not tva_auth.is_admin(self.current_user):
+            return None
         _cache_key = f"_stripe_checkout_url::{self.period_label}"
         if _cache_key not in st.session_state:
             try:
@@ -194,6 +203,45 @@ class BillingGate:
                 st.error(_("gate_siren_not_registered_err", siren=self.siren_entreprise))
                 return
 
+            _btn_key = "paywall_btn_" + hashlib.sha256(
+                f"{self.period_label}_{file_name}".encode()
+            ).hexdigest()[:16]
+            _paywall_css = f"""
+                <style>
+                .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] {{
+                    background-color: #7F77DD !important;
+                    color: #FFFFFF !important;
+                    border: none !important;
+                    width: 100%;
+                }}
+                .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] p {{
+                    color: #FFFFFF !important;
+                    font-weight: 500 !important;
+                }}
+                </style>
+                """
+
+            # RÔLES (2026-08-25) : un lecteur voit le même bouton, au même
+            # endroit (demande explicite : visible, pas masqué — contexte
+            # différent du reste de la bascule org_id où l'on masque), mais
+            # désactivé — impossible d'engager une dépense Stripe pour
+            # l'organisation. `get_payg_checkout_url()` ne crée déjà plus la
+            # session Stripe pour un lecteur (voir plus haut) ; ici on se
+            # contente de distinguer ce cas du vrai cas d'erreur Stripe
+            # (compte admin mais session Checkout indisponible), qui garde
+            # son message d'erreur existant.
+            if not tva_auth.is_admin(self.current_user):
+                st.markdown(_paywall_css, unsafe_allow_html=True)
+                st.link_button(
+                    f"🔓 {label} — {self.unlock_label_suffix}",
+                    "#",
+                    width="stretch",
+                    disabled=True,
+                    key=_btn_key,
+                )
+                st.caption(_("unlock_export_admin_only"))
+                return
+
             _url = self.get_payg_checkout_url()
             if _url:
                 # BUGFIX : un <a> HTML brut (unsafe_allow_html) ne sort pas de
@@ -210,26 +258,7 @@ class BillingGate:
                 # la page, voire pire. On dérive la clé d'un hash plutôt que d'utiliser
                 # la chaîne utilisateur directement — la clé n'a besoin que d'être
                 # stable et unique par (période, fichier), pas lisible.
-                _btn_key = "paywall_btn_" + hashlib.sha256(
-                    f"{self.period_label}_{file_name}".encode()
-                ).hexdigest()[:16]
-                st.markdown(
-                    f"""
-                    <style>
-                    .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] {{
-                        background-color: #7F77DD !important;
-                        color: #FFFFFF !important;
-                        border: none !important;
-                        width: 100%;
-                    }}
-                    .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] p {{
-                        color: #FFFFFF !important;
-                        font-weight: 500 !important;
-                    }}
-                    </style>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                st.markdown(_paywall_css, unsafe_allow_html=True)
                 st.link_button(
                     f"🔓 {label} — {self.unlock_label_suffix}",
                     _url,

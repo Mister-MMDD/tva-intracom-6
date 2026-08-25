@@ -486,6 +486,15 @@ def _render_account_dialog(_current_user) -> None:
 
     st.divider()
     st.markdown(f"**{_('delete_account_title')}**")
+    # RÔLES (2026-08-25) : un lecteur ne peut pas supprimer son propre
+    # compte — seul l'administrateur de l'organisation gère les départs
+    # (via tva_intracom/ui/admin.py, qui appelle déjà tva_auth.delete_account
+    # pour un AUTRE membre). Masqué plutôt que désactivé, comme les autres
+    # actions réservées à l'admin dans cette bascule org_id. Protection
+    # serveur en complément : voir tva_auth.delete_account.
+    if _current_user.role != "admin":
+        st.caption(_("delete_account_reader_info"))
+        return
     st.warning(_("delete_account_warning"))
 
     # Double confirmation pour la suppression
@@ -504,12 +513,14 @@ def _render_account_dialog(_current_user) -> None:
             preserve_upload_rerun()
         if _col2.button(_("confirm_delete_btn"), key="btn_confirm_delete", type="primary"):
             try:
-                tva_auth.delete_account(_current_user.id)
+                tva_auth.delete_account(_current_user.id, acting_user_id=_current_user.id)
                 st.session_state["auth_user"] = None
                 st.session_state["manual_logout"] = True
                 st.success(_("account_deleted_success"))
                 time.sleep(0.5)
                 st.rerun()
+            except PermissionError as _perm_err:
+                st.error(str(_perm_err))
             except Exception as _del_err:
                 st.error(f"Erreur lors de la suppression : {_del_err}")
 
@@ -698,12 +709,20 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 for r in _registered_sirens
             }
             _siren_label_by_value[_new_siren_label] = _new_siren_label
+            # RECHERCHE (2026-08-25) : st.selectbox filtre déjà nativement
+            # les options à la frappe (composant BaseWeb Select) — pas
+            # besoin d'un champ de recherche séparé, qui ajouterait un état
+            # supplémentaire à synchroniser. Le `help` rend simplement cette
+            # capacité découvrable pour un cabinet avec de nombreux clients.
+            # Liste elle-même triée par ordre alphabétique côté
+            # list_registered_sirens() (billing.py).
             _siren_choice = st.selectbox(
                 _("siren_client_label"),
                 options=_siren_options + [_new_siren_label],
                 index=0 if _siren_options else 0,
                 format_func=lambda v: _siren_label_by_value.get(v, v),
                 key="siren_select_box",
+                help=_("siren_select_search_help"),
             ) if _siren_options else _new_siren_label
 
             if _siren_choice == _new_siren_label:
@@ -886,7 +905,13 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
 
 
                 # Option de retrait du SIREN (toujours visible si déjà enregistré)
-                if _match:
+                # RÔLES (2026-08-25) : masqué pour un compte lecteur (`_is_reader`)
+                # plutôt que désactivé — un lecteur n'a rien à voir/faire ici,
+                # cette action restant du ressort de l'administrateur de
+                # l'organisation. `_require_write_access` (billing.py) reste la
+                # vraie protection côté serveur ; ce masquage évite seulement le
+                # PermissionError non catché qui remontait jusqu'ici en UI.
+                if _match and not _is_reader:
                     st.divider()
                     if _match.get("pending_removal_at"):
                         import datetime as _dt
@@ -913,318 +938,325 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                             preserve_upload_rerun()
 
         # ── Abonnements & forfaits ────────────────────────────────────────────────
-        with st.expander(_("billing_header"), expanded=True):
-            _sub_status = None
-            try:
-                _sub_status = _cached_db_read(
-                    f"sub_status_{_current_user.org_id}",
-                    lambda: tva_billing.get_subscription_status(_current_user.org_id),
-                )
-            except Exception as _sub_err:
-                st.caption(_("sub_status_unavailable", error=_sub_err))
-
-            _plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
-                _sub_status.plan if _sub_status else None, _sub_status.plan if _sub_status else "—")
-            _interval_label = {"month": _("interval_monthly"), "year": _("interval_yearly")}.get(
-                _sub_status.billing_interval if _sub_status else None, "")
-
-            if _sub_status and _sub_status.active:
-                st.success(_("sub_active_msg", plan=_plan_label, interval=_interval_label)
-                           + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
-
-                # Downgrade différé (Subscription Schedule Stripe, 2026-08-16) :
-                # un changement de plan à venir en fin de période est signalé
-                # ici, distinctement du plan actif ci-dessus qui reste
-                # inchangé jusqu'à la date effective.
-                if _sub_status.scheduled_plan and _sub_status.scheduled_change_at:
-                    _sched_plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
-                        _sub_status.scheduled_plan, _sub_status.scheduled_plan)
-                    import datetime as _dt
-                    st.info(
-                        _("sub_scheduled_change_msg",
-                          plan=_sched_plan_label,
-                          date=_dt.datetime.fromtimestamp(_sub_status.scheduled_change_at).strftime("%d/%m/%Y"))
+        # RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — abonnement
+        # Stripe, crédits PAYG et grille tarifaire sont désormais partagés au niveau
+        # de l'organisation (org_id) ; un lecteur n'a ni le droit de les modifier
+        # (portail Stripe, retrait SIREN cabinet) ni besoin de les consulter — seul
+        # l'administrateur de l'organisation gère ces réglages.
+        if tva_auth.is_admin(_current_user):
+            with st.expander(_("billing_header"), expanded=True):
+                _sub_status = None
+                try:
+                    _sub_status = _cached_db_read(
+                        f"sub_status_{_current_user.org_id}",
+                        lambda: tva_billing.get_subscription_status(_current_user.org_id),
                     )
+                except Exception as _sub_err:
+                    st.caption(_("sub_status_unavailable", error=_sub_err))
 
-                # Gestion des SIREN pour un abonnement Cabinet (ajout via la section
-                # Entreprise, retrait différé ici, effectif à la date anniversaire).
-                if _sub_status.plan == "cabinet" and _registered_sirens:
-                    st.markdown(f"**{_('sirens_managed_title')}**")
-                    for _r in _registered_sirens:
-                        _c1, _c2 = st.columns([2, 1])
-                        _label = f"{_r['company_name'] or _('no_name')} — {_r['siren']}"
-                        if _r.get("pending_removal_at"):
-                            _c1.caption(f"{_label} · {_('removal_scheduled_short')}")
-                        else:
-                            _c1.caption(_label)
-                            if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", width="stretch"):
-                                _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, _r["siren"])
-                                _invalidate_db_cache(f"sirens_{_current_user.org_id}")
-                                _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
-                                import datetime as _dt
-                                st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
-                                preserve_upload_rerun()
+                _plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
+                    _sub_status.plan if _sub_status else None, _sub_status.plan if _sub_status else "—")
+                _interval_label = {"month": _("interval_monthly"), "year": _("interval_yearly")}.get(
+                    _sub_status.billing_interval if _sub_status else None, "")
 
-                # Session de portail Stripe générée UNIQUEMENT au clic — avant
-                # ce correctif, `create_billing_portal_session()` (un appel
-                # réseau à l'API Stripe, pas juste une lecture DB) était
-                # exécuté à chaque rerun de toute l'app, que l'utilisateur
-                # ait ou non l'intention de gérer son abonnement. Même
-                # pattern que le bouton PAYG ci-dessous (cache de l'URL en
-                # session_state entre le 1er clic qui la génère et le 2e qui
-                # y navigue réellement).
-                if st.button(_("manage_sub_stripe_btn"), key="btn_open_billing_portal"):
-                    try:
-                        st.session_state["_billing_portal_url"] = tva_billing.create_billing_portal_session(
-                            _current_user.org_id,
-                            return_url=_stripe_cancel_url(),
+                if _sub_status and _sub_status.active:
+                    st.success(_("sub_active_msg", plan=_plan_label, interval=_interval_label)
+                               + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
+
+                    # Downgrade différé (Subscription Schedule Stripe, 2026-08-16) :
+                    # un changement de plan à venir en fin de période est signalé
+                    # ici, distinctement du plan actif ci-dessus qui reste
+                    # inchangé jusqu'à la date effective.
+                    if _sub_status.scheduled_plan and _sub_status.scheduled_change_at:
+                        _sched_plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
+                            _sub_status.scheduled_plan, _sub_status.scheduled_plan)
+                        import datetime as _dt
+                        st.info(
+                            _("sub_scheduled_change_msg",
+                              plan=_sched_plan_label,
+                              date=_dt.datetime.fromtimestamp(_sub_status.scheduled_change_at).strftime("%d/%m/%Y"))
                         )
-                    except Exception as _portal_err:
-                        st.session_state.pop("_billing_portal_url", None)
-                        st.error(_("sub_status_unavailable", error=_portal_err))
-                if st.session_state.get("_billing_portal_url"):
-                    st.link_button(_("continue_to_payment_btn"), st.session_state["_billing_portal_url"])
 
-            # ── Crédits PAYG (Achats uniques) ─────────────────────────────────────
-            try:
-                _credits = _cached_db_read(
-                    f"purchased_credits_{_current_user.org_id}",
-                    lambda: tva_billing.list_purchased_credits(_current_user.org_id),
-                )
-                if _credits:
-                    st.markdown("---")
-                    st.markdown(f"**{_('unlocked_periods_title')}**")
-                    for _c in _credits:
-                        from datetime import datetime as _dt
-                        _at = _dt.fromtimestamp(_c["at"]).strftime("%d/%m/%Y")
-                        st.caption(f"✅ **{_c['period']}** — {_('purchased_at', date=_at)}")
-            except Exception as _credit_err:
-                st.caption(_("purchase_history_unavailable", error=_credit_err))
-            else:
-                # Ce bloc ne concerne QUE les comptes non premium : avant ce
-                # correctif, il s'exécutait dès que la lecture des crédits
-                # réussissait (c'est un `else` de try/except, pas une
-                # condition sur l'abonnement), donc la bannière "Passez
-                # Premium" et la grille tarifaire restaient visibles même
-                # pour un compte avec un abonnement actif.
-                if not (_sub_status and _sub_status.active):
-                    if _sub_status and _sub_status.status:
-                        # Abonnement existant mais inactif (annulé/expiré) : état actuel
-                        # affiché pour information, sans historique complet.
-                        st.warning(_("last_sub_msg", plan=_plan_label, status=_sub_status.status)
-                                   + (f" ({_('expired_at', date=__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y'))})"
-                                      if _sub_status.current_period_end else ""))
+                    # Gestion des SIREN pour un abonnement Cabinet (ajout via la section
+                    # Entreprise, retrait différé ici, effectif à la date anniversaire).
+                    if _sub_status.plan == "cabinet" and _registered_sirens:
+                        st.markdown(f"**{_('sirens_managed_title')}**")
+                        for _r in _registered_sirens:
+                            _c1, _c2 = st.columns([2, 1])
+                            _label = f"{_r['company_name'] or _('no_name')} — {_r['siren']}"
+                            if _r.get("pending_removal_at"):
+                                _c1.caption(f"{_label} · {_('removal_scheduled_short')}")
+                            else:
+                                _c1.caption(_label)
+                                if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", width="stretch"):
+                                    _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, _r["siren"])
+                                    _invalidate_db_cache(f"sirens_{_current_user.org_id}")
+                                    _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
+                                    import datetime as _dt
+                                    st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
+                                    preserve_upload_rerun()
 
-                    # ── Bannière d'incitation Premium (utilisateurs gratuits) ───────
-                    st.markdown(
-                        f"""
-                        <div style="
-                            background-color: #EEEDFE;
-                            border-radius: 12px;
-                            padding: 14px 16px;
-                            margin-bottom: 12px;
-                        ">
-                            <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
-                                {_("premium_banner_title")}
-                            </p>
-                            <p style="margin: 0; font-size: 12px; color: #3C3489;">
-                                {_("premium_banner_body")}
-                            </p>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    st.caption(_("billing_caption"))
-
-                    with st.expander(_("pricing_grid_expander"), expanded=False):
+                    # Session de portail Stripe générée UNIQUEMENT au clic — avant
+                    # ce correctif, `create_billing_portal_session()` (un appel
+                    # réseau à l'API Stripe, pas juste une lecture DB) était
+                    # exécuté à chaque rerun de toute l'app, que l'utilisateur
+                    # ait ou non l'intention de gérer son abonnement. Même
+                    # pattern que le bouton PAYG ci-dessous (cache de l'URL en
+                    # session_state entre le 1er clic qui la génère et le 2e qui
+                    # y navigue réellement).
+                    if st.button(_("manage_sub_stripe_btn"), key="btn_open_billing_portal"):
                         try:
-                            _grid = _cached_db_read(
-                                f"pricing_grid_{_current_user.org_id}",
-                                lambda: tva_billing.get_pricing_grid(_current_user.org_id),
+                            st.session_state["_billing_portal_url"] = tva_billing.create_billing_portal_session(
+                                _current_user.org_id,
+                                return_url=_stripe_cancel_url(),
+                                acting_user_id=_current_user.id,
                             )
-                        except Exception as _grid_err:
-                            _grid = None
-                            st.caption(_("pricing_grid_unavailable", error=_grid_err))
+                        except Exception as _portal_err:
+                            st.session_state.pop("_billing_portal_url", None)
+                            st.error(_("sub_status_unavailable", error=_portal_err))
+                    if st.session_state.get("_billing_portal_url"):
+                        st.link_button(_("continue_to_payment_btn"), st.session_state["_billing_portal_url"])
 
-                        if _grid:
+                # ── Crédits PAYG (Achats uniques) ─────────────────────────────────────
+                try:
+                    _credits = _cached_db_read(
+                        f"purchased_credits_{_current_user.org_id}",
+                        lambda: tva_billing.list_purchased_credits(_current_user.org_id),
+                    )
+                    if _credits:
+                        st.markdown("---")
+                        st.markdown(f"**{_('unlocked_periods_title')}**")
+                        for _c in _credits:
+                            from datetime import datetime as _dt
+                            _at = _dt.fromtimestamp(_c["at"]).strftime("%d/%m/%Y")
+                            st.caption(f"✅ **{_c['period']}** — {_('purchased_at', date=_at)}")
+                except Exception as _credit_err:
+                    st.caption(_("purchase_history_unavailable", error=_credit_err))
+                else:
+                    # Ce bloc ne concerne QUE les comptes non premium : avant ce
+                    # correctif, il s'exécutait dès que la lecture des crédits
+                    # réussissait (c'est un `else` de try/except, pas une
+                    # condition sur l'abonnement), donc la bannière "Passez
+                    # Premium" et la grille tarifaire restaient visibles même
+                    # pour un compte avec un abonnement actif.
+                    if not (_sub_status and _sub_status.active):
+                        if _sub_status and _sub_status.status:
+                            # Abonnement existant mais inactif (annulé/expiré) : état actuel
+                            # affiché pour information, sans historique complet.
+                            st.warning(_("last_sub_msg", plan=_plan_label, status=_sub_status.status)
+                                       + (f" ({_('expired_at', date=__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y'))})"
+                                          if _sub_status.current_period_end else ""))
+
+                        # ── Bannière d'incitation Premium (utilisateurs gratuits) ───────
+                        st.markdown(
+                            f"""
+                            <div style="
+                                background-color: #EEEDFE;
+                                border-radius: 12px;
+                                padding: 14px 16px;
+                                margin-bottom: 12px;
+                            ">
+                                <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
+                                    {_("premium_banner_title")}
+                                </p>
+                                <p style="margin: 0; font-size: 12px; color: #3C3489;">
+                                    {_("premium_banner_body")}
+                                </p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(_("billing_caption"))
+
+                        with st.expander(_("pricing_grid_expander"), expanded=False):
                             try:
-                                _promotions = _cached_db_read(
-                                    f"promotions_{_current_user.org_id}",
-                                    lambda: tva_billing.list_available_promotions(_current_user.org_id),
+                                _grid = _cached_db_read(
+                                    f"pricing_grid_{_current_user.org_id}",
+                                    lambda: tva_billing.get_pricing_grid(_current_user.org_id),
                                 )
-                            except Exception as _promo_list_err:
-                                _promotions = []
-                                st.error(_("promo_codes_unavailable", error=_promo_list_err))
+                            except Exception as _grid_err:
+                                _grid = None
+                                st.caption(_("pricing_grid_unavailable", error=_grid_err))
 
-                            if _promotions:
-                                st.markdown(f"**{_('available_promo_codes_title')}**")
-                                for _promo_item in _promotions:
-                                    if _promo_item.get("percent_off") is not None:
-                                        _reduc = f"{_promo_item['percent_off']:g}%"
-                                    elif _promo_item.get("amount_off") is not None:
-                                        _reduc = f"{_promo_item['amount_off']:.2f} {(_promo_item.get('currency') or 'eur').upper()}"
-                                    else:
-                                        _reduc = "—"
-
-                                    _conditions = []
-                                    if _promo_item.get("first_time_only"):
-                                        _conditions.append(_("promo_first_time"))
-                                    if _promo_item.get("minimum_amount") is not None:
-                                        _conditions.append(
-                                            _("promo_min_amount", amount=_promo_item['minimum_amount'], currency=(_promo_item.get('minimum_amount_currency') or 'eur').upper())
-                                        )
-                                    if _promo_item.get("stock_remaining") is not None:
-                                        _conditions.append(_("promo_stock_remaining", count=_promo_item['stock_remaining']))
-                                    if _promo_item.get("expires_at"):
-                                        import datetime as _dt
-                                        _conditions.append(
-                                            _("promo_expires_at", date=_dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y"))
-                                        )
-                                    _conditions_txt = " · ".join(_conditions) if _conditions else _("promo_no_conditions")
-
-                                    _eligible = _promo_item.get("eligible")
-                                    if _eligible is True:
-                                        st.success(f"✅ **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
-                                    elif _eligible is False:
-                                        _reasons_txt = ", ".join(_promo_item.get("ineligible_reasons", []))
-                                        st.warning(_("promo_ineligible_msg", code=_promo_item['code'], reduc=_reduc, conditions=_conditions_txt, reasons=_reasons_txt))
-                                    else:
-                                        st.markdown(f"- **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
-
-                            if _grid.get("payg"):
-                                _p = _grid["payg"]
-                                _payg_label = _p.get("name") or _("payg_label_default")
-                                if _p.get("discounted_amount") is not None:
-                                    st.markdown(
-                                        f"**{_payg_label}** — "
-                                        f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
-                                        f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
-                                        f"({_p['discount_label']}, code {_p['discount_code']}) / {_('per_declaration')}",
-                                        unsafe_allow_html=True,
+                            if _grid:
+                                try:
+                                    _promotions = _cached_db_read(
+                                        f"promotions_{_current_user.org_id}",
+                                        lambda: tva_billing.list_available_promotions(_current_user.org_id),
                                     )
-                                else:
-                                    st.markdown(f"**{_payg_label}** — {_p['amount']:.2f} "
-                                                f"{_p['currency'].upper()} / {_('per_declaration')}")
+                                except Exception as _promo_list_err:
+                                    _promotions = []
+                                    st.error(_("promo_codes_unavailable", error=_promo_list_err))
 
-                            if _grid.get("business"):
-                                _biz_lines = []
-                                _biz_label = None
-                                for _iv, _lbl in (("month", _("per_month")), ("year", _("per_year"))):
-                                    _b = _grid["business"].get(_iv)
-                                    if _b and _b["amount"] is not None:
-                                        if _biz_label is None:
-                                            _biz_label = _b.get("name") or _("plan_pro")
-                                        if _b.get("discounted_amount") is not None:
-                                            _biz_lines.append(
-                                                f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
-                                                f"→ <span style='color:#2ca02c;font-weight:bold'>{_b['discounted_amount']:.2f} {_b['currency'].upper()}</span> "
-                                                f"({_b['discount_label']}, code {_b['discount_code']}) / {_lbl}"
-                                            )
+                                if _promotions:
+                                    st.markdown(f"**{_('available_promo_codes_title')}**")
+                                    for _promo_item in _promotions:
+                                        if _promo_item.get("percent_off") is not None:
+                                            _reduc = f"{_promo_item['percent_off']:g}%"
+                                        elif _promo_item.get("amount_off") is not None:
+                                            _reduc = f"{_promo_item['amount_off']:.2f} {(_promo_item.get('currency') or 'eur').upper()}"
                                         else:
-                                            _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
-                                if _biz_lines:
-                                    st.markdown(f"**{_biz_label}** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
+                                            _reduc = "—"
 
-                            if _grid.get("cabinet"):
-                                st.markdown("""
-                                    <style>
-                                    .cabinet-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
-                                    .cabinet-table th { text-align: left; padding: 8px; border-bottom: 2px solid rgba(250, 250, 250, 0.2); background-color: rgba(250, 250, 250, 0.05); }
-                                    .cabinet-table td { padding: 8px; border-bottom: 1px solid rgba(250, 250, 250, 0.1); }
-                                    </style>
-                                """, unsafe_allow_html=True)
-                                for _iv, _lbl in (("month", _("billing_monthly")), ("year", _("billing_yearly"))):
-                                    _c = _grid["cabinet"].get(_iv)
-                                    if not _c or not _c.get("tiers"):
-                                        continue
-                                    _cab_label = _c.get("name") or _("plan_cabinet")
-                                    st.markdown(f"**{_cab_label} — {_lbl}** ({_('min_3_sirens')})")
-                                    _rows = []
-                                    _prev_bound = 0
-                                    for _t in _c["tiers"]:
-                                        _up_to = _t["up_to"]
-                                        _range = f"{_prev_bound + 1} – {_up_to}" if _up_to is not None else f"{_prev_bound + 1}+"
-                                        if _t["unit_amount"] is not None:
-                                            if _t.get("discounted_unit_amount") is not None:
-                                                _price_txt = (
-                                                    f"<span style='text-decoration:line-through;color:gray'>{_t['unit_amount']:.2f} {_c['currency'].upper()}</span> "
-                                                    f"→ <span style='color:#2ca02c;font-weight:bold'>{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()}</span> "
-                                                    f"({_t['discount_label']}, code {_t['discount_code']}) / {_('siren_label')}"
+                                        _conditions = []
+                                        if _promo_item.get("first_time_only"):
+                                            _conditions.append(_("promo_first_time"))
+                                        if _promo_item.get("minimum_amount") is not None:
+                                            _conditions.append(
+                                                _("promo_min_amount", amount=_promo_item['minimum_amount'], currency=(_promo_item.get('minimum_amount_currency') or 'eur').upper())
+                                            )
+                                        if _promo_item.get("stock_remaining") is not None:
+                                            _conditions.append(_("promo_stock_remaining", count=_promo_item['stock_remaining']))
+                                        if _promo_item.get("expires_at"):
+                                            import datetime as _dt
+                                            _conditions.append(
+                                                _("promo_expires_at", date=_dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y"))
+                                            )
+                                        _conditions_txt = " · ".join(_conditions) if _conditions else _("promo_no_conditions")
+
+                                        _eligible = _promo_item.get("eligible")
+                                        if _eligible is True:
+                                            st.success(f"✅ **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
+                                        elif _eligible is False:
+                                            _reasons_txt = ", ".join(_promo_item.get("ineligible_reasons", []))
+                                            st.warning(_("promo_ineligible_msg", code=_promo_item['code'], reduc=_reduc, conditions=_conditions_txt, reasons=_reasons_txt))
+                                        else:
+                                            st.markdown(f"- **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
+
+                                if _grid.get("payg"):
+                                    _p = _grid["payg"]
+                                    _payg_label = _p.get("name") or _("payg_label_default")
+                                    if _p.get("discounted_amount") is not None:
+                                        st.markdown(
+                                            f"**{_payg_label}** — "
+                                            f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
+                                            f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
+                                            f"({_p['discount_label']}, code {_p['discount_code']}) / {_('per_declaration')}",
+                                            unsafe_allow_html=True,
+                                        )
+                                    else:
+                                        st.markdown(f"**{_payg_label}** — {_p['amount']:.2f} "
+                                                    f"{_p['currency'].upper()} / {_('per_declaration')}")
+
+                                if _grid.get("business"):
+                                    _biz_lines = []
+                                    _biz_label = None
+                                    for _iv, _lbl in (("month", _("per_month")), ("year", _("per_year"))):
+                                        _b = _grid["business"].get(_iv)
+                                        if _b and _b["amount"] is not None:
+                                            if _biz_label is None:
+                                                _biz_label = _b.get("name") or _("plan_pro")
+                                            if _b.get("discounted_amount") is not None:
+                                                _biz_lines.append(
+                                                    f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
+                                                    f"→ <span style='color:#2ca02c;font-weight:bold'>{_b['discounted_amount']:.2f} {_b['currency'].upper()}</span> "
+                                                    f"({_b['discount_label']}, code {_b['discount_code']}) / {_lbl}"
                                                 )
                                             else:
-                                                _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / {_('siren_label')}"
-                                        else:
-                                            _price_txt = "—"
-                                        if _t.get("flat_amount") is not None:
-                                            _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} {_('fixed_amount')})"
-                                        _rows.append({_("col_managed_sirens"): _range, _("col_price"): _price_txt})
-                                        _prev_bound = _up_to if _up_to is not None else _prev_bound
-                                    # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown
-                                    # avec l'export HTML du DataFrame pour conserver le formattage.
-                                    st.markdown(
-                                        pd.DataFrame(_rows).to_html(escape=False, index=False, classes="cabinet-table"),
-                                        unsafe_allow_html=True
-                                    )
+                                                _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
+                                    if _biz_lines:
+                                        st.markdown(f"**{_biz_label}** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
 
-                if not (_sub_status and _sub_status.active):
-                    _detected_period_for_payg = st.session_state.get("_period_label", "")
-                    st.markdown(f"**{_('payg_title')}** — {_('payg_subtitle')}")
-                    if not _detected_period_for_payg:
-                        st.caption(_("payg_no_period_warning"))
-                    else:
-                        st.caption(_("payg_detected_period_msg", period=_detected_period_for_payg))
-                        if st.button(_("payg_buy_btn"), key="btn_payg_sidebar"):
+                                if _grid.get("cabinet"):
+                                    st.markdown("""
+                                        <style>
+                                        .cabinet-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+                                        .cabinet-table th { text-align: left; padding: 8px; border-bottom: 2px solid rgba(250, 250, 250, 0.2); background-color: rgba(250, 250, 250, 0.05); }
+                                        .cabinet-table td { padding: 8px; border-bottom: 1px solid rgba(250, 250, 250, 0.1); }
+                                        </style>
+                                    """, unsafe_allow_html=True)
+                                    for _iv, _lbl in (("month", _("billing_monthly")), ("year", _("billing_yearly"))):
+                                        _c = _grid["cabinet"].get(_iv)
+                                        if not _c or not _c.get("tiers"):
+                                            continue
+                                        _cab_label = _c.get("name") or _("plan_cabinet")
+                                        st.markdown(f"**{_cab_label} — {_lbl}** ({_('min_3_sirens')})")
+                                        _rows = []
+                                        _prev_bound = 0
+                                        for _t in _c["tiers"]:
+                                            _up_to = _t["up_to"]
+                                            _range = f"{_prev_bound + 1} – {_up_to}" if _up_to is not None else f"{_prev_bound + 1}+"
+                                            if _t["unit_amount"] is not None:
+                                                if _t.get("discounted_unit_amount") is not None:
+                                                    _price_txt = (
+                                                        f"<span style='text-decoration:line-through;color:gray'>{_t['unit_amount']:.2f} {_c['currency'].upper()}</span> "
+                                                        f"→ <span style='color:#2ca02c;font-weight:bold'>{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()}</span> "
+                                                        f"({_t['discount_label']}, code {_t['discount_code']}) / {_('siren_label')}"
+                                                    )
+                                                else:
+                                                    _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / {_('siren_label')}"
+                                            else:
+                                                _price_txt = "—"
+                                            if _t.get("flat_amount") is not None:
+                                                _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} {_('fixed_amount')})"
+                                            _rows.append({_("col_managed_sirens"): _range, _("col_price"): _price_txt})
+                                            _prev_bound = _up_to if _up_to is not None else _prev_bound
+                                        # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown
+                                        # avec l'export HTML du DataFrame pour conserver le formattage.
+                                        st.markdown(
+                                            pd.DataFrame(_rows).to_html(escape=False, index=False, classes="cabinet-table"),
+                                            unsafe_allow_html=True
+                                        )
+
+                    if not (_sub_status and _sub_status.active):
+                        _detected_period_for_payg = st.session_state.get("_period_label", "")
+                        st.markdown(f"**{_('payg_title')}** — {_('payg_subtitle')}")
+                        if not _detected_period_for_payg:
+                            st.caption(_("payg_no_period_warning"))
+                        else:
+                            st.caption(_("payg_detected_period_msg", period=_detected_period_for_payg))
+                            if st.button(_("payg_buy_btn"), key="btn_payg_sidebar"):
+                                try:
+                                    _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}"
+                                    if _payg_cache_key not in st.session_state:
+                                        st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
+                                            org_id=_current_user.org_id, acting_user_id=_current_user.id,
+                                            email=_current_user.email,
+                                            period_label=_detected_period_for_payg,
+                                            success_url=_stripe_success_url("export_ok=1"),
+                                            cancel_url=_stripe_cancel_url(),
+                                        )
+                                    st.link_button(_("continue_to_payment_btn"), st.session_state[_payg_cache_key])
+                                except Exception as _payg_err:
+                                    st.session_state.pop(_payg_cache_key, None)
+                                    st.error(f"Erreur : {_payg_err}")
+
+                        _sub_interval = st.radio(_("billing_interval_label"), [_("billing_monthly_choice"), _("billing_yearly_choice")],
+                                                 horizontal=True, key="sub_interval_choice")
+                        _interval_code = "month" if _sub_interval == _("billing_monthly_choice") else "year"
+
+                        st.markdown(f"**{_('plan_pro')}** — {_('plan_pro_desc')}")
+                        if st.button(_("subscribe_pro_btn"), key="btn_sub_business"):
                             try:
-                                _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}"
-                                if _payg_cache_key not in st.session_state:
-                                    st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
-                                        org_id=_current_user.org_id, acting_user_id=_current_user.id,
-                                        email=_current_user.email,
-                                        period_label=_detected_period_for_payg,
-                                        success_url=_stripe_success_url("export_ok=1"),
-                                        cancel_url=_stripe_cancel_url(),
-                                    )
-                                st.link_button(_("continue_to_payment_btn"), st.session_state[_payg_cache_key])
-                            except Exception as _payg_err:
-                                st.session_state.pop(_payg_cache_key, None)
-                                st.error(f"Erreur : {_payg_err}")
+                                _url = tva_billing.create_subscription_checkout_session(
+                                    org_id=_current_user.org_id, acting_user_id=_current_user.id,
+                                    email=_current_user.email,
+                                    plan="business", interval=_interval_code,
+                                    success_url=_stripe_success_url("export_ok=1"),
+                                    cancel_url=_stripe_cancel_url(),
+                                )
+                                st.link_button(_("continue_to_payment_btn"), _url)
+                            except Exception as _biz_err:
+                                st.error(f"Erreur : {_biz_err}")
 
-                    _sub_interval = st.radio(_("billing_interval_label"), [_("billing_monthly_choice"), _("billing_yearly_choice")],
-                                             horizontal=True, key="sub_interval_choice")
-                    _interval_code = "month" if _sub_interval == _("billing_monthly_choice") else "year"
-
-                    st.markdown(f"**{_('plan_pro')}** — {_('plan_pro_desc')}")
-                    if st.button(_("subscribe_pro_btn"), key="btn_sub_business"):
-                        try:
-                            _url = tva_billing.create_subscription_checkout_session(
-                                org_id=_current_user.org_id, acting_user_id=_current_user.id,
-                                email=_current_user.email,
-                                plan="business", interval=_interval_code,
-                                success_url=_stripe_success_url("export_ok=1"),
-                                cancel_url=_stripe_cancel_url(),
-                            )
-                            st.link_button(_("continue_to_payment_btn"), _url)
-                        except Exception as _biz_err:
-                            st.error(f"Erreur : {_biz_err}")
-
-                    st.markdown(f"**{_('plan_cabinet')}** — {_('plan_cabinet_desc')}")
-                    _cabinet_qty = st.number_input(_("managed_sirens_qty_label"), min_value=3, max_value=500,
-                                                   value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
-                                                   key="cabinet_siren_qty",
-                                                   help=_("managed_sirens_qty_help"))
-                    if st.button(_("subscribe_cabinet_btn"), key="btn_sub_cabinet"):
-                        try:
-                            _url = tva_billing.create_subscription_checkout_session(
-                                org_id=_current_user.org_id, acting_user_id=_current_user.id,
-                                email=_current_user.email,
-                                plan="cabinet", interval=_interval_code,
-                                quantity=int(_cabinet_qty),
-                                success_url=_stripe_success_url("export_ok=1"),
-                                cancel_url=_stripe_cancel_url(),
-                            )
-                            st.link_button(_("continue_to_payment_btn"), _url)
-                        except Exception as _cab_err:
-                            st.error(f"Erreur : {_cab_err}")
+                        st.markdown(f"**{_('plan_cabinet')}** — {_('plan_cabinet_desc')}")
+                        _cabinet_qty = st.number_input(_("managed_sirens_qty_label"), min_value=3, max_value=500,
+                                                       value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
+                                                       key="cabinet_siren_qty",
+                                                       help=_("managed_sirens_qty_help"))
+                        if st.button(_("subscribe_cabinet_btn"), key="btn_sub_cabinet"):
+                            try:
+                                _url = tva_billing.create_subscription_checkout_session(
+                                    org_id=_current_user.org_id, acting_user_id=_current_user.id,
+                                    email=_current_user.email,
+                                    plan="cabinet", interval=_interval_code,
+                                    quantity=int(_cabinet_qty),
+                                    success_url=_stripe_success_url("export_ok=1"),
+                                    cancel_url=_stripe_cancel_url(),
+                                )
+                                st.link_button(_("continue_to_payment_btn"), _url)
+                            except Exception as _cab_err:
+                                st.error(f"Erreur : {_cab_err}")
 
         # ── Catalogue Produits ────────────────────────────────────────────────────
         # Fonctionnalité avancée (taux réduits par ASIN) — masquée en mode
@@ -1262,114 +1294,120 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                             st.error(_("catalog_error", error=e))
 
         # ── Cache VIES ────────────────────────────────────────────────────────────
-        # BUGFIX (2026-08-22) : la durée de validité du cache VIES (slider
-        # TTL) est une donnée que l'utilisateur doit voir/régler dès la
-        # prise en main (checklist d'onboarding) — l'expander lui-même
-        # reste donc toujours visible, y compris en mode Simple. Seuls les
-        # réglages avancés (stats détaillées, purge, certificat PDF)
-        # restent réservés au mode Détaillé. N'alimente aucun champ de
-        # SidebarResult : masquage partiel sans risque de variable non
-        # définie plus bas.
-        if pulse_target == "vies_ttl":
-            with st.container(key="onb_pulse_vies"):
-                pass
-        with st.expander(_("cache_vies_header"), expanded=False):
-            try:
-                _cs = vies_cache_stats(_vies_scope_id)
-                # Plafond réduit de 365 à 30 jours (2026-08-23) : une donnée
-                # VIES valide il y a plusieurs mois n'a plus de valeur
-                # probante fiscalement. `value` est bornée au même plafond
-                # pour ne pas planter st.slider() si un scope avait déjà une
-                # valeur > 30 enregistrée avant ce changement (le TTL réel
-                # stocké n'est PAS modifié tant que l'utilisateur ne
-                # retouche pas le slider — seul l'affichage est clampé).
-                _ttl_max_days = 30
-                _ttl_current = min(_cs["ttl_days"], _ttl_max_days)
-                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=_ttl_max_days,
-                                      value=_ttl_current, step=1,
-                                      help=_("ttl_cache_help"))
-                if _ttl_days != _cs["ttl_days"]:
-                    set_cache_ttl(_vies_scope_id, _ttl_days)
-                    vies_cache_stats.clear()
-                    preserve_upload_rerun()
-                if is_detailed():
-                    _c1, _c2, _c3 = st.columns(3)
-                    _c1.metric(_("total"), _cs["total"])
-                    _c2.metric(_("fresh"), _cs["fresh"])
-                    _c3.metric(_("expired"), _cs["expired"])
-                    if _cs["total"] > 0:
-                        st.caption(
-                            f"{_('valid')} : {_cs['valid']} · {_('invalid')} : {_cs['invalid']} · "
-                            f"{_('oldest_check')} : {(_cs['oldest_check'] or '—')[:10]}")
-                    if _cs.get("manual_total", 0) > 0:
-                        st.markdown(f"**{_('manual_classifications')}**")
-                        _m1, _m2 = st.columns(2)
-                        _m1.metric(_("manual_valid"), _cs["manual_valid"])
-                        _m2.metric(_("manual_invalid"), _cs["manual_invalid"])
-                    if _cs["expired"] > 0:
-                        if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
-                            n = purge_expired_cache(_vies_scope_id)
-                            st.success(_("purge_success", count=n))
-                            preserve_upload_rerun()
+        # RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — le TTL
+        # (partagé par toute l'organisation, modifiable par l'admin seul), les stats
+        # de volumétrie VIES et le certificat PDF "compte entier" ne concernent/ne
+        # regardent que l'administrateur de l'organisation. Un lecteur garde accès
+        # au certificat VIES par fichier importé via l'onglet VIES (vies_ui.py).
+        if tva_auth.is_admin(_current_user):
+            # BUGFIX (2026-08-22) : la durée de validité du cache VIES (slider
+            # TTL) est une donnée que l'utilisateur doit voir/régler dès la
+            # prise en main (checklist d'onboarding) — l'expander lui-même
+            # reste donc toujours visible, y compris en mode Simple. Seuls les
+            # réglages avancés (stats détaillées, purge, certificat PDF)
+            # restent réservés au mode Détaillé. N'alimente aucun champ de
+            # SidebarResult : masquage partiel sans risque de variable non
+            # définie plus bas.
+            if pulse_target == "vies_ttl":
+                with st.container(key="onb_pulse_vies"):
+                    pass
+            with st.expander(_("cache_vies_header"), expanded=False):
+                try:
+                    _cs = vies_cache_stats(_vies_scope_id)
+                    # Plafond réduit de 365 à 30 jours (2026-08-23) : une donnée
+                    # VIES valide il y a plusieurs mois n'a plus de valeur
+                    # probante fiscalement. `value` est bornée au même plafond
+                    # pour ne pas planter st.slider() si un scope avait déjà une
+                    # valeur > 30 enregistrée avant ce changement (le TTL réel
+                    # stocké n'est PAS modifié tant que l'utilisateur ne
+                    # retouche pas le slider — seul l'affichage est clampé).
+                    _ttl_max_days = 30
+                    _ttl_current = min(_cs["ttl_days"], _ttl_max_days)
+                    _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=_ttl_max_days,
+                                          value=_ttl_current, step=1,
+                                          help=_("ttl_cache_help"))
+                    if _ttl_days != _cs["ttl_days"]:
+                        set_cache_ttl(_vies_scope_id, _ttl_days)
+                        vies_cache_stats.clear()
+                        preserve_upload_rerun()
+                    if is_detailed():
+                        _c1, _c2, _c3 = st.columns(3)
+                        _c1.metric(_("total"), _cs["total"])
+                        _c2.metric(_("fresh"), _cs["fresh"])
+                        _c3.metric(_("expired"), _cs["expired"])
+                        if _cs["total"] > 0:
+                            st.caption(
+                                f"{_('valid')} : {_cs['valid']} · {_('invalid')} : {_cs['invalid']} · "
+                                f"{_('oldest_check')} : {(_cs['oldest_check'] or '—')[:10]}")
+                        if _cs.get("manual_total", 0) > 0:
+                            st.markdown(f"**{_('manual_classifications')}**")
+                            _m1, _m2 = st.columns(2)
+                            _m1.metric(_("manual_valid"), _cs["manual_valid"])
+                            _m2.metric(_("manual_invalid"), _cs["manual_invalid"])
+                        if _cs["expired"] > 0:
+                            if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
+                                n = purge_expired_cache(_vies_scope_id)
+                                st.success(_("purge_success", count=n))
+                                preserve_upload_rerun()
 
-                    # ── Certificat de Validité VIES (PDF) ──
-                    # Bouton de génération globale uniquement
-                    st.divider()
-                    st.markdown(f"**{_('vies_certificate_expander')}**")
-                    st.caption(_("vies_certificate_caption"))
-                    _cert_history_mode_sb = st.checkbox(
-                        _("vies_certificate_history_checkbox"),
-                        key="vies_cert_history_mode_sidebar",
-                    )
-                    if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate_sidebar"):
-                        try:
-                            if _cert_history_mode_sb:
-                                from tva_intracom.vies_engine import get_scope_vies_history_flat
-                                from tva_intracom.vies_certificate import generate_vies_history_pdf
-                                _history_rows = get_scope_vies_history_flat(_vies_scope_id, full_vats=None)
-                                _pdf_bytes = generate_vies_history_pdf(
-                                    _history_rows,
-                                    company_name=nom_entreprise or _("default_company_name"),
-                                    siren=siren_entreprise or "",
-                                    scope_id=_vies_scope_id,
-                                    period_label=_("vies_certificate_full_history"),
-                                    country_label_fn=country_label,
-                                    translator=_,
-                                )
-                                _is_empty_sb = not _history_rows
-                            else:
-                                from tva_intracom.vies_engine import get_scope_vies_snapshot
-                                from tva_intracom.vies_certificate import generate_vies_certificate_pdf
-                                _snapshot = get_scope_vies_snapshot(_vies_scope_id)
-                                _pdf_bytes = generate_vies_certificate_pdf(
-                                    _snapshot,
-                                    company_name=nom_entreprise or _("default_company_name"),
-                                    siren=siren_entreprise or "",
-                                    scope_id=_vies_scope_id,
-                                    period_label=_("vies_certificate_full_history"),
-                                    country_label_fn=country_label,
-                                    translator=_,
-                                )
-                                _is_empty_sb = not _snapshot
-                            st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes
-                            st.session_state["_vies_certificate_history_mode_sidebar"] = _cert_history_mode_sb
-                            if _is_empty_sb:
-                                st.info(_("vies_certificate_history_empty_info") if _cert_history_mode_sb else _("vies_certificate_empty_info"))
-                        except Exception as _cert_err:
-                            st.error(_("vies_certificate_error", error=_cert_err))
-
-                    if st.session_state.get("_vies_certificate_pdf_sidebar"):
-                        _suffix_sb = "complet_historique" if st.session_state.get("_vies_certificate_history_mode_sidebar") else "complet"
-                        st.download_button(
-                            _("vies_certificate_dl_btn"),
-                            data=st.session_state["_vies_certificate_pdf_sidebar"],
-                            file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_{_suffix_sb}"),
-                            mime="application/pdf",
-                            type="primary",
-                            width="stretch",
+                        # ── Certificat de Validité VIES (PDF) ──
+                        # Bouton de génération globale uniquement
+                        st.divider()
+                        st.markdown(f"**{_('vies_certificate_expander')}**")
+                        st.caption(_("vies_certificate_caption"))
+                        _cert_history_mode_sb = st.checkbox(
+                            _("vies_certificate_history_checkbox"),
+                            key="vies_cert_history_mode_sidebar",
                         )
-            except Exception as _e:
-                st.caption(_("cache_unavailable", error=_e))
+                        if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate_sidebar"):
+                            try:
+                                if _cert_history_mode_sb:
+                                    from tva_intracom.vies_engine import get_scope_vies_history_flat
+                                    from tva_intracom.vies_certificate import generate_vies_history_pdf
+                                    _history_rows = get_scope_vies_history_flat(_vies_scope_id, full_vats=None)
+                                    _pdf_bytes = generate_vies_history_pdf(
+                                        _history_rows,
+                                        company_name=nom_entreprise or _("default_company_name"),
+                                        siren=siren_entreprise or "",
+                                        scope_id=_vies_scope_id,
+                                        period_label=_("vies_certificate_full_history"),
+                                        country_label_fn=country_label,
+                                        translator=_,
+                                    )
+                                    _is_empty_sb = not _history_rows
+                                else:
+                                    from tva_intracom.vies_engine import get_scope_vies_snapshot
+                                    from tva_intracom.vies_certificate import generate_vies_certificate_pdf
+                                    _snapshot = get_scope_vies_snapshot(_vies_scope_id)
+                                    _pdf_bytes = generate_vies_certificate_pdf(
+                                        _snapshot,
+                                        company_name=nom_entreprise or _("default_company_name"),
+                                        siren=siren_entreprise or "",
+                                        scope_id=_vies_scope_id,
+                                        period_label=_("vies_certificate_full_history"),
+                                        country_label_fn=country_label,
+                                        translator=_,
+                                    )
+                                    _is_empty_sb = not _snapshot
+                                st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes
+                                st.session_state["_vies_certificate_history_mode_sidebar"] = _cert_history_mode_sb
+                                if _is_empty_sb:
+                                    st.info(_("vies_certificate_history_empty_info") if _cert_history_mode_sb else _("vies_certificate_empty_info"))
+                            except Exception as _cert_err:
+                                st.error(_("vies_certificate_error", error=_cert_err))
+
+                        if st.session_state.get("_vies_certificate_pdf_sidebar"):
+                            _suffix_sb = "complet_historique" if st.session_state.get("_vies_certificate_history_mode_sidebar") else "complet"
+                            st.download_button(
+                                _("vies_certificate_dl_btn"),
+                                data=st.session_state["_vies_certificate_pdf_sidebar"],
+                                file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_{_suffix_sb}"),
+                                mime="application/pdf",
+                                type="primary",
+                                width="stretch",
+                            )
+                except Exception as _e:
+                    st.caption(_("cache_unavailable", error=_e))
 
         # ── Paramètres du fichier ─────────────────────────────────────────────────
         # "utf-8" couvre l'immense majorité des exports Amazon — réglage

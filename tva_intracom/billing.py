@@ -633,7 +633,17 @@ def list_registered_sirens(org_id: str) -> list[dict]:
 
     ORG_ID (2026-08-24) : les SIREN enregistrés sont partagés par toute
     l'organisation — tous les membres d'un même cabinet voient et gèrent la
-    même liste, plus une liste isolée par compte individuel."""
+    même liste, plus une liste isolée par compte individuel.
+
+    TRI (2026-08-25) : ordre alphabétique par raison sociale (`company_name`,
+    insensible à la casse ; à défaut de nom, par SIREN), plutôt que l'ordre
+    d'enregistrement (`first_used_at`) — plus pratique pour un cabinet gérant
+    de nombreux clients. Le tri est fait ici, côté Python, APRÈS déchiffrement
+    (`_dec`) : `company_name` est chiffré (Fernet) en base, un `ORDER BY`
+    SQL sur la colonne chiffrée donnerait un ordre sans rapport avec le nom
+    réel. La requête garde `ORDER BY first_used_at ASC` uniquement pour un
+    résultat déterministe avant tri Python (peu importe lequel, écrasé
+    juste après)."""
     _purge_expired_siren_removals(org_id)
 
     def _fn(conn, cur):
@@ -651,7 +661,7 @@ def list_registered_sirens(org_id: str) -> list[dict]:
         return cur.fetchall()
 
     rows = _run(_fn)
-    return [
+    _decrypted = [
         {
             "siren": r[0], "company_name": _dec(r[1]), "tva_number": _dec(r[2]),
             "first_used_at": r[3], "pending_removal_at": r[4],
@@ -663,6 +673,8 @@ def list_registered_sirens(org_id: str) -> list[dict]:
         }
         for r in rows
     ]
+    _decrypted.sort(key=lambda d: (d["company_name"] or d["siren"] or "").casefold())
+    return _decrypted
 
 
 def get_siren_quota(org_id: str) -> int:
@@ -1332,6 +1344,19 @@ def _get_or_create_stripe_customer(org_id: str, email: str, acting_user_id: str 
 def create_payg_checkout_session(
         org_id: str, acting_user_id: str, email: str, period_label: str, success_url: str, cancel_url: str,
 ) -> str:
+    """Crée une session Stripe Checkout pour l'achat d'un crédit d'export
+    PAYG (à l'unité, hors abonnement).
+
+    RÔLES (2026-08-25) : défense en profondeur — `_require_write_access`
+    lève déjà `PermissionError` si `acting_user_id` correspond à un compte
+    lecteur. Aujourd'hui, en pratique, les deux seuls chemins UI vers cette
+    fonction sont déjà bloqués côté interface (bouton PAYG désactivé pour
+    un lecteur dans `ui/billing_gate.py`, bloc "Abonnements & forfaits"
+    masqué dans `ui/sidebar.py`) — cet appel protège contre un futur appelant
+    qui oublierait cette vérification, cohérent avec le même pattern déjà
+    en place sur `register_siren`/`request_siren_removal`.
+    """
+    _require_write_access(acting_user_id)
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
     if not _env("STRIPE_PRICE_PAYG_EXPORT"):
@@ -1371,7 +1396,11 @@ def create_subscription_checkout_session(
                par un Price Stripe de type "tiered" — le code se contente de
                transmettre la quantité choisie). Ignorée (forcée à 1) pour le
                forfait Pro, qui est mono-SIREN par définition.
+
+    RÔLES (2026-08-25) : défense en profondeur — voir docstring de
+    create_payg_checkout_session ci-dessus, même justification/pattern.
     """
+    _require_write_access(acting_user_id)
     if not _stripe_configured():
         raise RuntimeError("Stripe non configuré (STRIPE_SECRET_KEY manquante).")
     if plan not in ("business", "cabinet"):
@@ -1418,7 +1447,19 @@ def create_subscription_checkout_session(
     return session.url
 
 
-def create_billing_portal_session(org_id: str, return_url: str) -> str:
+def create_billing_portal_session(org_id: str, return_url: str, acting_user_id: str | None = None) -> str:
+    """Crée une session du portail Stripe (gestion self-service de
+    l'abonnement : moyen de paiement, factures, résiliation).
+
+    RÔLES (2026-08-25) : `acting_user_id` optionnel (défaut None,
+    rétrocompatible) — si fourni, défense en profondeur identique à
+    create_payg_checkout_session ci-dessus. Le seul appelant actuel
+    (ui/sidebar.py, bloc "Abonnements & forfaits") le fournit toujours et
+    est de toute façon déjà masqué pour un lecteur côté UI.
+    """
+    if acting_user_id is not None:
+        _require_write_access(acting_user_id)
+
     def _fn(conn, cur):
         cur.execute("SELECT stripe_customer_id FROM tva_customers WHERE org_id=%s", (org_id,))
         return cur.fetchone()

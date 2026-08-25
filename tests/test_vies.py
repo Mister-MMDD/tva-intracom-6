@@ -97,6 +97,14 @@ def test_compute_all_with_vies_reclassifies_invalid(mock_check):
             stock_country="FR",
             buyer_country="DE",
             buyer_vat_number="DE000000000",
+            # BUGFIX (2026-08-25) : le nouveau filtre d'entrée de la boucle
+            # VIES (engine.py, ~L1259) ignore désormais dès le départ tout
+            # Sale dont buyer_vat_valid n'est pas déjà True (pré-filtre
+            # "ressemble à un vrai n° TVA intracom", positionné par
+            # classify.py côté import réel) — sans ce flag, ce Sale de test
+            # ne serait jamais soumis à la vérification VIES mockée
+            # ci-dessus, et vies_summary resterait vide.
+            buyer_vat_valid=True,
         ),
     ]
     results, _refund_results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")
@@ -128,6 +136,9 @@ def test_compute_all_with_vies_valid_number(mock_check):
             stock_country="FR",
             buyer_country="DE",
             buyer_vat_number="DE123456789",
+            # BUGFIX (2026-08-25) : voir commentaire identique dans
+            # test_compute_all_with_vies_reclassifies_invalid ci-dessus.
+            buyer_vat_valid=True,
         ),
     ]
     results, _refund_results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")

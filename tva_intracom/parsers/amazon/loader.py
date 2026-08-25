@@ -58,7 +58,14 @@ class AmazonImportResult:
     total_rows: int = 0
     warnings: List[str] = field(default_factory=list)
     detected_format: int = 0      # 1, 2, 3, 4 ou 5
-    platform: str = "Amazon"
+    # BUGFIX (2026-08-25) : "amazon" en minuscule, pas "Amazon" — cohérent
+    # avec la convention du reste du code (cli.py::platform = "amazon",
+    # parsers/aliexpress.py::result.platform = "ebay"/"temu"/"aliexpress").
+    # app.py n'utilise ce champ que pour un affichage de secours
+    # (`platform or file_format...`), aucune comparaison sensible à la casse
+    # n'en dépendait ailleurs — vérifié par grep sur `.platform` avant
+    # correction.
+    platform: str = "amazon"
     # Lignes RETURN physiques (mouvement marchandise sans montant financier).
     # Distinct de skipped_rows : les RETURN sont normaux, le flux financier
     # est dans le REFUND jumeau.

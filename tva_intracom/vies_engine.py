@@ -1800,7 +1800,20 @@ def force_revalidate(scope_id: str, vat_ids: list[str]) -> None:
 # d'un autre scope.
 # ---------------------------------------------------------------------------
 
-def set_manual_override(scope_id: str, full_vat: str, valid: bool) -> None:
+def _manual_override_exists(scope_id: str, full_vat: str) -> bool:
+    """Vrai si un override manuel existe déjà pour ce (scope_id, full_vat) —
+    utilisé par set_manual_override() pour distinguer une NOUVELLE
+    classification (ouverte à tous) d'une MODIFICATION d'un override déjà
+    enregistré (réservée à l'admin, voir RÔLES 2026-08-25 ci-dessous)."""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM vies_manual_overrides WHERE scope_id=%s AND full_vat=%s",
+            (scope_id, full_vat.upper().strip()),
+        )
+        return cur.fetchone() is not None
+
+
+def set_manual_override(scope_id: str, full_vat: str, valid: bool, acting_user_id: str | None = None) -> None:
     """Enregistre une classification manuelle pour un numéro TVA inconclusif,
     strictement dans le scope courant.
 
@@ -1809,7 +1822,29 @@ def set_manual_override(scope_id: str, full_vat: str, valid: bool) -> None:
         full_vat: numéro complet normalisé (ex: "DE123456789").
         valid:    True → considéré valide (B2B, autoliquidation) ;
                   False → considéré invalide (B2C, TVA OSS due).
+        acting_user_id: RÔLES (2026-08-25) — si fourni, ET qu'un override
+            existe DÉJÀ pour ce (scope_id, full_vat), seul un compte
+            `role="admin"` peut le modifier (`PermissionError` sinon) :
+            une donnée déjà classifiée est partagée par toute
+            l'organisation, sa modification ne doit pas dépendre d'un seul
+            lecteur. Classifier un numéro qui n'a ENCORE aucun override
+            reste ouvert à tout membre (cas normal, voir
+            ui/tabs/vies_ui.py::render_manual_vies_classification) — c'est
+            pourquoi ce contrôle ne s'applique que si l'override existe
+            déjà, pas systématiquement. `acting_user_id=None` (défaut) :
+            rétrocompatible, aucune vérification (scripts internes).
+            Import paresseux de `.auth` : ce module l'importe déjà en
+            retour (auth.delete_account → vies_engine), l'import direct en
+            tête créerait un cycle.
     """
+    if acting_user_id is not None and _manual_override_exists(scope_id, full_vat):
+        from .auth import get_user_by_id, is_admin
+        _acting_user = get_user_by_id(acting_user_id)
+        if not _acting_user or not is_admin(_acting_user):
+            raise PermissionError(
+                "Seul un administrateur de l'organisation peut modifier une "
+                "classification VIES déjà enregistrée."
+            )
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("""
             INSERT INTO vies_manual_overrides (scope_id, full_vat, is_valid, set_at)
@@ -1882,8 +1917,23 @@ def clear_manual_overrides(scope_id: str) -> None:
         pass
 
 
-def delete_manual_override(scope_id: str, full_vat: str) -> None:
-    """Supprime l'override manuel d'un seul numéro TVA, dans le scope courant."""
+def delete_manual_override(scope_id: str, full_vat: str, acting_user_id: str | None = None) -> None:
+    """Supprime l'override manuel d'un seul numéro TVA, dans le scope courant.
+
+    RÔLES (2026-08-25) : contrairement à set_manual_override, une
+    suppression porte TOUJOURS sur un override déjà existant par
+    définition — si `acting_user_id` est fourni, seul un compte
+    `role="admin"` peut l'exécuter (`PermissionError` sinon).
+    `acting_user_id=None` (défaut) : rétrocompatible, aucune vérification.
+    """
+    if acting_user_id is not None:
+        from .auth import get_user_by_id, is_admin
+        _acting_user = get_user_by_id(acting_user_id)
+        if not _acting_user or not is_admin(_acting_user):
+            raise PermissionError(
+                "Seul un administrateur de l'organisation peut supprimer une "
+                "classification VIES déjà enregistrée."
+            )
     try:
         with _conn() as conn, conn.cursor() as cur:
             cur.execute(

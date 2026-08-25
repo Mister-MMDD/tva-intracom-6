@@ -416,36 +416,6 @@ else:
     from tva_intracom.mem_utils import release_memory
     release_memory()
 
-# ── Dashboard d'onboarding (checklist visuelle) ──────────────────────────
-# Affiche les étapes clés sous forme de cartes.
-# - Apparaît si aucun fichier n'est chargé (Zero State).
-# - Persiste si un fichier est chargé MAIS que la configuration entreprise 
-#   n'est pas terminée ET que l'utilisateur n'a pas masqué l'onboarding.
-_ob_step = st.session_state.get("_onboarding_step", "active")
-_zs_entreprise_done = _ob_entreprise_ok and _ob_tva_local_ok
-_show_onboarding_cards = (not uploaded_files) or (_ob_step == "active" and not _zs_entreprise_done)
-
-if _show_onboarding_cards:
-    st.markdown(
-        f"""
-        <div class="zero-state-grid">
-            <div class="zero-state-card {'done' if _zs_entreprise_done else ''}">
-                <p class="zero-state-card-title">{'✅' if _zs_entreprise_done else '1️⃣'} {_('zero_state_card_company_title')}</p>
-                <p class="zero-state-card-body">{_('zero_state_card_company_done_body') if _zs_entreprise_done else _('zero_state_card_company_body')}</p>
-            </div>
-            <div class="zero-state-card">
-                <p class="zero-state-card-title">ℹ️ {_('zero_state_card_vies_title')}</p>
-                <p class="zero-state-card-body">{_('zero_state_card_vies_body')}</p>
-            </div>
-            <div class="zero-state-card {'done' if uploaded_files else ''}">
-                <p class="zero-state-card-title">{'✅' if uploaded_files else '2️⃣'} {_('zero_state_card_upload_title')}</p>
-                <p class="zero-state-card-body">{_('zero_state_card_upload_body')}</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
 if uploaded_files:
     from tva_intracom.parsers import amazon as parser_amazon
     from tva_intracom.parsers import mirakl as parser_mirakl
@@ -570,7 +540,15 @@ if uploaded_files:
                 elif "AliExpress" in file_format:
                     parse_result = parser_aliexpress.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
                 if parse_result is not None:
-                    platform = parse_result.platform or file_format.split("(")[0].strip()
+                    # BUGFIX (2026-08-25) : parse_result.platform est
+                    # désormais "amazon" en minuscule en interne (cohérent
+                    # avec cli.py et les autres parsers — voir
+                    # parsers/amazon/loader.py). Ce champ atterrit
+                    # directement dans l'UI (col_source, KPI "kpi_vat_amazon",
+                    # onglet "tab_amazon_audit" via platform_name plus bas) :
+                    # on le capitalise ICI, au seul point de construction,
+                    # pour l'affichage — sans toucher à la valeur interne.
+                    platform = (parse_result.platform or file_format.split("(")[0].strip()).capitalize()
                     all_sales.extend(parse_result.sales); all_refunds.extend(parse_result.refunds)
                     all_fc_transfers.extend(parse_result.fc_transfers)
                     all_invoice_credit_notes.extend(getattr(parse_result, "invoice_credit_notes", []))
@@ -1136,6 +1114,8 @@ if uploaded_files:
             vies_scope_id=_vies_scope_id,
             vies_retry_nonce=_vies_retry_nonce,
             enable_vies=enable_vies,
+            is_admin=tva_auth.is_admin(_current_user),
+            current_user_id=_current_user.id,
             nom_entreprise=nom_entreprise,
             siren_entreprise=siren_entreprise,
             tva_fr=tva_fr,

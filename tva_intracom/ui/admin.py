@@ -75,11 +75,14 @@ def render_admin_dialog(current_user: "tva_auth.User") -> None:
                     st.session_state[_confirm_key] = False
                     st.rerun()
                 if _c2.button(_("confirm_delete_btn"), key=f"admin_confirm_remove_{_m.id}", type="primary"):
-                    tva_auth.delete_account(_m.id)
-                    st.session_state[_confirm_key] = False
-                    st.success(_("admin_remove_member_success", email=_m.email))
-                    time.sleep(0.4)
-                    st.rerun()
+                    try:
+                        tva_auth.delete_account(_m.id, acting_user_id=current_user.id)
+                        st.session_state[_confirm_key] = False
+                        st.success(_("admin_remove_member_success", email=_m.email))
+                        time.sleep(0.4)
+                        st.rerun()
+                    except PermissionError as _perm_err:
+                        st.error(str(_perm_err))
 
     st.divider()
     st.markdown(f"**{_('admin_add_email_title')}**")

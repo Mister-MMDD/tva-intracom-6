@@ -161,10 +161,14 @@ def render_onboarding_banner(
         _check_row(entreprise_ok, False, _("onboarding_check_entreprise")),
         _check_row(tva_local_ok, False, _("onboarding_check_tva_local")),
         _check_row(ioss_filled, True, _("onboarding_check_ioss")),
-        _check_row(True, False, _("onboarding_check_vies_ttl"), _("onboarding_check_vies_ttl_detail")),
+    ]
+    if tva_auth.is_admin(current_user):
+        _parts.append(_check_row(True, False, _("onboarding_check_vies_ttl"), _("onboarding_check_vies_ttl_detail")))
+
+    _parts.extend([
         _check_row(upload_ok, False, _("onboarding_check_upload")),
         '</div>',
-    ]
+    ])
     st.markdown("".join(_parts), unsafe_allow_html=True)
 
     if not (entreprise_ok and tva_local_ok):

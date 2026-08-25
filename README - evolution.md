@@ -5004,3 +5004,117 @@ Railway / scale-to-zero : aucun impact, changement purement UI (attribut
 Validation : `py_compile` + pyflakes propres (seul le warning pré-existant
 `import '_dt' shadowed` subsiste, décalé de quelques lignes, sans lien
 avec ce correctif) ; pytest 174 passed / 4 failed — baseline inchangée.
+
+## 2026-08-25 — Bascule `org_id` : correctifs lecture seule (abonnement, retrait SIREN, cache VIES)
+
+**Contexte.** Suite à la bascule du 2026-08-24 (abonnement Stripe, client
+Stripe, crédits PAYG, SIREN enregistrés désormais partagés au niveau
+`org_id`), plusieurs zones de la sidebar restaient accessibles ou visibles
+à un compte lecteur alors qu'elles n'ont de sens que pour l'administrateur
+de l'organisation.
+
+**Bug bloquant corrigé.** Le bouton "Retirer le SIREN" (et son pendant
+"Annuler le retrait") n'avait aucune protection UI : un clic par un
+lecteur levait `PermissionError` côté serveur
+(`billing._require_write_access`), non catchée par l'appelant → plantage
+de l'app (`sidebar.py`, section "Entreprise & Paramètres"). Corrigé en
+masquant entièrement ces deux boutons pour un lecteur (`not _is_reader`),
+plutôt qu'en les désactivant — un lecteur n'a rien à faire sur cette
+action, qui reste du ressort de l'administrateur.
+
+**Masquage complet pour un compte lecteur (choix : masquer, pas
+désactiver) :**
+- **Bloc "Abonnements & forfaits"** (sidebar.py) : portail Stripe, gestion
+  des SIREN d'un abonnement Cabinet, crédits PAYG, grille tarifaire —
+  aucun intérêt ni droit d'action pour un lecteur, désormais entouré de
+  `if tva_auth.is_admin(_current_user):`.
+- **Bloc "Cache VIES"** (sidebar.py) : TTL (partagé par toute
+  l'organisation, modifiable par l'admin seul), stats de volumétrie et
+  certificat PDF "compte entier" — même traitement (`if
+  tva_auth.is_admin(_current_user):`). Un lecteur n'a pas besoin de voir
+  le nombre de vérifications VIES faites par le cabinet.
+- **Certificat VIES scope "compte"** (onglet VIES, `vies_ui.py`) : le
+  radio de choix de portée (fichier importé / compte entier) n'est
+  affiché qu'à l'administrateur ; un lecteur est silencieusement limité
+  au scope "fichier importé" (avec l'option historique conservée — utile
+  et sans risque, car bornée aux numéros du fichier qu'il vient
+  lui-même d'importer). Nécessite l'ajout du champ `is_admin: bool` à
+  `TabContext` (`context.py`), rempli dans `app.py` via
+  `tva_auth.is_admin(_current_user)`.
+
+**Rejeté / non traité.** Le pulse d'onboarding "vies_ttl" (cible
+désormais dans un bloc masqué pour un lecteur) n'a pas été retouché : il
+continue de se calculer normalement mais ne produit simplement plus
+d'effet visuel pour un lecteur (le conteneur cible n'est pas rendu) — sans
+aucune conséquence bloquante, la checklist d'onboarding avance normalement
+sur les autres étapes.
+
+Fichiers modifiés : `tva_intracom/ui/sidebar.py`, `app.py`,
+`tva_intracom/ui/tabs/context.py`, `tva_intracom/ui/tabs/vies_ui.py`.
+
+Railway / scale-to-zero : aucun impact — changements purement de rendu
+conditionnel (`if`), aucun thread, aucune connexion persistante, aucun
+polling ajouté.
+
+Validation : `py_compile` propre sur les 4 fichiers modifiés ; pyflakes
+propre (seul le warning pré-existant `import '_dt' shadowed` dans
+`sidebar.py` subsiste, décalé de quelques lignes, sans lien avec ce
+correctif). `pytest` non exécutable dans ce sandbox (dépendances
+`requirements.txt` — dont `pydantic` — non installées ici ; à valider côté
+Matthieu avec l'environnement complet).
+
+## 2026-08-25 (suite 3) — Défense en profondeur billing.py (checkout/portail Stripe) + bugfix course overrides VIES
+
+**Bugfix (régression introduite dans la session précédente).** Le bouton
+"Appliquer" les nouvelles classifications VIES (`vies_ui.py`,
+`render_manual_vies_classification`) appelle `set_manual_override(...,
+acting_user_id=...)`, qui peut désormais lever `PermissionError` — mais ce
+bouton n'avait pas de `try/except`. Scénario réel (rare, cabinet
+multi-comptes) : un lecteur prépare une classification, et entre
+l'affichage de la page et son clic, un autre membre crée un override sur
+le même numéro → exception non catchée → plantage. Corrigé :
+`try/except PermissionError` avec message dédié
+(`vies_manual_class_race_error`, 7 langues) ; rien n'est perdu, l'état
+`_vies_manual_overrides` reste en place pour un nouvel essai.
+
+**Défense en profondeur sur billing.py (checkout/portail Stripe).** Même
+constat que pour `register_siren`/`request_siren_removal`/
+`set_manual_override` : `create_payg_checkout_session` et
+`create_subscription_checkout_session` recevaient déjà `acting_user_id`
+mais ne vérifiaient jamais le rôle serveur ; `create_billing_portal_session`
+n'avait même pas ce paramètre. Aujourd'hui non exploitable en pratique (les
+3 chemins UI vers ces fonctions sont déjà bloqués côté interface — bloc
+"Abonnements & forfaits" masqué, bouton PAYG désactivé pour un lecteur),
+mais ajouté par cohérence et pour se prémunir d'un futur appelant UI qui
+oublierait la vérification :
+- `create_payg_checkout_session` / `create_subscription_checkout_session` :
+  `_require_write_access(acting_user_id)` en tout premier.
+- `create_billing_portal_session(org_id, return_url, acting_user_id=None)` :
+  nouveau paramètre optionnel (rétrocompatible), vérification uniquement si
+  fourni. Appelant (`ui/sidebar.py`) mis à jour pour le passer.
+- Tous les appelants existants (`ui/billing_gate.py`, `ui/sidebar.py`)
+  passaient déjà `acting_user_id` et catchent déjà `Exception` de façon
+  générique — aucun changement d'appel nécessaire côté UI hormis le
+  portail Stripe.
+- Test `TestCreateSubscriptionCheckoutSessionQuantity` (test_billing_payment_quotas.py)
+  mis à jour : ajout de la fixture `fake_db` (déjà existante dans ce
+  fichier) pour que la nouvelle vérification de rôle résolve sans toucher
+  une vraie base — ces tests portent sur la logique de clamp de quantité,
+  pas sur les droits d'accès, `fetchone()` par défaut (MagicMock non
+  configuré) suffit à ne jamais déclencher `PermissionError`.
+
+Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/ui/sidebar.py`,
+`tva_intracom/ui/tabs/vies_ui.py`, `tests/test_billing_payment_quotas.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+Railway / scale-to-zero : aucun impact (une lecture SQL synchrone
+supplémentaire par appel Stripe checkout, sur le thread principal — pas de
+connexion persistante ni de thread additionnel).
+
+Validation : `py_compile` et `pyflakes` propres (seul le faux positif
+`_dt` déjà documenté subsiste, décalé de quelques lignes) ; symétrie TOML
+vérifiée programmatiquement (1199 clés, 7 langues) ; suite `pytest`
+complète : 175 passed / 3 failed, mêmes 3 échecs pré-existants
+(SUPABASE_DB_URL absente du sandbox) — aucune régression, y compris sur
+`TestCreateSubscriptionCheckoutSessionQuantity` (8 tests, tous verts après
+ajout de `fake_db`).

@@ -245,6 +245,8 @@ def generate_vies_history_pdf(
         [Paragraph(_("vies_certificate_period"), label_style), Paragraph(period_label or _("vies_certificate_full_history"), value_style)],
         [Paragraph(_("vies_certificate_generated_at"), label_style), Paragraph(generated_at.strftime("%d/%m/%Y à %H:%M")+" UTC", value_style)],
         [Paragraph(_("vies_certificate_history_count"), label_style), Paragraph(str(len(history_rows)), value_style)],
+        [Paragraph(_("vies_certificate_history_unique_count"), label_style),
+         Paragraph(str(len({r["vat_id"] for r in history_rows})), value_style)],
     ]
     header_table = Table(header_rows, colWidths=[90 * mm, 80 * mm])
     header_table.setStyle(TableStyle([

@@ -809,10 +809,22 @@ def get_user_by_id(user_id: str) -> Optional[User]:
     return _row_to_user(urow)
 
 
-def delete_account(user_id: str) -> None:
+def delete_account(user_id: str, acting_user_id: str | None = None) -> None:
     """Supprime définitivement un compte utilisateur et les données associées
     (RGPD). Supprime les abonnements Stripe, les identifiants Amazon chiffrés,
     les SIREN.
+
+    RÔLES (2026-08-25) : `acting_user_id` identifie qui déclenche CETTE
+    suppression — qu'il s'agisse d'un lecteur supprimant son propre compte
+    (sidebar.py, "Suppression du compte") ou d'un admin supprimant un AUTRE
+    membre de l'organisation (ui/admin.py). Dans les deux cas, seul un
+    compte `role="admin"` peut effectivement supprimer un compte — un
+    lecteur ne peut pas se retirer lui-même de l'organisation, contrôle
+    déjà fait côté UI (sidebar.py masque le bloc) mais dupliqué ici,
+    serveur, même pattern que `billing._require_write_access`.
+    `acting_user_id=None` : rétrocompatibilité (scripts internes/tests
+    appelant directement cette fonction sans notion d'utilisateur agissant)
+    — aucune vérification de rôle dans ce cas, comportement inchangé.
 
     Cas particulier de l'historique VIES (si scope privé "user:<email>") :
     conformément à l'art. 17.3.b du RGPD (obligation légale prévalant sur le
@@ -828,6 +840,13 @@ def delete_account(user_id: str) -> None:
     """
     from .billing import delete_user_billing_data
     from .vies_engine import delete_all_scope_data, resolve_scope_id
+
+    if acting_user_id is not None:
+        _acting_user = get_user_by_id(acting_user_id)
+        if not _acting_user or not is_admin(_acting_user):
+            raise PermissionError(
+                "Seul un administrateur de l'organisation peut supprimer un compte."
+            )
 
     user = get_user_by_id(user_id)
     if not user:

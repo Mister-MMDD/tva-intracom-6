@@ -38,6 +38,19 @@ class TabContext:
     vies_scope_id: str
     vies_retry_nonce: int
     enable_vies: bool
+    # RÔLES (2026-08-25) : un lecteur (tva_auth.is_admin() == False) ne doit
+    # pas pouvoir générer le certificat VIES "portée compte" (photographie de
+    # tout le cache VIES de l'organisation) — seul le scope "fichier importé"
+    # lui reste accessible (voir vies_ui.py::render_vies). Pas de valeur par
+    # défaut : champ obligatoire, positionné avant les champs à défaut
+    # existants pour respecter l'ordre imposé par @dataclass.
+    is_admin: bool
+    # RÔLES (2026-08-25) : id du compte courant, à passer en acting_user_id
+    # aux fonctions serveur qui vérifient les droits d'écriture (voir
+    # vies_engine.set_manual_override/delete_manual_override) — même
+    # justification que is_admin ci-dessus (champ obligatoire, avant les
+    # champs à défaut).
+    current_user_id: str
 
     # Entreprise / paramètres (sidebar)
     nom_entreprise: str

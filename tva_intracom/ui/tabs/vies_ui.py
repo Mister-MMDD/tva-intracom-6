@@ -65,12 +65,25 @@ def render_manual_vies_classification() -> None:
         with _col_apply:
             if _pending and st.button(_("vies_manual_class_apply_btn"), type="primary"):
                 from tva_intracom.vies_engine import set_manual_override as _smo_apply
-                for _vat_key, _choice_val in _pending.items():
-                    _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == _("manual_valid")))
-                st.session_state.pop("_vies_manual_overrides", None)
-                CalcCacheState.invalidate_calc()
-                st.success(_("vies_manual_class_success"))
-                st.rerun()
+                # BUGFIX (2026-08-25) : `_smo_apply` peut désormais lever
+                # PermissionError si, ENTRE le chargement de cette page et ce
+                # clic, un override a été créé entretemps pour un de ces
+                # numéros par quelqu'un d'autre (rare mais possible en
+                # cabinet multi-comptes) — un lecteur se retrouverait alors
+                # à modifier un override existant sans le savoir. Sans ce
+                # try/except, l'exception remontait non interceptée. On
+                # informe simplement l'utilisateur de retenter (le state
+                # `_vies_manual_overrides` n'est pas vidé, rien n'est perdu).
+                try:
+                    for _vat_key, _choice_val in _pending.items():
+                        _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == _("manual_valid")),
+                                   acting_user_id=ctx.current_user_id)
+                    st.session_state.pop("_vies_manual_overrides", None)
+                    CalcCacheState.invalidate_calc()
+                    st.success(_("vies_manual_class_success"))
+                    st.rerun()
+                except PermissionError:
+                    st.error(_("vies_manual_class_race_error"))
         with _col_reset:
             if st.button(_("vies_manual_class_reset_btn")):
                 st.session_state.pop("_vies_manual_overrides", None)
@@ -109,14 +122,24 @@ def render_vies(ctx: TabContext) -> None:
     with st.expander(_("vies_certificate_expander"), expanded=False):
         st.caption(_("vies_certificate_caption"))
 
-        _cert_scope = st.radio(
-            _("vies_certificate_scope_label"),
-            options=["file", "account"],
-            format_func=lambda v: _("vies_certificate_scope_file") if v == "file" else _("vies_certificate_scope_account"),
-            key="vies_cert_scope",
-            horizontal=True,
-        )
-        st.caption(_("vies_certificate_scope_account_hint") if _cert_scope == "account" else _("vies_certificate_scope_file_hint"))
+        # RÔLES (2026-08-25) : le scope "account" (photographie de tout le
+        # cache VIES de l'organisation, via get_scope_vies_snapshot /
+        # get_scope_vies_history_flat) est réservé à l'administrateur — un
+        # lecteur n'a pas à voir/exporter la base VIES entière du cabinet.
+        # Le scope "file" (numéros du fichier importé aujourd'hui) reste
+        # accessible à tous, avec l'option historique.
+        if ctx.is_admin:
+            _cert_scope = st.radio(
+                _("vies_certificate_scope_label"),
+                options=["file", "account"],
+                format_func=lambda v: _("vies_certificate_scope_file") if v == "file" else _("vies_certificate_scope_account"),
+                key="vies_cert_scope",
+                horizontal=True,
+            )
+            st.caption(_("vies_certificate_scope_account_hint") if _cert_scope == "account" else _("vies_certificate_scope_file_hint"))
+        else:
+            _cert_scope = "file"
+            st.caption(_("vies_certificate_scope_file_hint"))
 
         _cert_history_mode = st.checkbox(
             _("vies_certificate_history_checkbox"),
@@ -317,18 +340,37 @@ def render_vies(ctx: TabContext) -> None:
                     _oc1b.markdown(
                         f"{_ov_label2}  \n<small style='color:grey'>{html.escape(_ov_date_str2)}{_ov_badge2}</small>",
                         unsafe_allow_html=True)
+                    # RÔLES (2026-08-25) : un lecteur peut proposer une
+                    # classification pour un n° de TVA PAS ENCORE classifié
+                    # (bloc render_manual_vies_classification ci-dessus —
+                    # ces numéros n'ont par construction aucun override
+                    # existant, voir engine.py::compute_all_with_vies qui
+                    # retire du calcul "inconclusifs" tout n° déjà couvert
+                    # par un override), mais ne peut pas modifier ou
+                    # supprimer un override DÉJÀ enregistré — seul
+                    # l'administrateur de l'organisation le peut (donnée
+                    # partagée par tout le cabinet).
                     _ov_new2 = _oc2b.selectbox(_("vies_manual_class_status"),
                         options=[_("manual_valid"), _("manual_invalid")],
                         index=0 if _ov_valid2 else 1,
-                        key=f"edit_override_b_{_ov_vat2}", label_visibility="collapsed")
-                    if _oc3b.button("💾", key=f"save_override_b_{_ov_vat2}", help=_("vies_manual_class_exp_save_help")):
-                        _smo_edit(_vies_scope_id, _ov_vat2, valid=(_ov_new2 == _("manual_valid")))
-                        CalcCacheState.invalidate_calc()
-                        st.success(f"{_ov_vat2} → {_ov_new2}")
-                        st.rerun()
-                    if _oc4b.button("🗑️", key=f"del_override_b_{_ov_vat2}", help=_("vies_manual_class_exp_del_help")):
+                        key=f"edit_override_b_{_ov_vat2}", label_visibility="collapsed",
+                        disabled=not ctx.is_admin)
+                    if _oc3b.button("💾", key=f"save_override_b_{_ov_vat2}",
+                                    help=_("vies_manual_class_exp_save_help"),
+                                    disabled=not ctx.is_admin):
                         try:
-                            _dmo_edit(_vies_scope_id, _ov_vat2)
+                            _smo_edit(_vies_scope_id, _ov_vat2, valid=(_ov_new2 == _("manual_valid")),
+                                      acting_user_id=ctx.current_user_id)
+                            CalcCacheState.invalidate_calc()
+                            st.success(f"{_ov_vat2} → {_ov_new2}")
+                            st.rerun()
+                        except PermissionError as _perm_err2:
+                            st.error(str(_perm_err2))
+                    if _oc4b.button("🗑️", key=f"del_override_b_{_ov_vat2}",
+                                    help=_("vies_manual_class_exp_del_help"),
+                                    disabled=not ctx.is_admin):
+                        try:
+                            _dmo_edit(_vies_scope_id, _ov_vat2, acting_user_id=ctx.current_user_id)
                             CalcCacheState.invalidate_calc()
                             st.success(_("vies_manual_class_exp_del_success", vat=_ov_vat2))
                             st.rerun()
