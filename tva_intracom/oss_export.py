@@ -33,6 +33,7 @@ from openpyxl.worksheet.cell_range import CellRange
 from .ecb_rates import convert_to_currency_for_oss, get_oss_rate_date, prefetch_rates
 from .i18n import _, country_label
 from .models import Scenario, VatResult
+from .rates import fiscal_equivalent_country
 
 _CENT = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -206,7 +207,13 @@ def _aggregate_by_scenario(
         if res.scenario not in scenarios:
             continue
 
-        departure = res.sale.stock_country   # MemberStateOfSupply (pour OSS) ou Pays tiers (pour IOSS)
+        # fiscal_equivalent_country : Monaco ("MC") n'est pas un État membre UE
+        # et n'est jamais un MemberStateOfSupply valide pour le XML officiel
+        # OSS — sans cette normalisation, un stock physiquement à Monaco
+        # (engine.py::compute_vat traite déjà ce cas en Scenario.OSS_B2C au
+        # départ "fiscal" de la France) ferait fuir "MC" tel quel jusque dans
+        # le XML déclaratif. Corrigé le 2026-08-26 (angle mort confirmé).
+        departure = fiscal_equivalent_country(res.sale.stock_country)   # MemberStateOfSupply (pour OSS) ou Pays tiers (pour IOSS)
         arrival   = res.vat_country          # MemberStateOfConsumption
         rate      = res.vat_rate
 

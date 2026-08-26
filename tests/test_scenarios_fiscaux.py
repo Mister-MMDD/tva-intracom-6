@@ -11,7 +11,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 from tva_intracom.engine import compute_vat, compute_all_with_vies
-from tva_intracom.models import Sale, BuyerType, Scenario, Collector
+from tva_intracom.models import Sale, BuyerType, Scenario, Collector, Channel
+from tva_intracom.oss_export import aggregate_oss_results
+from tva_intracom.ca3_report import compute_ca3_lines_v2
+from tva_intracom.rates import fiscal_equivalent_country
 
 
 def make_sale(**kwargs) -> Sale:
@@ -48,6 +51,86 @@ def test_monaco_assimilated_to_fr():
     res_de = compute_vat(sale_de)
     assert res_de.scenario == Scenario.OSS_B2C
     assert res_de.vat_country == "FR"
+
+
+def test_fiscal_equivalent_country_helper():
+    """Le helper introduit le 2026-08-26 ne doit normaliser QUE Monaco -> FR,
+    et laisser tout autre code pays inchangé (y compris en minuscules)."""
+    assert fiscal_equivalent_country("MC") == "FR"
+    assert fiscal_equivalent_country("mc") == "FR"
+    assert fiscal_equivalent_country("FR") == "FR"
+    assert fiscal_equivalent_country("DE") == "DE"
+    assert fiscal_equivalent_country("XI") == "XI"
+
+
+def test_monaco_stock_to_fr_is_domestic_not_oss():
+    """CORRECTIF 2026-08-26 : cas symétrique du stock physiquement à Monaco.
+
+    Avant ce correctif, stock_country="MC" + buyer_country="FR" tombait à
+    tort en Scenario.OSS_B2C (comparaison stock_country == buyer_country
+    échouant sur "MC" != "FR"), alors que Monaco est fiscalement la France
+    (convention franco-monégasque du 18 mai 1963) et qu'une vente vers la
+    France depuis un stock à Monaco doit être une vente domestique française
+    classique, symétrique du cas stock=FR/buyer=MC déjà couvert ci-dessus.
+    """
+    sale = make_sale(stock_country="MC", buyer_country="FR", seller_country="FR")
+    res = compute_vat(sale)
+
+    assert res.scenario == Scenario.DOMESTIC
+    assert res.vat_country == "FR"
+    assert res.channel == Channel.FR_DOMESTIC
+    assert res.collector == Collector.SELLER
+    assert res.vat_rate == Decimal("20")
+    assert res.vat_amount == Decimal("20.00")
+    assert "Monaco" in res.note
+
+
+def test_monaco_stock_cross_border_oss():
+    """Stock à Monaco vers un autre pays UE (DE) : OSS classique vers ce pays,
+    comme si le stock était en France (Monaco = France fiscale)."""
+    sale = make_sale(stock_country="MC", buyer_country="DE", seller_country="FR")
+    res = compute_vat(sale)
+
+    assert res.scenario == Scenario.OSS_B2C
+    assert res.vat_country == "DE"
+    assert res.vat_rate == Decimal("19")
+
+
+def test_monaco_stock_oss_aggregation_departure_is_fr_not_mc():
+    """CORRECTIF 2026-08-26 : la clé de regroupement "pays de départ" utilisée
+    par aggregate_oss_results() (et consommée telle quelle par oss_xml.py pour
+    le <MemberStateOfSupply> du XML officiel) ne doit JAMAIS être "MC" — Monaco
+    n'étant pas un État membre UE, ce code y serait invalide. Avant le
+    correctif, res.sale.stock_country == "MC" fuyait tel quel dans cette clé.
+    """
+    sale = make_sale(stock_country="MC", buyer_country="DE", seller_country="FR")
+    res = compute_vat(sale)
+
+    aggregated = aggregate_oss_results([res])
+
+    assert "MC" not in aggregated
+    assert "FR" in aggregated
+    assert "DE" in aggregated["FR"]
+
+
+def test_monaco_stock_counts_as_national_for_ca3_and_oss_threshold():
+    """CORRECTIF 2026-08-26 : les filtres CA3 comparant stock_country ==
+    seller_country (vente domestique locale, seuil OSS national — case
+    0038/A1 du Cerfa 3310-CA3-SD) doivent considérer un stock à Monaco comme
+    "chez le vendeur" quand celui-ci est établi en France, exactement comme
+    un stock physiquement en France.
+    """
+    sale = make_sale(stock_country="MC", buyer_country="FR", seller_country="FR")
+    res = compute_vat(sale)
+    assert res.channel == Channel.FR_DOMESTIC  # pré-requis du test suivant
+
+    lines = compute_ca3_lines_v2([res], seller_country="FR")
+
+    # La vente doit être comptée en A1 (domestique FR), pas disparaître
+    # ni être comptée à tort dans une case OSS.
+    assert lines["A1_base_ht"] == Decimal("100.00")
+    assert lines["L08_tva_due"] == Decimal("20.00")
+
 
 def test_b2b_art_194_reverse_charge():
     """Vérifie l'autoliquidation nationale (Art. 194) dans les pays l'ayant adoptée."""

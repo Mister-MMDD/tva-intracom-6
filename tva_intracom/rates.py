@@ -432,6 +432,38 @@ def is_fiscal_eu(country: str, post_code: str | None = None) -> bool:
     # Sinon, on vérifie s'il appartient à l'UE
     return is_eu(country)
 
+def fiscal_equivalent_country(country: str) -> str:
+    """Retourne le code pays à utiliser pour toute logique de TVA/déclaration
+    (régime, pays de départ OSS, seuils, agrégations CA3/OSS) à la place du
+    code pays "brut" d'un territoire fiscalement assimilé à un autre.
+
+    Monaco ("MC") est fiscalement assimilé à la France (convention fiscale
+    franco-monégasque du 18 mai 1963, droits indirects) : "MC" n'est PAS un
+    État membre UE au sens du droit de l'UE, mais engine.py::compute_vat()
+    le traite comme la France pour toute vente où Monaco est le pays de
+    l'ACHETEUR (buyer_country == "MC" → Scenario.DOMESTIC ou OSS vers "FR").
+
+    Ce helper couvre le cas symétrique, jusqu'ici un angle mort : Monaco
+    comme pays du STOCK/vendeur (stock_country == "MC" — bien physiquement
+    situé à Monaco). Sans normalisation, "MC" fuyait tel quel dans :
+      - engine.py::compute_vat() : une vente stock=MC → buyer=FR n'était pas
+        reconnue comme domestique (comparaison stock_country == buyer_country
+        échouant sur "MC" != "FR"), et tombait à tort en Scenario.OSS_B2C.
+      - oss_export.py::_aggregate_by_scenario() : la clé "departure" utilisée
+        pour l'agrégation OSS/XML est directement res.sale.stock_country —
+        "MC" s'y retrouvait tel quel comme <MemberStateOfSupply>, un code
+        pays invalide pour le guichet unique (Monaco n'est pas un État membre).
+      - ca3_report.py : les filtres "vente domestique locale" et "seuil OSS
+        national" comparent stock_country == seller_country ; avec un
+        seller établi en France et un stock à Monaco, la comparaison
+        échouait alors qu'elle doit réussir fiscalement.
+
+    Utiliser ce helper à ces trois points de comparaison résout les trois
+    cas d'un coup, sans modifier sale.stock_country lui-même (qui reste
+    "MC" tel quel sur l'objet Sale, pour l'affichage/l'audit/les notes).
+    """
+    return "FR" if country.upper() == "MC" else country.upper()
+
 # Taux standard courants (2026)
 STANDARD_VAT_RATES: Dict[str, Decimal] = {
     "AT": Decimal("20"), "BE": Decimal("21"), "BG": Decimal("20"), "HR": Decimal("25"),

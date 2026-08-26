@@ -263,6 +263,72 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             )
 
     # ------------------------------------------------------------------
+    # Cas symétrique : stock physiquement à Monaco (sale.buyer_country != "MC",
+    # déjà traité ci-dessus). Monaco étant fiscalement la France (convention
+    # franco-monégasque du 18 mai 1963), un stock à Monaco doit être traité
+    # exactement comme un stock en France : vente vers la France = domestique,
+    # vente vers un autre pays UE = OSS classique vers ce pays. Sans ce cas
+    # (angle mort confirmé le 2026-08-26), stock=MC / buyer=FR tombait à tort
+    # en Scenario.OSS_B2C (comparaison stock_country == buyer_country échouant
+    # sur "MC" != "FR"), et le pays de départ "MC" fuyait tel quel jusque dans
+    # le XML officiel OSS (<MemberStateOfSupply>MC</MemberStateOfSupply>,
+    # invalide — Monaco n'est pas un État membre UE). Voir
+    # rates.fiscal_equivalent_country(), qui documente aussi les points
+    # d'agrégation (oss_export.py, ca3_report.py) normalisés en parallèle.
+    # ------------------------------------------------------------------
+    if sale.stock_country == "MC":
+        mc_stock_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
+
+        if sale.buyer_country == "FR":
+            # Stock à Monaco, vente vers la France : vente domestique française.
+            is_home = sale.seller_country in ("FR", "MC")
+            channel = Channel.FR_DOMESTIC if is_home else Channel.LOCAL_REGISTRATION
+            mc_stock_amount = _vat_amount(sale.amount_ht, mc_stock_rate)
+
+            return VatResult(
+                sale=sale,
+                scenario=Scenario.DOMESTIC,
+                vat_country="FR",
+                vat_rate=mc_stock_rate,
+                vat_amount=mc_stock_amount,
+                collector=Collector.SELLER,
+                channel=channel,
+                note=_note(
+                    "Vente depuis un stock à Monaco vers la France : assimilée "
+                    "à une vente domestique française (convention fiscale "
+                    "franco-monégasque du 18 mai 1963 — https://bit.ly/Conv-FR-MC) "
+                    f"— TVA FR {mc_stock_rate}% collectée.",
+                    "engine_note_monaco_stock_home", lang=lang, rate=mc_stock_rate,
+                ),
+            )
+        elif is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None):
+            # Stock à Monaco, vente vers un autre pays UE : OSS classique
+            # vers ce pays, exactement comme si le stock était en France.
+            mc_stock_dest_rate = vat_rate(sale.buyer_country, effective_category, tx_date=_tx_date)
+            mc_stock_dest_amount = _vat_amount(sale.amount_ht, mc_stock_dest_rate)
+
+            return VatResult(
+                sale=sale,
+                scenario=Scenario.OSS_B2C,
+                vat_country=sale.buyer_country,
+                vat_rate=mc_stock_dest_rate,
+                vat_amount=mc_stock_dest_amount,
+                collector=Collector.SELLER,
+                channel=Channel.OSS,
+                note=_note(
+                    f"Vente depuis un stock à Monaco vers {sale.buyer_country} : "
+                    "Monaco étant assimilé à la France pour la TVA, traitée "
+                    "comme une vente OSS classique au départ de la France "
+                    f"— TVA {sale.buyer_country} {mc_stock_dest_rate}%.",
+                    "engine_note_monaco_stock_oss", lang=lang,
+                    buyer=sale.buyer_country, rate=mc_stock_dest_rate,
+                ),
+            )
+        # Sinon (buyer hors UE fiscal) : on laisse tomber dans la logique
+        # générale ci-dessous (export / territoire exclu), qui gère déjà
+        # correctement ces cas pour un stock "FR" classique.
+
+    # ------------------------------------------------------------------
     # SÉCURITÉ IMMÉDIATE : Cas d'exportation hors UE (ex: GB, US...)
     # On traite ce cas EN PREMIER pour éviter d'interroger vat_rate inutilement
     # ------------------------------------------------------------------

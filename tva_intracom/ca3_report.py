@@ -68,6 +68,7 @@ from typing import List, Dict, Optional
 
 from tva_intracom.i18n import _
 from tva_intracom.models import VatResult, Scenario, Channel
+from tva_intracom.rates import fiscal_equivalent_country
 
 logger = logging.getLogger(__name__)
 
@@ -318,7 +319,12 @@ def compute_ca3_lines_v2(
         lines[f"{k}_tva_due"]    = Decimal("0.00")
 
     def _aggregate(res: VatResult, is_refund: bool) -> None:
-        stock_from_seller = res.sale.stock_country == seller_country.upper()
+        # fiscal_equivalent_country : un stock physiquement à Monaco doit
+        # compter comme "stock chez le vendeur" si celui-ci est établi en
+        # France (Monaco = France fiscale, convention du 18 mai 1963) — sans
+        # cette normalisation, "MC" != seller_country="FR" faisait échouer
+        # à tort ce test. Corrigé le 2026-08-26 (angle mort confirmé).
+        stock_from_seller = fiscal_equivalent_country(res.sale.stock_country) == seller_country.upper()
         suffix = "remb" if is_refund else "vente"
 
         if res.channel == Channel.FR_DOMESTIC:
@@ -457,13 +463,16 @@ def generate_ca3_html_report_v2(
     solde_label = (_("ca3_solde_to_pay") if solde >= 0 else _("ca3_solde_credit"))
     solde_color = ("#C00000" if solde >= 0 else "#375623")
 
+    # fiscal_equivalent_country : idem ci-dessus — un stock à Monaco compte
+    # comme stock "national" pour le seuil OSS si le vendeur est établi en
+    # France. Corrigé le 2026-08-26 (angle mort confirmé).
     oss_base = sum(
         r.sale.amount_ht for r in results
-        if r.scenario == Scenario.OSS_B2C and r.sale.stock_country == seller_country.upper()
+        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == seller_country.upper()
     )
     oss_tva = sum(
         r.vat_amount for r in results
-        if r.scenario == Scenario.OSS_B2C and r.sale.stock_country == seller_country.upper()
+        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == seller_country.upper()
     )
 
     has_aic  = lines["B2_base_ht"] > 0

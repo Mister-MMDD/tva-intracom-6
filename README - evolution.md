@@ -5278,3 +5278,90 @@ failed** (+15 tests réussis apportés par l'utilisateur depuis la baseline
 175/3 ; les 3 échecs restent uniquement ceux, déjà connus, liés à l'absence
 de `SUPABASE_DB_URL` en sandbox — aucune régression introduite par ce
 correctif).
+
+## 2026-08-26 (3) — Bugfix confirmé lors d'un checkup général : stock physiquement
+à Monaco mal classifié (angle mort "Case C"), fuite de "MC" dans le XML OSS officiel
+
+**Contexte.** Checkup général demandé suite aux changements structurels récents
+(migration `org_id`, refonte VIES). L'audit a confirmé un angle mort déjà repéré
+précédemment ("Case C — stock physiquement à Monaco : confirmé non géré") et a
+mis en évidence qu'il ne s'agissait pas juste d'un trou théorique, mais d'une
+sortie plausible mais fiscalement incorrecte, silencieuse.
+
+**Bug confirmé.** `engine.py::compute_vat()` traite déjà explicitement le cas
+`buyer_country == "MC"` (Monaco = France fiscale, convention franco-monégasque
+du 18 mai 1963), mais n'avait aucun cas symétrique pour `stock_country == "MC"`
+(bien physiquement stocké à Monaco). Le commentaire du bloc Monaco affirmait
+que "MC" n'était reconnu ni par `is_eu()` ni par `is_fiscal_eu()` — **ce
+commentaire était devenu faux** : "MC" est bien présent dans `EU_COUNTRIES`
+(`rates.py`), donc `is_fiscal_eu("MC")` renvoie `True`. Conséquence vérifiée
+empiriquement :
+- `stock="MC"`, `buyer="FR"` → classifié à tort en `Scenario.OSS_B2C` (au lieu
+  de `Scenario.DOMESTIC`/`Channel.FR_DOMESTIC`), car `stock_country ==
+  buyer_country` échoue sur `"MC" != "FR"`.
+- Le "pays de départ" utilisé par `oss_export.py::_aggregate_by_scenario()`
+  (`departure = res.sale.stock_country`) fuyait alors tel quel jusque dans le
+  XML officiel OSS généré par `oss_xml.py`
+  (`<MemberStateOfSupply>MC</MemberStateOfSupply>`), un code pays **invalide**
+  puisque Monaco n'est pas un État membre UE — le garde-fou `is_eu(departure)`
+  de `oss_xml.py` ne le filtrait pas non plus, précisément parce que "MC" est
+  dans `EU_COUNTRIES`.
+- `ca3_report.py` : les filtres `stock_country == seller_country` (détection
+  "vente domestique locale" pour le Cerfa CA3, et seuil OSS national)
+  échouaient également pour un vendeur établi en France avec un stock à
+  Monaco, alors qu'ils doivent réussir fiscalement.
+
+**Correctif.** Nouveau helper canonique, unique point de vérité :
+`rates.py::fiscal_equivalent_country(country)` → retourne `"FR"` si le code
+pays est `"MC"`, sinon le code inchangé. Appliqué à 3 endroits :
+1. `engine.py::compute_vat()` — ajout d'un bloc symétrique explicite
+   `if sale.stock_country == "MC":` (miroir du bloc `buyer_country == "MC"`
+   existant), gérant les deux sous-cas : vente vers la France → `DOMESTIC`
+   (`FR_DOMESTIC` ou `LOCAL_REGISTRATION` selon `seller_country`) ; vente
+   vers un autre pays UE fiscal → `OSS_B2C` classique vers ce pays, comme si
+   le stock était en France.
+2. `oss_export.py::_aggregate_by_scenario()` — la clé `departure` utilisée
+   pour l'agrégation (consommée telle quelle par `oss_xml.py` pour le XML
+   officiel) passe par `fiscal_equivalent_country()`.
+3. `ca3_report.py` — les 3 comparaisons `stock_country == seller_country`
+   (détection stock domestique pour le Cerfa CA3 + 2 filtres du seuil OSS
+   national) passent par `fiscal_equivalent_country()`.
+
+**Non modifié, volontairement.** `sale.stock_country` lui-même n'est PAS
+normalisé sur l'objet `Sale` — il reste `"MC"` tel quel pour l'affichage/
+l'audit (colonne "pays de stock" dans `excel_report.py`, onglet audit), où
+afficher la localisation physique réelle du stock est correct et souhaité.
+Seuls les points de comparaison utilisés pour la logique fiscale/déclarative
+sont normalisés via le helper. Les deux usages purement d'affichage/
+heuristique de `excel_report.py` (`_nature()`, colonne "pays de stock") n'ont
+pas été touchés : aucun impact sur les montants déclarés, risque de
+sur-ingénierie jugé disproportionné par rapport au gain (limité au libellé
+d'une heuristique d'anomalie visuelle dans l'onglet audit).
+
+Fichiers modifiés : `tva_intracom/rates.py` (nouveau helper),
+`tva_intracom/engine.py`, `tva_intracom/oss_export.py`,
+`tva_intracom/ca3_report.py`.
+
+Railway / scale-to-zero : aucun impact — logique de calcul pure, aucune
+connexion, thread ou polling ajouté/modifié.
+
+**Tests ajoutés** (`tests/test_scenarios_fiscaux.py`) :
+- `test_fiscal_equivalent_country_helper` — normalisation MC→FR uniquement,
+  tout autre code pays inchangé (y compris casse).
+- `test_monaco_stock_to_fr_is_domestic_not_oss` — stock=MC/buyer=FR →
+  `Scenario.DOMESTIC`, `Channel.FR_DOMESTIC`, TVA FR 20% collectée par le
+  vendeur (régression du bug corrigé).
+- `test_monaco_stock_cross_border_oss` — stock=MC/buyer=DE → `OSS_B2C`
+  classique vers DE (comportement déjà correct, non-régression).
+- `test_monaco_stock_oss_aggregation_departure_is_fr_not_mc` — vérifie que
+  `aggregate_oss_results()` ne produit jamais de clé `"MC"`, uniquement
+  `"FR"` comme pays de départ (protège directement contre la fuite XML).
+- `test_monaco_stock_counts_as_national_for_ca3_and_oss_threshold` — vérifie
+  que `compute_ca3_lines_v2()` compte bien la vente en `A1_base_ht`
+  (domestique FR) et non ailleurs.
+
+Validation : `py_compile` + `pyflakes` propres sur les 4 fichiers modifiés
+et le fichier de tests ; suite `pytest` complète : **195 passed / 3 failed**
+(+5 nouveaux tests, tous passants ; les 3 échecs restent uniquement ceux,
+déjà connus, liés à l'absence de `SUPABASE_DB_URL` en sandbox — aucune
+régression introduite par ce correctif sur les 190 tests préexistants).
