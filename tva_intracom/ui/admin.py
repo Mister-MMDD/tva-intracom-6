@@ -6,12 +6,17 @@ tva_intracom.auth.resolve_org_id, même principe que
 vies_engine.resolve_scope_id). Réservé aux comptes dont `role == "admin"` —
 `render_admin_dialog` ne fait aucun contrôle d'accès lui-même : c'est à
 l'appelant (sidebar.py) de ne proposer le bouton d'ouverture que si
-`tva_auth.is_admin(current_user)`. Toutes les fonctions de mutation ici
-appellent malgré tout les fonctions serveur de auth.py, elles-mêmes
-appelables directement — il n'y a donc pas de contrôle serveur additionnel
-au-delà de "l'appelant est déjà authentifié" ; c'est un choix pragmatique
-cohérent avec le reste de l'app (aucune notion d'API séparée), mais à garder
-en tête si ce module est un jour exposé autrement que via cette UI.
+`tva_auth.is_admin(current_user)`.
+
+CORRECTIF (2026-08-26) : contrairement à ce que ce docstring affirmait
+auparavant, il existe bien un second verrou serveur pour les deux mutations
+sensibles de ce module — `tva_auth.delete_account()` et
+`tva_auth.set_user_role()` vérifient toutes deux `is_admin(acting_user)`
+elles-mêmes dès lors qu'un `acting_user_id` leur est fourni (voir leurs
+docstrings respectifs). Ce module continue de leur passer
+`current_user.id` en `acting_user_id` à chaque appel, précisément pour
+bénéficier de ce verrou et ne pas dépendre uniquement du gating UI
+ci-dessus si ce module était un jour exposé autrement que via cette UI.
 
 Pas d'impact scale-to-zero : aucune connexion persistante, aucun thread, une
 poignée de requêtes ponctuelles déclenchées par des clics.
@@ -60,7 +65,7 @@ def render_admin_dialog(current_user: "tva_auth.User") -> None:
             _new_role = "reader" if _m.role == "admin" else "admin"
             _toggle_label = _("admin_demote_btn") if _m.role == "admin" else _("admin_promote_btn")
             if st.button(_toggle_label, key=f"admin_toggle_role_{_m.id}"):
-                tva_auth.set_user_role(_m.id, _new_role)
+                tva_auth.set_user_role(_m.id, _new_role, acting_user_id=current_user.id)
                 st.rerun()
 
             _confirm_key = f"admin_confirm_delete_{_m.id}"

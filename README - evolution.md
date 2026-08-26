@@ -5365,3 +5365,86 @@ et le fichier de tests ; suite `pytest` complète : **195 passed / 3 failed**
 (+5 nouveaux tests, tous passants ; les 3 échecs restent uniquement ceux,
 déjà connus, liés à l'absence de `SUPABASE_DB_URL` en sandbox — aucune
 régression introduite par ce correctif sur les 190 tests préexistants).
+
+## 2026-08-26 (4) — Correctifs sécurité confirmés lors du checkup général :
+verrou serveur manquant sur set_user_role, race condition sur lock_org_for_user
+
+**Contexte.** Poursuite du checkup général (org_id, VIES) sur les axes
+verrouillage read-only/admin, paiement, sécurité transverse. Comparaison
+systématique des fonctions de mutation sensibles (`delete_account`,
+`billing._require_write_access`, `vies_engine.set_manual_override`) qui
+vérifient toutes un rôle admin côté serveur, contre les autres.
+
+**Bug confirmé n°1 — `auth.py::set_user_role()` sans contrôle serveur.**
+Seule fonction de mutation sensible de l'app à ne reposer QUE sur le gating
+UI (`sidebar.py` : le bouton d'ouverture du dialogue admin n'apparaît que si
+`is_admin(current_user)`), sans second verrou côté serveur — alors que
+`delete_account()` (action pourtant comparable en sensibilité) vérifie
+explicitement `is_admin(acting_user)` depuis le 2026-08-25. Le docstring de
+`set_user_role()` disait littéralement "contrôle fait par l'appelant".
+
+**Correctif n°1.** `set_user_role()` accepte désormais un paramètre optionnel
+`acting_user_id: str | None = None`, exactement le même pattern que
+`delete_account()` : si fourni, vérifie `is_admin(get_user_by_id(acting_user_id))`
+et lève `PermissionError` sinon ; `None` (défaut) reste rétrocompatible pour
+les appels internes/scripts existants. `ui/admin.py::render_admin_dialog`
+passe désormais `acting_user_id=current_user.id` à l'appel. Docstring du
+module `ui/admin.py` corrigé en conséquence (il affirmait à tort qu'aucune
+fonction de ce module n'avait de second verrou serveur — c'était déjà faux
+pour `delete_account`, et l'est encore moins maintenant pour `set_user_role`).
+
+**Bug confirmé n°2 — race condition sur `auth.py::lock_org_for_user()`.**
+Check-then-act (`SELECT locked_at` puis `INSERT/UPDATE`) sans verrou. Deux
+webhooks Stripe concurrents confirmant un premier paiement pour deux comptes
+DIFFÉRENTS de la même organisation (domaine professionnel) pouvaient tous
+deux lire `locked_at IS NULL` avant que l'un des deux ne commit — la
+transaction qui commit en dernier "gagne" et écrase le rôle admin de
+l'autre (`UPDATE tva_users SET role='reader' WHERE org_id=%s AND id<>%s`).
+Fenêtre étroite mais réelle (isolation READ COMMITTED par défaut sous
+Postgres, aucune protection existante).
+
+**Correctif n°2.** Ajout d'un verrou avisé Postgres transactionnel
+(`SELECT pg_advisory_xact_lock(hashtext(%s))`, scopé sur `org_id`) juste
+après la résolution de `org_id` et juste avant le `SELECT locked_at` qui
+décide si l'organisation est déjà verrouillée. Sérialise les appels
+concurrents pour un même `org_id` : la deuxième transaction attend que la
+première commit (et libère automatiquement le verrou) avant de faire son
+propre `SELECT locked_at`, qui la voit alors déjà verrouillée et no-op
+correctement. Aucun impact sur des `org_id` différents (verrou scopé, pas
+global) ; aucun impact sur les organisations solo (le verrou n'est acquis
+qu'après le test `is_solo_org`, qui sort avant).
+
+**Non traité dans ce lot (signalé, pas corrigé).** `add_allowed_email()` et
+`remove_allowed_email()` (whitelist des e-mails autorisés à créer un compte
+pour l'org) présentent la même absence de verrou serveur que
+`set_user_role()` avant ce correctif — repéré au passage mais laissé de
+côté pour rester dans le périmètre demandé ; à traiter dans un prochain lot
+si souhaité, avec le même pattern `acting_user_id`/`is_admin`.
+
+Fichiers modifiés : `tva_intracom/auth.py`, `tva_intracom/ui/admin.py`.
+
+Railway / scale-to-zero : aucun impact — `pg_advisory_xact_lock` est un
+verrou transactionnel standard PostgreSQL (aucune connexion persistante,
+aucun thread, aucun polling ; libéré automatiquement au commit/rollback de
+la transaction, y compris en cas de coupure brutale de connexion côté
+serveur applicatif).
+
+**Tests ajoutés** (`tests/test_auth_roles.py`, nouveau fichier, pattern
+`monkeypatch`/`MagicMock` du pool identique à
+`test_billing_payment_quotas.py::fake_db` — aucune base Supabase réelle
+requise) :
+- `TestSetUserRoleServerSideEnforcement` (4 tests) : admin autorisé,
+  lecteur rejeté (`PermissionError`, aucune écriture), acting_user_id
+  inconnu rejeté, `acting_user_id=None` rétrocompatible (aucune
+  vérification, comportement historique préservé).
+- `TestLockOrgForUserAdvisoryLock` (5 tests) : verrou acquis avant le
+  `SELECT locked_at` (ordre des requêtes), verrou bien scopé sur `org_id`,
+  no-op si déjà verrouillé même après acquisition du verrou, aucun verrou
+  demandé pour une org solo, cas nominal (verrouillage + rétrogradation des
+  autres comptes) inchangé.
+
+Validation : `py_compile` + `pyflakes` propres sur les 3 fichiers modifiés/
+créés ; suite `pytest` complète : **204 passed / 3 failed** (+9 nouveaux
+tests, tous passants ; les 3 échecs restent uniquement ceux, déjà connus,
+liés à l'absence de `SUPABASE_DB_URL` en sandbox — aucune régression sur
+les 195 tests préexistants).

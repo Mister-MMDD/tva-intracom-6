@@ -457,7 +457,22 @@ def lock_org_for_user(user_id: str) -> None:
     Idempotent : ne fait rien si l'organisation est déjà verrouillée (un
     renouvellement ou changement de plan ne doit pas réinitialiser des rôles
     déjà réajustés manuellement par l'admin). Sans effet pour une
-    organisation "solo" (domaine public) — un seul compte, déjà admin."""
+    organisation "solo" (domaine public) — un seul compte, déjà admin.
+
+    CORRECTIF (2026-08-26) : ce check-then-act (SELECT locked_at puis
+    INSERT/UPDATE) souffrait d'une race condition — deux webhooks Stripe
+    concurrents pour deux comptes DIFFÉRENTS du même domaine professionnel
+    (deux premiers paiements quasi simultanés dans la même organisation)
+    pouvaient tous deux lire `locked_at IS NULL` avant que l'un des deux ne
+    commit, aboutissant à ce que le dernier à committer "gagne" et écrase
+    le rôle admin de l'autre (UPDATE ... SET role='reader' WHERE org_id=%s
+    AND id<>%s). Verrou avisé Postgres transactionnel
+    (`pg_advisory_xact_lock`, scope hashé sur org_id) ajouté ci-dessous :
+    il sérialise les appels concurrents pour un même org_id — la deuxième
+    transaction attend que la première commit (et libère le verrou) avant
+    de faire son propre SELECT locked_at, qui la voit alors déjà verrouillée
+    et no-op correctement. Verrou automatiquement libéré au commit/rollback
+    de la transaction, pas besoin de UNLOCK explicite."""
     def _fn(conn, cur):
         cur.execute("SELECT org_id, email FROM tva_users WHERE id=%s", (user_id,))
         row = cur.fetchone()
@@ -468,6 +483,11 @@ def lock_org_for_user(user_id: str) -> None:
         if is_solo_org(org_id):
             logger.info("[auth] lock_org_for_user(%r) : organisation solo %r, aucun verrouillage.", user_id, org_id)
             return
+
+        # Verrou avisé transactionnel scopé à org_id : bloque ici si une
+        # autre transaction est déjà en train de verrouiller CETTE org
+        # (voir docstring ci-dessus) — se libère automatiquement au commit.
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (org_id,))
 
         cur.execute("SELECT locked_at FROM tva_orgs WHERE org_id=%s", (org_id,))
         org_row = cur.fetchone()
@@ -565,9 +585,29 @@ def remove_allowed_email(org_id: str, email: str) -> None:
     _run(_fn)
 
 
-def set_user_role(user_id: str, role: str) -> None:
-    """Change le rôle d'un compte existant — action réservée à un admin
-    (contrôle fait par l'appelant, voir ui/admin.py)."""
+def set_user_role(user_id: str, role: str, acting_user_id: str | None = None) -> None:
+    """Change le rôle d'un compte existant.
+
+    RÔLES (2026-08-26) : `acting_user_id` identifie qui déclenche ce
+    changement — même pattern que `delete_account()`. Seul un compte
+    `role="admin"` peut promouvoir/rétrograder un autre membre ; contrôle
+    déjà fait côté UI (ui/admin.py::render_admin_dialog n'est ouvert que si
+    `is_admin(current_user)`) mais dupliqué ici, serveur, car c'était
+    jusqu'ici la seule fonction de mutation de rôle/organisation sans
+    second verrou serveur (contrairement à `delete_account`,
+    `billing._require_write_access`, `vies_engine.set_manual_override`) —
+    un oubli identifié lors du checkup du 2026-08-26, corrigé ici.
+    `acting_user_id=None` : rétrocompatibilité (scripts internes/tests
+    appelant directement cette fonction) — aucune vérification dans ce cas,
+    comportement inchangé.
+    """
+    if acting_user_id is not None:
+        _acting_user = get_user_by_id(acting_user_id)
+        if not _acting_user or not is_admin(_acting_user):
+            raise PermissionError(
+                "Seul un administrateur de l'organisation peut modifier le rôle d'un compte."
+            )
+
     role = "admin" if role == "admin" else "reader"
 
     def _fn(conn, cur):
