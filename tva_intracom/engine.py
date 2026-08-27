@@ -14,12 +14,37 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import replace as _dc_replace
 from decimal import ROUND_HALF_UP, Decimal
 from itertools import chain
 
+# DIAG TEMPORAIRE (perf multi-utilisateurs, voir README - évolution.md) :
+# `resource` est Unix-only (absent sous Windows, où Matthieu développe en
+# local — D:/...). Import protégé pour ne jamais faire planter l'app en
+# local ; en production (Streamlit Cloud, Linux) le module est disponible
+# et donne le pic RSS réel du process, utile pour distinguer une saturation
+# mémoire d'une simple contention CPU/GIL lors de calculs 100k lignes
+# concurrents. À retirer une fois le diagnostic terminé.
+try:
+    import resource as _resource_diag
+except ImportError:
+    _resource_diag = None
+
 logger = logging.getLogger(__name__)
+
+
+def _diag_rss_mb() -> float:
+    """Pic de RSS (Mo) du process depuis son démarrage, ou -1.0 si
+    indisponible (Windows, ou toute autre erreur). Volontairement permissif :
+    un diagnostic ne doit jamais faire échouer le calcul réel."""
+    if _resource_diag is None:
+        return -1.0
+    try:
+        return _resource_diag.getrusage(_resource_diag.RUSAGE_SELF).ru_maxrss / 1024
+    except Exception:
+        return -1.0
 
 from .models import (
     BuyerType,
@@ -93,8 +118,8 @@ def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
 
     En français : texte complet avec références légales.
     Dans les autres langues : note générique minimale.
-    
-    IMPORTANT : 'lang' doit être passé explicitement pour éviter les appels 
+
+    IMPORTANT : 'lang' doit être passé explicitement pour éviter les appels
     à st.session_state dans les threads d'arrière-plan.
 
     Le texte final est passé par un cache d'interning (`_NOTE_INTERN_CACHE`) :
@@ -165,7 +190,7 @@ def _vat_amount(base: Decimal, rate: Decimal) -> Decimal:
     return _round(base * (rate / Decimal("100")))
 
 def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: str = "", lang: str | None = None,
-                 ioss_own_number_active: bool = False, tx_date: _date | None = None) -> VatResult:
+                ioss_own_number_active: bool = False, tx_date: _date | None = None) -> VatResult:
     """Calcule le regime et le montant de TVA d'une vente en prenant en compte la catégorie produit.
 
     ioss_own_number_active : n'est pertinent que si sale.ioss_number est renseigné.
@@ -683,8 +708,8 @@ def _oss_eligible(sale: Sale) -> bool:
 
 
 def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbol: str = "€",
-                            oss_period: str = "", transaction_date=None,
-                            rate_cache: dict | None = None) -> tuple[str, str, str]:
+                           oss_period: str = "", transaction_date=None,
+                           rate_cache: dict | None = None) -> tuple[str, str, str]:
     """Cumul et seuil OSS à afficher dans la note.
     Les paramètres currency et symbol doivent être passés par l'appelant
     pour éviter d'accéder à st.session_state dans un thread d'arrière-plan.
@@ -1112,8 +1137,7 @@ def compute_all_with_vies(
 
     vat_to_sale_ids: dict[str, list[str]] = {}  # full_vat -> [sale_id, ...]
 
-    import time
-    _t0 = time.perf_counter()
+    _diag_t_dedup0 = time.perf_counter()
     for sale in all_items_sorted:
         # buyer_vat_valid=False dès classify.py signale un NIF/identifiant fiscal
         # national (pas un vrai n° de TVA intracom, cf. is_national_tax_id) — que
@@ -1134,20 +1158,27 @@ def compute_all_with_vies(
                     vat_seen.add(full_vat)
                     vats_to_check.append(full_vat)
 
-    _t1 = time.perf_counter()
-    logger.info("DIAG dedup_vat_loop: %.2fs sur %d lignes -> %d numéros uniques", _t1 - _t0, len(all_items_sorted), len(vats_to_check))
-
     vies_summary.vat_to_display_ids = vat_to_sale_ids
+
+    logger.info(
+        "DIAG dedup_vat_loop: %.2fs sur %d lignes -> %d numéros uniques",
+        time.perf_counter() - _diag_t_dedup0, len(all_items_sorted), len(vats_to_check),
+        )
 
     # Appel de la validation VIES parallèle (validate_vat_numbers_parallel importée
     # en tête de fonction depuis vies.py). En cas d'erreur réseau ou VIES indisponible,
     # on dégrade vers la version séquentielle, puis vers un dict vide avec log explicite.
     checked_vats: dict = {}
     if vats_to_check:
+        _diag_t_vies0 = time.perf_counter()
         try:
             checked_vats = validate_vat_numbers_parallel(
                 scope_id, vats_to_check, progress_callback=vies_progress_callback
             )
+            logger.info(
+                "DIAG validate_vat_numbers_parallel: %.2fs pour %d numéros",
+                time.perf_counter() - _diag_t_vies0, len(vats_to_check),
+                )
         except Exception as exc_parallel:
             logger.warning(
                 "validate_vat_numbers_parallel a échoué (%s) — "
@@ -1167,8 +1198,6 @@ def compute_all_with_vies(
                     exc_seq,
                 )
                 checked_vats = {}
-    _t2 = time.perf_counter()
-    logger.info("DIAG validate_vat_numbers_parallel: %.2fs pour %d numéros", _t2 - _t1, len(vats_to_check))
 
     # Injection des classifications manuelles (overrides utilisateur).
     # On n'applique l'override QUE si la validation VIES automatique a échoué
@@ -1377,6 +1406,9 @@ def compute_all_with_vies(
 
     _lang, _curr, _sym = lang, currency, symbol
 
+    _diag_t_loop0 = time.perf_counter()
+    _diag_rss_before = _diag_rss_mb()
+
     results, refund_results, oss_summary = _run_oss_loop(
         all_items_sorted, refund_keys, marketplace_name,
         asin_to_category, apply_fr_under_threshold,
@@ -1385,6 +1417,12 @@ def compute_all_with_vies(
         ioss_own_number_active=ioss_own_number_active,
         oss_period=oss_period,
     )
+
+    logger.info(
+        "DIAG run_oss_loop: %.2fs sur %d items | rss_peak avant=%.0fMo apres=%.0fMo",
+        time.perf_counter() - _diag_t_loop0, len(all_items_sorted),
+        _diag_rss_before, _diag_rss_mb(),
+        )
 
     # Mise à jour des montants TVA évités dans les reclassifications
     # (on ne peut le faire qu'après compute_vat, donc en post-processing sur results).
