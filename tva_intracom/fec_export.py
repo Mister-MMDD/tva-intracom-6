@@ -190,6 +190,23 @@ def _scenario_label(scenario: Scenario) -> str:
     }.get(scenario, scenario.value)
 
 
+def _assert_balanced(debit_total: Decimal, credit_total: Decimal, ecriture_num: str,
+                      scenario_value: str, vat_country: str, vat_rate: Decimal) -> None:
+    """Vérifie qu'une écriture FEC est équilibrée (Débit == Crédit).
+
+    Lève une erreur explicite plutôt que de laisser passer un FEC invalide
+    silencieusement (conforme à la règle "jamais d'échec silencieux") —
+    voir le commentaire dans build_fec_rows sur le cas de dérive d'arrondi
+    que ce garde-fou est censé intercepter."""
+    if debit_total != credit_total:
+        raise RuntimeError(
+            f"FEC déséquilibré pour l'écriture {ecriture_num} ({scenario_value}, "
+            f"{vat_country}, taux {vat_rate}) : Débit={debit_total} != "
+            f"Crédit={credit_total}. Ne pas exporter — signaler ce cas (probable "
+            f"dérive d'arrondi entre montants HT et TVA agrégés)."
+        )
+
+
 def build_fec_rows(
     results: Iterable[VatResult],
     period: str,
@@ -258,24 +275,58 @@ def build_fec_rows(
         # Compte de vente spécifique par pays
         sale_account = _sale_account_for(key.vat_country)
 
-        # Le débit client doit être égal à la somme des crédits générés pour
-        # rester équilibré : HT seul si aucune TVA n'est collectée par le
-        # vendeur (DEEMED_SUPPLIER, B2B_REVERSE_CHARGE, EXPORT — vat_amount
-        # du moteur existe mais ne transite pas par la compta du vendeur
-        # dans ces cas), HT+TVA sinon.
-        abs_client = abs_ht + (abs_vat if has_vat_line else Decimal("0.00"))
-        flip = (net_ht + (net_vat if has_vat_line else Decimal("0.00"))) < Decimal("0.00")
+        # BUGFIX (2026-08-27) : le sens débit/crédit de CHAQUE ligne (vente,
+        # TVA) doit dépendre du signe de SA PROPRE valeur nette (net_ht,
+        # net_vat), pas d'un unique "flip" dérivé du signe du TOTAL combiné.
+        # En théorie net_ht et net_vat partagent toujours le même signe au
+        # sein d'un même bucket (même taux : vat_amount = round(amount_ht *
+        # rate/100)) — mais un cumul d'arrondis indépendants sur de
+        # nombreuses lignes (ventes + avoirs qui se neutralisent presque
+        # exactement) pourrait en théorie faire dériver le signe agrégé de
+        # l'un par rapport à l'autre de quelques centimes. Avec l'ancien
+        # code (un seul "flip" basé sur le signe du total combiné, appliqué
+        # aveuglément à abs_ht et abs_vat), un tel cas produirait une
+        # écriture déséquilibrée (Debit != Credit) sans qu'aucune alerte ne
+        # soit levée. On calcule donc le sens de chaque ligne indépendamment,
+        # et le montant client comme la vraie somme algébrique (pas la somme
+        # des valeurs absolues) — le débit client reste par construction égal
+        # à la somme des crédits (ou l'inverse), quel que soit le cas.
+        client_amount = net_ht + (net_vat if has_vat_line else Decimal("0.00"))
+        abs_client = abs(client_amount)
+        client_debit = client_amount >= Decimal("0.00")
 
-        if not flip:
-            rows.append(_line(ACCOUNTS["CLIENT"], _("fec_account_client_lib"), abs_client, Decimal("0.00")))
-            rows.append(_line(sale_account, _("fec_account_sales_lib"), Decimal("0.00"), abs_ht))
-            if has_vat_line:
-                rows.append(_line(key.channel_account, _("fec_account_vat_lib"), Decimal("0.00"), abs_vat))
+        debit_total = Decimal("0.00")
+        credit_total = Decimal("0.00")
+
+        def _add(compte: str, compte_lib: str, debit: Decimal, credit: Decimal) -> None:
+            nonlocal debit_total, credit_total
+            rows.append(_line(compte, compte_lib, debit, credit))
+            debit_total += debit
+            credit_total += credit
+
+        if client_debit:
+            _add(ACCOUNTS["CLIENT"], _("fec_account_client_lib"), abs_client, Decimal("0.00"))
         else:
-            rows.append(_line(ACCOUNTS["CLIENT"], _("fec_account_client_lib"), Decimal("0.00"), abs_client))
-            rows.append(_line(sale_account, _("fec_account_sales_lib"), abs_ht, Decimal("0.00")))
-            if has_vat_line:
-                rows.append(_line(key.channel_account, _("fec_account_vat_lib"), abs_vat, Decimal("0.00")))
+            _add(ACCOUNTS["CLIENT"], _("fec_account_client_lib"), Decimal("0.00"), abs_client)
+
+        if net_ht >= Decimal("0.00"):
+            _add(sale_account, _("fec_account_sales_lib"), Decimal("0.00"), abs_ht)
+        else:
+            _add(sale_account, _("fec_account_sales_lib"), abs_ht, Decimal("0.00"))
+
+        if has_vat_line:
+            if net_vat >= Decimal("0.00"):
+                _add(key.channel_account, _("fec_account_vat_lib"), Decimal("0.00"), abs_vat)
+            else:
+                _add(key.channel_account, _("fec_account_vat_lib"), abs_vat, Decimal("0.00"))
+
+        # Garde-fou (2026-08-27) : une écriture FEC déséquilibrée serait
+        # rejetée par le logiciel comptable à l'import — ou pire, acceptée
+        # avec des montants faux. On préfère lever une erreur explicite
+        # (conforme à la règle "jamais d'échec silencieux") plutôt que de
+        # livrer un fichier FEC invalide sans avertissement.
+        _assert_balanced(debit_total, credit_total, num_str, key.scenario.value,
+                          key.vat_country, key.vat_rate)
 
         ecriture_num += 1
 

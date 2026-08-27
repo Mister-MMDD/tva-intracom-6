@@ -5532,3 +5532,129 @@ et les 2 fichiers de tests ; suite `pytest` complète : **216 passed /
 3 failed** (+12 nouveaux tests depuis le lot précédent, tous passants ;
 les 3 échecs restent uniquement ceux, déjà connus, liés à l'absence de
 `SUPABASE_DB_URL` en sandbox — aucune régression).
+
+## 2026-08-27 — Checkup général bugs / perf / améliorations
+
+Revue systématique du dépôt (bugs, perf, roadmap) demandée par
+Matthieu. Un point traité (fix), un point de la liste "on the horizon"
+reclassé obsolète.
+
+**Bugfix — rupture de symétrie i18n (clés VIES retry loop manquantes)** :
+`fr.toml` et `en.toml` comptaient 1204 clés contre 1202 pour
+`de/es/it/pl/pt.toml`. Deux clés ajoutées lors du chantier "boucle de
+ré-essai VIES automatique" (`vies_retry_done_title`,
+`vies_retry_update_btn`, utilisées dans
+`tva_intracom/ui/tabs/vies_ui.py` — titre du dialog de fin de retry et
+libellé du bouton "Mettre à jour le calcul") avaient été oubliées dans
+les 5 autres langues. Comme `i18n.get_text()` fallback sur la clé brute
+en cas d'absence (`translations.get(key, key)`), un utilisateur
+de/es/it/pl/pt voyait littéralement `vies_retry_done_title` /
+`vies_retry_update_btn` affiché à l'écran au lieu d'un texte traduit.
+
+Correctif : ajout des 2 clés traduites dans les 5 fichiers manquants, au
+même emplacement que dans fr/en (juste après `vies_retry_progress_label`
+et `vies_retry_done_info` respectivement), en reprenant le style des
+traductions voisines déjà présentes (ex. "MIAS" pour VIES en allemand,
+cohérent avec `vies_retry_progress_label` existant).
+
+Fichiers modifiés : `tva_intracom/i18n/de.toml`, `es.toml`, `it.toml`,
+`pl.toml`, `pt.toml`.
+
+Railway / scale-to-zero : aucun impact — fichiers de traduction statiques
+uniquement.
+
+Validation : `toml.load()` sur les 7 fichiers (parsing OK) + vérification
+programmatique de symétrie des clés (plus seulement le compte, mais le
+diff exact des clés) : **1204 clés partout, aucun écart résiduel**.
+`py_compile` OK sur `vies_ui.py` (aucun changement de code, seulement les
+traductions).
+
+**Point roadmap reclassé obsolète — migration DictCursor `billing.py`** :
+vérification faite que `billing.py` ne crée plus aucune connexion ou
+curseur brut (`psycopg2.connect` / `conn.cursor()` absents du fichier) ;
+tous les accès passent par `database.get_shared_pool()`, qui applique
+déjà `cursor_factory=DictCursor` par défaut depuis un refactor antérieur
+de `database.py`. Les accès positionnels restants (`row[0]`, etc.)
+fonctionnent tels quels car `DictRow` reste indexable. Ce point est donc
+retiré de la liste "on the horizon" : aucune action nécessaire.
+
+**Autres pistes examinées, sans action requise** :
+- Export XML IOSS dédié : toujours absent (`oss_xml.py` n'expose que
+  `generate_oss_xml`, aucun `generate_ioss_xml`) — reste un point roadmap
+  ouvert, aucun changement à ce stade.
+- `except Exception` "silencieux" (engine.py, database.py,
+  excel_report.py, ecb_rates.py, etc.) : tous inspectés, ce sont des
+  fallbacks non-critiques déjà loggés ou avec valeur de repli
+  documentée en commentaire — conformes à la règle "reject silent
+  failures", rien à corriger.
+- Scale-to-zero : aucun polling permanent ni thread persistant hors
+  requête détecté ; les seuls threads/sleeps existants sont liés au job
+  de calcul en arrière-plan déclenché à la demande
+  (`ui/background_calc.py`).
+- Perf : pas de N+1 DB/HTTP en boucle, pas de `pandas.iterrows`, tous
+  les `@st.cache_data` correctement TTL'és (aucun cache "nu" en dehors
+  du registre `mem_utils.py`).
+
+Suite `pytest` complète non relancée dans ce lot (aucun fichier de code
+Python modifié — uniquement des fichiers `.toml` statiques ; le
+changement est hors périmètre de la suite de tests).
+
+## 2026-08-27 (2) — Bugfix `fec_export.py` : équilibrage débit/crédit
+robuste à un signe agrégé divergent entre HT et TVA
+
+Suite au checkup général ci-dessus, poursuite de l'audit sur `fec_export.py`,
+`excel_report.py` (Intrastat/EMEBI) et `ui/formatting.py` (conversion
+devise d'affichage). Rien trouvé sur les 2 derniers ; un point corrigé sur
+le premier.
+
+**Constat** : dans `build_fec_rows`, le sens débit/crédit des lignes de
+vente (707…) et de TVA collectée (4457…) d'une écriture était déterminé
+par un **unique** `flip` calculé sur le signe du **total combiné**
+`net_ht + net_vat`, appliqué aveuglément aux deux lignes via leurs valeurs
+absolues (`abs_ht`, `abs_vat`). Le montant du compte client (411) était lui
+calculé comme la somme des valeurs absolues (`abs_ht + abs_vat`) plutôt que
+la valeur absolue de la somme algébrique. Ces deux logiques ne coïncident
+que si `net_ht` et `net_vat` partagent le même signe au sein d'un même
+bucket d'agrégation (période/régime/pays/taux) — ce qui est garanti par
+construction pour une ligne individuelle (`vat_amount = round(amount_ht *
+rate/100)`, même taux positif) mais aurait pu, en théorie, diverger après
+sommation de nombreuses lignes (ventes + avoirs) sujettes à des arrondis
+indépendants. En cas de divergence, l'écriture FEC générée aurait été
+déséquilibrée (Débit ≠ Crédit) sans aucune alerte.
+
+Investigation complémentaire (via les tests, voir `tests/test_fec.py`) :
+`_vat_account_for` filtre déjà côté ligne individuelle (retourne `""` si
+`vat_amount <= 0`), ce qui empêche en pratique qu'un résultat à TVA
+négative rejoigne un bucket à compte de TVA non vide — le scénario de
+divergence de signe agrégé s'est donc avéré non réalisable avec les
+données réelles du moteur. Le correctif reste néanmoins appliqué par
+prudence défensive (aucune garantie que cette invariante côté
+`_vat_account_for` ne soit jamais retouchée séparément à l'avenir), et le
+garde-fou ajouté documente explicitement ce raisonnement.
+
+**Correctif** :
+- Le sens (débit/crédit) de la ligne de vente est désormais déterminé par
+  le signe de `net_ht` seul ; celui de la ligne de TVA par le signe de
+  `net_vat` seul ; celui de la ligne client par le signe de la vraie somme
+  algébrique `net_ht + net_vat` (pas la somme des valeurs absolues).
+  Mathématiquement, cette formulation garantit `Débit == Crédit` pour
+  toute combinaison de signes.
+- Garde-fou `_assert_balanced()` (fonction dédiée, testée isolément) :
+  lève une `RuntimeError` explicite si une écriture ressort malgré tout
+  déséquilibrée, plutôt que de laisser passer un FEC invalide en
+  silence — conforme à la règle "jamais d'échec silencieux".
+
+Fichier modifié : `tva_intracom/fec_export.py`.
+
+Railway / scale-to-zero : aucun impact (calcul synchrone, pas de
+connexion/thread supplémentaire).
+
+Tests : nouveau fichier `tests/test_fec.py` (5 tests) — cas normal, bucket
+entièrement remboursé (signe global inversé), ligne TVA filtrée sur
+`vat_amount` individuel négatif, et le garde-fou `_assert_balanced`
+testé directement (lève / ne lève pas). Suite complète : **221 passed /
+3 failed** (216 + 5 nouveaux, tous passants ; les 3 échecs restent ceux,
+déjà connus, liés à l'absence de `SUPABASE_DB_URL` en sandbox — aucune
+régression). `py_compile` et `pyflakes` propres sur `fec_export.py` (seul
+avertissement pyflakes présent — `unused_results` dans
+`_journal_info_for` — est pré-existant, non lié à ce correctif).
