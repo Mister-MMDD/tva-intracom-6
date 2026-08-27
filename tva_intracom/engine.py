@@ -1112,6 +1112,8 @@ def compute_all_with_vies(
 
     vat_to_sale_ids: dict[str, list[str]] = {}  # full_vat -> [sale_id, ...]
 
+    import time
+    _t0 = time.perf_counter()
     for sale in all_items_sorted:
         # buyer_vat_valid=False dès classify.py signale un NIF/identifiant fiscal
         # national (pas un vrai n° de TVA intracom, cf. is_national_tax_id) — que
@@ -1131,6 +1133,9 @@ def compute_all_with_vies(
                 if full_vat not in vat_seen:
                     vat_seen.add(full_vat)
                     vats_to_check.append(full_vat)
+
+    _t1 = time.perf_counter()
+    logger.info("DIAG dedup_vat_loop: %.2fs sur %d lignes -> %d numéros uniques", _t1 - _t0, len(all_items_sorted), len(vats_to_check))
 
     vies_summary.vat_to_display_ids = vat_to_sale_ids
 
@@ -1162,6 +1167,8 @@ def compute_all_with_vies(
                     exc_seq,
                 )
                 checked_vats = {}
+    _t2 = time.perf_counter()
+    logger.info("DIAG validate_vat_numbers_parallel: %.2fs pour %d numéros", _t2 - _t1, len(vats_to_check))
 
     # Injection des classifications manuelles (overrides utilisateur).
     # On n'applique l'override QUE si la validation VIES automatique a échoué
