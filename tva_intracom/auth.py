@@ -557,7 +557,22 @@ def list_allowed_emails(org_id: str) -> list[dict]:
 def add_allowed_email(org_id: str, email: str, role: str, added_by: str) -> None:
     """Ajoute (ou met à jour) une adresse autorisée à créer un compte sur
     cette organisation, avec le rôle choisi par l'admin (case à cocher
-    admin/lecteur dans ui/admin.py)."""
+    admin/lecteur dans ui/admin.py).
+
+    RÔLES (2026-08-26) : `added_by` sert déjà à identifier qui déclenche
+    l'ajout (traçabilité) — on en profite pour vérifier ici que ce compte
+    est bien admin, même pattern que `set_user_role()`/`delete_account()`.
+    Repéré lors de l'audit systématique "tous les blocages UI ont-ils un
+    verrouillage serveur ?" : seul le gating UI (ui/admin.py, ouvert
+    uniquement si `is_admin(current_user)`) protégeait cette fonction
+    jusqu'ici.
+    """
+    _acting_user = get_user_by_id(added_by)
+    if not _acting_user or not is_admin(_acting_user):
+        raise PermissionError(
+            "Seul un administrateur de l'organisation peut ajouter une adresse autorisée."
+        )
+
     email = email.strip().lower()
     role = "admin" if role == "admin" else "reader"
 
@@ -575,7 +590,22 @@ def add_allowed_email(org_id: str, email: str, role: str, added_by: str) -> None
     _run(_fn)
 
 
-def remove_allowed_email(org_id: str, email: str) -> None:
+def remove_allowed_email(org_id: str, email: str, acting_user_id: str | None = None) -> None:
+    """Retire une adresse de la liste des e-mails autorisés à créer un
+    compte pour cette organisation.
+
+    RÔLES (2026-08-26) : `acting_user_id` optionnel (défaut None,
+    rétrocompatible) — même pattern que `set_user_role()`. Repéré lors de
+    l'audit systématique "tous les blocages UI ont-ils un verrouillage
+    serveur ?" : seul le gating UI protégeait cette fonction jusqu'ici.
+    """
+    if acting_user_id is not None:
+        _acting_user = get_user_by_id(acting_user_id)
+        if not _acting_user or not is_admin(_acting_user):
+            raise PermissionError(
+                "Seul un administrateur de l'organisation peut retirer une adresse autorisée."
+            )
+
     email = email.strip().lower()
 
     def _fn(conn, cur):

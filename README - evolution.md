@@ -5448,3 +5448,87 @@ créés ; suite `pytest` complète : **204 passed / 3 failed** (+9 nouveaux
 tests, tous passants ; les 3 échecs restent uniquement ceux, déjà connus,
 liés à l'absence de `SUPABASE_DB_URL` en sandbox — aucune régression sur
 les 195 tests préexistants).
+
+## 2026-08-26 (5) — Audit systématique "tous les blocages UI ont-ils un
+verrouillage serveur ?" : 4 fonctions corrigées (add/remove_allowed_email,
+set_cache_ttl, purge_expired_cache)
+
+**Contexte.** Suite directe du lot (4) : demande explicite de vérifier
+TOUS les gates `is_admin()` côté UI (`grep -rn "is_admin(" tva_intracom/ui/`)
+et confirmer que chacun a bien un second verrou serveur, pas seulement les
+deux déjà corrigés.
+
+**Méthode.** Les 7 emplacements `is_admin()` UI recensés
+(`billing_gate.py` ×2, `onboarding.py` ×1, `sidebar.py` ×3) ont été
+inspectés un par un ; pour chaque bloc, listées les fonctions de mutation
+appelées à l'intérieur et vérifié si elles revalident le rôle côté serveur.
+
+**Déjà protégés (rien à faire)** : `create_payg_checkout_session`,
+`create_subscription_checkout_session`, `create_billing_portal_session`
+(toutes via `billing._require_write_access`, existant) ;
+`register_siren`/`request_siren_removal`/`cancel_siren_removal` (idem) ;
+`set_user_role`/`delete_account` (corrigés au lot précédent). Le bloc
+`onboarding.py:165` ne fait qu'un affichage conditionnel, aucune mutation —
+rien à protéger.
+
+**4 fonctions corrigées, même pattern `acting_user_id: str | None = None`
++ `is_admin()` (rétrocompatible)** :
+1. `auth.py::add_allowed_email()` — le paramètre `added_by` existait déjà
+   (traçabilité) mais n'était jamais vérifié ; il sert maintenant aussi de
+   contrôle d'accès (pas de nouveau paramètre nécessaire).
+2. `auth.py::remove_allowed_email()` — nouveau paramètre `acting_user_id`.
+3. `vies_engine.py::set_cache_ttl()` — nouveau paramètre `acting_user_id`.
+   Import paresseux de `.auth` (même raison de cycle que
+   `set_manual_override` : `auth.delete_account` importe déjà ce module en
+   retour).
+4. `vies_engine.py::purge_expired_cache()` — nouveau paramètre
+   `acting_user_id`. Impact réel plus faible que les 3 autres (ne supprime
+   que des entrées déjà expirées/erreurs transitoires du cache de
+   performance — voir note ci-dessous sur l'historique VIES) mais ajouté
+   par cohérence.
+
+**Appelants mis à jour** : `ui/admin.py` (`remove_allowed_email`),
+`ui/sidebar.py` (`set_cache_ttl`, `purge_expired_cache` — bouton manuel
+admin-only). Le second appelant de `purge_expired_cache`
+(`ui/tabs/vies_ui.py::render_vies`, purge automatique au chargement de
+l'onglet, ouverte à tout membre y compris lecteur) **volontairement laissé
+inchangé** — `acting_user_id` omis, comportement historique préservé,
+cohérent avec le fait que cette purge n'a jamais été un privilège admin.
+
+**Commentaires obsolètes corrigés en cohérence** :
+`ui/sidebar.py` (près du bouton "Administration") affirmait encore
+"admin.py lui-même ne revérifie pas le rôle" — plus vrai depuis le lot (4).
+
+**Précision demandée en cours de session (Q/R, pas un changement de
+code)** : `purge_expired_cache()` ne supprime QUE (a) le cache de
+validation VIES au-delà du TTL réglé (perf pure, aucune perte
+fiscale — force juste une revalidation) et (b) l'historique
+`vies_check_history` au-delà de 365 jours (rétention fiscale légale
+indépendante du TTL). Ne touche JAMAIS les classifications manuelles
+(`vies_manual_overrides`, table distincte), ni l'historique < 365 jours
+(donc le certificat PDF VIES reste intact), ni les autres scopes, ni le
+cache global mutualisé (purgé séparément par
+`purge_expired_global_cache()`).
+
+Fichiers modifiés : `tva_intracom/auth.py`, `tva_intracom/vies_engine.py`,
+`tva_intracom/ui/admin.py`, `tva_intracom/ui/sidebar.py`.
+
+Railway / scale-to-zero : aucun impact — vérifications en mémoire/DB
+ponctuelles, aucune connexion persistante, thread ou polling ajouté.
+
+**Tests ajoutés** :
+- `tests/test_auth_roles.py` (+4, classe
+  `TestAllowedEmailServerSideEnforcement`) : `add_allowed_email` rejette un
+  lecteur / autorise un admin ; `remove_allowed_email` rejette un lecteur
+  si `acting_user_id` fourni / reste rétrocompatible si omis.
+- `tests/test_vies_admin_locks.py` (nouveau fichier, +8) : `set_cache_ttl`
+  rejette un lecteur / autorise un admin / rétrocompatible sans
+  `acting_user_id` / plafond 30 jours toujours appliqué même pour un
+  admin ; `purge_expired_cache` mêmes 3 premiers cas + non-régression
+  explicite "ne touche jamais `vies_manual_overrides`".
+
+Validation : `py_compile` + `pyflakes` propres sur les 4 fichiers modifiés
+et les 2 fichiers de tests ; suite `pytest` complète : **216 passed /
+3 failed** (+12 nouveaux tests depuis le lot précédent, tous passants ;
+les 3 échecs restent uniquement ceux, déjà connus, liés à l'absence de
+`SUPABASE_DB_URL` en sandbox — aucune régression).

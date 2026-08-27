@@ -1365,7 +1365,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                           value=_ttl_current, step=1,
                                           help=_("ttl_cache_help"))
                     if _ttl_days != _cs["ttl_days"]:
-                        set_cache_ttl(_vies_scope_id, _ttl_days)
+                        set_cache_ttl(_vies_scope_id, _ttl_days, acting_user_id=_current_user.id)
                         vies_cache_stats.clear()
                         preserve_upload_rerun()
                     if is_detailed():
@@ -1384,7 +1384,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                             _m2.metric(_("manual_invalid"), _cs["manual_invalid"])
                         if _cs["expired"] > 0:
                             if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
-                                n = purge_expired_cache(_vies_scope_id)
+                                n = purge_expired_cache(_vies_scope_id, acting_user_id=_current_user.id)
                                 st.success(_("purge_success", count=n))
                                 preserve_upload_rerun()
 
@@ -1479,7 +1479,10 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         # ── Administration (rôles & whitelist d'e-mails) ─────────────────────────
         # Réservé aux comptes admin — voir tva_intracom/ui/admin.py. Le
         # contrôle d'accès se fait ici (le bouton n'est simplement pas
-        # affiché aux lecteurs) : admin.py lui-même ne revérifie pas le rôle.
+        # affiché aux lecteurs) ; depuis le 2026-08-26, les fonctions serveur
+        # appelées par admin.py (set_user_role, add/remove_allowed_email)
+        # revérifient elles-mêmes is_admin(acting_user) en défense en
+        # profondeur — voir leurs docstrings dans auth.py.
         if tva_auth.is_admin(_current_user):
             if st.button(_("admin_module_header"), key="btn_open_admin_dialog", width="stretch"):
                 from tva_intracom.ui.admin import render_admin_dialog

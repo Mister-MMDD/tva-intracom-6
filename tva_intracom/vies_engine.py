@@ -260,7 +260,7 @@ class ViesResult:
 # Helpers TTL / dates
 # ---------------------------------------------------------------------------
 
-def set_cache_ttl(scope_id: str, days: int) -> None:
+def set_cache_ttl(scope_id: str, days: int, acting_user_id: str | None = None) -> None:
     """Modifie le TTL du cache VIES (en jours) pour CE scope uniquement.
 
     N'affecte jamais les autres comptes/domaines ni le cache global
@@ -280,7 +280,23 @@ def set_cache_ttl(scope_id: str, days: int) -> None:
     VIES n'a plus de valeur probante fiscalement. Plafond appliqué ici en
     plus du slider UI (défense en profondeur, valable aussi pour un futur
     appel direct hors UI).
+
+    RÔLES (2026-08-26) : `acting_user_id` optionnel (défaut None,
+    rétrocompatible), même pattern que `set_manual_override()`. Repéré lors
+    de l'audit systématique "tous les blocages UI ont-ils un verrouillage
+    serveur ?" : seul le gating UI (ui/sidebar.py, expander réservé à
+    `is_admin(current_user)`) protégeait ce réglage partagé par toute
+    l'organisation jusqu'ici.
     """
+    if acting_user_id is not None:
+        from .auth import get_user_by_id, is_admin
+        _acting_user = get_user_by_id(acting_user_id)
+        if not _acting_user or not is_admin(_acting_user):
+            raise PermissionError(
+                "Seul un administrateur de l'organisation peut modifier la "
+                "durée de validité du cache VIES."
+            )
+
     _days = max(1, min(int(days), 30))
     _SCOPE_TTL_DAYS[scope_id] = _days
     try:
@@ -1769,12 +1785,28 @@ def validate_vat_numbers(
 # Utilitaires d'administration (appelables depuis app.py)
 # ---------------------------------------------------------------------------
 
-def purge_expired_cache(scope_id: str) -> int:
+def purge_expired_cache(scope_id: str, acting_user_id: str | None = None) -> int:
     """Purge manuellement les entrées expirées DU SCOPE COURANT.
 
     N'affecte jamais le cache global mutualisé — voir
     purge_expired_global_cache() pour une purge administrative globale.
+
+    RÔLES (2026-08-26) : `acting_user_id` optionnel (défaut None,
+    rétrocompatible), même pattern que `set_cache_ttl()` ci-dessus. Repéré
+    lors de l'audit systématique "tous les blocages UI ont-ils un
+    verrouillage serveur ?" : seul le gating UI protégeait cette action
+    jusqu'ici (impact réel limité — ne supprime que des entrées déjà
+    expirées, sans risque fiscal — mais ajouté par cohérence avec le reste
+    des réglages partagés par l'organisation).
     """
+    if acting_user_id is not None:
+        from .auth import get_user_by_id, is_admin
+        _acting_user = get_user_by_id(acting_user_id)
+        if not _acting_user or not is_admin(_acting_user):
+            raise PermissionError(
+                "Seul un administrateur de l'organisation peut purger le "
+                "cache VIES expiré."
+            )
     return _db_delete_expired_scope(scope_id)
 
 

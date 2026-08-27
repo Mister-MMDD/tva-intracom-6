@@ -67,6 +67,49 @@ def _fake_user(user_id: str, role: str) -> auth.User:
 
 
 # ---------------------------------------------------------------------------
+# add_allowed_email() / remove_allowed_email() — contrôle serveur
+# (CORRECTIF 2026-08-26, repéré lors de l'audit systématique "tous les
+# blocages UI ont-ils un verrouillage serveur ?")
+# ---------------------------------------------------------------------------
+
+class TestAllowedEmailServerSideEnforcement:
+
+    def test_add_allowed_email_requires_admin(self, fake_db, monkeypatch):
+        monkeypatch.setattr(auth, "get_user_by_id", lambda uid: _fake_user(uid, "reader"))
+
+        with pytest.raises(PermissionError):
+            auth.add_allowed_email("domain:cabinet-exemple.fr", "new@cabinet-exemple.fr", "admin", added_by="reader-user")
+
+        insert_calls = [c for c in fake_db.cursor.execute.call_args_list if "INSERT INTO tva_org_allowed_emails" in c.args[0]]
+        assert insert_calls == []
+
+    def test_add_allowed_email_allowed_for_admin(self, fake_db, monkeypatch):
+        monkeypatch.setattr(auth, "get_user_by_id", lambda uid: _fake_user(uid, "admin"))
+
+        auth.add_allowed_email("domain:cabinet-exemple.fr", "new@cabinet-exemple.fr", "reader", added_by="admin-user")
+
+        insert_calls = [c for c in fake_db.cursor.execute.call_args_list if "INSERT INTO tva_org_allowed_emails" in c.args[0]]
+        assert len(insert_calls) == 1
+
+    def test_remove_allowed_email_requires_admin_when_acting_user_id_given(self, fake_db, monkeypatch):
+        monkeypatch.setattr(auth, "get_user_by_id", lambda uid: _fake_user(uid, "reader"))
+
+        with pytest.raises(PermissionError):
+            auth.remove_allowed_email("domain:cabinet-exemple.fr", "old@cabinet-exemple.fr", acting_user_id="reader-user")
+
+        delete_calls = [c for c in fake_db.cursor.execute.call_args_list if "DELETE FROM tva_org_allowed_emails" in c.args[0]]
+        assert delete_calls == []
+
+    def test_remove_allowed_email_backward_compatible_without_acting_user_id(self, fake_db):
+        """acting_user_id omis (défaut None) : comportement historique
+        préservé, aucune vérification."""
+        auth.remove_allowed_email("domain:cabinet-exemple.fr", "old@cabinet-exemple.fr")
+
+        delete_calls = [c for c in fake_db.cursor.execute.call_args_list if "DELETE FROM tva_org_allowed_emails" in c.args[0]]
+        assert len(delete_calls) == 1
+
+
+# ---------------------------------------------------------------------------
 # set_user_role() — contrôle serveur (CORRECTIF 2026-08-26)
 # ---------------------------------------------------------------------------
 

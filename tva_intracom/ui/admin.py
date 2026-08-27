@@ -114,5 +114,5 @@ def render_admin_dialog(current_user: "tva_auth.User") -> None:
             _c_email.write(_entry["email"])
             _c_role.write(_("admin_member_role_admin") if _entry["role"] == "admin" else _("admin_member_role_reader"))
             if _c_action.button(_("admin_remove_allowed_email_btn"), key=f"admin_remove_allowed_{_entry['email']}"):
-                tva_auth.remove_allowed_email(org_id, _entry["email"])
+                tva_auth.remove_allowed_email(org_id, _entry["email"], acting_user_id=current_user.id)
                 st.rerun()
