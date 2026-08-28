@@ -25,6 +25,9 @@ from tva_intracom.ui.background_calc import (
     get_job_state,
     clear_job,
     render_job_progress,
+    reserve_or_enqueue,
+    render_queue_status,
+    dequeue,
 )
 from tva_intracom.report import build_report
 from tva_intracom.rates import is_eu, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
@@ -807,7 +810,38 @@ if uploaded_files:
 
             if _is_big_file:
                 _job_id = "calc_" + str(abs(hash(_cache_key)))
-                start_background_job(_job_id, _run_full_calc)
+                _QUEUED_JOB_TRACKER_KEY = "_bgjob_queued_job_id"
+
+                if get_job_state(_job_id) is None:
+                    # Job pas encore démarré dans cette session : soit il
+                    # obtient un slot tout de suite, soit il patiente en
+                    # file (voir background_calc.py, reserve_or_enqueue).
+                    #
+                    # Si l'utilisateur change un réglage PENDANT qu'un
+                    # précédent job_id de cette session est encore en file
+                    # d'attente (pas encore démarré, donc pas couvert par le
+                    # nettoyage _ACTIVE_JOB_TRACKER_KEY de
+                    # start_background_job), on le retire explicitement de
+                    # la file pour ne pas laisser un job_id obsolète
+                    # consommer un tour au bénéfice de personne.
+                    _previous_queued = st.session_state.get(_QUEUED_JOB_TRACKER_KEY)
+                    if _previous_queued and _previous_queued != _job_id:
+                        dequeue(_previous_queued)
+                    st.session_state[_QUEUED_JOB_TRACKER_KEY] = _job_id
+
+                    if reserve_or_enqueue(_job_id):
+                        st.session_state.pop(_QUEUED_JOB_TRACKER_KEY, None)
+                        start_background_job(_job_id, _run_full_calc)
+                    else:
+                        with calc_progress_ph.container():
+                            st.caption(_("calc_bg_running_caption", rows=f"{total_rows_sum:,}".replace(",", " ")))
+                            render_queue_status(_job_id, lang=_lang_for_thread)
+                        # Le fragment ci-dessus retente lui-même d'obtenir un
+                        # slot à chaque tick (0,6s) et déclenche un rerun
+                        # complet dès que c'est le cas — on s'arrête ici pour
+                        # CE rerun, la sidebar reste utilisable entre-temps.
+                        st.stop()
+
                 with calc_progress_ph.container():
                     st.caption(_("calc_bg_running_caption", rows=f"{total_rows_sum:,}".replace(",", " ")))
                     render_job_progress(_job_id, label=_("calc_progress_vies"))

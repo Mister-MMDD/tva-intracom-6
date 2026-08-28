@@ -206,6 +206,7 @@ no_sale_error = "Keine Verkäufe in den Dateien gefunden."
 calc_progress_vies = "MIAS-Abfrage (B2B-USt-IdNr.)..."
 calc_progress_vies_count = "⏳ MIAS: {done} / {total} überprüft"
 calc_progress_oss_count = "⏳ USt/OSS-Berechnung: {done} / {total} Zeilen verarbeitet"
+calc_queue_position = "🕒 {position} Berechnung(en) vor Ihnen in der Warteschlange..."
 calc_progress_vat = "Berechne Steuern..."
 vies_inconclusive_error = "⚠️ **{count} nicht eindeutige MIAS-Nummer(n)** (Dienst nicht verfügbar). Die Transaktionen wurden aus Sicherheitsgründen als B2C behandelt."
 

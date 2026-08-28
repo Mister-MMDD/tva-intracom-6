@@ -206,6 +206,7 @@ no_sale_error = "Aucune vente trouvée dans les fichiers."
 calc_progress_vies = "Interrogation VIES (numéros de TVA B2B)..."
 calc_progress_vies_count = "⏳ VIES : {done} / {total} vérifiés"
 calc_progress_oss_count = "⏳ Calcul TVA/OSS : {done} / {total} lignes traitées"
+calc_queue_position = "🕒 {position} personne(s) devant vous dans la file d'attente des calculs..."
 calc_progress_vat = "Calcul des taxes..."
 vies_inconclusive_error = "⚠️ **{count} numéro(s) VIES non concluants** (service indisponible). Les transactions ont été traitées comme B2C par sécurité."
 

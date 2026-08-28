@@ -91,6 +91,106 @@ _active_jobs_count = 0
 # (vérifier alors os.cpu_count() avant de remonter cette valeur).
 MAX_CONCURRENT_BIG_JOBS = 1
 
+# BUGFIX 2026-08-28 (voir README - évolution.md) : cette constante et
+# can_start_big_job() existaient déjà mais n'étaient appelées NULLE PART —
+# aucun garde-fou réel avant démarrage d'un job. Constaté par Matthieu suite
+# à un test 4 comptes où le plafond fixé à 1 n'avait aucun effet observable.
+# Introduction d'une vraie file d'attente FIFO ci-dessous, qui remplace
+# l'usage de can_start_big_job() (conservée pour compat/lisibilité mais
+# désormais un simple raccourci de lecture, plus jamais le seul garde-fou).
+#
+# _waiting_queue : liste FIFO des job_id en attente d'un slot, protégée par
+# le même verrou que _active_jobs_count (une seule source de vérité pour
+# éviter tout état incohérent entre compteur et file).
+#
+# _reserved_at : job_id -> horodatage de réservation, pour détecter et
+# libérer une réservation orpheline (onglet fermé entre la réservation du
+# slot — dans le fragment de file d'attente, qui tourne dans un thread de
+# script Streamlit, PAS le thread de calcul lui-même — et le démarrage réel
+# du thread de calcul via start_background_job). Edge case rare (fenêtre de
+# quelques centaines de ms à quelques secondes), mais un slot qui resterait
+# bloqué indéfiniment serait pire qu'un léger risque de dépassement
+# temporaire du plafond — même philosophie d'acceptation de compromis que
+# can_start_big_job() plus bas.
+_waiting_queue: list[str] = []
+_reserved_at: dict[str, float] = {}
+_RESERVATION_TIMEOUT_S = 15.0
+
+
+def _reap_stale_reservations_locked() -> None:
+    """Libère les réservations de slot plus vieilles que
+    _RESERVATION_TIMEOUT_S. DOIT être appelée avec _active_jobs_lock déjà
+    tenu (d'où le suffixe _locked) — jamais en dehors de ce module."""
+    global _active_jobs_count
+    _now = time.time()
+    _stale = [jid for jid, ts in _reserved_at.items() if _now - ts > _RESERVATION_TIMEOUT_S]
+    for jid in _stale:
+        _reserved_at.pop(jid, None)
+        _active_jobs_count = max(0, _active_jobs_count - 1)
+
+
+def reserve_or_enqueue(job_id: str) -> bool:
+    """À appeler UNE FOIS par job_id (idempotent si déjà en file ou déjà
+    réservé — cf. gardes ci-dessous, sûr à rappeler à chaque rerun tant que
+    l'appelant ne redémarre pas le job pour un job_id déjà traité).
+
+    Retourne True si un slot est immédiatement réservé pour ce job_id (à
+    démarrer tout de suite via start_background_job) ; False s'il a été
+    placé en file d'attente (ou y était déjà)."""
+    global _active_jobs_count
+    with _active_jobs_lock:
+        _reap_stale_reservations_locked()
+        if job_id in _reserved_at or job_id in _waiting_queue:
+            return job_id in _reserved_at
+        if _active_jobs_count < MAX_CONCURRENT_BIG_JOBS:
+            _active_jobs_count += 1
+            _reserved_at[job_id] = time.time()
+            return True
+        _waiting_queue.append(job_id)
+        return False
+
+
+def try_advance_queue(job_id: str) -> bool:
+    """Pour un job déjà en file : tente de lui réserver un slot devenu
+    libre. Ne réserve QUE s'il est en tête de file (ordre FIFO strict) et
+    qu'un slot est disponible. Sûr à appeler à chaque tick d'un fragment de
+    polling (verrou court, aucune opération bloquante à l'intérieur)."""
+    global _active_jobs_count
+    with _active_jobs_lock:
+        _reap_stale_reservations_locked()
+        if job_id in _reserved_at:
+            return True  # déjà réservé lors d'un tick précédent
+        if not _waiting_queue or _waiting_queue[0] != job_id:
+            return False
+        if _active_jobs_count >= MAX_CONCURRENT_BIG_JOBS:
+            return False
+        _waiting_queue.pop(0)
+        _active_jobs_count += 1
+        _reserved_at[job_id] = time.time()
+        return True
+
+
+def queue_position(job_id: str) -> int:
+    """Position 1-indexée dans la file d'attente, ou 0 si absent (déjà
+    réservé/en cours, ou jamais mis en file)."""
+    with _active_jobs_lock:
+        try:
+            return _waiting_queue.index(job_id) + 1
+        except ValueError:
+            return 0
+
+
+def dequeue(job_id: str) -> None:
+    """Retire job_id de la file sans réserver de slot — nettoyage
+    uniquement (ex. l'utilisateur change de réglages pendant l'attente,
+    voir _ACTIVE_JOB_TRACKER_KEY dans start_background_job pour le
+    mécanisme équivalent côté job déjà démarré)."""
+    with _active_jobs_lock:
+        try:
+            _waiting_queue.remove(job_id)
+        except ValueError:
+            pass
+
 
 def any_job_running() -> bool:
     with _active_jobs_lock:
@@ -140,6 +240,12 @@ def start_background_job(
     Streamlit pendant l'exécution ne relance donc jamais un second thread
     pour le même job.
 
+    PRÉ-CONDITION (depuis 2026-08-28, voir README - évolution.md) : l'appelant
+    doit avoir réservé un slot au préalable via `reserve_or_enqueue(job_id)`
+    (retour True) ou `try_advance_queue(job_id)` (retour True) — cette
+    fonction ne fait plus elle-même de vérification de plafond, uniquement
+    la levée de la réservation au moment du démarrage effectif du thread.
+
     `target_fn` reçoit un callback `report(progress: float, text: str)` à
     appeler pour publier son avancement, lu ensuite par
     `render_job_progress()`.
@@ -172,6 +278,13 @@ def start_background_job(
     state = _JobState()
     st.session_state[_skey] = state
 
+    # Le slot a été réservé par l'appelant (reserve_or_enqueue /
+    # try_advance_queue) — on lève la réservation maintenant que le thread
+    # démarre réellement, _active_jobs_count restant décompté du début
+    # (réservation) à la fin (_runner ci-dessous), sans double-comptage.
+    with _active_jobs_lock:
+        _reserved_at.pop(job_id, None)
+
     def _report(progress: float, text: str = "") -> None:
         with state.lock:
             state.progress = max(0.0, min(1.0, progress))
@@ -179,8 +292,6 @@ def start_background_job(
 
     def _runner() -> None:
         global _active_jobs_count
-        with _active_jobs_lock:
-            _active_jobs_count += 1
         try:
             result = target_fn(_report)
             with state.lock:
@@ -193,7 +304,10 @@ def start_background_job(
             with state.lock:
                 state.done = True
             with _active_jobs_lock:
-                _active_jobs_count -= 1
+                # max(0, ...) : garde-fou si une réservation orpheline a déjà
+                # été réclamée entre-temps par _reap_stale_reservations_locked
+                # (edge case documentée plus haut) — évite un compteur négatif.
+                _active_jobs_count = max(0, _active_jobs_count - 1)
             # Ferme explicitement les connexions DB mises en cache par CE
             # thread (voir commentaire de _CLOSE_FNS plus haut) — ce thread
             # va mourir juste après, autant fermer proprement tout de suite
@@ -229,6 +343,15 @@ def render_job_progress(job_id: str, label: str) -> None:
     job tourne, sans bloquer ni rafraîchir le reste de la page. Une fois le
     job terminé, déclenche un rerun complet (hors fragment) pour que le
     script principal aille lire `get_job_state(job_id).result`.
+
+    BUGFIX 2026-08-28 (voir README - évolution.md) : `label` (le message
+    statique initial, ex. "Interrogation VIES...") restait auparavant
+    TOUJOURS collé devant le texte dynamique du callback de progression
+    (ex. "⏳ Calcul TVA/OSS : ..."), donnant un message à rallonge trompeur
+    ("Interrogation VIES... — Calcul TVA/OSS..." même une fois la phase
+    VIES terminée depuis longtemps). `label` ne sert plus que de texte de
+    repli avant le tout premier tick du callback ; une fois `_text` reçu,
+    il s'affiche seul.
     """
     state = get_job_state(job_id)
     if state is None:
@@ -252,7 +375,38 @@ def render_job_progress(job_id: str, label: str) -> None:
         return
     _elapsed = time.time() - state.started_at
     _suffix = f" ({_elapsed:.0f}s)" if _elapsed >= 3 else ""
-    st.progress(_progress, text=f"{label}{(' — ' + _text) if _text else ''}{_suffix}")
+    _display_text = _text if _text else label
+    st.progress(_progress, text=f"{_display_text}{_suffix}")
+
+
+@st.fragment(run_every=0.6)
+def render_queue_status(job_id: str, lang: str) -> None:
+    """Affiche la position d'attente d'un job pas encore démarré (plafond
+    MAX_CONCURRENT_BIG_JOBS atteint, voir reserve_or_enqueue) et retente
+    périodiquement de lui réserver un slot. Ne prend QUE des chaînes en
+    paramètre (job_id, lang) — jamais la closure de calcul elle-même
+    (`_run_full_calc`, qui retient sales/refunds) : voir contrainte
+    "pas de gros objet en argument d'un @st.fragment" (README - évolution.md,
+    fuite mémoire AppSession déjà rencontrée par ailleurs sur les onglets).
+
+    Dès qu'un slot est réservé pour ce job_id, déclenche un rerun complet :
+    c'est le script principal (app.py), avec sa closure fraîchement
+    reconstruite pour cette session, qui démarre alors réellement le calcul
+    via start_background_job — jamais ce fragment.
+    """
+    from .. import i18n as _tva_i18n  # import différé : évite tout risque de dépendance circulaire au chargement du module
+    _translate = _tva_i18n._
+
+    if try_advance_queue(job_id):
+        st.rerun()
+        return
+    _position = queue_position(job_id)
+    if _position <= 0:
+        # Plus en file (déjà réservé/consommé par un tick précédent, ou
+        # jamais mis en file) : rien à afficher, le script principal
+        # rattrapera l'état correct au prochain rerun complet.
+        return
+    st.info(_translate("calc_queue_position", lang=lang, position=_position))
 
 
 # =============================================================================
