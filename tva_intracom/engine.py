@@ -14,37 +14,12 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from collections import OrderedDict
 from dataclasses import replace as _dc_replace
 from decimal import ROUND_HALF_UP, Decimal
 from itertools import chain
 
-# DIAG TEMPORAIRE (perf multi-utilisateurs, voir README - évolution.md) :
-# `resource` est Unix-only (absent sous Windows, où Matthieu développe en
-# local — D:/...). Import protégé pour ne jamais faire planter l'app en
-# local ; en production (Streamlit Cloud, Linux) le module est disponible
-# et donne le pic RSS réel du process, utile pour distinguer une saturation
-# mémoire d'une simple contention CPU/GIL lors de calculs 100k lignes
-# concurrents. À retirer une fois le diagnostic terminé.
-try:
-    import resource as _resource_diag
-except ImportError:
-    _resource_diag = None
-
 logger = logging.getLogger(__name__)
-
-
-def _diag_rss_mb() -> float:
-    """Pic de RSS (Mo) du process depuis son démarrage, ou -1.0 si
-    indisponible (Windows, ou toute autre erreur). Volontairement permissif :
-    un diagnostic ne doit jamais faire échouer le calcul réel."""
-    if _resource_diag is None:
-        return -1.0
-    try:
-        return _resource_diag.getrusage(_resource_diag.RUSAGE_SELF).ru_maxrss / 1024
-    except Exception:
-        return -1.0
 
 from .models import (
     BuyerType,
@@ -118,8 +93,8 @@ def _note(fr_text: str, key: str, lang: str = "fr", **kwargs) -> str:
 
     En français : texte complet avec références légales.
     Dans les autres langues : note générique minimale.
-
-    IMPORTANT : 'lang' doit être passé explicitement pour éviter les appels
+    
+    IMPORTANT : 'lang' doit être passé explicitement pour éviter les appels 
     à st.session_state dans les threads d'arrière-plan.
 
     Le texte final est passé par un cache d'interning (`_NOTE_INTERN_CACHE`) :
@@ -190,7 +165,7 @@ def _vat_amount(base: Decimal, rate: Decimal) -> Decimal:
     return _round(base * (rate / Decimal("100")))
 
 def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: str = "", lang: str | None = None,
-                ioss_own_number_active: bool = False, tx_date: _date | None = None) -> VatResult:
+                 ioss_own_number_active: bool = False, tx_date: _date | None = None) -> VatResult:
     """Calcule le regime et le montant de TVA d'une vente en prenant en compte la catégorie produit.
 
     ioss_own_number_active : n'est pertinent que si sale.ioss_number est renseigné.
@@ -708,8 +683,8 @@ def _oss_eligible(sale: Sale) -> bool:
 
 
 def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbol: str = "€",
-                           oss_period: str = "", transaction_date=None,
-                           rate_cache: dict | None = None) -> tuple[str, str, str]:
+                            oss_period: str = "", transaction_date=None,
+                            rate_cache: dict | None = None) -> tuple[str, str, str]:
     """Cumul et seuil OSS à afficher dans la note.
     Les paramètres currency et symbol doivent être passés par l'appelant
     pour éviter d'accéder à st.session_state dans un thread d'arrière-plan.
@@ -899,6 +874,7 @@ def _run_oss_loop(
         symbol: str = "€",
         ioss_own_number_active: bool = False,
         oss_period: str = "",
+        progress_callback=None,
 ) -> tuple[list[VatResult], list[VatResult], OssThresholdSummary]:
     """Boucle chronologique OSS.
 
@@ -920,12 +896,28 @@ def _run_oss_loop(
     affichée pour les ventes ET pour les avoirs — un avoir suit donc la
     même classification de seuil que la vente qu'il annule, comme
     attendu.
+
+    Args:
+        progress_callback: optionnel, callable(done: int, total: int).
+            Cette boucle est la partie la plus longue du calcul sur un gros
+            fichier (voir diagnostic 2026-08-27, README - évolution.md :
+            ~150s sur 100k lignes en cas de contention multi-utilisateurs),
+            et jusqu'ici totalement silencieuse pour l'appelant une fois la
+            phase VIES terminée — d'où l'impression trompeuse que l'app
+            "tourne dans le vide" sous le libellé "Interrogation VIES", qui
+            reste affiché faute de mise à jour. Appelé tous les
+            _OSS_PROGRESS_TICK_EVERY éléments (pas à chaque ligne : sur
+            100k lignes ce serait 100k appels Python vers un callback qui
+            peut lui-même déclencher un rerun Streamlit — voir
+            _vies_progress_cb dans app.py, appelé depuis un thread via
+            report(), déjà conçu pour supporter ce genre d'appel).
     """
     results: list[VatResult] = []
     refund_results: list[VatResult] = []
     cumulative_oss_ht = Decimal("0.00")
     current_year = ""
     oss_ht_by_year: dict[str, Decimal] = {}
+    total_items = len(sorted_items)
 
     # PERF : cache local (currency, oss_period, tx_date) -> limite locale du
     # seuil OSS, partagé par toutes les lignes de ce batch (voir docstring
@@ -947,7 +939,12 @@ def _run_oss_loop(
     _last_tx_date_raw: str | None = None
     _last_tx_date_parsed: _date | None = None
 
-    for sale in sorted_items:
+    # Tous les 500 éléments : compromis entre fraîcheur de l'affichage et
+    # coût du callback (potentiel rerun Streamlit côté appelant) sur un
+    # fichier de plusieurs dizaines de milliers de lignes.
+    _OSS_PROGRESS_TICK_EVERY = 500
+
+    for _idx, sale in enumerate(sorted_items, start=1):
         is_from_refunds = _sale_key(sale) in refund_keys
         product_asin = getattr(sale, "asin", "")
         product_category = (
@@ -1008,6 +1005,17 @@ def _run_oss_loop(
         else:
             refund_results.append(res)
 
+        if progress_callback is not None and (
+            _idx % _OSS_PROGRESS_TICK_EVERY == 0 or _idx == total_items
+        ):
+            try:
+                progress_callback(_idx, total_items)
+            except Exception:
+                # Un callback défaillant (widget Streamlit fermé entre
+                # temps, etc.) ne doit jamais faire échouer le calcul —
+                # même posture que _tick() dans validate_vat_numbers_parallel.
+                pass
+
     if current_year:
         oss_ht_by_year[current_year] = cumulative_oss_ht
 
@@ -1029,6 +1037,7 @@ def compute_all_with_vies(
         apply_fr_under_threshold: bool = False,
         refunds: list[Sale] | None = None,
         vies_progress_callback=None,
+        oss_progress_callback=None,
         lang: str = "fr",
         currency: str = "EUR",
         symbol: str = "€",
@@ -1052,6 +1061,11 @@ def compute_all_with_vies(
         vies_progress_callback: optionnel, callable(done: int, total: int)
                   appelé pendant la validation VIES en lot, pour afficher
                   une progression côté app.py (ex: st.progress).
+        oss_progress_callback: optionnel, callable(done: int, total: int)
+                  appelé pendant la boucle _run_oss_loop (voir sa docstring)
+                  — phase la plus longue sur un gros fichier, auparavant
+                  silencieuse pour l'appelant (diagnostic 2026-08-27, voir
+                  README - évolution.md).
         refunds: liste des remboursements (montants négatifs). S'ils sont fournis,
                  leur montant OSS-éligible est déduit du cumul pour que le seuil
                  affiché reflète le CA OSS net (conformément à l'art. 59 ter directive TVA).
@@ -1137,7 +1151,6 @@ def compute_all_with_vies(
 
     vat_to_sale_ids: dict[str, list[str]] = {}  # full_vat -> [sale_id, ...]
 
-    _diag_t_dedup0 = time.perf_counter()
     for sale in all_items_sorted:
         # buyer_vat_valid=False dès classify.py signale un NIF/identifiant fiscal
         # national (pas un vrai n° de TVA intracom, cf. is_national_tax_id) — que
@@ -1160,25 +1173,15 @@ def compute_all_with_vies(
 
     vies_summary.vat_to_display_ids = vat_to_sale_ids
 
-    logger.info(
-        "DIAG dedup_vat_loop: %.2fs sur %d lignes -> %d numéros uniques",
-        time.perf_counter() - _diag_t_dedup0, len(all_items_sorted), len(vats_to_check),
-        )
-
     # Appel de la validation VIES parallèle (validate_vat_numbers_parallel importée
     # en tête de fonction depuis vies.py). En cas d'erreur réseau ou VIES indisponible,
     # on dégrade vers la version séquentielle, puis vers un dict vide avec log explicite.
     checked_vats: dict = {}
     if vats_to_check:
-        _diag_t_vies0 = time.perf_counter()
         try:
             checked_vats = validate_vat_numbers_parallel(
                 scope_id, vats_to_check, progress_callback=vies_progress_callback
             )
-            logger.info(
-                "DIAG validate_vat_numbers_parallel: %.2fs pour %d numéros",
-                time.perf_counter() - _diag_t_vies0, len(vats_to_check),
-                )
         except Exception as exc_parallel:
             logger.warning(
                 "validate_vat_numbers_parallel a échoué (%s) — "
@@ -1406,9 +1409,6 @@ def compute_all_with_vies(
 
     _lang, _curr, _sym = lang, currency, symbol
 
-    _diag_t_loop0 = time.perf_counter()
-    _diag_rss_before = _diag_rss_mb()
-
     results, refund_results, oss_summary = _run_oss_loop(
         all_items_sorted, refund_keys, marketplace_name,
         asin_to_category, apply_fr_under_threshold,
@@ -1416,13 +1416,8 @@ def compute_all_with_vies(
         lang=_lang, currency=_curr, symbol=_sym,
         ioss_own_number_active=ioss_own_number_active,
         oss_period=oss_period,
+        progress_callback=oss_progress_callback,
     )
-
-    logger.info(
-        "DIAG run_oss_loop: %.2fs sur %d items | rss_peak avant=%.0fMo apres=%.0fMo",
-        time.perf_counter() - _diag_t_loop0, len(all_items_sorted),
-        _diag_rss_before, _diag_rss_mb(),
-        )
 
     # Mise à jour des montants TVA évités dans les reclassifications
     # (on ne peut le faire qu'après compute_vat, donc en post-processing sur results).

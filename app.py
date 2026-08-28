@@ -760,10 +760,25 @@ if uploaded_files:
                 JAMAIS d'appel st.* — voir docstring de background_calc.py.
                 Signature commune, que ce soit appelé en direct (petit
                 fichier) ou dans un thread (gros fichier)."""
+                # RÉPARTITION 2026-08-27 (voir README - évolution.md) : la
+                # phase VIES (souvent quelques numéros uniques, cf.
+                # dédoublonnage dans engine.py) est presque toujours rapide,
+                # même sur un fichier de 100k lignes — c'est la boucle OSS
+                # qui suit (_run_oss_loop) qui domine le temps de calcul, et
+                # qui restait jusqu'ici silencieuse : la barre affichait
+                # "Interrogation VIES..." figée à 85% pendant tout ce temps,
+                # donnant l'impression trompeuse que l'app était bloquée.
+                # On resserre donc la plage VIES (0-0.3) et on ouvre une
+                # vraie plage pour la boucle OSS (0.3-0.85).
                 def _vies_progress_cb(done: int, total: int) -> None:
                     if total <= 0:
                         return
-                    report(min(done / total, 0.85), _("calc_progress_vies_count", lang=_lang_for_thread, done=done, total=total))
+                    report(min(done / total, 1.0) * 0.3, _("calc_progress_vies_count", lang=_lang_for_thread, done=done, total=total))
+
+                def _oss_progress_cb(done: int, total: int) -> None:
+                    if total <= 0:
+                        return
+                    report(0.3 + min(done / total, 1.0) * 0.55, _("calc_progress_oss_count", lang=_lang_for_thread, done=done, total=total))
 
                 # Ventes ET avoirs sont désormais calculés en un seul appel
                 # (voir compute_all_with_vies / _run_oss_loop dans engine.py) :
@@ -781,6 +796,7 @@ if uploaded_files:
                     apply_fr_under_threshold=apply_fr_under_threshold,
                     refunds=refunds if refunds else None,
                     vies_progress_callback=_vies_progress_cb,
+                    oss_progress_callback=_oss_progress_cb,
                     lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
                     ioss_own_number_active=ioss_own_number_active)
 

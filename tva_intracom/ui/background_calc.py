@@ -78,7 +78,18 @@ _active_jobs_count = 0
 # mémoire face à plusieurs gros uploads concurrents est de plafonner ce
 # nombre de jobs simultanés. Valeur conservatrice, ajustable selon la RAM
 # réellement disponible sur l'instance Railway.
-MAX_CONCURRENT_BIG_JOBS = 3
+# DÉCISION 2026-08-27 (voir README - évolution.md) : ramené de 3 à 1.
+# Diagnostic multi-utilisateurs (4 comptes / 100k lignes simultanés) : sur
+# l'hébergement actuel (Streamlit Cloud gratuit, très probablement 1 seul
+# vCPU partagé — voir _diag_rss_mb/DIAG dans engine.py, désormais retiré),
+# 3 calculs lourds simultanés se sont révélés CPU-bound et sérialisés par le
+# GIL : chacun a mis ~150s au lieu de ~28-50s en solo (×5). Réduire à 1 fait
+# perdre le parallélisme apparent mais fait gagner en throughput RÉEL pour
+# le groupe d'utilisateurs (un calcul isolé reste rapide, les autres
+# attendent en file plutôt que de tous ramer ensemble). À reconsidérer si
+# l'hébergement passe un jour sur un plan avec plusieurs vCPU réels
+# (vérifier alors os.cpu_count() avant de remonter cette valeur).
+MAX_CONCURRENT_BIG_JOBS = 1
 
 
 def any_job_running() -> bool:

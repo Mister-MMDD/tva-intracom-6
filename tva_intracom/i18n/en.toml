@@ -205,6 +205,7 @@ bce_source_native = "Native"
 no_sale_error = "No sales found in files."
 calc_progress_vies = "Querying VIES (B2B VAT numbers)..."
 calc_progress_vies_count = "⏳ VIES: {done} / {total} verified"
+calc_progress_oss_count = "⏳ VAT/OSS calculation: {done} / {total} rows processed"
 calc_progress_vat = "Calculating taxes..."
 vies_inconclusive_error = "⚠️ **{count} VIES number(s) inconclusive** (service unavailable). Transactions were treated as B2C for safety."
 
