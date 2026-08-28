@@ -347,6 +347,7 @@ canal_ddp_local = "DDP {country} VAT (local reg.)"
 canal_local_hors_fr = "Local Tax (excl. FR) — Total"
 canal_local_hors_country = "Local Tax (excl. {country}) — Total"
 locked_premium = "[🔒 Locked Premium Option]"
+locked_account_link = "[🔒 Amazon linking required]"
 locked_preview_caption = "🔒 Limited preview: unlock this period (purchase or subscription) to see the country detail and VAT amounts due."
 refund_summary_info = "🔄 **{count} refund(s)** — HT: {ht} €"
 

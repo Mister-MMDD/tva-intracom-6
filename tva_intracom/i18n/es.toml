@@ -347,6 +347,7 @@ canal_ddp_local = "IVA DDP {country} (reg. local)"
 canal_local_hors_fr = "Impuesto Local (excl. FR) — Total"
 canal_local_hors_country = "Impuesto Local (excl. {country}) — Total"
 locked_premium = "[🔒 Opción Premium Bloqueada]"
+locked_account_link = "[🔒 Vinculación Amazon requerida]"
 locked_preview_caption = "🔒 Vista previa limitada: desbloquee este periodo (compra única o suscripción) para ver el detalle por país y los importes de IVA debidos."
 refund_summary_info = "🔄 **{count} reembolso(s)** — BI: {ht} €"
 

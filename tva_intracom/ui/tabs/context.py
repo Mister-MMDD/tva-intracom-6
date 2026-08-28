@@ -31,6 +31,8 @@ class TabContext:
 
     # Gating billing (voir tva_intracom/ui/billing_gate.py)
     can_export: bool
+    billing_ok: bool
+    account_link_blocked: bool
     gated_download: Any    # callable : BillingGate.gated_download
     unlock_label_suffix: str
 

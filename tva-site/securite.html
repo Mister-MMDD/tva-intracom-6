@@ -46,35 +46,19 @@
     <div class="grid-cards">
         <div class="card">
             <h3>🏛️ Sources Officielles</h3>
-            <p>Nous utilisons exclusivement les API gouvernementales : <strong>VIES</strong> (Commission Européenne) pour la TVA et <strong>SDW</strong> (Banque Centrale Européenne) pour les taux de change. Aucune donnée n'est envoyée à des tiers non gouvernementaux.</p>
+            <p>Nous utilisons exclusivement les API gouvernementales : <strong>VIES</strong> (Commission Européenne) pour la TVA et <strong>SDW</strong> (Banque Centrale Européenne) pour les taux de change.</p>
         </div>
         <div class="card">
-            <h3>🔐 Chiffrement Fernet AES-128</h3>
-            <p>Toutes les données sensibles (SIREN, IOSS, Emails) sont chiffrées via l'algorithme <strong>Fernet (AES-128 CBC + HMAC-SHA256)</strong> avant d'être écrites sur le disque, avec une protection Fail-Safe interdisant tout traitement en cas d'absence de clé.</p>
+            <h3>🔐 Chiffrement AES-128</h3>
+            <p>Toutes les données persistantes (SIREN, Emails) sont chiffrées au niveau applicatif avant d'être écrites sur le disque, rendant toute fuite de données inexploitable.</p>
         </div>
         <div class="card">
             <h3>📦 Conformité Amazon DPP</h3>
-            <p>Notre infrastructure respecte scrupuleusement la <i>Data Protection Policy</i> d'Amazon. Nous garantissons une isolation totale entre les comptes clients et entre les SIREN via des clés de cache uniques.</p>
+            <p>Notre infrastructure respecte scrupuleusement la <i>Data Protection Policy</i> d'Amazon. Nous garantissons une isolation totale entre les comptes clients.</p>
         </div>
         <div class="card">
-            <h3>🛡️ Pseudonymisation SHA-256</h3>
-            <p>L'historique des vérifications VIES utilise une pseudonymisation par hachage SHA-256 salé des identifiants, permettant la persistance des preuves d'audit sans stockage d'e-mails en clair.</p>
-        </div>
-        <div class="card">
-            <h3>📉 Protection Formula Injection</h3>
-            <p>Tous les exports (Excel, CSV) sont protégés contre les injections de formules (OWASP) via une sanitization automatique des caractères spéciaux en début de cellule.</p>
-        </div>
-        <div class="card">
-            <h3>🛡️ Isolation Organisationnelle</h3>
-            <p>Les abonnements, SIREN et crédits sont partagés au niveau de votre domaine e-mail professionnel. Les administrateurs gèrent la whitelist d'accès pour les collaborateurs.</p>
-        </div>
-        <div class="card">
-            <h3>👤 Rôles & Permissions</h3>
-            <p>Bénéficiez d'un contrôle d'accès granulaire (Admin/Lecteur) avec verrouillage de sécurité automatique dès la souscription du premier abonnement payant.</p>
-        </div>
-        <div class="card">
-            <h3>🌍 Hébergement Souverain</h3>
-            <p>Nos serveurs et bases de données sont situés exclusivement au sein de l'Union Européenne, garantissant la juridiction du RGPD et une mise en veille (Scale-to-Zero) écologique.</p>
+            <h3>🌍 Hébergement Européen</h3>
+            <p>Nos serveurs et bases de données sont situés exclusivement au sein de l'Union Européenne, garantissant la juridiction du RGPD sur l'ensemble du cycle de vie des données.</p>
         </div>
         <div class="card">
             <h3>⚡ Performance Rust/Polars</h3>
@@ -82,7 +66,7 @@
         </div>
         <div class="card">
             <h3>🛡️ Protection Brute-Force</h3>
-            <p>Notre système d'authentification <strong>Supabase Auth</strong> inclut une protection active contre les attaques par force brute (DPP Amazon) et supporte l'authentification sécurisée via Google, Microsoft, GitHub et Amazon.</p>
+            <p>Notre système d'authentification inclut une protection active contre les attaques par force brute (DPP Amazon), limitant les tentatives de connexion suspectes par adresse IP.</p>
         </div>
         <div class="card">
             <h3>🚀 SaaS High-Load Ready</h3>

@@ -315,7 +315,10 @@ def render_declarations(ctx: TabContext) -> None:
                 _recap_preview[col] = _recap_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
         
         # Masquage
-        lock_msg = "🔒 " + _("locked_premium")
+        if ctx.billing_ok and ctx.account_link_blocked:
+            lock_msg = _("locked_account_link")
+        else:
+            lock_msg = "🔒 " + _("locked_premium")
         for idx, row in _recap_preview.iterrows():
             # CA est maintenant toujours visible (total et pays)
             # Seule la TVA reste verrouillée partout

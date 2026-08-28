@@ -40,17 +40,13 @@
 <div class="container">
 
     <div class="card alert" style="margin-bottom: 30px;">
-        <h2>Checklist de Conformité & Sécurité</h2>
+        <h2>Checklist de Conformité</h2>
         <ul style="list-style-type: '✅ ';">
-            <li>Vérifier la validité des numéros TVA B2B via l'onglet <strong>VIES</strong> (ré-essai auto inclus).</li>
-            <li>Sécuriser vos exonérations avec le <strong>Certificat VIES PDF</strong>.</li>
+            <li>Vérifier la validité des numéros TVA B2B via l'onglet <strong>VIES</strong>.</li>
             <li>S'assurer que le <strong>Pays de Siège</strong> est correctement configuré.</li>
             <li>Vérifier les alertes de <strong>Stock FBA</strong> pour les immatriculations locales.</li>
             <li>Vérifier les <strong>taux de change BCE</strong> de clôture pour l'OSS (Règl. 2020/194).</li>
-            <li>Valider le dépassement du <strong>seuil OSS 10 000 €</strong> (Année N et Année N-1).</li>
-            <li>Gérer les soldes négatifs OSS via le <strong>Rattachement automatique des avoirs</strong>.</li>
             <li>Réconcilier le <strong>CA HT Net</strong> avec votre comptabilité via l'export FEC.</li>
-            <li>Conserver les preuves de <strong>Pseudonymisation VIES</strong> pour votre piste d'audit.</li>
             <li>Télécharger et conserver le <strong>Rapport Principal Excel</strong> pour chaque période.</li>
         </ul>
     </div>
@@ -72,10 +68,9 @@
                     <li><strong>engine.py</strong> : Moteur de classification fiscale (Directive 2006/112/CE).</li>
                     <li><strong>rates.py</strong> : Taux TVA historisés par pays et catégorie (Standard/Réduit).</li>
                     <li><strong>ecb_rates.py</strong> : Synchro auto avec la Banque Centrale Européenne (BCE).</li>
-                    <li><strong>vies_engine.py</strong> : Validation VIES avec cache, ré-essai automatique en arrière-plan et piste d'audit conforme (365 jours).</li>
+                    <li><strong>vies_engine.py</strong> : Validation VIES avec cache et piste d'audit conforme (365 jours).</li>
                     <li><strong>ca3_report.py / oss_xml.py</strong> : Générateurs de liasses fiscales (HTML/XML).</li>
                     <li><strong>local_vat_report.py</strong> : Rapports de TVA locaux pour les autres pays de l'UE.</li>
-                    <li><strong>models.py</strong> : Modèles de données Pydantic 2 durcis pour la stabilité (arbitrary_types_allowed).</li>
                     <li><strong>billing.py</strong> : Moteur de facturation Stripe et gestion des quotas.</li>
                 </ul>
             </div>
@@ -110,19 +105,15 @@ tva-intracom/
 │   │   └── woocommerce.py            Parser WooCommerce
 │   ├── ui/                           Interface Streamlit modulaire
 │   │   ├── tabs/                     Modules d'onglets (OSS, Ventes, VIES...)
-│   │   ├── admin.py                  Gestion des rôles (Organisation)
-│   │   ├── onboarding.py             Checklist de configuration
-│   │   ├── theme.py                  Thème, CSS et barre de statut
+│   │   ├── theme.py                  Thème et CSS
 │   │   ├── formatting.py             Helpers d'affichage
 │   │   ├── auth_flow.py              Flux d'authentification UI
-│   │   ├── display_mode.py           Gestion du mode Simple/Détaillé
 │   │   ├── sidebar.py                Barre latérale de configuration
 │   │   ├── billing_gate.py           Gating de facturation
-│   │   ├── rerun_utils.py            Gestion des reruns et persistance
-│   │   └── background_calc.py        File d'attente (Gros uploads)
+│   │   └── background_calc.py        Calculs longs en thread séparé
 │   ├── amazon_adapter.py             Passerelle de compatibilité modèles
 │   ├── auth_supabase.py              Authentification Supabase Auth
-│   ├── billing.py                    Facturation Stripe & Organisations
+│   ├── billing.py                    Facturation Stripe et quotas SIREN
 │   ├── ca3_report.py                 Rapport CA3 (HTML)
 │   ├── database.py                   Pooling Postgres centralisé
 │   ├── ecb_rates.py                  Taux BCE (cache multi-niveaux)
@@ -134,7 +125,7 @@ tva-intracom/
 │   ├── oss_export.py                 Agrégation OSS et exports CSV
 │   ├── oss_xml.py                    Génération XML OSS officiel
 │   ├── rates.py                      Taux TVA historisés
-│   ├── security.py                   Sécurité Amazon DPP (AES-128)
+│   ├── security.py                   Sécurité Amazon DPP (Fernet)
 │   ├── vies_engine.py                Validation VIES avec cache Postgres
 │   └── vies_certificate.py           Génération de certificat VIES PDF
 │

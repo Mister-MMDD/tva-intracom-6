@@ -144,7 +144,7 @@
     <h2>IOSS_DIRECT – Import Guichet unique</h2>
     <p><strong>Situation :</strong> importation B2C ≤ 150 €, vendeur disposant de son propre numéro IOSS.</p>
     <p><strong>Règle :</strong> TVA du pays de destination collectée directement par le vendeur via son guichet IOSS.</p>
-    <p><strong>Traitement moteur :</strong> classification IOSS_DIRECT, ventilation par canal IOSS, export Excel/CSV dédié et indépendant de l'OSS.</p>
+    <p><strong>Traitement moteur :</strong> classification IOSS_DIRECT, ventilation par canal IOSS, intégration dans les rapports de déclaration.</p>
 </div>
 
 <div class="card" id="regime-b2b-exonere">
@@ -156,10 +156,9 @@
 </div>
 
 <div class="card" id="regime-local">
-    <h2>Local (immatriculations FBA) & AIC</h2>
+    <h2>Local (immatriculations FBA)</h2>
     <p><strong>Situation :</strong> stock Amazon détecté dans un pays UE autre que le pays d'établissement du vendeur.</p>
     <p><strong>Règle :</strong> immatriculation TVA locale obligatoire dès le premier euro de stock, déclaration domestique dans ce pays.</p>
-    <p><strong>Acquisitions Intracommunautaires (AIC) :</strong> le moteur estime automatiquement les transferts de stock entre entrepôts (art. 17 Dir. 2006/112/CE) en appliquant le <strong>taux de TVA réel par ASIN</strong> (basé sur la catégorie du produit : standard, réduit, super-réduit) pour une précision fiscale maximale dans vos écritures d'autoliquidation.</p>
     <p><strong>Traitement moteur :</strong> détection automatique des stocks Amazon multi-pays, alerte et plan d'action immatriculations, intégration dans les rapports locaux.</p>
 </div>
 

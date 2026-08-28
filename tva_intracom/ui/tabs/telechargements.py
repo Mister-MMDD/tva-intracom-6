@@ -515,8 +515,9 @@ def render_telechargements() -> None:
                 # l'onglet Déclarations (voir declarations.py, `locked_premium`).
                 # On applique le même masquage ici, par cohérence : la valeur ne
                 # doit être visible qu'une fois l'export réellement débloqué.
+                _lock_msg = _("locked_account_link") if ctx.billing_ok and ctx.account_link_blocked else _("locked_premium")
                 m1.metric(_("dl_local_vat_due_metric", country=country_label(export_country)),
-                          _fmt(country_vat) if _can_export else _("locked_premium"))
+                          _fmt(country_vat) if _can_export else _lock_msg)
                 m2.metric(_("dl_standard_rate_metric"), meta_sel[3])
                 m3.metric(_("dl_reduced_rate_metric"), meta_sel[4])
                 c1, c2 = st.columns(2)

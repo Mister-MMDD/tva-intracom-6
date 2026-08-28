@@ -347,6 +347,7 @@ canal_ddp_local = "DDP MwSt {country} (lokale Reg.)"
 canal_local_hors_fr = "Lokale Steuer (exkl. FR) — Gesamt"
 canal_local_hors_country = "Lokale Steuer (exkl. {country}) — Gesamt"
 locked_premium = "[🔒 Premium-Option gesperrt]"
+locked_account_link = "[🔒 Amazon-Verknüpfung erforderlich]"
 locked_preview_caption = "🔒 Eingeschränkte Vorschau: Schalten Sie diesen Zeitraum frei (Einmalzahlung oder Abonnement), um die Aufteilung nach Ländern und die fälligen MwSt-Beträge zu sehen."
 refund_summary_info = "🔄 **{count} Erstattung(en)** — Netto: {ht} €"
 

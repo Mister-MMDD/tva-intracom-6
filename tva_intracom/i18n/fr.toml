@@ -348,6 +348,7 @@ canal_ddp_local = "TVA DDP {country} (immat. locale)"
 canal_local_hors_fr = "Fisc local (hors FR) — Total"
 canal_local_hors_country = "Fisc local (hors {country}) — Total"
 locked_premium = "[🔒 Verrouillé Option Premium]"
+locked_account_link = "[🔒 Rattachement Amazon requis]"
 locked_preview_caption = "🔒 Aperçu limité : débloquez cette période (achat ou abonnement) pour voir le détail par pays et les montants de TVA dus."
 refund_summary_info = "🔄 **{count} remboursement(s)** — HT : {ht} €"
 
