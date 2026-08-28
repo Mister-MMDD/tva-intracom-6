@@ -474,7 +474,263 @@ if uploaded_files:
         _asin_catalog_sig,
     )
 
+    # Clé de cache du CALCUL, extraite en fonction (voir usage ci-dessous ET
+    # plus bas à son emplacement d'origine) : elle ne dépend QUE de signatures
+    # de fichiers et de réglages déjà résolus à ce stade du script (aucune
+    # dépendance sur le contenu réellement parsé des ventes/remboursements) —
+    # d'où la possibilité de la calculer ICI, avant même de savoir si un
+    # (re)parsing est nécessaire, pour construire l'identifiant du job
+    # fusionné parsing+calcul ci-dessous (voir README - évolution.md,
+    # correctif "un seul slot de file pour parsing+calcul").
+    def _compute_cache_key() -> tuple:
+        return (
+            # SÉCURITÉ (voir README - évolution.md) : `current_user.id` inclus
+            # explicitement en tête de clé. Sans cela, deux comptes distincts
+            # uploadant un fichier strictement identique avec les mêmes
+            # réglages fiscaux partageaient la même entrée de cache
+            # (st.cache_data est un cache global au process, pas par session
+            # -- voir aussi heavy_cache_data dans mem_utils.py).
+            _current_user.id,
+            tuple(_upload_sig(f) for f in uploaded_files),
+            enable_vies, convert_fx, file_format,
+            tuple(sorted(asin_to_category.items())),
+            ioss_number, seller_is_importer,
+            tuple(sorted(countries_with_vat)),
+            apply_fr_under_threshold,
+            ioss_own_number_active,
+            home_country,
+            target_currency,
+            CalcCacheState.load().vies_retry_nonce,
+            _vies_scope_id,  # Indispensable : les overrides VIES sont propres à chaque SIREN
+            st.session_state.get("language"),
+            oss_period,
+            on_invalid_behavior,
+        )
+
     _calc_cache = CalcCacheState.load()
+
+    # =====================================================================
+    # CHEMIN FUSIONNÉ (gros upload) : un seul slot de file d'attente pour
+    # parsing + calcul, tenu du début à la fin, sans relâche intermédiaire.
+    # Voir README - évolution.md pour le contexte (test 4 comptes en
+    # simultané, GIL-bound sur Streamlit Community Cloud 1 vCPU partagé).
+    #
+    # Ne se déclenche QUE si un re-parsing est réellement nécessaire (sinon
+    # le chemin existant plus bas gère déjà le calcul seul avec un slot
+    # unique — rien à fusionner dans ce cas, cf. discussion approuvée).
+    # Seuil basé sur la taille cumulée des fichiers (pas le nombre de lignes,
+    # inconnu avant parsing) : 10 Mo, calibré empiriquement par rapport au
+    # seuil `_BIG_FILE_ROW_THRESHOLD` du calcul (20 000 lignes).
+    # =====================================================================
+    _PARSE_SIZE_THRESHOLD_BYTES = 10 * 1024 * 1024
+    _needs_reparse = _calc_cache.parse_key != _parse_cache_key
+    _upload_total_bytes = sum(getattr(f, "size", 0) or 0 for f in uploaded_files)
+    _gate_combined = _needs_reparse and _upload_total_bytes > _PARSE_SIZE_THRESHOLD_BYTES
+
+    if _gate_combined:
+        # parser_amazon déjà importé en tête de ce bloc `if uploaded_files:`.
+        # Écriture des fichiers temporaires ICI, dans le thread principal :
+        # `uploaded_file.getvalue()` dépend du contexte Streamlit et ne doit
+        # jamais être appelé depuis le thread de fond (voir docstring
+        # background_calc.py). Coût I/O négligeable, ce n'est pas la partie
+        # CPU-bound qu'on cherche à protéger.
+        _combined_tmp_paths: list = []
+        _combined_file_specs: list = []
+        for _uf in uploaded_files:
+            _ext = Path(_uf.name).suffix or ".csv"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=_ext, mode="wb") as _tmp:
+                _tmp.write(_uf.getvalue())
+                _tmp_path = Path(_tmp.name)
+            _combined_tmp_paths.append(_tmp_path)
+            _combined_file_specs.append((_tmp_path, _uf.name))
+
+        _lang_for_thread = st.session_state.get("language", "fr")
+        _curr_for_thread = st.session_state.get("target_currency", "EUR")
+        _sym_for_thread = st.session_state.get("currency_symbol", "€")
+
+        def _run_parse_and_calc(report: "Callable[[float, str], None]"):
+            """Parsing + calcul complet dans un seul thread de fond. Ne fait
+            JAMAIS d'appel st.* (voir docstring de background_calc.py).
+            Plage de progression : 0.0-0.4 parsing, 0.4-1.0 VIES/OSS (même
+            répartition d'esprit que _run_full_calc plus bas dans ce fichier)."""
+            _p_all_sales, _p_all_refunds, _p_all_fc_transfers = [], [], []
+            _p_all_invoice_credit_notes = []
+            _p_all_stock_countries, _p_all_warnings, _p_all_platforms = set(), [], []
+            _p_all_account_identifiers: set = set()
+            _p_total_rows_sum = _p_skipped_rows_sum = 0
+            _p_file_summaries, _p_parse_results = [], []
+            _n_files = len(_combined_file_specs)
+
+            for _fi, (_tmp_path, _fname) in enumerate(_combined_file_specs):
+                _progress_label = (
+                    _("analysis_progress", name=_fname)
+                    if convert_fx else _("analysis_progress_simple", name=_fname)
+                )
+
+                def _on_parse_progress(processed, total, label=None, _fi=_fi, _fname=_fname):
+                    _frac_file = (processed / total) if total else 1.0
+                    _global_frac = (_fi + min(_frac_file, 1.0)) / _n_files
+                    if label:
+                        _txt = label
+                    else:
+                        _suffix = f" ({_('fx_conv_suffix')})" if convert_fx else ""
+                        _txt = _("analysis_progress_count", name=_fname,
+                                  processed=f"{processed:,}".replace(",", " "),
+                                  total=f"{total:,}".replace(",", " "), suffix=_suffix)
+                    report(min(_global_frac, 1.0) * 0.4, _txt)
+
+                report((_fi / _n_files) * 0.4, _progress_label)
+
+                # Seul le parser Amazon est actif (cf. contrainte projet) —
+                # les autres formats ne sont pas maintenus, on ne les gère
+                # pas dans le chemin fusionné.
+                if "Amazon" not in file_format:
+                    continue
+                _parse_result = parser_amazon.load_amazon_report(
+                    _tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx,
+                    asin_to_category=asin_to_category,
+                    progress_callback=_on_parse_progress,
+                    bce_label=_("calc_progress_bce_count"),
+                    bce_wait_label=_("calc_progress_bce"),
+                    target_currency=target_currency,
+                    ioss_number=ioss_number,
+                    seller_is_importer=seller_is_importer,
+                )
+                if _parse_result is not None:
+                    _platform = (_parse_result.platform or file_format.split("(")[0].strip()).capitalize()
+                    _p_all_sales.extend(_parse_result.sales); _p_all_refunds.extend(_parse_result.refunds)
+                    _p_all_fc_transfers.extend(_parse_result.fc_transfers)
+                    _p_all_invoice_credit_notes.extend(getattr(_parse_result, "invoice_credit_notes", []))
+                    _p_all_stock_countries |= _parse_result.stock_countries
+                    _p_all_account_identifiers |= getattr(_parse_result, "account_identifiers", set())
+                    _p_all_warnings.extend(_parse_result.warnings); _p_all_platforms.append(_platform)
+                    _p_total_rows_sum += _parse_result.total_rows; _p_skipped_rows_sum += _parse_result.skipped_rows
+                    _p_parse_results.append(_parse_result)
+                    _p_file_summaries.append({
+                        _("col_file"): _fname, _("col_source"): _platform,
+                        _("col_sales"): len(_parse_result.sales), _("col_refunds"): len(_parse_result.refunds),
+                        _("col_fba_trans"): len(_parse_result.fc_transfers),
+                        _("col_phys_returns"): getattr(_parse_result, "return_rows", 0),
+                        _("col_invoices"): getattr(_parse_result, "invoice_rows", 0),
+                        _("col_credit_notes"): getattr(_parse_result, "credit_note_rows", 0),
+                        _("col_rows_read"): _parse_result.total_rows, _("col_ignored"): _parse_result.skipped_rows,
+                    })
+
+            # Même optimisation RAM que le chemin synchrone (voir plus bas) :
+            # on vide les ventes/remboursements déjà recopiés dans les
+            # accumulateurs ci-dessus avant mise en cache des ParseResult.
+            for _pr in _p_parse_results:
+                _pr.sales = []; _pr.refunds = []; _pr.fc_transfers = []
+
+            _parse_data = (
+                _p_all_sales, _p_all_refunds, _p_all_fc_transfers, _p_all_invoice_credit_notes,
+                _p_all_stock_countries, _p_all_account_identifiers, _p_all_warnings, _p_all_platforms,
+                _p_total_rows_sum, _p_skipped_rows_sum, _p_file_summaries, _p_parse_results,
+            )
+
+            if not _p_all_sales:
+                # Cohérent avec le chemin synchrone (st.error + st.stop()
+                # plus bas) : ici on ne peut pas appeler st.*, on renvoie
+                # juste des résultats de calcul vides ; le script principal
+                # affichera l'erreur "no_sale_error" au retour du job, comme
+                # pour un fichier vide analysé en synchrone.
+                return _parse_data, None
+
+            import dataclasses as _dc_thread
+            _c_sales = _p_all_sales
+            if ioss_number or seller_is_importer:
+                _c_sales = [_dc_thread.replace(
+                    s,
+                    ioss_number=ioss_number.strip() if ioss_number else s.ioss_number,
+                    seller_is_importer=seller_is_importer if seller_is_importer else s.seller_is_importer,
+                ) for s in _c_sales]
+            _c_refunds = _p_all_refunds
+            _platform_name = _p_all_platforms[0] if _p_all_platforms else file_format.split("(")[0].strip()
+
+            def _vies_progress_cb(done: int, total: int) -> None:
+                if total <= 0:
+                    return
+                report(0.4 + min(done / total, 1.0) * 0.18,
+                       _("calc_progress_vies_count", lang=_lang_for_thread, done=done, total=total))
+
+            def _oss_progress_cb(done: int, total: int) -> None:
+                if total <= 0:
+                    return
+                report(0.58 + min(done / total, 1.0) * 0.37,
+                       _("calc_progress_oss_count", lang=_lang_for_thread, done=done, total=total))
+
+            _results, _refund_results, _vies_summary, _oss_summary = compute_all_with_vies(
+                _c_sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
+                on_invalid=on_invalid_behavior, marketplace_name=_platform_name,
+                apply_fr_under_threshold=apply_fr_under_threshold,
+                refunds=_c_refunds if _c_refunds else None,
+                vies_progress_callback=_vies_progress_cb,
+                oss_progress_callback=_oss_progress_cb,
+                lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
+                ioss_own_number_active=ioss_own_number_active)
+
+            report(0.97, _("calc_progress_vat", lang=_lang_for_thread))
+            _summary = build_report(_results, refund_results=_refund_results or None, lang=_lang_for_thread)
+            report(1.0, "")
+            _calc_data = (_results, _vies_summary, _oss_summary, _refund_results, _summary)
+            return _parse_data, _calc_data
+
+        _job_id = "parsecalc_" + str(abs(hash(_parse_cache_key)))
+        _QUEUED_PARSECALC_TRACKER_KEY = "_bgjob_queued_parsecalc_job_id"
+        _combined_progress_ph = st.empty()
+
+        if get_job_state(_job_id) is None:
+            _previous_queued = st.session_state.get(_QUEUED_PARSECALC_TRACKER_KEY)
+            if _previous_queued and _previous_queued != _job_id:
+                dequeue(_previous_queued)
+            st.session_state[_QUEUED_PARSECALC_TRACKER_KEY] = _job_id
+
+            if reserve_or_enqueue(_job_id):
+                st.session_state.pop(_QUEUED_PARSECALC_TRACKER_KEY, None)
+                start_background_job(_job_id, _run_parse_and_calc)
+            else:
+                with _combined_progress_ph.container():
+                    st.caption(_("calc_bg_running_caption", rows=""))
+                    render_queue_status(_job_id, lang=_lang_for_thread)
+                # Comme pour le calcul seul : le fragment ci-dessus retente
+                # lui-même un slot à chaque tick — on s'arrête ici pour CE
+                # rerun, la sidebar reste utilisable entre-temps.
+                st.stop()
+
+        with _combined_progress_ph.container():
+            render_job_progress(_job_id, label=_(
+                "analysis_progress" if convert_fx else "analysis_progress_simple",
+                name=uploaded_files[0].name if uploaded_files else "",
+            ))
+        _job_state = get_job_state(_job_id)
+        with _job_state.lock:
+            _job_done, _job_error = _job_state.done, _job_state.error
+        if not _job_done:
+            st.stop()
+        if _job_error is not None:
+            clear_job(_job_id)
+            st.error(_("processing_error", error=_job_error))
+            raise _job_error
+
+        _parse_data, _calc_data = _job_state.result
+        clear_job(_job_id)
+        _combined_progress_ph.empty()
+
+        CalcCacheState.save_parse(_parse_cache_key, _parse_data)
+        if _calc_data is not None:
+            _results, _vies_summary, _oss_summary, _refund_results, _summary = _calc_data
+            _combined_cache_key = _compute_cache_key()
+            CalcCacheState.save_calc(_combined_cache_key, _results, _refund_results, _summary, _vies_summary, _oss_summary)
+            if CalcCacheState.load().period_sync_key != _combined_cache_key:
+                CalcCacheState.save_period_sync_key(_combined_cache_key)
+                preserve_upload_rerun()
+        # Fin du chemin fusionné : on retombe naturellement dans le chemin
+        # existant ci-dessous, qui va relire les deux caches qu'on vient de
+        # remplir (parse_key == _parse_cache_key et calc_key == _cache_key,
+        # tous deux vrais désormais) — aucune duplication du code
+        # d'affichage/de calcul en aval.
+        _calc_cache = CalcCacheState.load()
+
     if _calc_cache.parse_key == _parse_cache_key:
         _cached = _calc_cache.parse_data
         (all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,
@@ -688,45 +944,13 @@ if uploaded_files:
                 st.warning(_("foreign_currency_warning", currencies=', '.join(sorted(foreign))))
 
         # === CALCUL (mis en cache dans session_state) ===
+        # `_cache_key` extrait en fonction `_compute_cache_key()` (voir plus
+        # haut dans ce fichier, à côté de `_parse_cache_key`) : elle est
+        # aussi utilisée par le chemin fusionné parsing+calcul (gros
+        # upload) pour construire sa propre clé de cache de calcul sans
+        # dupliquer cette liste de réglages.
         _vies_retry_nonce = CalcCacheState.load().vies_retry_nonce
-        _cache_key = (
-            # SÉCURITÉ (voir README - évolution.md) : `current_user.id` inclus
-            # explicitement en tête de clé. Sans cela, deux comptes distincts
-            # uploadant un fichier strictement identique avec les mêmes
-            # réglages fiscaux partageaient la même entrée de cache
-            # (st.cache_data est un cache global au process, pas par session
-            # -- voir aussi heavy_cache_data dans mem_utils.py). Les données
-            # actuelles sont dérivées du seul fichier importé (pas de PII
-            # propre à l'utilisateur au-delà de ce qu'il a lui-même fourni),
-            # mais l'isolation cryptographique par utilisateur est appliquée
-            # par prudence, avant toute évolution qui stockerait davantage
-            # dans ces DataFrames mis en cache.
-            _current_user.id,
-            tuple(_upload_sig(f) for f in uploaded_files),
-            enable_vies, convert_fx, file_format,
-            tuple(sorted(asin_to_category.items())),
-            ioss_number, seller_is_importer,
-            tuple(sorted(countries_with_vat)),
-            apply_fr_under_threshold,
-            # BUGFIX (voir README - évolution.md) : `ioss_own_number_active`
-            # influence bien engine.compute_vat() (voir engine.py ~l.312)
-            # mais était absent de cette clé — cocher/décocher ce toggle
-            # réutilisait silencieusement l'ancien résultat en cache.
-            ioss_own_number_active,
-            home_country,
-            target_currency,
-            _vies_retry_nonce,
-            _vies_scope_id,  # Indispensable : les overrides VIES sont propres à chaque SIREN
-            # BUGFIX (voir README - évolution.md) : ces trois variables
-            # influencent bien le résultat du calcul (langue des notes
-            # générées, taux BCE du seuil OSS affiché selon la période,
-            # comportement sur numéro TVA invalide) mais étaient absentes
-            # de la clé de cache — un changement de langue ou de période
-            # OSS réutilisait silencieusement l'ancien résultat en cache.
-            st.session_state.get("language"),
-            oss_period,
-            on_invalid_behavior,
-        )
+        _cache_key = _compute_cache_key()
 
         calc_progress_ph = st.empty()
 

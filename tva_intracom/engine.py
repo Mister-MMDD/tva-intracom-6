@@ -13,6 +13,7 @@ l'acheteur) pour determiner le regime applicable parmi les 4 cas principaux :
 from __future__ import annotations
 
 import logging
+import time
 import threading
 from collections import OrderedDict
 from dataclasses import replace as _dc_replace
@@ -1015,6 +1016,14 @@ def _run_oss_loop(
                 # temps, etc.) ne doit jamais faire échouer le calcul —
                 # même posture que _tick() dans validate_vat_numbers_parallel.
                 pass
+            # Point de respiration CPU (voir README - évolution.md, même
+            # correctif que _process_rows dans loader.py) : cédé au même
+            # rythme que le tick de progression (_OSS_PROGRESS_TICK_EVERY),
+            # pas à chaque ligne, pour un coût quasi nul. Filet de sécurité
+            # en complément de la file d'attente (background_calc.py), pas
+            # un remplacement — cette boucle reste inhérentement séquentielle
+            # (cumul OSS chronologique, voir docstring du module).
+            time.sleep(0)
 
     if current_year:
         oss_ht_by_year[current_year] = cumulative_oss_ht

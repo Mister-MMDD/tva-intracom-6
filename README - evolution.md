@@ -5658,3 +5658,112 @@ déjà connus, liés à l'absence de `SUPABASE_DB_URL` en sandbox — aucune
 régression). `py_compile` et `pyflakes` propres sur `fec_export.py` (seul
 avertissement pyflakes présent — `unused_results` dans
 `_journal_info_for` — est pré-existant, non lié à ce correctif).
+
+## 2026-08-28 — File d'attente étendue au parsing (gros upload) + respiration CPU dans les boucles lourdes
+
+Suite au test multi-utilisateurs (4 comptes uploadant quasi simultanément
+sur Streamlit Community Cloud, 1 vCPU partagé) : la file d'attente mise en
+place précédemment (`ui/background_calc.py`) ne protégeait que le calcul
+(`_run_oss_loop`/VIES), pas le parsing. Diagnostic confirmé sur le code
+réel : la boucle `_process_rows()` (`tva_intracom/parsers/amazon/loader.py`)
+s'exécutait en synchrone dans `app.py`, **avant** même le calcul de
+`_is_big_file`, donc sans aucun garde-fou — plusieurs comptes pouvaient
+saturer l'unique vCPU en parsing simultané, affamant le thread principal
+Streamlit (WebSockets, fragments) et produisant pages blanches/gels sans
+aucune exception loggée côté serveur.
+
+**Correctif retenu (2 volets), tel que discuté et approuvé** :
+
+### Volet 1 — Un seul slot de file pour parsing + calcul (pas deux séparés)
+
+Contrairement à une première option envisagée (slot séparé pour le
+parsing puis un second pour le calcul), le choix final est un **slot
+unique tenu du début du parsing jusqu'à la fin du calcul**, sans relâche
+intermédiaire : un gros upload consomme désormais un seul tour de file
+au lieu de deux, ce qui limite le temps d'attente perçu par les autres
+utilisateurs pendant qu'un gros dossier est traité de bout en bout.
+
+Implémentation dans `app.py` :
+- Nouveau chemin `_gate_combined`, déclenché uniquement si un
+  **re-parsing est réellement nécessaire** (cache parsing manqué) **et**
+  que la taille cumulée des fichiers uploadés dépasse **10 Mo** (seuil
+  proxy : le volume de lignes, critère utilisé pour le calcul seul, n'est
+  pas connu avant parsing).
+- Écriture des fichiers temporaires faite dans le thread principal
+  (`uploaded_file.getvalue()` dépend du contexte Streamlit), puis
+  parsing ET calcul (VIES + `_run_oss_loop` + `build_report`) exécutés
+  dans un seul thread de fond via `start_background_job`, avec une seule
+  réservation `reserve_or_enqueue`/`try_advance_queue`.
+- Progression continue sur une seule barre (`render_job_progress`) :
+  plage 0.0–0.4 pour le parsing (tous fichiers, labels identiques au
+  chemin synchrone existant), 0.4–1.0 pour VIES/OSS — aucune nouvelle
+  mécanique de progression, réutilisation intégrale de l'existant
+  (`_JobState`, fragment de polling 0,4 s).
+- Une fois le job terminé, les deux caches existants sont remplis
+  (`CalcCacheState.save_parse` + `save_calc`) puis le script retombe
+  naturellement dans le code existant (affichage résumé import,
+  warnings, billing gate…) qui relit ces caches sans aucune duplication
+  de logique d'affichage.
+- `_cache_key` (clé de cache du calcul) extraite en fonction
+  `_compute_cache_key()` — elle ne dépendait déjà que de signatures de
+  fichiers et de réglages (jamais du contenu réellement parsé), ce qui a
+  permis de la réutiliser telle quelle pour construire le job fusionné
+  sans dupliquer cette liste de réglages (source d'au moins 2 bugs
+  passés quand un réglage manquait à cette clé, voir entrées
+  précédentes).
+- **Cas non gatés fusionnés dans le même mécanisme, comme demandé** :
+  le recalcul seul (fichier déjà en cache de parsing, réglages de calcul
+  modifiés) utilisait déjà un slot unique nativement (`_is_big_file` sur
+  `len(sales)+len(refunds)`) — non modifié, aucune duplication de chemin
+  nécessaire.
+- Chemin petit upload (< 10 Mo) : strictement inchangé, aucun risque de
+  régression sur le cas courant, le plus emprunté.
+
+**Point à signaler** : le seuil de 10 Mo est un proxy indirect du volume
+de lignes réel. Un fichier atypique (colonnes très légères, très
+nombreuses lignes) pourrait dépasser 20 000 lignes sans dépasser 10 Mo et
+resterait alors sur le chemin synchrone non gaté. Accepté comme
+compromis simple (pas de pré-comptage de lignes coûteux avant mise en
+file) ; à surveiller en usage réel.
+
+### Volet 2 — Point de respiration CPU (filet de sécurité, pas un remplacement)
+
+Ajout de `time.sleep(0)` (coût quasi nul, cède la main à l'ordonnanceur) :
+- dans `_process_rows()` (`tva_intracom/parsers/amazon/loader.py`), au
+  même rythme que le `progress_callback` existant (tous les
+  `progress_step` lignes, soit 500 par défaut) ;
+- dans `_run_oss_loop()` (`tva_intracom/engine.py`), au même rythme que
+  le tick de progression existant (`_OSS_PROGRESS_TICK_EVERY = 500`).
+
+Objectif : limiter la famine du thread principal Streamlit (WebSockets,
+fragments) même quand un seul calcul/parsing tourne, en complément de la
+file — pas un remplacement. `_run_oss_loop` reste inhérentement
+séquentiel (cumul OSS chronologique, voir docstring du module) : ce
+correctif ne le parallélise pas, il ne fait que rendre la boucle moins
+accaparante pour l'ordonnanceur du process.
+
+**Fichiers modifiés** : `app.py`, `tva_intracom/parsers/amazon/loader.py`,
+`tva_intracom/engine.py`.
+
+Railway / scale-to-zero : aucun impact — aucun nouveau thread persistant
+ni polling permanent ; le thread de fond ne démarre qu'à la demande
+(upload), se termine à la fin du job, et ferme explicitement ses
+connexions DB en cache (`_CLOSE_FNS`, déjà existant).
+
+**Validation** : `py_compile` OK sur les 3 fichiers modifiés (+
+`ui/background_calc.py`, `ui/calc_cache.py`, non modifiés mais vérifiés
+par prudence). `pyflakes` propre (aucun avertissement nouveau). Suite
+`pytest` complète : **221 passed / 3 failed**, baseline strictement
+inchangée (les 3 échecs restent ceux, déjà connus, liés à l'absence de
+`SUPABASE_DB_URL` en sandbox — aucune régression introduite). Symétrie
+i18n vérifiée par `toml.load()` : **1206 clés partout, aucun écart** —
+aucune nouvelle clé n'a été nécessaire, toutes les chaînes utilisées
+dans le chemin fusionné (`analysis_progress`, `analysis_progress_count`,
+`calc_progress_vies_count`, `calc_progress_oss_count`,
+`calc_progress_vat`, `calc_bg_running_caption`, etc.) existaient déjà.
+
+Test en conditions réelles (plusieurs comptes uploadant simultanément un
+gros fichier) non encore rejoué depuis ce correctif — à confirmer en
+production avant mise à jour de la section "on the horizon" (parallélisme
+multi-process `_run_oss_loop`, toujours documenté comme différé faute de
+plusieurs vCPU réels).

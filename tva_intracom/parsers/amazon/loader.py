@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -173,6 +174,16 @@ def _process_rows(
                 # Le callback ne doit jamais interrompre le parsing (ex: erreur
                 # d'affichage Streamlit si le composant a été démonté entre-temps).
                 logger.debug("progress_callback a levé une exception, ignorée.", exc_info=True)
+
+            # Point de respiration CPU (voir README - évolution.md) : sur un
+            # seul vCPU partagé (Streamlit Community Cloud), cette boucle
+            # pure Python peut affamer le thread principal Streamlit
+            # (WebSocket, fragments) si elle tourne en continu sur 100k
+            # lignes. `time.sleep(0)` cède la main à l'ordonnanceur (coût
+            # quasi nul) sans ralentir sensiblement le parsing — filet de
+            # sécurité en complément de la file d'attente (background_calc.py),
+            # pas un remplacement.
+            time.sleep(0)
 
         # --- Identifiant de compte Amazon (anti-abus SIREN, voir AmazonImportResult) ---
         _account_id = (row.get("unique_account_identifier") or "").strip()
