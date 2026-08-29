@@ -29,12 +29,17 @@ depuis un thread autre que le thread de script ne sont pas garantis fiables.
 """
 from __future__ import annotations
 
+import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 import streamlit as st
+
+logger = logging.getLogger(__name__)
+
 
 from .. import auth as _tva_auth
 from .. import billing as _tva_billing
@@ -141,13 +146,30 @@ def reserve_or_enqueue(job_id: str) -> bool:
     with _active_jobs_lock:
         _reap_stale_reservations_locked()
         if job_id in _reserved_at or job_id in _waiting_queue:
-            return job_id in _reserved_at
-        if _active_jobs_count < MAX_CONCURRENT_BIG_JOBS:
+            _result = job_id in _reserved_at
+        elif _active_jobs_count < MAX_CONCURRENT_BIG_JOBS:
             _active_jobs_count += 1
             _reserved_at[job_id] = time.time()
-            return True
-        _waiting_queue.append(job_id)
-        return False
+            _result = True
+        else:
+            _waiting_queue.append(job_id)
+            _result = False
+        # DEBUG TEMPORAIRE (voir README - évolution.md, diagnostic "2
+        # personne(s) devant vous" simultané constaté par Matthieu lors d'un
+        # test multi-comptes) : trace l'état complet de la file à chaque
+        # appel, avec le PID du process, pour trancher entre (a) un simple
+        # artefact d'affichage dû au polling indépendant de chaque fragment,
+        # ou (b) plusieurs process Python distincts (chacun avec son propre
+        # `_active_jobs_count`, invisible l'un de l'autre) -- ce que
+        # confirmerait la présence de PID différents dans ces logs. À
+        # retirer une fois le diagnostic tranché.
+        logger.info(
+            "[QUEUE_DEBUG pid=%s] reserve_or_enqueue(%s) -> %s | "
+            "active_jobs_count=%d waiting_queue=%s reserved=%s",
+            os.getpid(), job_id, _result, _active_jobs_count,
+            list(_waiting_queue), list(_reserved_at.keys()),
+        )
+        return _result
 
 
 def try_advance_queue(job_id: str) -> bool:
@@ -167,6 +189,14 @@ def try_advance_queue(job_id: str) -> bool:
         _waiting_queue.pop(0)
         _active_jobs_count += 1
         _reserved_at[job_id] = time.time()
+        # DEBUG TEMPORAIRE (voir reserve_or_enqueue ci-dessus, même
+        # diagnostic, à retirer une fois tranché).
+        logger.info(
+            "[QUEUE_DEBUG pid=%s] try_advance_queue(%s) -> True (promu) | "
+            "active_jobs_count=%d waiting_queue=%s reserved=%s",
+            os.getpid(), job_id, _active_jobs_count,
+            list(_waiting_queue), list(_reserved_at.keys()),
+        )
         return True
 
 
@@ -308,6 +338,14 @@ def start_background_job(
                 # été réclamée entre-temps par _reap_stale_reservations_locked
                 # (edge case documentée plus haut) — évite un compteur négatif.
                 _active_jobs_count = max(0, _active_jobs_count - 1)
+                # DEBUG TEMPORAIRE (voir reserve_or_enqueue, même diagnostic
+                # "2 personne(s) devant vous" simultané, à retirer une fois
+                # tranché).
+                logger.info(
+                    "[QUEUE_DEBUG pid=%s] job %s terminé, slot libéré | "
+                    "active_jobs_count=%d waiting_queue=%s",
+                    os.getpid(), job_id, _active_jobs_count, list(_waiting_queue),
+                )
             # Ferme explicitement les connexions DB mises en cache par CE
             # thread (voir commentaire de _CLOSE_FNS plus haut) — ce thread
             # va mourir juste après, autant fermer proprement tout de suite

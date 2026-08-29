@@ -5814,3 +5814,86 @@ Point non vérifiable en sandbox (nécessite un vrai test multi-comptes) :
 confirmation que la disparition des warnings `missing ScriptRunContext!`
 élimine bien la lenteur perçue sur la page active — à confirmer par
 Matthieu au prochain test réel.
+
+## 2026-08-29 — Bugfix `release_memory()` appelée à chaque rerun + instrumentation de débogage file d'attente
+
+Suite au test réel après reboot complet (correctif du 2026-08-28 (2)) :
+le calcul a fini par aboutir sur les 4 comptes, mais très lentement, et
+Matthieu a observé à un instant T deux sessions affichant simultanément
+"1 personne(s) devant vous" (et lors d'un test précédent, deux "1
+personne(s)" + un "2 personne(s)").
+
+### Bugfix confirmé et corrigé : `release_memory()` sur-sollicitée
+
+En lisant la condition déclenchant ce bloc dans `app.py` (`if
+uploaded_files: ... elif ... : ... else: ... release_memory()`), le `else`
+(qui appelle `release_memory()` — 2×`gc.collect()`, purge jemalloc,
+`malloc_trim(0)`, toutes opérations synchrones et coûteuses) se déclenchait
+en réalité à **chaque rerun** du script pour **toute session n'ayant
+jamais uploadé de fichier** (`uploaded_files` vide à chaque fois), et pas
+uniquement sur un retrait de fichier effectif comme documenté dans
+`mem_utils.py`. Les logs confirment ce comportement : plusieurs comptes
+restés inactifs pendant le test déclenchaient ces appels toutes les
+20-60 secondes. Sur le vCPU partagé unique de Streamlit Community Cloud,
+cette contention régulière, cumulée à celle des sessions actives, dégrade
+le débit global — cohérent avec la lenteur constatée.
+
+**Correctif** : ajout d'un flag `session_state["_had_uploaded_files"]`,
+positionné à `True` dès qu'un upload est présent (ou reconstruit depuis
+le cache via `_preserve_upload_this_run`), lu (et capturé **avant** la
+boucle de purge `_WHITELIST`, qui l'aurait sinon supprimé avant lecture)
+au moment du `else`. `release_memory()` ne s'exécute désormais que sur la
+transition réelle "avait des fichiers -> n'en a plus", conformément à
+l'intention documentée dans `mem_utils.py`.
+
+Fichier modifié : `app.py` uniquement.
+
+### Instrumentation de débogage temporaire (file d'attente)
+
+Le mécanisme de file (`background_calc.py`) a été relu intégralement :
+`MAX_CONCURRENT_BIG_JOBS = 1`, protégé par un verrou unique
+(`_active_jobs_lock`) partagé entre `_active_jobs_count` et
+`_waiting_queue`, avec file FIFO stricte — le code est correct en
+apparence et **devrait** garantir un seul job actif à la fois, à
+condition qu'un seul process Python héberge l'application (hypothèse déjà
+documentée explicitement en tête de ce module).
+
+N'ayant que les logs et captures d'écran côté client à disposition (pas
+d'accès à un moniteur de process serveur), impossible de confirmer si le
+phénomène observé est :
+- un simple artefact d'affichage transitoire (chaque `render_queue_status`
+  sonde indépendamment toutes les ~0,6s — une désynchronisation de quelques
+  centaines de ms entre deux fragments peut produire des positions
+  affichées incohérentes l'espace d'un instant), ou
+- un dépassement réel du plafond (ex. si Streamlit Cloud faisait tourner
+  l'app sur plusieurs process, `_active_jobs_count` — simple variable de
+  module — existerait en plusieurs exemplaires indépendants).
+
+Plutôt que de corriger à l'aveugle, ajout de logs `INFO` temporaires
+(préfixe `[QUEUE_DEBUG pid=...]`) dans `reserve_or_enqueue()`,
+`try_advance_queue()` et à la libération de slot en fin de job
+(`_runner()`), traçant à chaque transition : PID du process,
+`active_jobs_count`, contenu de `_waiting_queue` et des réservations en
+cours. Si un futur test montre des PID différents dans ces logs pour des
+jobs actifs simultanément, cela confirmera l'hypothèse multi-process (et
+invaliderait le design actuel basé sur un compteur module-level). Sinon,
+cela confirmera l'artefact d'affichage bénin.
+
+Fichier modifié : `tva_intracom/ui/background_calc.py` (ajout du logger +
+lignes `logger.info` uniquement, aucune logique métier changée). **À
+retirer une fois le diagnostic tranché** (marqué explicitement dans les
+commentaires du code).
+
+Railway / scale-to-zero : aucun impact (aucun nouveau thread, aucune
+connexion, purement des logs).
+
+Validation : `py_compile` + `pyflakes` propres sur les 2 fichiers modifiés.
+Suite `pytest` complète : **221 passed / 3 failed**, baseline strictement
+inchangée. Symétrie i18n : **1207 clés partout** (le +1 par rapport au
+correctif précédent vient de l'ajout de Matthieu pour le texte premium
+"compte Amazon non rattaché", déjà symétrique sur les 7 langues — non
+touché par ce correctif).
+
+Point non résolu, à surveiller au prochain test : origine exacte du
+double "1 personne(s) devant vous" — les logs `[QUEUE_DEBUG]` du prochain
+test multi-comptes permettront de trancher.

@@ -360,6 +360,7 @@ uploaded_files = st.file_uploader(
 _preserve_upload_this_run = consume_preserve_flag()
 
 if uploaded_files:
+    st.session_state["_had_uploaded_files"] = True
     # ── Vérification technique de la taille (100 Mo par fichier) ────────────
     # Streamlit limite l'upload au niveau serveur (config.toml), mais on
     # rajoute une sécurité explicite ici pour informer l'utilisateur si un
@@ -392,6 +393,7 @@ if uploaded_files:
             for f in uploaded_files
         }
 elif _preserve_upload_this_run and st.session_state.get("_last_uploaded_files_bytes"):
+    st.session_state["_had_uploaded_files"] = True
     uploaded_files = [
         _CachedUploadedFile(_name, _compressed, _size, _hash)
         for (_name, _size, _hash), _compressed in st.session_state["_last_uploaded_files_bytes"].items()
@@ -402,6 +404,11 @@ else:
     # auto-détectée, etc. disparaissent immédiatement plutôt que de rester
     # affichés avec les anciennes données.
     # On nettoie également les jobs en arrière-plan et les caches de session.
+    #
+    # Capturé AVANT la boucle de purge ci-dessous, qui supprimerait sinon
+    # cette clé (absente de _WHITELIST) avant qu'on ait pu la lire.
+    _had_files_before = st.session_state.get("_had_uploaded_files", False)
+
     _WHITELIST = {
         "language", "auth_user", "manual_logout", "_cookie_sync_attempts",
         "_prefs_synced_user", "tva_cookie_manager", "main_file_uploader",
@@ -415,9 +422,18 @@ else:
         if _stale_key not in _WHITELIST:
             st.session_state.pop(_stale_key, None)
 
-    # Force le nettoyage de la mémoire après suppression de gros objets
-    from tva_intracom.mem_utils import release_memory
-    release_memory()
+    # BUGFIX (voir README - évolution.md) : `release_memory()` (gc.collect()
+    # x2 + purge jemalloc/malloc_trim(0), toutes opérations synchrones et
+    # coûteuses) ne doit s'exécuter que sur la TRANSITION réelle "avait des
+    # fichiers -> n'en a plus" (retrait effectif par l'utilisateur), pas à
+    # chaque rerun où le widget est simplement vide -- ce qui était le cas
+    # avant ce correctif pour TOUTE session n'ayant jamais uploadé de
+    # fichier : chaque rerun (poll, navigation...) déclenchait ces appels
+    # bloquants, y compris pour des sessions inactives, en concurrence avec
+    # un éventuel job lourd sur le même vCPU partagé.
+    if _had_files_before:
+        from tva_intracom.mem_utils import release_memory
+        release_memory()
 
 if uploaded_files:
     from tva_intracom.parsers import amazon as parser_amazon
