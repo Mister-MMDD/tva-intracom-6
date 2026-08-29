@@ -5959,3 +5959,55 @@ Railway / scale-to-zero : aucun impact.
 Validation : `py_compile` + `pyflakes` propres. Suite `pytest` complète :
 **221 passed / 3 failed**, baseline strictement inchangée (mêmes 3 échecs
 pré-existants liés à `SUPABASE_DB_URL` absente en sandbox).
+
+## 2026-08-29 (3) — Confirmation du fix job_id + correctif d'affichage "job terminé" périmé
+
+Nouveau test à 4 comptes après le correctif du job_id (2026-08-29 (2)).
+Analyse complète de la timeline des logs `[QUEUE_DEBUG]` : **4 `job_id`
+strictement distincts** sur toute la durée du test, et
+**`active_jobs_count` ne dépasse jamais 1** à aucun moment — le fix de
+collision fonctionne, la file reste strictement séquentielle comme
+conçu, aucune double réservation observée.
+
+Matthieu a néanmoins signalé avoir vu, à l'écran, deux comptes affichant
+chacun un texte de progression simultanément ("Analyse de
+ventes_multian_test.csv..." pour l'un, "47 500 / 100 000 lignes lues"
+pour l'autre), et un cas où le slot se libérait dans les logs sans que
+l'affichage de cette session n'ait atteint les tableaux de résultats.
+
+**Cause confirmée (lecture du code de `render_job_progress`)** : à la
+détection de `state.done = True`, le fragment ne faisait que déclencher
+un `st.rerun()` complet et retournait, **sans rien réafficher**. Le
+texte visible à l'écran restait donc celui du **dernier tick de
+progression précédent** (ex. un pourcentage à mi-parcours) jusqu'à ce
+que ce `st.rerun()` s'exécute réellement — un rerun complet devant être
+ordonnancé par le même process, en concurrence avec le thread du
+prochain job de la file et les polls d'autres sessions sur le vCPU
+partagé. Un délai dans cet ordonnancement donnait l'illusion trompeuse
+qu'un calcul tournait encore sur une session dont le job était en
+réalité déjà terminé côté serveur.
+
+**Correctif** : dans `render_job_progress()` (`tva_intracom/ui/background_calc.py`),
+affichage immédiat d'un texte "terminé" (réutilisation du dernier texte
+de progression connu, suffixé d'un ✅, plutôt qu'une nouvelle clé i18n --
+volontairement pour ne pas introduire de dépendance i18n dans ce module
+générique ni élargir inutilement les 7 fichiers de traduction pour un
+message aussi éphémère) dans le MÊME tick que la détection de fin de job,
+avant que le `st.rerun()` n'ait pu s'exécuter. Purement cosmétique :
+n'accélère rien, ne change aucune logique de file/job, signale juste
+correctement la transition à l'utilisateur au lieu de laisser un
+pourcentage périmé à l'écran.
+
+Fichier modifié : `tva_intracom/ui/background_calc.py` uniquement.
+
+Railway / scale-to-zero : aucun impact.
+
+Validation : `py_compile` + `pyflakes` propres. Suite `pytest` complète :
+**221 passed / 3 failed**, baseline inchangée. Symétrie i18n : **1207
+clés partout, inchangé** (aucune nouvelle clé introduite, conformément au
+choix de ne pas localiser ce message éphémère).
+
+Les logs `[QUEUE_DEBUG]` ont désormais rempli leur rôle diagnostique
+(confirmation du fix de collision + explication complète du symptôme
+d'affichage) — à retirer au prochain correctif si Matthieu confirme que
+tout est stable, ou à garder un test de plus si souhaité.

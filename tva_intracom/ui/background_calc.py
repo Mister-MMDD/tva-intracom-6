@@ -400,6 +400,19 @@ def render_job_progress(job_id: str, label: str) -> None:
         if _done and not _already_triggered:
             state.rerun_triggered = True
     if _done:
+        # BUGFIX (voir README - évolution.md, diagnostic du 2026-08-29) :
+        # avant ce correctif, rien n'était affiché ici -- l'ancien texte du
+        # DERNIER tick de progression (ex. "47 500 / 100 000 lignes lues")
+        # restait visible à l'écran jusqu'à ce que le `st.rerun()` complet
+        # ci-dessous ait réellement le temps de s'exécuter. Sur le vCPU
+        # partagé, ce rerun est en concurrence avec le thread du prochain
+        # job et les polls d'autres sessions -- son délai pouvait donner
+        # l'illusion trompeuse qu'un calcul tournait encore alors que le
+        # job était déjà terminé (observé concrètement : deux sessions
+        # affichant chacune un texte de progression, alors que les logs
+        # confirmaient un seul job actif à la fois). Un texte "terminé"
+        # explicite, même bref, signale correctement la transition.
+        st.progress(1.0, text=f"{_text or label} ✅")
         # Le rerun complet n'est déclenché qu'une seule fois par job : le
         # timer run_every de ce fragment est indépendant du thread principal
         # et peut re-tiquer plusieurs fois avant que le rerun précédent
