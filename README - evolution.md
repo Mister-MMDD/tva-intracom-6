@@ -6011,3 +6011,72 @@ Les logs `[QUEUE_DEBUG]` ont désormais rempli leur rôle diagnostique
 (confirmation du fix de collision + explication complète du symptôme
 d'affichage) — à retirer au prochain correctif si Matthieu confirme que
 tout est stable, ou à garder un test de plus si souhaité.
+
+## 2026-08-29 (4) — Le slot de file tient désormais jusqu'à la fin de l'affichage, pas seulement du calcul
+
+Suite au constat de Matthieu (calcul de tvacalculator démarré alors que
+l'affichage des résultats de cap-adrenaline n'était pas terminé) : le
+slot de file (chemin fusionné `_gate_combined`, gros upload) était
+libéré dans le thread de fond dès la fin du **calcul** (parsing+VIES/OSS),
+sans attendre que le script principal ait fini de **rendre** les
+tableaux de résultats (DataFrames, KPIs...) — une phase elle-même non
+négligeable en CPU sur un gros résultat (~100k lignes), s'exécutant en
+concurrence avec le calcul du job suivant sur le même vCPU partagé.
+
+**Décision (validée avec Matthieu)** : le slot doit désormais être tenu
+jusqu'à la fin du PREMIER rendu des résultats, pas seulement du calcul.
+Compromis assumé : le temps d'attente total cumulé pour l'ensemble d'un
+batch d'utilisateurs peut augmenter (chaque session tient la file un peu
+plus longtemps), en échange d'une réduction de la contention CPU entre
+l'affichage d'un compte et le calcul du suivant.
+
+### Implémentation
+
+- `start_background_job()` (`tva_intracom/ui/background_calc.py`) accepte
+  un nouveau paramètre `hold_slot_for_render: bool = False`. Quand True,
+  le `finally` du thread de calcul ne libère plus directement le slot :
+  il transfère l'entrée vers `_active_render_at` (nouveau dict
+  `job_id -> horodatage`), sans décrémenter `_active_jobs_count`.
+- Nouvelle fonction `release_after_render(job_id)` : à appeler
+  explicitement depuis le script principal une fois le rendu terminé —
+  décrémente alors `_active_jobs_count` et retire l'entrée de
+  `_active_render_at`. Idempotente (sans effet si déjà libéré).
+- **Filet de sécurité** : `_RENDER_TIMEOUT_S = 90.0`, vérifié par
+  `_reap_stale_reservations_locked()` (même mécanisme que
+  `_RESERVATION_TIMEOUT_S` existant pour les réservations orphelines) —
+  si `release_after_render()` n'est jamais rappelée (session abandonnée
+  en plein rendu, exception non prévue), le slot est libéré de force
+  après 90s plutôt que de bloquer la file indéfiniment.
+- Dans `app.py` (chemin `_gate_combined` uniquement, tel que validé —
+  le chemin calcul seul historique n'est pas concerné) :
+  - `start_background_job(_job_id, _run_parse_and_calc,
+    hold_slot_for_render=True)`, suivi du dépôt d'un marqueur
+    `st.session_state["_pending_render_release_job_id"] = _job_id`.
+  - Sur le chemin d'erreur du job (`_job_error is not None`), libération
+    immédiate (`release_after_render` + nettoyage du marqueur) avant le
+    `raise` — ce cas ne mènera jamais à un rendu, inutile d'attendre le
+    filet de sécurité de 90s pour rien.
+  - Libération effective ajoutée dans le `finally` déjà existant
+    englobant le rendu des onglets (nettoyage des fichiers temporaires) —
+    s'exécute que le rendu réussisse ou lève une exception, garantissant
+    la libération dans les deux cas dès que ce point du script est
+    atteint.
+
+Portée : uniquement le chemin fusionné `_gate_combined` (gros upload,
+premier parsing), conformément à la décision prise avec Matthieu. Le
+chemin "calcul seul" (recalcul après cache hit du parsing) garde son
+comportement de libération immédiate, inchangé.
+
+Railway / scale-to-zero : aucun impact (aucun nouveau thread, aucune
+connexion persistante — juste une libération de compteur retardée).
+
+Validation : `py_compile` + `pyflakes` propres sur les 2 fichiers
+modifiés (`app.py`, `tva_intracom/ui/background_calc.py`). Suite `pytest`
+complète : **221 passed / 3 failed**, baseline strictement inchangée.
+Symétrie i18n : **1207 clés partout, inchangé** (aucune nouvelle clé).
+
+Les logs `[QUEUE_DEBUG]` sont conservés (nouvelles lignes ajoutées pour
+la transition calcul→rendu et la libération après rendu) — utiles pour
+confirmer au prochain test que le compromis se comporte comme prévu
+(slot tenu plus longtemps par session, mais moins de contention visible
+entre affichage et calcul suivant).

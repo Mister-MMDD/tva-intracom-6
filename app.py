@@ -28,6 +28,7 @@ from tva_intracom.ui.background_calc import (
     reserve_or_enqueue,
     render_queue_status,
     dequeue,
+    release_after_render,
 )
 from tva_intracom.report import build_report
 from tva_intracom.rates import is_eu, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
@@ -722,7 +723,15 @@ if uploaded_files:
 
             if reserve_or_enqueue(_job_id):
                 st.session_state.pop(_QUEUED_PARSECALC_TRACKER_KEY, None)
-                start_background_job(_job_id, _run_parse_and_calc)
+                start_background_job(_job_id, _run_parse_and_calc, hold_slot_for_render=True)
+                # Slot tenu au-delà du calcul (voir README - évolution.md,
+                # correctif "affichage tient le slot") : à libérer
+                # explicitement une fois le rendu des résultats terminé, dans
+                # le `finally` englobant plus bas dans ce fichier (autour du
+                # rendu des onglets) — ou par le filet de sécurité
+                # _RENDER_TIMEOUT_S si cette libération n'est jamais atteinte
+                # (session abandonnée en plein rendu).
+                st.session_state["_pending_render_release_job_id"] = _job_id
             else:
                 with _combined_progress_ph.container():
                     st.caption(_("calc_bg_running_caption", rows=""))
@@ -744,6 +753,8 @@ if uploaded_files:
             st.stop()
         if _job_error is not None:
             clear_job(_job_id)
+            release_after_render(_job_id)  # ce job ne rendra jamais rien : libération immédiate
+            st.session_state.pop("_pending_render_release_job_id", None)
             st.error(_("processing_error", error=_job_error))
             raise _job_error
 
@@ -1478,6 +1489,18 @@ if uploaded_files:
         raise
     finally:
         for _p in tmp_paths: _p.unlink(missing_ok=True)
+        # BUGFIX (voir README - évolution.md, correctif "affichage tient le
+        # slot") : si le chemin fusionné (_gate_combined) a tenu le slot de
+        # file au-delà du calcul (hold_slot_for_render=True), c'est ICI —
+        # une fois le rendu des onglets terminé (ou en échec, ce `finally`
+        # s'exécutant dans les deux cas) — qu'on le libère explicitement.
+        # Sans effet si aucun job n'a demandé cette tenue prolongée (valeur
+        # absente de session_state) ou si le filet de sécurité
+        # _RENDER_TIMEOUT_S l'a déjà repris (release_after_render est
+        # idempotente).
+        _pending_release_job_id = st.session_state.pop("_pending_render_release_job_id", None)
+        if _pending_release_job_id:
+            release_after_render(_pending_release_job_id)
 
 else:
     st.session_state.pop("_period_label", None)
