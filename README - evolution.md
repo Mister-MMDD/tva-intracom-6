@@ -5897,3 +5897,65 @@ touché par ce correctif).
 Point non résolu, à surveiller au prochain test : origine exacte du
 double "1 personne(s) devant vous" — les logs `[QUEUE_DEBUG]` du prochain
 test multi-comptes permettront de trancher.
+
+## 2026-08-29 (2) — Bugfix critique : collision de `job_id` entre comptes différents (fichiers de même nom/taille)
+
+Analyse des logs `[QUEUE_DEBUG]` (ajoutés au correctif précédent) d'un
+nouveau test à 4 comptes : PID identique (326) sur toute la durée,
+**hypothèse multi-process définitivement écartée** — le mécanisme de file
+tourne bien dans un seul process, comme conçu. Les doubles "1 personne(s)
+devant vous" observés précédemment étaient donc bien un artefact
+d'affichage bénin (polling indépendant de chaque fragment), sans
+incidence fonctionnelle.
+
+En revanche, les logs ont révélé un **vrai bug distinct**, plus grave :
+séquence observée sur un même `job_id` --
+`reserve_or_enqueue(...) -> True` (réservé, `active_jobs_count=1`) suivie
+quelques secondes après de `reserve_or_enqueue(...) -> False` (remis en
+file d'attente) **pour ce même job_id**. Une session unique ne referait
+jamais cet appel après avoir déjà démarré son propre job — la seule
+explication est que **deux sessions différentes ont produit exactement
+le même `job_id`**.
+
+**Cause racine** : `_job_id` (`app.py`, chemin `_gate_combined`) était
+dérivé uniquement de `_parse_cache_key`, qui ne dépend que du fichier
+(nom + taille) et des réglages — jamais de l'identité de l'utilisateur.
+Deux comptes différents uploadant un fichier de même nom et même taille
+(cas typique d'un test avec un fichier d'exemple réutilisé sur plusieurs
+comptes) obtenaient donc le même `_job_id`, alors que
+`_active_jobs_count`/`_waiting_queue`/`_reserved_at`
+(`background_calc.py`) sont des structures **globales**, partagées entre
+toutes les sessions par conception (c'est précisément ce qui permet de
+limiter le nombre de gros calculs simultanés tous comptes confondus).
+Deux sessions se disputaient alors la même entrée de file : l'une
+pouvait « voler » la réservation de l'autre, ou rester bloquée
+indéfiniment en attente d'un slot déjà promu pour une AUTRE session (son
+propre `st.session_state`, qui stocke le `_JobState` réel, n'étant jamais
+celui qui reçoit le résultat).
+
+Ce bug explique intégralement les trois symptômes rapportés par
+Matthieu sur ce test :
+- ordre d'affichage incohérent entre deux comptes (ils partageaient en
+  coulisses le même `job_id` et se disputaient son état) ;
+- un compte (`cap-adrenaline`) dont le calcul ne se lançait jamais
+  (bloqué derrière un `job_id` promu pour la session d'un autre compte) ;
+- l'indicateur "en cours d'exécution" de Streamlit s'animant sur des
+  pages en file d'attente — ceci en revanche est un comportement normal
+  et attendu (chaque tick du fragment de polling à 0,6s déclenche une
+  micro-exécution légitime, sans rapport avec un calcul réel), pas un bug.
+
+**Correctif** : `_job_id` inclut désormais explicitement `_current_user.id`
+(`hash((_current_user.id, _parse_cache_key))`), rendant toute collision
+entre comptes impossible, même à fichier strictement identique. Fichier
+modifié : `app.py` uniquement (une ligne + commentaire).
+
+Les logs `[QUEUE_DEBUG]` (background_calc.py) sont volontairement
+conservés un test de plus, pour confirmer que ce correctif élimine bien
+toute réapparition du même job_id sur des comptes distincts, avant leur
+retrait définitif.
+
+Railway / scale-to-zero : aucun impact.
+
+Validation : `py_compile` + `pyflakes` propres. Suite `pytest` complète :
+**221 passed / 3 failed**, baseline strictement inchangée (mêmes 3 échecs
+pré-existants liés à `SUPABASE_DB_URL` absente en sandbox).

@@ -691,7 +691,26 @@ if uploaded_files:
             _calc_data = (_results, _vies_summary, _oss_summary, _refund_results, _summary)
             return _parse_data, _calc_data
 
-        _job_id = "parsecalc_" + str(abs(hash(_parse_cache_key)))
+        # BUGFIX (voir README - évolution.md, diagnostic du 2026-08-29 via
+        # les logs [QUEUE_DEBUG]) : `_parse_cache_key` ne dépend QUE du
+        # fichier (nom+taille) et des réglages -- jamais de l'identité de
+        # l'utilisateur. Deux comptes différents uploadant un fichier de
+        # même nom et même taille (ex. un même fichier de test réutilisé
+        # sur plusieurs comptes) obtenaient donc EXACTEMENT le même
+        # `_job_id`, alors que `_active_jobs_count`/`_waiting_queue`/
+        # `_reserved_at` sont des structures GLOBALES partagées entre
+        # TOUTES les sessions (par conception, pour limiter le nombre de
+        # gros calculs simultanés tous comptes confondus). Deux sessions
+        # se disputaient alors la même entrée de file, l'une pouvant
+        # "voler" la réservation de l'autre -- observé concrètement : un
+        # même job_id réservé (True) puis remis en file (False) quelques
+        # secondes après, ce qu'une seule session ne ferait jamais. Un
+        # compte pouvait ainsi rester bloqué indéfiniment (son
+        # `st.session_state` propre n'étant jamais celui qui reçoit le
+        # résultat). `_current_user.id` inclus explicitement pour rendre
+        # toute collision impossible entre comptes, même à fichier
+        # strictement identique.
+        _job_id = "parsecalc_" + str(abs(hash((_current_user.id, _parse_cache_key))))
         _QUEUED_PARSECALC_TRACKER_KEY = "_bgjob_queued_parsecalc_job_id"
         _combined_progress_ph = st.empty()
 
