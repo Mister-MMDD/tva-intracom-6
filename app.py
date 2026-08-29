@@ -563,8 +563,8 @@ if uploaded_files:
 
             for _fi, (_tmp_path, _fname) in enumerate(_combined_file_specs):
                 _progress_label = (
-                    _("analysis_progress", name=_fname)
-                    if convert_fx else _("analysis_progress_simple", name=_fname)
+                    _("analysis_progress", name=_fname, lang=_lang_for_thread)
+                    if convert_fx else _("analysis_progress_simple", name=_fname, lang=_lang_for_thread)
                 )
 
                 def _on_parse_progress(processed, total, label=None, _fi=_fi, _fname=_fname):
@@ -573,8 +573,8 @@ if uploaded_files:
                     if label:
                         _txt = label
                     else:
-                        _suffix = f" ({_('fx_conv_suffix')})" if convert_fx else ""
-                        _txt = _("analysis_progress_count", name=_fname,
+                        _suffix = f" ({_('fx_conv_suffix', lang=_lang_for_thread)})" if convert_fx else ""
+                        _txt = _("analysis_progress_count", name=_fname, lang=_lang_for_thread,
                                   processed=f"{processed:,}".replace(",", " "),
                                   total=f"{total:,}".replace(",", " "), suffix=_suffix)
                     report(min(_global_frac, 1.0) * 0.4, _txt)
@@ -590,8 +590,8 @@ if uploaded_files:
                     _tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx,
                     asin_to_category=asin_to_category,
                     progress_callback=_on_parse_progress,
-                    bce_label=_("calc_progress_bce_count"),
-                    bce_wait_label=_("calc_progress_bce"),
+                    bce_label=_("calc_progress_bce_count", lang=_lang_for_thread),
+                    bce_wait_label=_("calc_progress_bce", lang=_lang_for_thread),
                     target_currency=target_currency,
                     ioss_number=ioss_number,
                     seller_is_importer=seller_is_importer,
@@ -607,13 +607,13 @@ if uploaded_files:
                     _p_total_rows_sum += _parse_result.total_rows; _p_skipped_rows_sum += _parse_result.skipped_rows
                     _p_parse_results.append(_parse_result)
                     _p_file_summaries.append({
-                        _("col_file"): _fname, _("col_source"): _platform,
-                        _("col_sales"): len(_parse_result.sales), _("col_refunds"): len(_parse_result.refunds),
-                        _("col_fba_trans"): len(_parse_result.fc_transfers),
-                        _("col_phys_returns"): getattr(_parse_result, "return_rows", 0),
-                        _("col_invoices"): getattr(_parse_result, "invoice_rows", 0),
-                        _("col_credit_notes"): getattr(_parse_result, "credit_note_rows", 0),
-                        _("col_rows_read"): _parse_result.total_rows, _("col_ignored"): _parse_result.skipped_rows,
+                        _("col_file", lang=_lang_for_thread): _fname, _("col_source", lang=_lang_for_thread): _platform,
+                        _("col_sales", lang=_lang_for_thread): len(_parse_result.sales), _("col_refunds", lang=_lang_for_thread): len(_parse_result.refunds),
+                        _("col_fba_trans", lang=_lang_for_thread): len(_parse_result.fc_transfers),
+                        _("col_phys_returns", lang=_lang_for_thread): getattr(_parse_result, "return_rows", 0),
+                        _("col_invoices", lang=_lang_for_thread): getattr(_parse_result, "invoice_rows", 0),
+                        _("col_credit_notes", lang=_lang_for_thread): getattr(_parse_result, "credit_note_rows", 0),
+                        _("col_rows_read", lang=_lang_for_thread): _parse_result.total_rows, _("col_ignored", lang=_lang_for_thread): _parse_result.skipped_rows,
                     })
 
             # Même optimisation RAM que le chemin synchrone (voir plus bas) :

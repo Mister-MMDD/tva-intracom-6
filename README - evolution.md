@@ -5767,3 +5767,50 @@ gros fichier) non encore rejoué depuis ce correctif — à confirmer en
 production avant mise à jour de la section "on the horizon" (parallélisme
 multi-process `_run_oss_loop`, toujours documenté comme différé faute de
 plusieurs vCPU réels).
+
+## 2026-08-28 (2) — Bugfix test réel : `lang=` manquant dans le job fusionné parsing+calcul (correctif précédent)
+
+Test en conditions réelles du correctif ci-dessus (4 comptes simultanés,
+gros fichiers) : file d'attente fonctionnelle (positions affichées et
+résolues correctement), mais centaines de warnings `missing
+ScriptRunContext!` dans les logs, et page active perçue comme "figée"
+malgré un calcul qui progressait réellement en arrière-plan (résolu
+seul après plusieurs actualisations manuelles, une fois le job terminé).
+
+**Cause racine** : dans `_run_parse_and_calc()` (nouveau job combiné,
+`app.py`), la phase VIES/OSS appelait déjà `_(..., lang=_lang_for_thread)`
+correctement (paramètre explicite, cf. pattern existant de
+`_run_full_calc`), mais la phase **parsing** (`_on_parse_progress`,
+labels de progression, `bce_label`/`bce_wait_label`, clés de
+`file_summaries`) appelait `_()` **sans** `lang=`. Or `get_text()`
+(`tva_intracom/i18n/i18n.py`) vérifie `get_script_run_ctx()` quand `lang`
+est omis, pour décider de lire ou non `st.session_state["language"]` —
+un appel sans contexte de script (cas d'un thread `bgjob-*`) déclenche
+alors le warning Streamlit et une vérification de contexte à chaque
+appel. Sur un fichier de 100k lignes, `_on_parse_progress` est invoqué
+tous les 500 lignes (`progress_step`) : plusieurs centaines d'appels par
+fichier, chacun loggant ce warning — coût cumulé non négligeable
+(vérification de contexte + écriture de log à chaque tick), cohérent
+avec la lenteur perçue sur la page ayant obtenu le slot immédiatement.
+
+**Correctif** : ajout systématique de `lang=_lang_for_thread` à tous les
+appels `_()` de la phase parsing du job combiné (labels de progression,
+`bce_label`, `bce_wait_label`, clés `file_summaries`), à l'identique de
+ce qui était déjà fait pour la phase VIES/OSS. Aucun changement de
+comportement fonctionnel (les traductions restent correctes), uniquement
+suppression du chemin de vérification de contexte inutile depuis un
+thread de fond.
+
+Fichier modifié : `app.py` (uniquement le corps de `_run_parse_and_calc`,
+introduit dans le correctif précédent — aucun autre fichier touché).
+
+Railway / scale-to-zero : aucun impact.
+
+Validation : `py_compile` + `pyflakes` propres. Suite `pytest` complète :
+**221 passed / 3 failed**, baseline strictement inchangée (mêmes 3
+échecs pré-existants liés à `SUPABASE_DB_URL` absente en sandbox).
+
+Point non vérifiable en sandbox (nécessite un vrai test multi-comptes) :
+confirmation que la disparition des warnings `missing ScriptRunContext!`
+élimine bien la lenteur perçue sur la page active — à confirmer par
+Matthieu au prochain test réel.
