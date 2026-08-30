@@ -121,6 +121,25 @@ _waiting_queue: list[str] = []
 _reserved_at: dict[str, float] = {}
 _RESERVATION_TIMEOUT_S = 15.0
 
+# RÉINTRODUIT 2026-08-30 (voir README - évolution.md, "reprise du correctif
+# affichage tient le slot" — 2e tentative après le retour en arrière du
+# 2026-08-29 (5)) : pour le chemin `_gate_combined` (gros upload,
+# parsing+calcul fusionnés) UNIQUEMENT, le slot de file ne doit plus être
+# relâché à la fin du calcul dans `_runner()` (voir `hold_slot_for_render`
+# passé à `start_background_job`), mais plus tard, explicitement, via
+# `release_after_render()` appelé par app.py une fois le DERNIER élément
+# visuel (graphiques de `render_visualisations()`) effectivement rendu.
+#
+# _active_render_at : job_id -> horodatage auquel le calcul s'est terminé
+# ET où la responsabilité de la libération du slot a été transférée à
+# `release_after_render()`. Sert de filet de sécurité (même logique que
+# `_reserved_at`/`_RESERVATION_TIMEOUT_S` ci-dessus) : si `release_after_render()`
+# n'est jamais appelée (chemin de code qui ne traverse pas le `finally`
+# attendu côté app.py, exception non prévue, etc.), le slot reste bloqué au
+# maximum `_RENDER_TIMEOUT_S` secondes avant d'être repris automatiquement.
+_active_render_at: dict[str, float] = {}
+_RENDER_TIMEOUT_S = 90.0
+
 
 def _reap_stale_reservations_locked() -> None:
     """Libère les réservations de slot plus vieilles que
@@ -134,6 +153,47 @@ def _reap_stale_reservations_locked() -> None:
         _active_jobs_count = max(0, _active_jobs_count - 1)
 
 
+def _reap_stale_renders_locked() -> None:
+    """Filet de sécurité pour `hold_slot_for_render` : libère tout slot tenu
+    en attente de rendu depuis plus de `_RENDER_TIMEOUT_S`. DOIT être
+    appelée avec `_active_jobs_lock` déjà tenu, comme
+    `_reap_stale_reservations_locked`."""
+    global _active_jobs_count
+    _now = time.time()
+    _stale = [jid for jid, ts in _active_render_at.items() if _now - ts > _RENDER_TIMEOUT_S]
+    for jid in _stale:
+        _active_render_at.pop(jid, None)
+        _active_jobs_count = max(0, _active_jobs_count - 1)
+        logger.warning(
+            "[QUEUE_DEBUG pid=%s] filet de sécurité _RENDER_TIMEOUT_S déclenché pour %s "
+            "(release_after_render jamais appelée) | active_jobs_count=%d",
+            os.getpid(), jid, _active_jobs_count,
+        )
+
+
+def release_after_render(job_id: str) -> None:
+    """À appeler UNE FOIS le rendu complet des résultats terminé (dernier
+    élément visuel affiché — voir app.py, appelé depuis le `finally` qui
+    englobe tout le rendu des onglets, pour garantir l'appel sur TOUS les
+    chemins de sortie : succès, exception rattrapée, redirection Stripe
+    checkout via `render_account_link_panel`).
+
+    Sans effet si `job_id` n'a jamais été démarré avec
+    `hold_slot_for_render=True`, ou si le filet de sécurité l'a déjà repris
+    (idempotent — sûr à appeler même après un `_RENDER_TIMEOUT_S`)."""
+    global _active_jobs_count
+    with _active_jobs_lock:
+        if job_id not in _active_render_at:
+            return
+        _active_render_at.pop(job_id, None)
+        _active_jobs_count = max(0, _active_jobs_count - 1)
+        logger.info(
+            "[QUEUE_DEBUG pid=%s] release_after_render(%s) : slot libéré après rendu | "
+            "active_jobs_count=%d waiting_queue=%s",
+            os.getpid(), job_id, _active_jobs_count, list(_waiting_queue),
+        )
+
+
 def reserve_or_enqueue(job_id: str) -> bool:
     """À appeler UNE FOIS par job_id (idempotent si déjà en file ou déjà
     réservé — cf. gardes ci-dessous, sûr à rappeler à chaque rerun tant que
@@ -145,6 +205,7 @@ def reserve_or_enqueue(job_id: str) -> bool:
     global _active_jobs_count
     with _active_jobs_lock:
         _reap_stale_reservations_locked()
+        _reap_stale_renders_locked()
         if job_id in _reserved_at or job_id in _waiting_queue:
             _result = job_id in _reserved_at
         elif _active_jobs_count < MAX_CONCURRENT_BIG_JOBS:
@@ -180,6 +241,7 @@ def try_advance_queue(job_id: str) -> bool:
     global _active_jobs_count
     with _active_jobs_lock:
         _reap_stale_reservations_locked()
+        _reap_stale_renders_locked()
         if job_id in _reserved_at:
             return True  # déjà réservé lors d'un tick précédent
         if not _waiting_queue or _waiting_queue[0] != job_id:
@@ -264,6 +326,7 @@ _ACTIVE_JOB_TRACKER_KEY = "_bgjob_active_job_id"
 def start_background_job(
     job_id: str,
     target_fn: Callable[[Callable[[float, str], None]], Any],
+    hold_slot_for_render: bool = False,
 ) -> None:
     """Démarre `target_fn` dans un thread séparé pour ce `job_id`, sauf s'il
     est déjà en cours (ou terminé) dans la session courante — un rerun
@@ -279,6 +342,17 @@ def start_background_job(
     `target_fn` reçoit un callback `report(progress: float, text: str)` à
     appeler pour publier son avancement, lu ensuite par
     `render_job_progress()`.
+
+    `hold_slot_for_render` (RÉINTRODUIT 2026-08-30, voir README - évolution.md) :
+    si True, le slot n'est PAS relâché à la fin de `target_fn` dans
+    `_runner()` ci-dessous, mais transféré à `_active_render_at` — c'est
+    alors à l'appelant d'appeler explicitement `release_after_render(job_id)`
+    une fois le rendu des résultats terminé (voir app.py, chemin
+    `_gate_combined`). Un filet de sécurité (`_RENDER_TIMEOUT_S`) reprend le
+    slot automatiquement si cet appel n'a jamais lieu. Réservé au chemin
+    parsing+calcul fusionné des gros fichiers ; ne PAS l'utiliser ailleurs
+    sans certitude que l'appelant garantit l'appel à `release_after_render()`
+    sur tous les chemins de sortie (succès, exception, redirection).
 
     Nettoyage des jobs abandonnés : si l'utilisateur change un réglage
     pendant qu'un calcul (gros fichier) tourne encore en tâche de fond,
@@ -334,18 +408,33 @@ def start_background_job(
             with state.lock:
                 state.done = True
             with _active_jobs_lock:
-                # max(0, ...) : garde-fou si une réservation orpheline a déjà
-                # été réclamée entre-temps par _reap_stale_reservations_locked
-                # (edge case documentée plus haut) — évite un compteur négatif.
-                _active_jobs_count = max(0, _active_jobs_count - 1)
-                # DEBUG TEMPORAIRE (voir reserve_or_enqueue, même diagnostic
-                # "2 personne(s) devant vous" simultané, à retirer une fois
-                # tranché).
-                logger.info(
-                    "[QUEUE_DEBUG pid=%s] job %s terminé, slot libéré | "
-                    "active_jobs_count=%d waiting_queue=%s",
-                    os.getpid(), job_id, _active_jobs_count, list(_waiting_queue),
-                )
+                if hold_slot_for_render:
+                    # Le slot reste comptabilisé (_active_jobs_count inchangé
+                    # ici) mais bascule sous la responsabilité de
+                    # `release_after_render()` — voir docstring ci-dessus et
+                    # `_active_render_at` en tête de fichier pour le filet de
+                    # sécurité associé.
+                    _active_render_at[job_id] = time.time()
+                    logger.info(
+                        "[QUEUE_DEBUG pid=%s] job %s (calcul) terminé, slot tenu "
+                        "en attente du rendu (hold_slot_for_render) | "
+                        "active_jobs_count=%d waiting_queue=%s",
+                        os.getpid(), job_id, _active_jobs_count, list(_waiting_queue),
+                    )
+                else:
+                    # max(0, ...) : garde-fou si une réservation orpheline a
+                    # déjà été réclamée entre-temps par
+                    # _reap_stale_reservations_locked (edge case documentée
+                    # plus haut) — évite un compteur négatif.
+                    _active_jobs_count = max(0, _active_jobs_count - 1)
+                    # DEBUG TEMPORAIRE (voir reserve_or_enqueue, même
+                    # diagnostic "2 personne(s) devant vous" simultané, à
+                    # retirer une fois tranché).
+                    logger.info(
+                        "[QUEUE_DEBUG pid=%s] job %s terminé, slot libéré | "
+                        "active_jobs_count=%d waiting_queue=%s",
+                        os.getpid(), job_id, _active_jobs_count, list(_waiting_queue),
+                    )
             # Ferme explicitement les connexions DB mises en cache par CE
             # thread (voir commentaire de _CLOSE_FNS plus haut) — ce thread
             # va mourir juste après, autant fermer proprement tout de suite

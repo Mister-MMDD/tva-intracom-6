@@ -28,6 +28,7 @@ from tva_intracom.ui.background_calc import (
     reserve_or_enqueue,
     render_queue_status,
     dequeue,
+    release_after_render,
 )
 from tva_intracom.report import build_report
 from tva_intracom.rates import is_eu, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
@@ -543,6 +544,15 @@ if uploaded_files:
     _upload_total_bytes = sum(getattr(f, "size", 0) or 0 for f in uploaded_files)
     _gate_combined = _needs_reparse and _upload_total_bytes > _PARSE_SIZE_THRESHOLD_BYTES
 
+    # RÉINTRODUIT 2026-08-30 (voir README - évolution.md, 2e tentative après
+    # le retour en arrière du 2026-08-29 (5)) : job_id du chemin
+    # `_gate_combined`, tenu à `None` si ce chemin n'est pas emprunté (fichier
+    # sous le seuil, ou déjà en cache). Rempli ci-dessous UNIQUEMENT quand
+    # `hold_slot_for_render=True` a effectivement été utilisé pour démarrer le
+    # job -- c'est ce qui indique, dans le `finally` de fin de script, qu'un
+    # appel à `release_after_render()` est attendu.
+    _gate_combined_job_id_to_release: Optional[str] = None
+
     if _gate_combined:
         # parser_amazon déjà importé en tête de ce bloc `if uploaded_files:`.
         #
@@ -755,14 +765,18 @@ if uploaded_files:
                 # slot confirmé disponible, on peut maintenant copier le
                 # contenu du fichier sur disque avant de lancer le thread.
                 _write_combined_tmp_files()
-                # BUGFIX (voir README - évolution.md, retour en arrière du
-                # 2026-08-29) : `hold_slot_for_render=True` (slot tenu
-                # jusqu'à la fin du rendu des résultats, pas seulement du
-                # calcul) causait une dégradation nette du débit global sur
-                # un test réel à 4 comptes (filet de sécurité 90s déclenché,
-                # test total passé à plus de 10 minutes) -- retour à la
-                # libération immédiate en fin de calcul.
-                start_background_job(_job_id, _run_parse_and_calc)
+                # RÉINTRODUIT 2026-08-30 (voir README - évolution.md, 2e
+                # tentative après le retour en arrière du 2026-08-29 (5)) :
+                # `hold_slot_for_render=True` -- le slot n'est plus libéré à
+                # la fin du calcul mais transféré à `_active_render_at`
+                # (background_calc.py). C'est désormais le `finally` de fin
+                # de script (voir plus bas, ligne ~1519) qui appelle
+                # `release_after_render(_job_id)`, une fois le rendu complet
+                # des résultats (dernier graphique de render_visualisations())
+                # effectivement terminé -- englobant aussi le chemin de
+                # redirection Stripe checkout (render_account_link_panel),
+                # cause du bug non résolu lors de la 1ère tentative.
+                start_background_job(_job_id, _run_parse_and_calc, hold_slot_for_render=True)
             else:
                 with _combined_progress_ph.container():
                     st.caption(_("calc_bg_running_caption", rows=""))
@@ -771,6 +785,14 @@ if uploaded_files:
                 # lui-même un slot à chaque tick — on s'arrête ici pour CE
                 # rerun, la sidebar reste utilisable entre-temps.
                 st.stop()
+
+        # RÉINTRODUIT 2026-08-30 : fixé ICI (pas seulement dans la branche de
+        # démarrage ci-dessus) pour couvrir aussi les reruns suivants, où le
+        # job existe déjà dans `st.session_state` (branche `if
+        # get_job_state(_job_id) is None` non prise) -- c'est justement sur
+        # l'un de ces reruns que `_job_done` devient True et que le script
+        # atteint le rendu complet des résultats plus bas.
+        _gate_combined_job_id_to_release = _job_id
 
         with _combined_progress_ph.container():
             render_job_progress(_job_id, label=_(
@@ -784,6 +806,12 @@ if uploaded_files:
             st.stop()
         if _job_error is not None:
             clear_job(_job_id)
+            # RÉINTRODUIT 2026-08-30 : ce chemin d'erreur est situé AVANT le
+            # `try/finally` englobant (voir plus bas) -- le `raise` ci-dessous
+            # ne le traverse donc jamais. Libération explicite ici pour ne
+            # pas dépendre uniquement du filet de sécurité `_RENDER_TIMEOUT_S`
+            # dans ce cas précis (échec du calcul lui-même).
+            release_after_render(_job_id)
             st.error(_("processing_error", error=_job_error))
             raise _job_error
 
@@ -1518,6 +1546,21 @@ if uploaded_files:
         raise
     finally:
         for _p in tmp_paths: _p.unlink(missing_ok=True)
+        # RÉINTRODUIT 2026-08-30 (voir README - évolution.md, 2e tentative
+        # après le retour en arrière du 2026-08-29 (5)) : ce `finally`
+        # englobe tout le rendu des onglets (jusqu'à `render_visualisations()`
+        # -- le dernier graphique affiché) ainsi que
+        # `render_account_link_panel()` (point d'entrée de la redirection
+        # Stripe checkout, cause du bug non résolu lors de la 1ère
+        # tentative) : il est donc atteint sur TOUS les chemins de sortie de
+        # ce `try` (succès, exception rattrapée puis relancée, st.stop()
+        # interne à Streamlit). Sans effet si le chemin `_gate_combined` n'a
+        # pas été emprunté cette fois (`_gate_combined_job_id_to_release`
+        # resté à None), ou si un job différent (upload changé entre-temps)
+        # a déjà pris sa place -- `release_after_render` est de toute façon
+        # idempotente.
+        if _gate_combined_job_id_to_release:
+            release_after_render(_gate_combined_job_id_to_release)
 
 else:
     st.session_state.pop("_period_label", None)
