@@ -1107,21 +1107,28 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                         st.caption(_("billing_caption"))
 
                         with st.expander(_("pricing_grid_expander"), expanded=False):
+                            # NOTE (2026-08-30, correctif) : ces deux appels passaient
+                            # auparavant par `_cached_db_read` (cache session_state,
+                            # TTL 20s) — un TTL bien trop court pour des données Stripe
+                            # peu volatiles, alors que `get_pricing_grid` et
+                            # `list_available_promotions` ont DÉJÀ leur propre cache
+                            # `@st.cache_data(ttl=600)` dans billing.py. Comme le corps
+                            # d'un `st.expander` s'exécute à CHAQUE rerun complet même
+                            # replié, le TTL 20s provoquait un aller-retour Stripe
+                            # (Charge/PromotionCode/Coupon/Price, ~7 requêtes) à chaque
+                            # rerun complet espacé de plus de 20s (ex. juste avant le
+                            # traitement d'un upload) pour tout compte non abonné. On
+                            # appelle désormais directement les fonctions déjà cachées
+                            # à 600s, sans passer par le cache 20s.
                             try:
-                                _grid = _cached_db_read(
-                                    f"pricing_grid_{_current_user.org_id}",
-                                    lambda: tva_billing.get_pricing_grid(_current_user.org_id),
-                                )
+                                _grid = tva_billing.get_pricing_grid(_current_user.org_id)
                             except Exception as _grid_err:
                                 _grid = None
                                 st.caption(_("pricing_grid_unavailable", error=_grid_err))
 
                             if _grid:
                                 try:
-                                    _promotions = _cached_db_read(
-                                        f"promotions_{_current_user.org_id}",
-                                        lambda: tva_billing.list_available_promotions(_current_user.org_id),
-                                    )
+                                    _promotions = tva_billing.list_available_promotions(_current_user.org_id)
                                 except Exception as _promo_list_err:
                                     _promotions = []
                                     st.error(_("promo_codes_unavailable", error=_promo_list_err))
