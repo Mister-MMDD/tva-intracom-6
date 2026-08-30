@@ -94,6 +94,11 @@ _active_jobs_count = 0
 # attendent en file plutôt que de tous ramer ensemble). À reconsidérer si
 # l'hébergement passe un jour sur un plan avec plusieurs vCPU réels
 # (vérifier alors os.cpu_count() avant de remonter cette valeur).
+#
+# PROPOSITION D (Notée 2026-08-31) : Monitoring dynamique de la RAM (via
+# psutil ou cgroups) pour ajuster ce plafond. Inutile sur le plan gratuit
+# Streamlit (limite 1 Go fixe), mais permettrait de monter à 2 ou 3 jobs
+# sur une instance Railway plus musclée sans risque d'OOM.
 MAX_CONCURRENT_BIG_JOBS = 1
 
 # BUGFIX 2026-08-28 (voir README - évolution.md) : cette constante et
