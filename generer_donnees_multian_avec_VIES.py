@@ -458,7 +458,7 @@ def generate(
     years: List[int],
     output_path: Path,
     seed: int = 42,
-    total_count: int = 100000,
+    total_count: int = 25000,
 ) -> None:
     """Génère le fichier CSV multi-années."""
     rng = random.Random(seed)

@@ -28,7 +28,6 @@ from tva_intracom.ui.background_calc import (
     reserve_or_enqueue,
     render_queue_status,
     dequeue,
-    release_after_render,
 )
 from tva_intracom.report import build_report
 from tva_intracom.rates import is_eu, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
@@ -546,20 +545,38 @@ if uploaded_files:
 
     if _gate_combined:
         # parser_amazon déjà importé en tête de ce bloc `if uploaded_files:`.
-        # Écriture des fichiers temporaires ICI, dans le thread principal :
-        # `uploaded_file.getvalue()` dépend du contexte Streamlit et ne doit
-        # jamais être appelé depuis le thread de fond (voir docstring
-        # background_calc.py). Coût I/O négligeable, ce n'est pas la partie
-        # CPU-bound qu'on cherche à protéger.
+        #
+        # BUGFIX (voir README - évolution.md, correctif "report de l'écriture
+        # tant qu'aucun slot n'est disponible") : l'écriture des fichiers
+        # temporaires (copie de `uploaded_file.getvalue()` sur disque) se
+        # faisait auparavant ICI, immédiatement, pour TOUTE session entrant
+        # dans ce chemin fusionné — y compris celles qui allaient ensuite
+        # attendre plusieurs minutes en file d'attente. Reportée maintenant
+        # à l'obtention effective d'un slot (voir `_write_combined_tmp_files`
+        # plus bas, appelée uniquement dans les branches `reserve_or_enqueue`/
+        # `try_advance_queue` retournant True) : une session qui attend en
+        # file ne duplique plus inutilement le contenu du fichier sur disque
+        # pendant l'attente (Streamlit garde de toute façon les octets bruts
+        # de l'upload en mémoire côté widget — hors de notre contrôle — mais
+        # on évite au moins d'ajouter notre propre copie par-dessus tant que
+        # rien ne peut encore être traité).
         _combined_tmp_paths: list = []
         _combined_file_specs: list = []
-        for _uf in uploaded_files:
-            _ext = Path(_uf.name).suffix or ".csv"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=_ext, mode="wb") as _tmp:
-                _tmp.write(_uf.getvalue())
-                _tmp_path = Path(_tmp.name)
-            _combined_tmp_paths.append(_tmp_path)
-            _combined_file_specs.append((_tmp_path, _uf.name))
+
+        def _write_combined_tmp_files() -> None:
+            """Écrit les fichiers temporaires (`uploaded_file.getvalue()`,
+            dépendant du contexte Streamlit -- jamais depuis le thread de
+            fond, voir docstring background_calc.py) et peuple
+            `_combined_tmp_paths`/`_combined_file_specs`. Appelée UNE FOIS,
+            juste avant `start_background_job`, seulement quand un slot est
+            confirmé disponible pour cette session."""
+            for _uf in uploaded_files:
+                _ext = Path(_uf.name).suffix or ".csv"
+                with tempfile.NamedTemporaryFile(delete=False, suffix=_ext, mode="wb") as _tmp:
+                    _tmp.write(_uf.getvalue())
+                    _tmp_path = Path(_tmp.name)
+                _combined_tmp_paths.append(_tmp_path)
+                _combined_file_specs.append((_tmp_path, _uf.name))
 
         _lang_for_thread = st.session_state.get("language", "fr")
         _curr_for_thread = st.session_state.get("target_currency", "EUR")
@@ -638,6 +655,17 @@ if uploaded_files:
             # accumulateurs ci-dessus avant mise en cache des ParseResult.
             for _pr in _p_parse_results:
                 _pr.sales = []; _pr.refunds = []; _pr.fc_transfers = []
+
+            # BUGFIX (voir README - évolution.md) : suppression des fichiers
+            # temporaires ICI, dans le thread de fond -- il garde, via
+            # fermeture, la référence correcte à _combined_tmp_paths quel
+            # que soit le nombre de reruns Streamlit écoulés côté script
+            # principal pendant que ce thread tournait (une variable locale
+            # à un rerun donné du script principal serait, elle, vide sur le
+            # rerun où ce thread se termine). Le contenu n'est plus
+            # nécessaire : tous les fichiers ont déjà été lus ci-dessus.
+            for _tmp_path in _combined_tmp_paths:
+                _tmp_path.unlink(missing_ok=True)
 
             _parse_data = (
                 _p_all_sales, _p_all_refunds, _p_all_fc_transfers, _p_all_invoice_credit_notes,
@@ -723,15 +751,18 @@ if uploaded_files:
 
             if reserve_or_enqueue(_job_id):
                 st.session_state.pop(_QUEUED_PARSECALC_TRACKER_KEY, None)
-                start_background_job(_job_id, _run_parse_and_calc, hold_slot_for_render=True)
-                # Slot tenu au-delà du calcul (voir README - évolution.md,
-                # correctif "affichage tient le slot") : à libérer
-                # explicitement une fois le rendu des résultats terminé, dans
-                # le `finally` englobant plus bas dans ce fichier (autour du
-                # rendu des onglets) — ou par le filet de sécurité
-                # _RENDER_TIMEOUT_S si cette libération n'est jamais atteinte
-                # (session abandonnée en plein rendu).
-                st.session_state["_pending_render_release_job_id"] = _job_id
+                # Écriture différée (voir _write_combined_tmp_files ci-dessus) :
+                # slot confirmé disponible, on peut maintenant copier le
+                # contenu du fichier sur disque avant de lancer le thread.
+                _write_combined_tmp_files()
+                # BUGFIX (voir README - évolution.md, retour en arrière du
+                # 2026-08-29) : `hold_slot_for_render=True` (slot tenu
+                # jusqu'à la fin du rendu des résultats, pas seulement du
+                # calcul) causait une dégradation nette du débit global sur
+                # un test réel à 4 comptes (filet de sécurité 90s déclenché,
+                # test total passé à plus de 10 minutes) -- retour à la
+                # libération immédiate en fin de calcul.
+                start_background_job(_job_id, _run_parse_and_calc)
             else:
                 with _combined_progress_ph.container():
                     st.caption(_("calc_bg_running_caption", rows=""))
@@ -753,8 +784,6 @@ if uploaded_files:
             st.stop()
         if _job_error is not None:
             clear_job(_job_id)
-            release_after_render(_job_id)  # ce job ne rendra jamais rien : libération immédiate
-            st.session_state.pop("_pending_render_release_job_id", None)
             st.error(_("processing_error", error=_job_error))
             raise _job_error
 
@@ -1489,18 +1518,6 @@ if uploaded_files:
         raise
     finally:
         for _p in tmp_paths: _p.unlink(missing_ok=True)
-        # BUGFIX (voir README - évolution.md, correctif "affichage tient le
-        # slot") : si le chemin fusionné (_gate_combined) a tenu le slot de
-        # file au-delà du calcul (hold_slot_for_render=True), c'est ICI —
-        # une fois le rendu des onglets terminé (ou en échec, ce `finally`
-        # s'exécutant dans les deux cas) — qu'on le libère explicitement.
-        # Sans effet si aucun job n'a demandé cette tenue prolongée (valeur
-        # absente de session_state) ou si le filet de sécurité
-        # _RENDER_TIMEOUT_S l'a déjà repris (release_after_render est
-        # idempotente).
-        _pending_release_job_id = st.session_state.pop("_pending_render_release_job_id", None)
-        if _pending_release_job_id:
-            release_after_render(_pending_release_job_id)
 
 else:
     st.session_state.pop("_period_label", None)

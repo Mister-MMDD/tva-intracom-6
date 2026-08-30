@@ -6080,3 +6080,69 @@ la transition calcul→rendu et la libération après rendu) — utiles pour
 confirmer au prochain test que le compromis se comporte comme prévu
 (slot tenu plus longtemps par session, mais moins de contention visible
 entre affichage et calcul suivant).
+
+## 2026-08-29 (5) — Retour en arrière du correctif "affichage tient le slot" + écriture de l'upload différée jusqu'à disponibilité d'un slot
+
+Test réel du correctif précédent (slot tenu jusqu'à la fin du rendu) :
+dégradation nette confirmée. Logs montrant le filet de sécurité
+`_RENDER_TIMEOUT_S` (90s) se déclencher une fois (rendu jamais confirmé
+terminé pour une session, probablement un chemin de code — redirection
+Stripe checkout notamment — ne traversant jamais le `finally` où la
+libération était censée avoir lieu), et test complet à 4 comptes passé
+à plus de 10 minutes contre quelques minutes auparavant. Confirmation
+que le compromis initialement accepté (plus de temps total, moins de
+contention affichage/calcul) s'est avéré, en pratique, largement
+défavorable.
+
+**Retour en arrière complet** : suppression de `hold_slot_for_render`,
+`_active_render_at`, `_RENDER_TIMEOUT_S`, `release_after_render()`
+(`tva_intracom/ui/background_calc.py`), et de tout leur usage dans
+`app.py` (chemin `_gate_combined`). Le slot est de nouveau libéré
+immédiatement à la fin du calcul, comme avant le 2026-08-29 (4).
+
+### Clarification du besoin réel : différer l'écriture de l'upload, pas l'affichage
+
+En reprécisant sa demande initiale, Matthieu visait en réalité le coût
+RAM de la **copie de l'upload** (le "téléchargement" = upload navigateur
+vers serveur) pendant l'attente en file, pas le rendu des résultats.
+Fichier concerné : dans `_gate_combined`, l'écriture du fichier
+temporaire (copie de `uploaded_file.getvalue()` sur disque) se faisait
+immédiatement pour TOUTE session entrant dans ce chemin, y compris celles
+qui allaient ensuite attendre plusieurs minutes en file.
+
+**Limite reconnue et acceptée par Matthieu** : Streamlit lui-même
+réceptionne et bufferise en mémoire les octets bruts de l'upload dès
+l'envoi navigateur, avant même que le script ne s'exécute -- hors de
+notre contrôle. Ce correctif évite uniquement la copie SUPPLÉMENTAIRE
+que l'application faisait par-dessus (écriture sur disque), pas le
+buffer Streamlit lui-même. De même, ne s'applique qu'au chemin
+`_gate_combined` (fichiers ≥ 10 Mo nécessitant un reparsing) : un petit
+fichier avec beaucoup de lignes, cité par Matthieu comme cas non couvert,
+reste sur le chemin synchrone existant, inchangé.
+
+**Correctif** : extraction de la boucle d'écriture des fichiers
+temporaires en fonction `_write_combined_tmp_files()`, appelée désormais
+UNIQUEMENT juste avant `start_background_job()`, dans la branche où
+`reserve_or_enqueue()` vient de confirmer un slot disponible -- jamais
+avant, donc jamais pour une session qui va attendre en file.
+
+**Bug annexe corrigé au passage** : les fichiers temporaires écrits par
+ce chemin fusionné n'étaient en réalité jamais supprimés (le nettoyage
+final du script, `for _p in tmp_paths: ...`, porte sur une variable
+`tmp_paths` distincte, propre à l'ancien chemin synchrone -- fuite de
+fichiers temporaires sur disque, sans casser la RAM mais consommant du
+disque inutilement au fil du temps). Nettoyage déplacé DANS le thread de
+fond lui-même (`_run_parse_and_calc`), juste après la lecture de tous les
+fichiers -- le thread garde, par fermeture, la référence correcte à
+`_combined_tmp_paths` quel que soit le nombre de reruns Streamlit écoulés
+côté script principal pendant qu'il tournait (une variable locale à un
+rerun donné du script principal aurait été vide sur le rerun où ce thread
+se termine).
+
+Fichiers modifiés : `app.py`, `tva_intracom/ui/background_calc.py`.
+
+Railway / scale-to-zero : aucun impact.
+
+Validation : `py_compile` + `pyflakes` propres. Suite `pytest` complète :
+**221 passed / 3 failed**, baseline inchangée. Symétrie i18n : **1207
+clés partout, inchangé**.
