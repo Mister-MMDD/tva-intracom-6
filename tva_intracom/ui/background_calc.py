@@ -121,6 +121,13 @@ _waiting_queue: list[str] = []
 _reserved_at: dict[str, float] = {}
 _RESERVATION_TIMEOUT_S = 15.0
 
+# Délai de grâce (en secondes) maintenu après la fin effective du calcul
+# d'un gros fichier, avant de libérer le slot dans la file FIFO. Permet au
+# thread Streamlit de l'utilisateur ayant terminé de démarrer le rendu des
+# résultats (graphiques, tableaux) avant que le slot ne soit repris par le
+# job suivant, évitant une compétition CPU/RAM immédiate.
+_POST_CALC_SLOT_HOLD_S = 5.0
+
 
 def _reap_stale_reservations_locked() -> None:
     """Libère les réservations de slot plus vieilles que
@@ -264,11 +271,17 @@ _ACTIVE_JOB_TRACKER_KEY = "_bgjob_active_job_id"
 def start_background_job(
     job_id: str,
     target_fn: Callable[[Callable[[float, str], None]], Any],
+    is_big_job: bool = True,
 ) -> None:
     """Démarre `target_fn` dans un thread séparé pour ce `job_id`, sauf s'il
     est déjà en cours (ou terminé) dans la session courante — un rerun
     Streamlit pendant l'exécution ne relance donc jamais un second thread
     pour le même job.
+
+    `is_big_job` (défaut True) : si vrai, le job est considéré comme lourd
+    (soumis à la file FIFO) et un délai de grâce `_POST_CALC_SLOT_HOLD_S` est
+    appliqué avant libération du slot. Si faux (ex. retry VIES), le job
+    démarre immédiatement sans file d'attente et libère son slot sans délai.
 
     PRÉ-CONDITION (depuis 2026-08-28, voir README - évolution.md) : l'appelant
     doit avoir réservé un slot au préalable via `reserve_or_enqueue(job_id)`
@@ -331,20 +344,34 @@ def start_background_job(
             with state.lock:
                 state.error = exc
         finally:
+            # Signal de fin de calcul immédiat pour l'UI (le rerun Streamlit
+            # peut démarrer pendant le délai de grâce ci-dessous).
             with state.lock:
                 state.done = True
+
+            if is_big_job:
+                # Délai de grâce : on garde le slot occupé quelques secondes
+                # de plus pour laisser la main au thread de rendu Streamlit.
+                time.sleep(_POST_CALC_SLOT_HOLD_S)
+
             with _active_jobs_lock:
                 # max(0, ...) : garde-fou si une réservation orpheline a déjà
                 # été réclamée entre-temps par _reap_stale_reservations_locked
                 # (edge case documentée plus haut) — évite un compteur négatif.
+                #
+                # NOTE : le recalcul VIES (is_big_job=False) continue de
+                # décrémenter le compteur ici sans délai pour libérer le
+                # slot, bien qu'il n'ait pas réservé de place au départ (il
+                # démarre hors file). C'est le comportement souhaité pour le
+                # moment (accord 2026-08-31).
                 _active_jobs_count = max(0, _active_jobs_count - 1)
                 # DEBUG TEMPORAIRE (voir reserve_or_enqueue, même diagnostic
                 # "2 personne(s) devant vous" simultané, à retirer une fois
                 # tranché).
                 logger.info(
-                    "[QUEUE_DEBUG pid=%s] job %s terminé, slot libéré | "
+                    "[QUEUE_DEBUG pid=%s] job %s terminé (is_big=%s), slot libéré | "
                     "active_jobs_count=%d waiting_queue=%s",
-                    os.getpid(), job_id, _active_jobs_count, list(_waiting_queue),
+                    os.getpid(), job_id, is_big_job, _active_jobs_count, list(_waiting_queue),
                 )
             # Ferme explicitement les connexions DB mises en cache par CE
             # thread (voir commentaire de _CLOSE_FNS plus haut) — ce thread
@@ -534,5 +561,5 @@ def start_vies_retry_loop(scope_id: str, vat_ids: list[str]) -> str:
             "iterations": iteration,
         }
 
-    start_background_job(job_id, _target)
+    start_background_job(job_id, _target, is_big_job=False)
     return job_id

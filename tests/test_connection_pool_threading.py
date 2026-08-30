@@ -179,7 +179,7 @@ def test_background_calc_runner_closes_connections_explicitly():
             session_state: dict = {}
 
         with patch.object(background_calc, "st", _FakeSt):
-            background_calc.start_background_job("job-test-1", _target)
+            background_calc.start_background_job("job-test-1", _target, is_big_job=False)
             # Attend la fin du thread daemon lancé par start_background_job.
             for _ in range(200):
                 state = background_calc.get_job_state("job-test-1")
