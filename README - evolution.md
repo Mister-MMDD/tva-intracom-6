@@ -6314,3 +6314,75 @@ l'absence de `SUPABASE_DB_URL` en sandbox — baseline inchangée).
 Symétrie i18n : **1207 clés partout, inchangé** (aucun fichier de
 traduction touché par ce lot).
 
+## 2026-08-31 (suite) — Instrumentation debug supplémentaire : désaccord logs / observation visuelle sur la file d'attente
+
+Après le passage à `_RESERVATION_TIMEOUT_S=45s` ci-dessus, Matthieu
+rapporte que les logs `[QUEUE_DEBUG]` d'un run donné montraient
+`_active_jobs_count` strictement à 0/1 (comportement attendu, jobs
+traités en séquence), alors que l'observation **visuelle** à l'écran
+montrait 2 barres de progression simultanées — l'une en cours, l'autre
+vide à la place du texte "en attente" — pour un utilisateur qui a
+effectivement été débloqué de la file avant que l'autre calcul ne soit
+terminé. Signalé aussi : occurrences fréquentes du warning Streamlit
+`The fragment with id ... does not exist anymore — it might have been
+removed during a preceding full-app rerun`.
+
+Diagnostic : les logs existants ne portaient trace ni de l'identité de
+session (impossible de distinguer deux sessions Streamlit différentes
+manipulant le même `job_id` global d'une seule session ambiguë), ni de
+ce qui se passait à l'intérieur des fragments `render_queue_status` /
+`render_job_progress` eux-mêmes (aucun log dans ces deux fonctions avant
+ce lot), ni du moment exact de bascule visuelle file→progression côté
+`app.py`. Impossible de confirmer ou d'infirmer une vraie collision de
+threads (garde-fou `_skey in st.session_state` de `start_background_job`
+contourné par une session renouvelée côté Streamlit, ex. reconnexion
+WebSocket) par opposition à un simple artefact d'affichage bénin (barre
+à `progress=0.0` juste après démarrage, avant le premier tick de
+`report()`) sans données supplémentaires — décision : ajouter
+l'instrumentation nécessaire avant toute nouvelle hypothèse de
+correctif, pas de modification fonctionnelle dans ce lot.
+
+**Logs ajoutés** (tous `[QUEUE_DEBUG]`, marqués DEBUG TEMPORAIRE, à
+retirer une fois le diagnostic tranché) :
+
+- Id de session court (`sid`, uuid4 tronqué, stocké une fois par session
+  dans `st.session_state`) injecté dans **tous** les logs
+  `[QUEUE_DEBUG]` existants et nouveaux, pour corréler deux lignes de
+  log à une session physique unique ou, au contraire, révéler deux
+  sessions distinctes en collision sur le même `job_id`.
+- Log du `return` silencieux dans `start_background_job()` quand un
+  `_JobState` existe déjà en session pour ce `job_id` (seul garde-fou
+  anti-doublon *par session* — jusqu'ici invisible dans les logs qu'il
+  se déclenche ou non).
+- Log à chaque tick de `render_queue_status()` : position en file,
+  résultat de `try_advance_queue()`, déclenchement du `st.rerun()`
+  complet.
+- Log à chaque tick de `render_job_progress()` : `done`/`progress`,
+  détection d'un tick sans `_JobState` en session (fantôme potentiel).
+- Log au moment exact où `app.py` bascule l'affichage de "file
+  d'attente" à "job démarré", aux deux points d'appel concernés
+  (chemin combiné parse+calcul, chemin calcul seul).
+
+Fichiers modifiés : `tva_intracom/ui/background_calc.py`, `app.py`.
+
+Objectif du prochain test réel (multi-comptes) : si le garde-fou
+`_skey in st.session_state` ne se déclenche jamais alors que 2 barres
+apparaissent avec 2 `sid` différents pour le même `job_id`, la piste
+"session renouvelée côté Streamlit" est confirmée. Si un seul `sid` est
+en cause avec le garde-fou qui se déclenche normalement, la piste
+artefact d'affichage bénin (progress=0.0 initial) devient la plus
+probable, et le warning "fragment does not exist anymore" pourra être
+corrélé dans le temps avec les `st.rerun()` tracés ci-dessus pour
+confirmer qu'il s'agit d'un tick abandonné sans conséquence visuelle
+réelle.
+
+Railway / scale-to-zero : aucun impact (uniquement des `logger.info`/
+`.warning`, aucun nouveau thread, aucune connexion, aucun polling
+supplémentaire — le `run_every` des fragments concernés n'est pas
+modifié).
+
+Validation : `py_compile` + `pyflakes` propres sur les 2 fichiers
+modifiés. Suite `pytest` complète : **227 passed / 3 failed** (baseline
+inchangée, les 3 échecs restent ceux liés à l'absence de
+`SUPABASE_DB_URL` en sandbox).
+

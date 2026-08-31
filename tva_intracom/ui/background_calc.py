@@ -40,6 +40,28 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
+# DEBUG TEMPORAIRE (diagnostic 2026-08-31, désaccord entre logs
+# [QUEUE_DEBUG] — compteur resté à 0/1 — et observation visuelle de
+# Matthieu — 2 barres simultanées). Les logs existants ne portaient
+# aucune identité de session : impossible de trancher si deux lignes de
+# log proviennent de la même session Streamlit ou de deux sessions
+# distinctes se disputant le même job_id global (ex. reconnexion
+# WebSocket traitée comme nouvelle session par Streamlit alors que
+# job_id, dérivé de user.id + cache_key, reste identique côté serveur).
+# uuid4 tronqué à 8 caractères, généré une seule fois par session,
+# suffisant pour corréler visuellement les logs sans les alourdir.
+_SESSION_ID_KEY = "_bgjob_debug_session_id"
+
+
+def _sid() -> str:
+    """Id court et stable de la session Streamlit courante, pour
+    corrélation dans les logs [QUEUE_DEBUG]. À retirer avec le reste de
+    l'instrumentation temporaire une fois le diagnostic tranché."""
+    import uuid
+    if _SESSION_ID_KEY not in st.session_state:
+        st.session_state[_SESSION_ID_KEY] = uuid.uuid4().hex[:8]
+    return st.session_state[_SESSION_ID_KEY]
+
 
 from .. import auth as _tva_auth
 from .. import billing as _tva_billing
@@ -169,9 +191,9 @@ def _reap_stale_reservations_locked() -> None:
         # dans le commentaire de _RESERVATION_TIMEOUT_S — à confirmer sur le
         # prochain test 4 comptes avant de retirer ce log.
         logger.warning(
-            "[QUEUE_DEBUG pid=%s] réservation orpheline reapée pour job_id=%s "
+            "[QUEUE_DEBUG pid=%s sid=%s] réservation orpheline reapée pour job_id=%s "
             "(âge=%.1fs > timeout=%.1fs) | active_jobs_count=%d waiting_queue=%s",
-            os.getpid(), jid, _age, _RESERVATION_TIMEOUT_S, _active_jobs_count,
+            os.getpid(), _sid(), jid, _age, _RESERVATION_TIMEOUT_S, _active_jobs_count,
             list(_waiting_queue),
         )
 
@@ -206,9 +228,9 @@ def reserve_or_enqueue(job_id: str) -> bool:
         # confirmerait la présence de PID différents dans ces logs. À
         # retirer une fois le diagnostic tranché.
         logger.info(
-            "[QUEUE_DEBUG pid=%s] reserve_or_enqueue(%s) -> %s | "
+            "[QUEUE_DEBUG pid=%s sid=%s] reserve_or_enqueue(%s) -> %s | "
             "active_jobs_count=%d waiting_queue=%s reserved=%s",
-            os.getpid(), job_id, _result, _active_jobs_count,
+            os.getpid(), _sid(), job_id, _result, _active_jobs_count,
             list(_waiting_queue), list(_reserved_at.keys()),
         )
         return _result
@@ -234,9 +256,9 @@ def try_advance_queue(job_id: str) -> bool:
         # DEBUG TEMPORAIRE (voir reserve_or_enqueue ci-dessus, même
         # diagnostic, à retirer une fois tranché).
         logger.info(
-            "[QUEUE_DEBUG pid=%s] try_advance_queue(%s) -> True (promu) | "
+            "[QUEUE_DEBUG pid=%s sid=%s] try_advance_queue(%s) -> True (promu) | "
             "active_jobs_count=%d waiting_queue=%s reserved=%s",
-            os.getpid(), job_id, _active_jobs_count,
+            os.getpid(), _sid(), job_id, _active_jobs_count,
             list(_waiting_queue), list(_reserved_at.keys()),
         )
         return True
@@ -345,9 +367,26 @@ def start_background_job(
     en session_state ne s'accumule plus.
     """
     global _active_jobs_count
+    # Capturé ICI (thread principal du script) : _runner() tourne dans un
+    # thread séparé et ne doit JAMAIS appeler st.session_state (voir
+    # docstring de ce module) — _sid() ne peut donc pas être rappelé
+    # depuis _runner, on lui transmet cette valeur déjà résolue.
+    _sid_val = _sid()
     _skey = _session_key(job_id)
     if _skey in st.session_state:
-        return
+        # DEBUG TEMPORAIRE (même diagnostic que _sid() ci-dessus) : ce
+        # garde-fou est la SEULE protection contre un second thread pour
+        # ce job_id DANS CETTE SESSION. S'il ne se déclenche jamais alors
+        # qu'on observe visuellement un doublon, la piste "session
+        # renouvelée côté Streamlit (ex. reconnexion WS) alors que job_id
+        # reste réservé côté global" devient probable — d'où l'intérêt de
+        # tracer aussi les cas où il fonctionne, pour comparaison.
+        logger.info(
+            "[QUEUE_DEBUG pid=%s sid=%s] start_background_job(%s) : déjà présent "
+            "dans st.session_state de cette session, thread NON relancé",
+            os.getpid(), _sid(), job_id,
+        )
+        return  # noqa: (sid() rappelé ici volontairement : encore dans le thread principal à ce point)
 
     _previous_job_id = st.session_state.get(_ACTIVE_JOB_TRACKER_KEY)
     if _previous_job_id and _previous_job_id != job_id:
@@ -387,16 +426,16 @@ def start_background_job(
         if not _was_reserved:
             _active_jobs_count += 1
             logger.warning(
-                "[QUEUE_DEBUG pid=%s] start_background_job(%s) : réservation "
+                "[QUEUE_DEBUG pid=%s sid=%s] start_background_job(%s) : réservation "
                 "absente (déjà reapée) — compteur ré-incrémenté défensivement "
                 "| active_jobs_count=%d waiting_queue=%s",
-                os.getpid(), job_id, _active_jobs_count, list(_waiting_queue),
+                os.getpid(), _sid(), job_id, _active_jobs_count, list(_waiting_queue),
             )
         else:
             logger.info(
-                "[QUEUE_DEBUG pid=%s] start_background_job(%s) démarre "
+                "[QUEUE_DEBUG pid=%s sid=%s] start_background_job(%s) démarre "
                 "réellement (réservation valide) | active_jobs_count=%d",
-                os.getpid(), job_id, _active_jobs_count,
+                os.getpid(), _sid(), job_id, _active_jobs_count,
             )
 
     def _report(progress: float, text: str = "") -> None:
@@ -440,9 +479,9 @@ def start_background_job(
                 # "2 personne(s) devant vous" simultané, à retirer une fois
                 # tranché).
                 logger.info(
-                    "[QUEUE_DEBUG pid=%s] job %s terminé (is_big=%s), slot libéré | "
+                    "[QUEUE_DEBUG pid=%s sid=%s] job %s terminé (is_big=%s), slot libéré | "
                     "active_jobs_count=%d waiting_queue=%s",
-                    os.getpid(), job_id, is_big_job, _active_jobs_count, list(_waiting_queue),
+                    os.getpid(), _sid_val, job_id, is_big_job, _active_jobs_count, list(_waiting_queue),
                 )
             # Ferme explicitement les connexions DB mises en cache par CE
             # thread (voir commentaire de _CLOSE_FNS plus haut) — ce thread
@@ -491,12 +530,28 @@ def render_job_progress(job_id: str, label: str) -> None:
     """
     state = get_job_state(job_id)
     if state is None:
+        # DEBUG TEMPORAIRE (diagnostic 2 barres simultanées) : ce fragment
+        # est appelé alors qu'aucun _JobState n'existe (encore) en session
+        # pour ce job_id -- ne devrait arriver qu'entre la réservation et
+        # le premier tick post-start_background_job. S'il apparaît APRÈS
+        # que le job ait déjà été vu "done" ailleurs, c'est le signe d'un
+        # tick fantôme sur un container déjà nettoyé.
+        logger.info(
+            "[QUEUE_DEBUG pid=%s sid=%s] render_job_progress(%s) : aucun "
+            "_JobState en session à ce tick",
+            os.getpid(), _sid(), job_id,
+        )
         return
     with state.lock:
         _done, _progress, _text = state.done, state.progress, state.progress_text
         _already_triggered = state.rerun_triggered
         if _done and not _already_triggered:
             state.rerun_triggered = True
+    logger.info(
+        "[QUEUE_DEBUG pid=%s sid=%s] render_job_progress(%s) tick : done=%s "
+        "progress=%.3f rerun_déjà_déclenché=%s",
+        os.getpid(), _sid(), job_id, _done, _progress, _already_triggered,
+    )
     if _done:
         # BUGFIX (voir README - évolution.md, diagnostic du 2026-08-29) :
         # avant ce correctif, rien n'était affiché ici -- l'ancien texte du
@@ -547,6 +602,11 @@ def render_queue_status(job_id: str, lang: str) -> None:
     _translate = _tva_i18n._
 
     if try_advance_queue(job_id):
+        logger.info(
+            "[QUEUE_DEBUG pid=%s sid=%s] render_queue_status(%s) : promu, "
+            "déclenchement st.rerun() (scope=app, complet)",
+            os.getpid(), _sid(), job_id,
+        )
         st.rerun()
         return
     _position = queue_position(job_id)
@@ -554,7 +614,17 @@ def render_queue_status(job_id: str, lang: str) -> None:
         # Plus en file (déjà réservé/consommé par un tick précédent, ou
         # jamais mis en file) : rien à afficher, le script principal
         # rattrapera l'état correct au prochain rerun complet.
+        logger.info(
+            "[QUEUE_DEBUG pid=%s sid=%s] render_queue_status(%s) : plus en "
+            "file (position<=0), tick sans affichage",
+            os.getpid(), _sid(), job_id,
+        )
         return
+    logger.info(
+        "[QUEUE_DEBUG pid=%s sid=%s] render_queue_status(%s) tick : "
+        "position=%d",
+        os.getpid(), _sid(), job_id, _position,
+    )
     st.info(_translate("calc_queue_position", lang=lang, position=_position))
 
 

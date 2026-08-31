@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -775,6 +776,15 @@ if uploaded_files:
 
             if reserve_or_enqueue(_job_id):
                 st.session_state.pop(_QUEUED_PARSECALC_TRACKER_KEY, None)
+                # DEBUG TEMPORAIRE (diagnostic 2 barres simultanées) : marque
+                # le moment exact où CE rerun bascule de la vue "file
+                # d'attente" à la vue "démarrage job", à corréler avec les
+                # logs de background_calc.py et avec l'écran observé.
+                logger.info(
+                    "[QUEUE_DEBUG pid=%s sid=%s] app.py (combiné) : bascule "
+                    "file->démarrage pour job_id=%s",
+                    os.getpid(), st.session_state.get("_bgjob_debug_session_id", "?"), _job_id,
+                )
                 # Écriture différée (voir _write_combined_tmp_files ci-dessus) :
                 # slot confirmé disponible, on peut maintenant copier le
                 # contenu du fichier sur disque avant de lancer le thread.
@@ -1154,6 +1164,14 @@ if uploaded_files:
 
                     if reserve_or_enqueue(_job_id):
                         st.session_state.pop(_QUEUED_JOB_TRACKER_KEY, None)
+                        # DEBUG TEMPORAIRE (même diagnostic que le chemin
+                        # combiné plus haut) : marque la bascule file->
+                        # démarrage pour ce second point d'appel.
+                        logger.info(
+                            "[QUEUE_DEBUG pid=%s sid=%s] app.py (calcul seul) : bascule "
+                            "file->démarrage pour job_id=%s",
+                            os.getpid(), st.session_state.get("_bgjob_debug_session_id", "?"), _job_id,
+                        )
                         start_background_job(_job_id, _run_full_calc)
                     else:
                         with calc_progress_ph.container():
