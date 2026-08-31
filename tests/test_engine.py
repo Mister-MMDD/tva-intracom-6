@@ -613,6 +613,36 @@ class TestOssThreshold:
         s2_res = next(r for r in results if r.sale.sale_id == "S2")
         assert "FRANCHISSEMENT" in s2_res.note.upper() or s2_res.channel == Channel.OSS
 
+    def test_refund_crossing_back_under_threshold_keeps_sale_regime(self):
+        """BUGFIX (point #3, README - évolution.md) : un avoir qui fait
+        lui-même repasser le cumul OSS net sous 10 000 € doit conserver le
+        régime (pays/taux de TVA) de la vente qu'il annule, pas être
+        reclassé en domestique sous prétexte que LE CUMUL APRÈS L'AVOIR est
+        repassé sous le seuil.
+
+        Scénario : vente A = 10 500 € (cumul > seuil, taxée OSS_B2C vers DE).
+        Avoir R = -700 € sur cette même vente (cumul retombe à 9 800 €,
+        sous le seuil). R doit rester OSS_B2C/DE comme A, pas basculer en
+        DOMESTIC/FR."""
+        sale_a = self._make_oss_sale("A", Decimal("10500"))
+        refund_r = self._make_oss_sale("R", Decimal("-700"))
+        results, refund_results, _vies_summary, oss_summary = compute_all_with_vies(
+            [sale_a], scope_id="test", apply_fr_under_threshold=True,
+            refunds=[refund_r],
+        )
+        res_a = results[0]
+        res_r = refund_results[0]
+
+        assert res_a.scenario == Scenario.OSS_B2C
+        assert res_a.vat_country == "DE"
+
+        # Avant le correctif : res_r.scenario == Scenario.DOMESTIC,
+        # res_r.vat_country == "FR" (taux vendeur), à tort.
+        assert res_r.scenario == res_a.scenario
+        assert res_r.vat_country == res_a.vat_country
+        assert res_r.vat_rate == res_a.vat_rate
+        assert oss_summary.total_oss_ht == Decimal("9800")
+
     def test_non_oss_sales_dont_count(self):
         """Les ventes domestiques et exports ne comptent pas dans le cumul OSS."""
         sales = [

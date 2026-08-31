@@ -6146,3 +6146,171 @@ Railway / scale-to-zero : aucun impact.
 Validation : `py_compile` + `pyflakes` propres. Suite `pytest` complète :
 **221 passed / 3 failed**, baseline inchangée. Symétrie i18n : **1207
 clés partout, inchangé**.
+
+## 2026-08-31 — Audit croisé complet du dépôt (concurrence, moteur fiscal, exports, mémoire) + correctifs groupés
+
+Demande de Matthieu : analyse structurelle approfondie de l'ensemble du
+dépôt (pas fonction par fonction isolée, mais en suivant les flux réels
+entre modules), à la recherche de bugs/incohérences qui auraient pu
+passer entre les mailles des audits précédents. Fichiers relus dans
+l'ordre : `app.py`, `background_calc.py`, `calc_cache.py`, `engine.py`,
+`models.py`, `vies_engine.py`, `billing.py`, `auth.py`, `database.py`,
+`ca3_report.py`, `fec_export.py`, `oss_export.py`, `oss_xml.py`, les 5
+sous-modules du parser Amazon, `mem_utils.py`, `sidebar.py`.
+
+7 points identifiés, tous tranchés par Matthieu. Détail des 6 traités
+avec modification de code dans ce lot (numérotation reprise telle que
+discutée avec Matthieu au fil de l'audit) :
+
+### 1. `background_calc.py` — race entre réservation de slot et démarrage réel du thread (plusieurs gros calculs simultanés malgré `MAX_CONCURRENT_BIG_JOBS=1`)
+
+Diagnostic posé sur la question ouverte de Matthieu ("2 personnes devant
+vous" affichées simultanément lors d'un test 4 comptes). Séquence
+identifiée : la réservation de slot est posée par le **fragment** de file
+d'attente (thread de script, tick ~0,6s), mais le démarrage réel du
+thread de calcul (`start_background_job`, appelé depuis `app.py`) n'a
+lieu qu'au rerun complet **suivant** de cette même session — qui peut être
+retardé de plus de `_RESERVATION_TIMEOUT_S` (15s à l'origine) sous la
+contention CPU même que la file existe pour absorber. Résultat : la
+réservation est reapée comme "orpheline" par une autre session avant même
+d'avoir eu la chance de démarrer, son slot est réattribué à un job en
+attente, puis le thread initial démarre quand même sans jamais avoir été
+recompté — deux calculs tournent alors réellement en parallèle malgré le
+plafond à 1, et `_active_jobs_count` dérive silencieusement.
+
+**Correctifs** : `_RESERVATION_TIMEOUT_S` porté de 15s à 45s ; logs
+`[QUEUE_DEBUG]` ajoutés à chaque reap orphelin et à chaque démarrage de
+thread (âge de la réservation, compteur avant/après) pour confirmer le
+diagnostic sur le prochain test réel ; surtout, `start_background_job()`
+détecte désormais si sa réservation a disparu entre-temps et
+**réincrémente défensivement** `_active_jobs_count` dans ce cas, pour que
+le compteur reste exact même si la collision ponctuelle a déjà eu lieu
+(n'empêche pas le dépassement instantané déjà en cours, mais empêche
+l'erreur de comptage de s'accumuler pour les jobs suivants).
+
+Fichier modifié : `tva_intracom/ui/background_calc.py`.
+
+### 2. `app.py` — chemin fusionné ignorant silencieusement les formats non-Amazon au-delà de 10 Mo cumulés
+
+Le chemin fusionné (`_run_parse_and_calc`, déclenché uniquement par la
+taille cumulée des fichiers, indépendamment du format sélectionné) saute
+chaque fichier dont le format n'est pas Amazon (`if "Amazon" not in
+file_format: continue`) — cohérent avec la consigne "seul Amazon est
+maintenu", mais silencieux : un compte sélectionnant Mirakl/Shopify/
+WooCommerce/AliExpress pour un upload dépassant ce seuil se retrouve avec
+0 vente et le message générique d'absence de vente, sans savoir que la
+cause réelle est la combinaison format + taille. **Pas de correctif de
+comportement** (décision produit sur l'usage réel des autres formats
+laissée à Matthieu) — uniquement un commentaire détaillé ajouté au point
+d'impact, documentant les deux options possibles (retirer les formats du
+sélecteur si inutilisés, ou gater `_gate_combined` sur Amazon uniquement).
+
+Fichier modifié : `app.py` (commentaire seul, aucun changement de
+comportement).
+
+### 3. `engine.py` — un avoir qui repasse lui-même le cumul OSS sous 10 000€ était reclassé à tort
+
+**Bug confirmé par script de reproduction** avant correctif : `_build_oss_note()`
+testait `cumulative` (le cumul OSS net APRÈS l'avoir) pour décider du régime
+"sous le seuil" vs OSS, y compris pour un avoir. Un gros avoir qui fait
+lui-même retomber le cumul sous 10 000€ (ex. vente à 10 500€ taxée OSS
+vers DE, avoir de -700€ sur cette même vente ramenant le cumul à 9 800€)
+était donc reclassé en régime domestique (taux FR) au lieu de suivre le
+régime OSS (taux DE) de la vente qu'il annule — décalage réel entre la
+déclaration de la vente et celle de son avoir.
+
+**Correctif** : pour un avoir (`is_from_refunds`), le test de seuil se
+fait désormais sur `prev_cumul` (le cumul AVANT l'avoir), jamais sur le
+cumul qu'il vient lui-même de faire varier. La branche "franchissement du
+seuil" (alerte, pertinente uniquement pour une vente qui fait progresser
+le cumul vers l'avant) est explicitement exclue des avoirs.
+
+Fichiers modifiés : `tva_intracom/engine.py` (`_build_oss_note`,
+`_run_oss_loop`). Test de non-régression ajouté :
+`tests/test_engine.py::TestOssThreshold::test_refund_crossing_back_under_threshold_keeps_sale_regime`.
+
+### 4. `oss_export.py` — normalisation Monaco manquante dans le rattachement automatique d'avoirs OSS négatifs
+
+`suggest_negative_bucket_corrections()` comparait `res.sale.stock_country`
+brut (ex. "MC") à des `neg_keys` déjà normalisées via
+`fiscal_equivalent_country()` (Monaco → "FR", convention fiscale du 18 mai
+1963 — même normalisation déjà appliquée le 2026-08-26 dans
+`_aggregate_by_scenario`, mais oubliée ici). Conséquence : pour un compte
+avec stock Monaco, aucune vente ni aucun avoir Monaco n'entrait jamais
+dans le rattachement automatique, même quand la vente d'origine
+correspondante (même sale_id) était présente dans le même fichier. Pas de
+risque de déclaration erronée (le XML restait bloqué par sécurité, voir
+`generate_oss_xml`), mais un message "aucun avoir rattaché" trompeur là
+où un rattachement automatique aurait dû être proposé.
+
+**Correctif** : application de `fiscal_equivalent_country()` sur la clé
+de filtrage, comme dans `_aggregate_by_scenario`.
+
+Fichier modifié : `tva_intracom/oss_export.py`. Test ajouté :
+`tests/test_oss_negative_buckets_monaco.py`.
+
+### 5. `billing.py` — course TOCTOU sur le quota SIREN d'un cabinet multi-comptes
+
+`register_siren()` documentait déjà elle-même ne pas revérifier le quota
+(contrôle laissé à l'appelant via `can_register_new_siren()`, best-effort
+côté UI). Deux membres du même cabinet ajoutant chacun un SIREN
+**différent** à quelques centaines de ms d'intervalle pouvaient tous deux
+passer ce contrôle avant que l'un des deux ne committe, faisant dépasser
+le quota de +1 — même classe de race que celle déjà corrigée le
+2026-08-26 pour `lock_org_for_user` (verrouillage d'organisation).
+
+**Correctif** : même remède, `pg_advisory_xact_lock(hashtext(org_id))`
+pris en tête de la transaction d'écriture, puis recomptage sous verrou
+(`SELECT COUNT(*) ... WHERE org_id=%s`) avant d'autoriser un **nouveau**
+SIREN — une simple mise à jour d'un SIREN déjà enregistré n'est jamais
+concernée par ce recomptage. Le quota (`get_siren_quota`) est lu une
+seule fois, avant la transaction verrouillée, pour éviter un appel
+imbriqué à `_run()` sur la même connexion mise en cache par thread (qui
+aurait committé prématurément la transaction en cours).
+
+Fichier modifié : `tva_intracom/billing.py` (`register_siren`,
+`can_register_new_siren`, docstring mise à jour). 4 tests ajoutés dans
+`tests/test_billing_payment_quotas.py::TestRegisterSirenConcurrentQuota`
+(blocage sous quota atteint, autorisation sous quota, mise à jour d'un
+SIREN existant sans recomptage, verrou bien scopé à `org_id`).
+
+### 6. `mem_utils.py` — `release_memory()` vidait un cache i18n process-wide sur un événement par utilisateur
+
+`release_memory()` appelait `load_translations.cache_clear()`
+(`@lru_cache(maxsize=None)`, partagé par toutes les sessions/langues) sur
+un événement strictement individuel (retrait de fichier, déconnexion) —
+exactement l'anti-pattern déjà identifié et corrigé DEUX FOIS dans cette
+même fonction (`heavy_cache_data` et les caches billing/Stripe, le
+02/08/2026), documenté en commentaire juste au-dessus, mais oublié pour
+le cache i18n. Conséquence : le nettoyage d'un seul compte forçait tous
+les autres comptes actifs (toutes langues confondues) à reparser leurs
+fichiers TOML depuis le disque au rendu suivant — charge CPU/IO inutile
+et synchronisée, sur un hébergement à 1 seul vCPU partagé.
+
+**Correctif** : suppression du bloc. Les 7 fichiers TOML (~1207 clés
+chacun) sont négligeables en RAM comparés aux "gros objets" que cette
+fonction cible réellement (DataFrames, résultats de calcul) — aucune
+raison de les vider ici.
+
+Fichier modifié : `tva_intracom/mem_utils.py`.
+
+### Point tranché sans modification
+
+- **Seuil "gros fichier" (20 000 lignes)** n'agrégeant pas la charge de
+  plusieurs petits fichiers uploadés simultanément par des comptes
+  distincts : limite connue et acceptée, aucune action pour l'instant.
+
+Railway / scale-to-zero : aucun impact sur les correctifs de ce lot
+(aucun nouveau thread, aucune connexion persistante, aucun polling
+supplémentaire).
+
+Validation : `py_compile` + `pyflakes` propres sur les 6 fichiers
+modifiés (`app.py`, `tva_intracom/ui/background_calc.py`,
+`tva_intracom/engine.py`, `tva_intracom/oss_export.py`,
+`tva_intracom/billing.py`, `tva_intracom/mem_utils.py`) et les 3
+fichiers de test. Suite `pytest` complète : **227 passed / 3 failed**
+(221 + 6 nouveaux tests ; les 3 échecs sont ceux, préexistants, liés à
+l'absence de `SUPABASE_DB_URL` en sandbox — baseline inchangée).
+Symétrie i18n : **1207 clés partout, inchangé** (aucun fichier de
+traduction touché par ce lot).
+

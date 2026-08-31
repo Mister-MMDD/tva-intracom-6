@@ -711,7 +711,14 @@ def get_siren_quota_status(org_id: str) -> SirenQuotaStatus:
 def can_register_new_siren(org_id: str) -> tuple[bool, str]:
     """Vérifie si l'organisation peut enregistrer un SIREN supplémentaire
     (celui-ci n'étant pas déjà dans sa liste). Ne s'applique pas à un SIREN
-    déjà enregistré (mise à jour du nom/TVA toujours autorisée)."""
+    déjà enregistré (mise à jour du nom/TVA toujours autorisée).
+
+    Best-effort, PAS transactionnel : sert au retour rapide côté UI (message
+    avant même de tenter l'enregistrement). Le garde-fou qui compte
+    réellement contre une course concurrente (deux membres du même cabinet
+    ajoutant chacun un SIREN au même instant) est le verrou avisé
+    (`pg_advisory_xact_lock`) + recomptage pris DANS register_siren() -- voir
+    BUGFIX point #4, README - évolution.md."""
     status = get_siren_quota_status(org_id)
     if status.registered_count >= status.quota:
         return False, (
@@ -791,7 +798,59 @@ def register_siren(
     """
     _require_write_access(acting_user_id)
 
+    # BUGFIX (point #4, README - évolution.md) : capturé AVANT la transaction
+    # verrouillée ci-dessous plutôt que rappelé via get_siren_quota() depuis
+    # l'intérieur de `_fn` — get_siren_quota() passe par _run() (donc un
+    # nouveau `with conn:`/commit sur la même connexion mise en cache par
+    # thread, voir database.py NonPoolingConnectionPool(cache_connection=True))
+    # qui commiterait prématurément la transaction verrouillée avant notre
+    # propre INSERT. Léger compromis accepté : le quota lu ici peut en
+    # théorie devenir obsolète entre cet appel et le verrou pris juste après
+    # (ex. changement de forfait Stripe concurrent, cas indépendant de la
+    # race ciblée ici) — négligeable comparé au problème résolu (deux AJOUTS
+    # de SIREN concurrents pour la MÊME organisation).
+    _quota_for_new_siren = get_siren_quota(org_id)
+
     def _fn(conn, cur):
+        # BUGFIX (point #4, README - évolution.md) : verrou avisé Postgres
+        # transactionnel scopé à org_id, même pattern que
+        # auth.lock_org_for_user (2026-08-26). Ferme la race TOCTOU
+        # documentée plus haut dans cette docstring et dans
+        # can_register_new_siren() : deux membres du même cabinet
+        # enregistrant chacun un SIREN DIFFÉRENT à quelques centaines de ms
+        # d'intervalle pouvaient tous deux passer can_register_new_siren()
+        # (lu AVANT cet appel, côté UI) avant que l'un des deux ne commit,
+        # faisant passer registered_count à quota+1. La deuxième transaction
+        # concurrente pour la même org_id attend ici que la première commit
+        # (et libère le verrou) avant de faire son propre COMPTAGE, qui la
+        # voit alors déjà à quota et bloque correctement. Verrou libéré
+        # automatiquement au commit/rollback, aucun UNLOCK explicite requis.
+        # Sans effet sur la simple mise à jour d'un SIREN déjà enregistré
+        # (le verrou est pris dans tous les cas, mais le comptage/blocage
+        # ci-dessous ne s'applique qu'à un NOUVEAU SIREN, voir is_new_siren).
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (org_id,))
+
+        cur.execute(
+            "SELECT 1 FROM tva_siren_registrations WHERE org_id=%s AND siren=%s",
+            (org_id, siren),
+        )
+        is_new_siren = cur.fetchone() is None
+        if is_new_siren:
+            cur.execute(
+                "SELECT COUNT(*) FROM tva_siren_registrations WHERE org_id=%s",
+                (org_id,),
+            )
+            current_count = cur.fetchone()[0]
+            if current_count >= _quota_for_new_siren:
+                raise PermissionError(
+                    f"Quota de {_quota_for_new_siren} SIREN atteint pour votre "
+                    "abonnement actuel (vérification concurrente) — un autre "
+                    "enregistrement vient probablement de consommer le dernier "
+                    "slot disponible au même instant. Passez à un forfait "
+                    "supérieur ou augmentez votre quantité Cabinet pour en "
+                    "enregistrer un de plus."
+                )
+
         cur.execute(
             """
             INSERT INTO tva_siren_registrations (

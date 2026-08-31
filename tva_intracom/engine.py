@@ -746,7 +746,8 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                     apply_fr_under_threshold: bool, lang: str | None = None,
                     currency: str = "EUR", symbol: str = "€",
                     oss_period: str = "", tx_date: _date | None = None,
-                    rate_cache: dict | None = None) -> VatResult:
+                    rate_cache: dict | None = None,
+                    is_refund: bool = False) -> VatResult:
     """Applique la logique du seuil OSS à un VatResult déjà calculé.
 
     `oss_period` : période de déclaration (ex. "2024-Q1", ou "__auto__"/vide
@@ -760,6 +761,22 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     voir `_tx_date` l.~200). On la réutilise ici au lieu de reparser
     `sale.transaction_date` une seconde fois — `_date` est importée en
     top-level de ce module, pas besoin d'import local.
+
+    `is_refund` : True si `sale` est un avoir (montant négatif), pas une
+    vente. BUGFIX (confirmé par test de reproduction, voir README -
+    évolution.md, point #3) : un avoir qui fait lui-même repasser le cumul
+    OSS net SOUS 10 000 € (ex. cumul à 10 500 € après une vente, un gros
+    avoir sur cette même vente ramène le cumul à 9 800 €) était auparavant
+    testé sur `cumulative` — le cumul APRÈS l'avoir — et donc reclassé à
+    tort en régime domestique (taux du pays vendeur), alors que la vente
+    qu'il annule avait été taxée au pays de destination (régime OSS, cumul
+    déjà au-dessus du seuil au moment de cette vente). Un avoir doit suivre
+    le régime de la vente qu'il annule, pas un cumul qu'il vient lui-même de
+    faire varier : on teste donc `prev_cumul` (cumul AVANT l'avoir) pour un
+    avoir, jamais `cumulative`. La branche "franchissement" (alerte de
+    passage du seuil) ne s'applique quant à elle qu'aux ventes — un avoir ne
+    "franchit" jamais le seuil, il ne fait qu'annuler une vente déjà
+    classée.
     """
     if lang is None:
         lang = _resolve_lang()
@@ -767,8 +784,9 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
         return res
 
     prev_cumul = cumulative - sale.amount_ht
+    _threshold_test_value = prev_cumul if is_refund else cumulative
 
-    if cumulative <= Decimal("10000.00"):
+    if _threshold_test_value <= Decimal("10000.00"):
         origin_country = sale.seller_country
         _oss_tx_date = tx_date
         if _oss_tx_date is None and sale.transaction_date:
@@ -795,8 +813,11 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                 cumulative=_cumul_disp, limit=_limit_disp, currency=_sym_disp,
             ),
         )
-    elif prev_cumul <= Decimal("10000.00"):
-        # Cette vente est celle qui franchit le seuil : alerte
+    elif not is_refund and prev_cumul <= Decimal("10000.00"):
+        # Cette vente est celle qui franchit le seuil : alerte. Jamais pour
+        # un avoir (voir docstring ci-dessus, BUGFIX point #3) — il retombe
+        # alors dans le `return res` final, conservant le régime OSS déjà
+        # calculé par compute_vat, cohérent avec la vente qu'il annule.
         return VatResult(
             sale=res.sale, scenario=res.scenario, vat_country=res.vat_country,
             vat_rate=res.vat_rate, vat_amount=res.vat_amount,
@@ -999,6 +1020,7 @@ def _run_oss_loop(
                 effective_sale, product_category, apply_fr_under_threshold,
                 lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
                 tx_date=_sale_tx_date, rate_cache=_oss_rate_cache,
+                is_refund=is_from_refunds,
             )
 
         if not is_from_refunds:

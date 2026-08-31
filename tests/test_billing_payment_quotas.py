@@ -392,6 +392,73 @@ class TestRequestSirenRemoval:
 
 
 # ---------------------------------------------------------------------------
+# register_siren : verrou avisé + recomptage sous verrou (BUGFIX point #4,
+# README - évolution.md) — ferme la course TOCTOU entre can_register_new_siren()
+# (lu côté UI, avant l'appel) et l'INSERT effectif, pour deux ajouts de SIREN
+# concurrents dans la même organisation.
+# ---------------------------------------------------------------------------
+
+class TestRegisterSirenConcurrentQuota:
+    def test_new_siren_blocked_when_quota_already_reached_under_lock(self, fake_db, monkeypatch):
+        """Le COMPTAGE refait sous le verrou avisé (pas seulement le contrôle
+        UI can_register_new_siren en amont) doit bloquer un nouveau SIREN si
+        le quota est déjà atteint au moment du verrou — reproduit la fenêtre
+        de course où deux ajouts concurrents auraient tous deux passé le
+        contrôle UI avant que l'un des deux ne commit."""
+        monkeypatch.setattr(billing, "get_siren_quota", lambda org_id: 1)
+        fake_db.cursor.fetchone.side_effect = [
+            None,       # 1) _require_write_access : rôle inconnu -> pas bloqué
+            None,       # 2) SELECT 1 ... WHERE org_id=... AND siren=... -> nouveau SIREN
+            (1,),       # 3) SELECT COUNT(*) -> déjà à quota (1)
+        ]
+        with pytest.raises(PermissionError, match="Quota de 1 SIREN atteint"):
+            billing.register_siren("org-1", "user-1", "111222333", company_name="ACME")
+        # L'INSERT final ne doit JAMAIS être exécuté si le quota est dépassé
+        # sous le verrou.
+        executed_sql = [c[0][0] for c in fake_db.cursor.execute.call_args_list]
+        assert not any("INSERT INTO tva_siren_registrations" in sql for sql in executed_sql)
+
+    def test_new_siren_allowed_when_under_quota_under_lock(self, fake_db, monkeypatch):
+        monkeypatch.setattr(billing, "_enc", lambda v: v)  # pas de clé Fernet en sandbox
+        monkeypatch.setattr(billing, "get_siren_quota", lambda org_id: 3)
+        fake_db.cursor.fetchone.side_effect = [
+            None,       # rôle
+            None,       # is_new_siren : nouveau
+            (1,),       # COUNT(*) = 1, sous le quota de 3
+        ]
+        billing.register_siren("org-1", "user-1", "111222333", company_name="ACME")
+        executed_sql = [c[0][0] for c in fake_db.cursor.execute.call_args_list]
+        assert any("INSERT INTO tva_siren_registrations" in sql for sql in executed_sql)
+
+    def test_existing_siren_update_skips_quota_recount(self, fake_db, monkeypatch):
+        """Un SIREN déjà enregistré (mise à jour) ne doit jamais être bloqué
+        par le quota, ni déclencher le recomptage — is_new_siren=False doit
+        court-circuiter la vérification COUNT(*)."""
+        monkeypatch.setattr(billing, "_enc", lambda v: v)  # pas de clé Fernet en sandbox
+        monkeypatch.setattr(billing, "get_siren_quota", lambda org_id: 1)
+        fake_db.cursor.fetchone.side_effect = [
+            None,    # rôle
+            (1,),    # SELECT 1 ... -> SIREN déjà existant
+        ]
+        billing.register_siren("org-1", "user-1", "111222333", company_name="ACME MAJ")
+        executed_sql = [c[0][0] for c in fake_db.cursor.execute.call_args_list]
+        # Pas de COUNT(*) déclenché pour une mise à jour.
+        assert not any("SELECT COUNT(*) FROM tva_siren_registrations" in sql for sql in executed_sql)
+        assert any("INSERT INTO tva_siren_registrations" in sql for sql in executed_sql)
+
+    def test_advisory_lock_is_taken_scoped_to_org_id(self, fake_db, monkeypatch):
+        """Vérifie que le verrou pris est bien pg_advisory_xact_lock(hashtext(org_id)),
+        même pattern que auth.lock_org_for_user."""
+        monkeypatch.setattr(billing, "_enc", lambda v: v)  # pas de clé Fernet en sandbox
+        monkeypatch.setattr(billing, "get_siren_quota", lambda org_id: 5)
+        fake_db.cursor.fetchone.side_effect = [None, None, (0,)]
+        billing.register_siren("org-99", "user-1", "111222333")
+        first_call_sql, first_call_params = fake_db.cursor.execute.call_args_list[1][0]
+        assert "pg_advisory_xact_lock" in first_call_sql
+        assert first_call_params == ("org-99",)
+
+
+# ---------------------------------------------------------------------------
 # has_export_credit : abonnement actif court-circuite le crédit à l'unité
 # ---------------------------------------------------------------------------
 

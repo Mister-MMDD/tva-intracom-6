@@ -348,7 +348,20 @@ def suggest_negative_bucket_corrections(
     for res in results:
         if res.scenario not in (Scenario.OSS_B2C, Scenario.IOSS_DIRECT):
             continue
-        key = (res.sale.stock_country, res.vat_country, res.vat_rate)
+        # BUGFIX (point #6, README - évolution.md) : `neg_keys` (dérivé de
+        # find_oss_negative_buckets(aggregate_oss_results(...))) utilise des
+        # pays de départ déjà normalisés via fiscal_equivalent_country() —
+        # ex. un stock à Monaco ("MC") y apparaît comme "FR" (convention
+        # fiscale franco-monégasque du 18 mai 1963, même normalisation déjà
+        # appliquée le 2026-08-26 dans _aggregate_by_scenario). Utiliser ici
+        # `res.sale.stock_country` brut ("MC" non normalisé) faisait qu'AUCUNE
+        # vente ni avoir à stock Monaco ne matchait jamais `neg_keys`
+        # (clé "MC" comparée à une clé "FR") : un compte avec stock Monaco et
+        # un couple négatif ne se voyait donc jamais proposer de rattachement
+        # automatique, même quand la vente d'origine était présente dans le
+        # même fichier — sans erreur visible (le XML restait bloqué par
+        # sécurité, mais avec un message "aucun avoir rattaché" trompeur).
+        key = (fiscal_equivalent_country(res.sale.stock_country), res.vat_country, res.vat_rate)
         if key not in neg_keys:
             continue
         if res.sale.amount_ht > 0:

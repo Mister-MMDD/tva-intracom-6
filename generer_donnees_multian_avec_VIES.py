@@ -458,7 +458,7 @@ def generate(
     years: List[int],
     output_path: Path,
     seed: int = 42,
-    total_count: int = 25000,
+    total_count: int = 15000,
 ) -> None:
     """Génère le fichier CSV multi-années."""
     rng = random.Random(seed)
@@ -540,7 +540,7 @@ def main(argv: List[str] | None = None) -> int:
     )
     parser.add_argument(
         "--output",
-        default="data/ventes_multian_test.csv",
+        default="data/ventes_multian_test_27.csv",
         help="Chemin du fichier CSV de sortie (défaut : data/ventes_multian_test.csv).",
     )
     parser.add_argument(
@@ -552,7 +552,7 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument(
         "--count",
         type=int,
-        default=100000,
+        default=27000,
         help="Nombre total de lignes à générer (défaut : 100000).",
     )
     args = parser.parse_args(argv)

@@ -618,6 +618,30 @@ if uploaded_files:
                 # Seul le parser Amazon est actif (cf. contrainte projet) —
                 # les autres formats ne sont pas maintenus, on ne les gère
                 # pas dans le chemin fusionné.
+                #
+                # ATTENTION (limitation connue, signalée 2026-08-31, non
+                # corrigée délibérément — arbitrage en attente) : ce chemin
+                # fusionné se déclenche sur la SEULE taille cumulée des
+                # fichiers (> _COMBINED_SIZE_THRESHOLD_MB plus haut),
+                # indépendamment du format sélectionné. Si un compte
+                # sélectionne un format non-Amazon (Mirakl/Shopify/
+                # WooCommerce/AliExpress) pour un upload dépassant ce seuil,
+                # CHAQUE fichier est silencieusement sauté ici (aucune vente
+                # parsée), alors que le même fichier sous le seuil serait
+                # correctement traité par le chemin synchrone plus bas (qui,
+                # lui, gère tous les formats via ses branches `elif`).
+                # L'utilisateur se retrouve alors avec 0 vente et le message
+                # générique `no_sale_error`, sans indication que la cause
+                # réelle est la combinaison format-non-Amazon + taille.
+                # Pas de correctif appliqué ici tant que l'usage réel des
+                # formats non-Amazon par la base d'utilisateurs n'est pas
+                # tranché : soit ces formats sont bien inutilisés (auquel cas
+                # mieux vaut les retirer entièrement du sélecteur/UI plutôt
+                # que de patcher ce chemin mort), soit ils le sont encore
+                # (auquel cas il faut router `_gate_combined` sur
+                # `"Amazon" in file_format` uniquement, pour ne déclencher le
+                # chemin fusionné — et donc ce saut silencieux — que quand il
+                # sait effectivement traiter le format concerné).
                 if "Amazon" not in file_format:
                     continue
                 _parse_result = parser_amazon.load_amazon_report(

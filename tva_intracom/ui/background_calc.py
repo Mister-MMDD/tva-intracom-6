@@ -124,7 +124,23 @@ MAX_CONCURRENT_BIG_JOBS = 1
 # can_start_big_job() plus bas.
 _waiting_queue: list[str] = []
 _reserved_at: dict[str, float] = {}
-_RESERVATION_TIMEOUT_S = 15.0
+# CORRECTIF 2026-08-31 (voir README - évolution.md, diagnostic "2 personne(s)
+# devant vous" simultané constaté par Matthieu) : 15s s'est révélé trop court
+# précisément dans le scénario que ce timeout est censé couvrir. Séquence
+# identifiée : la réservation est posée par le FRAGMENT de file d'attente
+# (thread de script, tick ~0,6s), mais le démarrage réel du thread de calcul
+# (start_background_job, appelé depuis app.py) n'a lieu qu'au PROCHAIN rerun
+# complet de CETTE session — qui peut être retardé de bien plus de 15s sous
+# la contention CPU même que la file existe pour absorber (1 vCPU partagé,
+# un autre gros calcul déjà en cours). Résultat observé : la réservation est
+# reapée comme "orpheline" par une AUTRE session avant même d'avoir eu la
+# chance de démarrer, son slot est réattribué à un job en attente, puis le
+# thread initial démarre quand même (voir garde défensive dans
+# start_background_job ci-dessous) → deux calculs tournent réellement en
+# parallèle malgré MAX_CONCURRENT_BIG_JOBS=1. Remonté à 45s : couvre une
+# starvation bien plus longue avant de reaper, tout en gardant un filet de
+# sécurité pour le cas réellement orphelin (onglet fermé, session morte).
+_RESERVATION_TIMEOUT_S = 45.0
 
 # Délai de grâce (en secondes) maintenu après la fin effective du calcul
 # d'un gros fichier, avant de libérer le slot dans la file FIFO. Permet au
@@ -142,8 +158,22 @@ def _reap_stale_reservations_locked() -> None:
     _now = time.time()
     _stale = [jid for jid, ts in _reserved_at.items() if _now - ts > _RESERVATION_TIMEOUT_S]
     for jid in _stale:
+        _age = _now - _reserved_at[jid]
         _reserved_at.pop(jid, None)
         _active_jobs_count = max(0, _active_jobs_count - 1)
+        # DEBUG TEMPORAIRE (même diagnostic que reserve_or_enqueue/
+        # try_advance_queue/start_background_job) : si ce log apparaît alors
+        # que start_background_job(jid) n'a pas encore tourné pour ce job_id
+        # (donc pas encore visible dans les logs "démarre réellement" plus
+        # bas), c'est la preuve directe du scénario de starvation décrit
+        # dans le commentaire de _RESERVATION_TIMEOUT_S — à confirmer sur le
+        # prochain test 4 comptes avant de retirer ce log.
+        logger.warning(
+            "[QUEUE_DEBUG pid=%s] réservation orpheline reapée pour job_id=%s "
+            "(âge=%.1fs > timeout=%.1fs) | active_jobs_count=%d waiting_queue=%s",
+            os.getpid(), jid, _age, _RESERVATION_TIMEOUT_S, _active_jobs_count,
+            list(_waiting_queue),
+        )
 
 
 def reserve_or_enqueue(job_id: str) -> bool:
@@ -314,6 +344,7 @@ def start_background_job(
     consommés jusqu'à sa fin — accepté, cf. note ci-dessus), mais sa trace
     en session_state ne s'accumule plus.
     """
+    global _active_jobs_count
     _skey = _session_key(job_id)
     if _skey in st.session_state:
         return
@@ -330,8 +361,43 @@ def start_background_job(
     # try_advance_queue) — on lève la réservation maintenant que le thread
     # démarre réellement, _active_jobs_count restant décompté du début
     # (réservation) à la fin (_runner ci-dessous), sans double-comptage.
+    #
+    # CORRECTIF 2026-08-31 (voir commentaire de _RESERVATION_TIMEOUT_S et
+    # _reap_stale_reservations_locked ci-dessus, même diagnostic "2
+    # personne(s) devant vous" simultané) : si la réservation de ce job_id a
+    # déjà été reapée comme orpheline (starvation CPU entre la réservation
+    # posée par le fragment et ce point d'exécution, potentiellement plus
+    # longue que _RESERVATION_TIMEOUT_S), `job_id` n'est PLUS dans
+    # _reserved_at — le simple `.pop(job_id, None)` d'avant ce correctif
+    # était alors un no-op silencieux : ce thread démarrait quand même (on
+    # ne peut plus revenir en arrière, l'appelant s'attend à ce que le job
+    # démarre) mais SANS jamais avoir incrémenté `_active_jobs_count` pour
+    # lui — le compteur restait donc durablement sous-évalué d'une unité dès
+    # que ce cas se produisait, ce qui permettait ensuite à un autre job
+    # d'obtenir un slot alors qu'un calcul tournait déjà réellement (le vrai
+    # MAX_CONCURRENT_BIG_JOBS effectif dérivait silencieusement au-dessus de
+    # sa valeur nominale). On ré-incrémente donc ici le compteur si la
+    # réservation a disparu entre-temps, pour que ce thread reste
+    # correctement comptabilisé jusqu'à sa propre décrémentation dans
+    # _runner(). Cela n'empêche pas la collision ponctuelle déjà en cours
+    # (le job qui a repris le slot libéré tourne déjà) mais évite que
+    # l'erreur de comptage ne s'accumule pour les jobs suivants.
     with _active_jobs_lock:
-        _reserved_at.pop(job_id, None)
+        _was_reserved = _reserved_at.pop(job_id, None) is not None
+        if not _was_reserved:
+            _active_jobs_count += 1
+            logger.warning(
+                "[QUEUE_DEBUG pid=%s] start_background_job(%s) : réservation "
+                "absente (déjà reapée) — compteur ré-incrémenté défensivement "
+                "| active_jobs_count=%d waiting_queue=%s",
+                os.getpid(), job_id, _active_jobs_count, list(_waiting_queue),
+            )
+        else:
+            logger.info(
+                "[QUEUE_DEBUG pid=%s] start_background_job(%s) démarre "
+                "réellement (réservation valide) | active_jobs_count=%d",
+                os.getpid(), job_id, _active_jobs_count,
+            )
 
     def _report(progress: float, text: str = "") -> None:
         with state.lock:
