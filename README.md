@@ -25,7 +25,7 @@ en France opérant sur des places de marché (Amazon FBA, formats 1 à 5).
 | **B2B_REVERSE_CHARGE** | B2B intra-UE avec n° TVA VIES valide | Exonération, autoliquidation acheteur | Acheteur | EXONERATION (autoliquidation) |
 | **EXPORT** | Acheteur hors UE | Exonéré | — | EXONERATION (export) |
 | **IMPORT_STANDARD** | Import > 150 € hors UE, B2C | TVA d'importation (douane) | Importateur | EXONERATION (douane) |
-| **IOSS_DIRECT** | Import ≤ 150 €, vendeur ayant explicitement activé son propre numéro IOSS (`ioss_own_number_active`, sinon `DEEMED_SUPPLIER` par défaut) | Vendeur collecte via IOSS | Vendeur | Guichet **IOSS** (mensuel, déclaration et export séparés de l'OSS) |
+| **IOSS_DIRECT** | Import ≤ 150 €, vendeur ayant explicitement activé son propre numéro IOSS (`ioss_own_number_active`, sinon `DEEMED_SUPPLIER` par défaut — voir audit 08/2026) | Vendeur collecte via IOSS | Vendeur | Guichet **IOSS** (mensuel, déclaration et export **séparés** de l'OSS depuis l'audit 08/2026) |
 | **IMPORT_SELLER_AS_IMPORTER** | Import > 150 €, vendeur = importateur officiel (DDP) | Vente domestique dans le pays de destination | Vendeur | CA3 (FR) ou immatriculation locale |
 
 **Cas FBA (stocks hors FR) :** tout pays UE distinct de FR où réside du stock Amazon
@@ -35,6 +35,9 @@ dans le calendrier fiscal, indépendamment du seuil OSS.
 ---
 
 ## Arborescence du dépôt
+
+Arborescence réelle du dépôt (monorepo — inclut le moteur fiscal `tva_intracom/`,
+l'app Streamlit, et la fonction serverless `vercel_webhook/` du webhook Stripe) :
 
 ```
 tva-intracom/
@@ -53,11 +56,11 @@ tva-intracom/
 │   │   ├── de.toml                   texte pour l'allemand                    
 │   │   ├── en.toml                   texte pour l'anglais
 │   │   ├── es.toml                   texte pour l'espagnol                    
-│   │   ├── fr.toml                   texte pour le français
+│   │   ├── fr.toml                   texte pour l'français
 │   │   ├── i18n.py                   choix de la langue
 │   │   ├── it.toml                   texte pour l'italien
-│   │   ├── pl.toml                   texte pour le polonais
-│   │   ├── pt.toml                   texte pour le portugais                    
+│   │   ├── pl.toml                   texte pour l'polonais
+│   │   ├── pt.toml                   texte pour l'portugais                    
 │   ├── parsers/
 │   │   ├── amazon/                   Sous-package d'import Amazon (formats 1-5)
 │   │   │   ├── __init__.py
@@ -75,58 +78,84 @@ tva-intracom/
 │   ├── __init__.py
 │   ├── amazon_adapter.py             Passerelle de compatibilité entre les anciens modèles de données et le nouveau package.
 │   ├── amazon_spapi.py               Intégration Amazon Selling Partner API (SP-API) — OAuth 2.0 & Reports.
-│   ├── auth.py                       Authentification historique par magic link + jeton de session (Postgres/Supabase).
-│   │                                 Gère le chiffrement Fernet des PII (Amazon DPP).
-│   ├── auth_supabase.py              Authentification par mot de passe et OAuth (Google, Microsoft, GitHub, Amazon)
-│   │                                 déléguée à Supabase Auth. Flux PKCE.
-│   ├── billing.py                    Facturation Stripe (PAYG + Pro + Cabinet, quotas SIREN, grille tarifaire).
+│   ├── auth.py                       Authentification historique par magic link + jeton de
+│   │                                 session (Postgres/Supabase), envoi d'e-mail via l'API
+│   │                                 Resend. Gère le chiffrement Fernet des PII (Amazon DPP,
+│   │                                 y compris le refresh_token Amazon SP-API). Héberge aussi
+│   │                                 le stockage serveur des verifiers PKCE OAuth (voir
+│   │                                 auth_supabase.py) dans la table tva_oauth_pkce.
+│   ├── auth_supabase.py              Authentification par mot de passe et OAuth (Google,
+│   │                                 Microsoft, GitHub, Amazon via Custom OAuth Provider)
+│   │                                 déléguée à Supabase Auth (API GoTrue REST). Flux PKCE
+│   │                                 uniquement (redirection avec ?code= en query param,
+│   │                                 pas de fragment d'URL illisible côté serveur).
+│   ├── billing.py                    Facturation Stripe (PAYG + Pro + Cabinet, Customer
+│   │                                 Portal, quotas SIREN, grille tarifaire, webhooks,
+│   │                                 quotas d'export en base Postgres/Supabase).
 │   │                                 Gère aussi le rattachement anti-abus Compte Amazon <-> SIREN.
-│   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2, AIC ligne 08.
-│   ├── local_vat_report.py           Équivalent générique du CA3 pour tout pays UE hors France (rapport HTML harmonisé).
-│   ├── fec_export.py                 Export comptable FEC (art. A47 A-1 LPF) : journal des ventes agrégé.
+│   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
+│   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
+│   ├── local_vat_report.py           Équivalent générique du CA3 pour tout pays UE hors France
+│   │                                 (canal LOCAL_REGISTRATION/FR_DOMESTIC) : rapport HTML harmonisé
+│   │                                 visuellement au CA3 mais PAS un fac-similé du formulaire officiel
+│   ├── fec_export.py                 Export comptable FEC (art. A47 A-1 LPF) : journal des ventes
+│   │                                 agrégé par période/régime/pays/taux, plan comptable générique
+│   │                                 paramétrable (ACCOUNTS), écritures équilibrées débit/crédit
 │   ├── cli.py                        Interface en ligne de commande (CLI).
-│   ├── config.py                     Utilitaire de gestion des secrets.
-│   ├── database.py                   Pooling Postgres centralisé (NonPoolingConnectionPool, run_with_retry).
-│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss).
-│   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all).
-│   ├── excel_report.py               Export Excel multi-onglets.
-│   ├── historical_rates_widget.py    Composant UI Streamlit pour l'historique des taux de change BCE.
-│   ├── mem_utils.py                  Utilitaires d'analyse et d'optimisation de la mémoire (interning, RAM stats).
+│   ├── config.py                     Utilitaire de gestion des secrets (variables d'environnement, Streamlit secrets).
+│   ├── database.py                   Pooling Postgres centralisé (NonPoolingConnectionPool, run_with_retry)
+│   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
+│   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
+│   ├── excel_report.py               Export Excel multi-onglets
+│   ├── historical_rates_widget.py    Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués
+│   ├── mem_utils.py                  Utilitaires d'analyse et d'optimisation de la mémoire (interning, RAM stats)
 │   ├── models.py                     Dataclasses : Sale, VatResult, Scenario, BuyerType…
-│   ├── oss_export.py                 Agrégation OSS partagée, exports Excel + CSV URSSAF.
-│   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965).
-│   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date).
-│   ├── report.py                     ReportSummary, build_report, render_report.
-│   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy).
+│   ├── oss_export.py                 Agrégation OSS partagée, exports Excel + CSV URSSAF
+│   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
+│   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
+│   ├── report.py                     ReportSummary, build_report, render_report
+│   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
 │   ├── vies_certificate.py           Génération de certificat de validité VIES en PDF (preuve de bonne foi).
-│   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit).
-│   ├── ui/                           Découpage modulaire de l'interface Streamlit.
-│   │   ├── theme.py                  Configuration de page + CSS de marque.
-│   │   ├── formatting.py             Helpers d'affichage partagés.
-│   │   ├── files.py                  Gestion du cache et signatures des fichiers uploadés (gzip/MD5).
-│   │   ├── calc_cache.py             Gestion centralisée de l'état du cache de calcul (dataclass CalcCacheState).
-│   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth (Google, Microsoft, GitHub, Amazon) via Supabase Auth.
-│   │   ├── display_mode.py           Gestion du mode d'affichage (Simple/Détaillé) et persistance.
-│   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'état (upload, widgets).
-│   │   ├── admin.py                  Gestion des membres et rôles (Admin/Lecteur) par organisation.
-│   │   ├── onboarding.py             Parcours de bienvenue et checklist de configuration initiale.
-│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe, catalogue).
-│   │   ├── billing_gate.py           Gating de facturation et conformité.
-│   │   ├── background_calc.py        Exécution des calculs longs en thread séparé.
-│   │   └── tabs/                     Modules d'onglets (Déclarations, Ventes, VIES, etc.).
+│   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
+│   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
+│   │   ├── __init__.py
+│   │   ├── theme.py                  Configuration de page + CSS de marque (apply_theme())
+│   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
+│   │   │                             _gated_preview_table, _fec_period_end_date…)
+│   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth
+│   │   │                             (Google/Microsoft/GitHub/Amazon) via Supabase Auth,
+│   │   │                             cookie de session, callback OAuth Amazon SP-API
+│   │   │                             (liaison de compte, distincte du login Amazon), écran
+│   │   │                             de connexion/déconnexion. Lien magique conservé dans le
+│   │   │                             code mais désactivé côté UI ("en préparation").
+│   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
+│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, catalogue produits,
+│   │   │                             abonnements & forfaits Stripe)
+│   │   ├── billing_gate.py           Détection de période, gating crédit PAYG/abonnement/quota
+│   │   │                             SIREN/conformité TVA-IOSS, téléchargements gatés
+│   │   ├── background_calc.py        Exécution des calculs longs en thread séparé avec suivi de progression (st.fragment).
+│   │   └── tabs/                     Un module par onglet de l'app, tous consommant un TabContext
+│   │       ├── __init__.py
+│   │       ├── context.py            TabContext — état partagé construit une fois avant les onglets
+│   │       ├── declarations.py       Onglet "💶 Déclarations"
+│   │       ├── detail_ventes.py      Onglet "📋 Détail ventes"
+│   │       ├── vies_ui.py            Onglet "🛡️ VIES"
+│   │       ├── audit.py              Onglet "🔬 Audit Amazon"
+│   │       ├── telechargements.py    Onglet "📥 Téléchargements"
+│   │       └── visualisations.py     Onglet "📊 Visualisations"
 │   
 ├── vercel_webhook/
 │   └── api/
-│       └── stripe_webhook.py         Endpoint webhook Stripe pour Vercel.
-├── app.py                            Interface Streamlit — orchestrateur.
-├── mise.toml                         Config gestionnaire d'outils mise.
-├── nixpacks.toml                     Config build Nixpacks.
-├── Procfile                          Processus de démarrage.
+│       ├── requirements.txt          Dépendances de la fonction serverless (stripe, psycopg2-binary)
+│       └── stripe_webhook.py         Endpoint webhook Stripe, déployé sur Vercel
+├── app.py                            Interface Streamlit — orchestrateur (auth, upload, calcul,
+│                                     construction du contexte, appel des modules tva_intracom/ui/)
+├── Procfile                          Processus de démarrage pour déploiement cloud
 ├── pyproject.toml
-├── railway.toml                      Config Railway.
+├── railway.toml                      Config spécifique Railway
 ├── README.md
 ├── requirements.txt
-└── vercel.json                       Config Vercel.
+└── vercel.json                       Config Vercel
 ```
 
 ---
@@ -137,56 +166,43 @@ tva-intracom/
 |---|---|
 | `models.py` | Modèles de données (Pydantic) : Sale, VatResult, Scenario, BuyerType, Channel, Collector |
 | `config.py` | Utilitaire de gestion des secrets (lwa, stripe, resend, postgres) avec fallback local |
-| `database.py` | Gestion centralisée des connexions Postgres : `NonPoolingConnectionPool` compatible scale-to-zero |
+| `database.py` | Gestion centralisée des connexions Postgres : `NonPoolingConnectionPool` (cache par thread compatible scale-to-zero, ou connexion fraîche par appel selon `cache_connection`) + `run_with_retry()` — consommé par `auth.py`, `billing.py`, `ecb_rates.py` et `vies_engine.py` (voir section « Base de données partagée » ci-dessus) |
 | `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
-| `security.py` | Sécurité Amazon DPP : chiffrement Fernet des PII avec protection Fail-Safe |
-| `vies_certificate.py` | Génération de certificat de validité VIES en PDF (preuve de bonne foi) |
-| `vies_engine.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), piste d'audit |
-| `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + Postgres), compliance OSS (taux de clôture) |
-| `oss_export.py` | Agrégation OSS partagée, exports Excel + CSV URSSAF, détection soldes négatifs |
-| `oss_xml.py` | Génération XML OSS officiel avec multi-validation XSD (DGFIP/UE) |
-| `ca3_report.py` | Rapport CA3 (HTML) avec cases Cerfa vérifiées (A1, F2, E1, B2, 17, 08, 09, etc.) |
-| `local_vat_report.py` | Rapport TVA générique pour pays UE hors France, ventilation HT/TVA par taux |
-| `fec_export.py` | Export comptable FEC (journal des ventes agrégé, écritures équilibrées) |
-| `excel_report.py` | Export Excel multi-onglets complet |
-| `historical_rates_widget.py` | Composant UI Streamlit pour l'historique des taux de change BCE |
-| `mem_utils.py` | Utilitaires d'analyse et d'optimisation de la mémoire (interning) |
-| `cli.py` | Interface en ligne de commande (CLI) |
-| `auth.py` | Authentification historique, chiffrement PII et stockage PKCE |
-| `auth_supabase.py` | Authentification Supabase Auth (Social OAuth & PKCE) |
-| `amazon_spapi.py` | Intégration Amazon Selling Partner API (SP-API) |
-| `billing.py` | Facturation Stripe (PAYG/Pro/Cabinet) et partage par Organisation |
-
----
-
-## Architecture de l'interface Streamlit (`tva_intracom/ui/`)
-
-| Module | Rôle |
-|---|---|
-| `ui/theme.py` | Thème visuel et injection du CSS de marque |
-| `ui/formatting.py` | Helpers d'affichage vectorisés, formatage monétaire et tri robuste |
-| `ui/files.py` | Gestion du cache et signatures des fichiers uploadés (gzip/MD5) |
-| `ui/calc_cache.py` | Gestion centralisée de l'état du cache de calcul (`CalcCacheState`) |
-| `ui/auth_flow.py` | Flux d'authentification complet (PKCE Supabase, Social OAuth, Sessions, Persistance) |
-| `ui/display_mode.py` | Gestion du mode d'affichage "Simple/Détaillé" et persistance par compte |
-| `ui/sidebar.py` | Barre latérale (SIREN, IOSS, Catalogue, VIES, Abonnements) avec isolation par fragments |
-| `ui/billing_gate.py` | Gating crédit PAYG, quotas SIREN et conformité fiscale |
-| `ui/theme.py` | Thème visuel, injection CSS et barre de statut persistante |
-| `ui/background_calc.py` | Exécution asynchrone des calculs longs avec suivi de progression |
-| `ui/admin.py` | Gestion des membres (invitation, promotion, suppression) et rôles par organisation |
-| `ui/onboarding.py` | Checklist interactive et guidage visuel pour les nouveaux utilisateurs |
-| `ui/tabs/` | Modules d'onglets isolés consommant un `TabContext` partagé |
+| `security.py` | Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy) — chiffrement Fernet des PII avec protection **Fail-Safe** contre l'exposition accidentelle en clair. |
+| `vies_certificate.py` | Génération d'un "Certificat de Validité VIES" en PDF (preuve de bonne foi opposable) |
+| `vies_engine.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
+| `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + Postgres), prefetch parallèle, `convert_to_currency_for_oss` (taux de clôture de période — Règl. UE 2020/194, art. 5 bis), calcul automatique de la date de clôture par transaction pour les périodes multiples (semestres, années), retry exponentiel |
+| `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
+| `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965) avec multi-validation XSD (DGFIP/UE) |
+| `ca3_report.py` | Génération du rapport CA3 (HTML uniquement — pas d'export EDI-TVA) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
+| `local_vat_report.py` | Équivalent générique du CA3 pour n'importe quel pays UE hors France (canal `LOCAL_REGISTRATION`, ou `FR_DOMESTIC` quand ce pays est le **pays d'origine** du compte) : `compute_local_vat_lines`, `generate_local_vat_html_report`. Ventilation base/TVA par taux réellement présent dans les données, style visuel harmonisé au CA3, mais **PAS un fac-similé du formulaire officiel** — un avertissement explicite figure dans chaque rapport généré. Codes de case indicatifs pour DE/ES/IT/PL/NL/BE/PT/SE/AT/CZ/RO/HU/IE (`rates.LOCAL_VAT_BOX_CODES`, non vérifiés exhaustivement contre un PDF officiel, contrairement au CA3) |
+| `fec_export.py` | Export comptable au format FEC (journal des ventes agrégé par régime/pays/taux, écritures équilibrées débit/crédit) — pré-remplissage pour import dans un logiciel comptable tiers, alternative légère à l'EDI-TVA |
+| `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
+| `historical_rates_widget.py` | Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués |
+| `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne, et agrégation mensuelle nette par pays (oss_by_country_month, local_by_country_month) |
+| `mem_utils.py` | Utilitaires d'analyse et d'optimisation de la mémoire (interning, RAM stats) |
+| `cli.py` | Interface en ligne de commande (CLI) pour exécuter le moteur hors interface web |
+| `amazon_adapter.py` | Passerelle de compatibilité entre les anciens modèles de données et le nouveau package de parsers |
+| `parsers/amazon/` | Sous-package d'import Amazon (formats 1–5) — voir arborescence ci-dessus |
+| `auth.py` | Authentification historique par magic link (Postgres/Supabase, désactivée côté UI), envoi d'e-mail via l'API Resend, chiffrement Fernet du refresh_token Amazon SP-API, stockage serveur des verifiers PKCE OAuth (`tva_oauth_pkce`) |
+| `auth_supabase.py` | Authentification par mot de passe et OAuth social (Google, Microsoft, GitHub, Amazon) via l'API Supabase Auth (GoTrue REST), flux PKCE |
+| `amazon_spapi.py` | Intégration Amazon Selling Partner API (SP-API) : OAuth 2.0, échange de code, rafraîchissement de token et identification du vendeur — sert à la **liaison de compte** pour la récupération des rapports de vente, distincte de la connexion Amazon de l'écran de login (voir section Authentification) |
+| `billing.py` | Facturation Stripe : Checkout PAYG, Pro et Cabinet (mensuel/annuel, paliers dégressifs), Customer Portal, quotas SIREN par compte, grille tarifaire lue en direct sur Stripe, traitement des webhooks, quotas stockés en Postgres/Supabase, et **rattachement anti-abus Compte Amazon <-> SIREN** |
+| `app.py` | Orchestrateur Streamlit (racine du dépôt, pas dans `tva_intracom/`) — upload, calcul (avec cache `st.session_state`), construction du contexte, appel des modules `ui/` |
 
 ---
 
 ## Pays d'origine du compte (`home_country`)
 
-Réglage global persistant permettant de définir le pays d'établissement du vendeur.
+Réglage **global au compte** (pas par SIREN — contrairement à l'IOSS ou au mode
+DDP), affiché en tout premier dans la barre latérale, persisté en base
+(`tva_users.home_country`, défaut `"FR"`).
 
-- **Impact Fiscal** : Définit le régime domestique (`DOMESTIC`). Les ventes sont classées comme domestiques si le stock ou la destination correspondent au pays d'origine.
-- **Interface & Déclarations** : La déclaration du pays d'origine s'affiche en priorité (ex: CA3 pour la France, rapport local générique pour les autres pays).
-- **Devise de calcul** : Le moteur calcule **toujours en EUR** pour la conformité fiscale. La conversion vers une devise d'affichage locale intervient uniquement dans la couche présentation.
+- **Sélecteur de langue avant connexion** : `language_selector()` est appelé avant l'écran de connexion, pour que l'interface entière s'affiche dans la langue choisie.
+- **Impact sur le moteur fiscal** : Définit le régime domestique (`DOMESTIC`). Les ventes sont classées comme domestiques si le stock ou la destination correspondent au pays d'origine choisi.
+- **Impact sur l'onglet Téléchargements** : La déclaration du pays d'origine s'affiche en premier (ex: CA3 pour la France, rapport local générique pour les autres pays).
+- **Devise de calcul** : Le moteur calcule **toujours en EUR** pour la conformité fiscale (obligatoire pour l'OSS, Règl. UE 2020/194). La conversion vers une devise d'affichage locale intervient uniquement dans la couche présentation.
 
 ---
 
@@ -197,10 +213,10 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
     - **Rôles Admin / Lecteur** : Verrouillage de sécurité dès le premier abonnement payant. Whitelist d'e-mails gérée par les administrateurs.
 - **Facturation Stripe** :
     - **Pay-as-you-go** : Déblocage par période fiscale.
-    - **Pro** : Abonnement illimité pour 1 SIREN.
-    - **Cabinet** : Abonnement multi-SIREN avec tarif dégressif.
-- **Quotas & Profils SIREN** : Mémorisation des paramètres par SIREN (IOSS, DDP, seuil OSS). Rattachement anti-abus Compte Amazon <-> SIREN pour limiter l'usage détourné.
-- **Contenu gratuit limité** : Aperçu bridé des résultats (10 premières lignes, montants verrouillés) tant que la période n'est pas débloquée.
+    - **Pro** : Abonnement illimité pour 1 SIREN client par compte.
+    - **Cabinet** : Abonnement multi-SIREN avec tarif dégressif Stripe (tiered pricing).
+- **Quotas & Profils SIREN** : Mémorisation des paramètres par SIREN (IOSS, DDP, seuil OSS, pays d'immatriculation). Rattachement anti-abus Compte Amazon <-> SIREN pour limiter l'usage détourné.
+- **Contenu gratuit limité** : Aperçu bridé des résultats (10 premières lignes ou 15%, montants et scénarios verrouillés) tant que la période n'est pas débloquée.
 - **Base de données partagée** : Postgres (Supabase) centralisé, compatible scale-to-zero, utilisé par Streamlit et les webhooks Vercel.
 
 ---
@@ -213,41 +229,41 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
 | **2** | Format intermédiaire | `activity_period` |
 | **3** | TSV/CSV 2024 | `transaction_complete_date` + `tax_collection_model` |
 | **4** | CSV 2025+ | `transaction_complete_date` + `tax_collection_responsibility` |
-| **5** | Rapport fiscal détaillé V5 | `our_price_tax_exclusive_selling_price` + `transaction_id` |
+| **5** | Rapport fiscal détaillé V5 | `our_price_tax_exclusive_selling_price` + `transaction_id` + `order_date` |
 
 ---
 
 ## Fonctionnalités clés
 
 ### Moteur fiscal
-- **Typage strict Pydantic 2** et précision absolue via **Decimal**.
-- **Documentation fiscale intégrée** : Références légales précises (Bofip, CGI, Directives UE) dans les notes de résultats.
-- **Gestion des seuils** : Seuil OSS 10 000 € avec suivi multi-année.
-- **Reverse charge domestique** : Gestion de l'art. 194 pour les pays concernés (ES, IT, PL, etc.).
-- **Détection géographique** : Identification des territoires hors UE fiscale via code postal.
+- **Typage Statique & Validation Pydantic** : Utilisation de `pydantic.dataclasses` pour une validation stricte dès l'import. Précision absolue via **Decimal**.
+- **Documentation Fiscale Directe** : Chaque note de résultat (`VatResult.note`) intègre des références légales précises et des liens courts vers le **Bofip**, l'**Art. 262 ter du CGI** ou les **Directives Européennes** (uniquement en langue française).
+- **Gestion des seuils** : Seuil OSS 10 000 € avec suivi multi-année (`oss_ht_by_year`).
+- **Reverse charge domestique** : Gestion de l'art. 194 pour les pays concernés (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV).
+- **Détection géographique** : Identification des territoires hors UE fiscale (Canaries, DOM-TOM, Åland, Helgoland…) via code postal.
 - **Monaco** : Assimilation fiscale à la France (Convention du 18/05/1963).
-- **Respiration CPU** : Points de respiration (`time.sleep(0)`) pour garantir la fluidité de l'interface.
+- **Plan d'action Immatriculations** : Vue consolidée détectant les besoins de mise en conformité (stock Amazon détecté, ventes locales taxables, import DDP) restreinte aux pays UE.
 
 ### Validation VIES
-- **Architecture résiliente** à trois niveaux : Cache Privé > Cache Global > API UE.
+- **Architecture résiliente à trois niveaux** : Cache Privé (par scope/domaine) > Cache Global (mutualisé) > API UE (ec.europa.eu).
 - **Ré-essai automatique en arrière-plan** des numéros inconclusifs avec notification par modale (`@st.dialog`).
-- **Piste d'audit & Pseudonymisation** : Historique des vérifications avec pseudonymisation SHA-256.
+- **Piste d'audit & Pseudonymisation** : Historique des vérifications avec pseudonymisation SHA-256 salée. Table au format *append-only* pour justification lors d'un contrôle fiscal.
 - **Certificat PDF** : Preuve de validité instantanée ou **historique complet** (paysage).
 
 ### Conversion devises
-- **API BCE SDW** : Utilisation des taux officiels avec cache persistant.
-- **Compliance OSS** : Application du taux du dernier jour de la période (Règl. UE 2020/194).
-- **Multi-période** : Calcul automatique de la date de clôture propre à chaque trimestre.
+- **API BCE SDW** : Utilisation des taux officiels avec cache deux niveaux (mémoire + Postgres).
+- **Compliance OSS** : Application du taux du dernier jour de la période de déclaration (Règl. UE 2020/194, art. 5 bis).
+- **Multi-période** : Calcul automatique de la date de clôture propre à chaque trimestre pour les périodes multiples (semestres, années).
 
 ### Import des fichiers Amazon
-- **Polars** : Parsing haute performance (Rust) supportant des fichiers jusqu'à 150 Mo.
-- **Détection intelligente** : Encodage (UTF-8/CP1252), format et séparateur automatiques.
-- **Analyse d'exigibilité** : Distinction entre date de commande et date d'expédition.
+- **Performance extrême** : Utilisation de **Polars** (moteur Rust) pour le parsing des fichiers volumineux jusqu'à 150 Mo.
+- **Détection intelligente** : Encodage (UTF-8/CP1252), format (1–5) et séparateur automatiques.
+- **Analyse d'exigibilité** : Distinction entre date de commande et date d'expédition (art. 65 Dir. 2006/112/CE).
 
 ### Export XML OSS officiel
 - Structure conforme au Règlement UE 2021/965.
 - **Multi-validation XSD** (DGFIP/UE) intégrée.
-- **Correction assistée** : Rattachement automatique avoirs -> ventes d'origine pour résoudre les soldes négatifs via le bloc `CorrectionsOfVatReturns`.
+- **Correction assistée** : Rattachement automatique avoirs -> ventes d'origine (même `sale_id`) pour résoudre les soldes négatifs via le bloc `CorrectionsOfVatReturns` (inclut la **normalisation Monaco**).
 
 ---
 
@@ -255,15 +271,15 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
 
 | # | Onglet | Contenu |
 |---|---|---|
-| 1 | **Récapitulatif** | Synthèse TVA par canal et Audit d'intégrité technique |
+| 1 | **Récapitulatif** | Synthèse TVA par canal et **Audit d'intégrité technique** (Signature numérique Hash ID) |
 | 2 | **Détail ventes** | Ligne par ligne avec scénario, taux, canal, note légale |
 | 3 | **Détail remboursements** | Avoirs détaillés avec structure identique |
-| 4 | **OSS par pays** | Agrégation par pays de destination + taux, détail mensuel net |
-| 5 | **TVA locale par pays** | Immatriculations locales avec détail mensuel net |
+| 4 | **OSS par pays** | Agrégation par pays de destination + taux, avec **détail mensuel net** |
+| 5 | **TVA locale par pays** | Immatriculations locales (stocks FBA hors pays d'origine) avec **détail mensuel net** |
 | 6 | **IOSS par pays** | Ventes IOSS (numéro propre vendeur) avec détail mensuel net |
 | 7 | **Audit Écarts Amazon** | Ventes où la TVA calculée diffère de celle collectée par Amazon |
 | 8 | **Historique VIES** | Toutes les vérifications VIES horodatées (piste d'audit) |
-| 9 | **Analyse AIC FBA** | AIC estimées par flux avec application des taux de TVA réels par ASIN |
+| 9 | **Analyse AIC FBA** | AIC estimées par flux avec application des taux de TVA réels par ASIN (art. 17 Dir. 2006/112/CE) |
 | 10 | **Transferts FBA Détail** | Liste brute des mouvements de stock entre entrepôts |
 | 11 | **Intrastat (EMEBI)** | Aide au remplissage : introductions et expéditions par ASIN et **par mois** |
 | 12 | **INVOICE & CREDIT_NOTE** | Détail des écritures de service Amazon |
@@ -275,8 +291,8 @@ Réglage global persistant permettant de définir le pays d'établissement du ve
 
 Génération d'un **journal des ventes au format FEC** (art. A47 A-1 LPF) pour import dans Sage, ACD, Quadratus, etc.
 - Agrégation par période/régime/pays/taux pour limiter le volume d'écritures.
-- Équilibre débit/crédit garanti, avec gestion des inversions de sens pour les soldes négatifs.
-- Plan comptable paramétrable (racines 707 ventilées par pays).
+- Équilibre débit/crédit garanti par construction, avec gestion des inversions de sens pour les soldes négatifs.
+- Garde-fou `_assert_balanced()` levant une erreur explicite si une écriture ressort déséquilibrée.
 
 ---
 
@@ -290,28 +306,24 @@ Le moteur déduit les échéances directement des transactions :
 
 ---
 
-## Intrastat / EMEBI (onglet 10)
+## Intrastat / EMEBI (onglet 11)
 
-Séparation stricte des deux obligations :
-- **EMEBI** : Enquête statistique basée sur les seuils annuels (460 000 €).
+Séparation stricte des deux obligations depuis 2022 :
+- **EMEBI** : Enquête statistique basée sur les seuils annuels (460 000 €). Fournit les flux UE->pays d'origine et pays d'origine->UE agrégés par ASIN.
 - **État récapitulatif TVA (ESL)** : Obligation fiscale dès le 1er euro pour les livraisons B2B.
-
-L'onglet fournit les flux UE->FR et FR->UE agrégés par ASIN, avec calcul de la valeur statistique estimée.
 
 ---
 
 ## Conformité Amazon DPP & Sécurité
 
-Le moteur respecte les exigences de protection des données personnelles (PII) et les standards OWASP :
-- **Chiffrement au Repos** : Algorithme Fernet (AES-128 CBC + HMAC-SHA256) pour les données sensibles (noms, adresses, mais aussi n° SIREN et IOSS).
-- **Pseudonymisation réversible** : Hachage SHA-256 salé des identifiants (e-mails) pour l'historique VIES, garantissant l'isolation sans stockage en clair.
-- **Protection contre l'injection de formules** : Sanitization systématique des exports Excel/CSV pour bloquer les attaques par injection de formules (`=`, `+`, `-`, `@`).
+- **Chiffrement au Repos** : Algorithme Fernet (AES-128 CBC + HMAC-SHA256) pour les données sensibles (PII). Protection **Fail-Safe** interdisant tout traitement si la clé est absente.
+- **Pseudonymisation réversible** : Hachage SHA-256 salé (`PSEUDONYMIZATION_SALT`) des identifiants pour l'historique VIES.
+- **Protection contre l'injection de formules** : Helper `_safe()` systématisé sur les exports Excel/CSV pour bloquer les attaques par injection de formules (`=`, `+`, `-`, `@`).
 - **Protection XSS & Injections** : Échappement systématique des données utilisateur (HTML/Markdown) et durcissement des clés de widgets Streamlit via hash.
+- **Isolation Multi-tenant & Multi-SIREN** : Clés de cache isolées par utilisateur (`current_user.id`) et par SIREN (`_vies_scope_id`).
+- **Contrôle de concurrence** : Utilisation de **verrous avisés Postgres** (`pg_advisory_xact_lock`) pour garantir l'intégrité des quotas SIREN et du verrouillage d'organisation en environnement multi-comptes.
 - **Validation des Redirects** : Contrôle du header `Host` via une allowlist pour prévenir les attaques de redirection ouverte (Open Redirect).
-- **Isolation Multi-tenant & Multi-SIREN** : Clés de cache isolées par utilisateur (`current_user.id`) et par SIREN (`_vies_scope_id`) empêchant toute fuite de données entre comptes ou entre clients via le cache global.
-- **Sécurité Fail-Safe** : Interdiction de traitement si la clé de chiffrement est absente ; retrait du mécanisme de repli en clair (fail-open) pour garantir l'intégrité du chiffrement.
 - **Rétention limitée** : Suppression automatique des PII après 365 jours.
-- **TLS/SSL forcé** pour tous les échanges avec la base de données.
 
 ---
 
@@ -346,24 +358,33 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 
 ---
 
-## Optimisations de performance & UX
+## Optimisations de performance & UX (Mises à jour récentes)
 
 ### Performance & Réactivité
-- **String Interning** : Réduction drastique de l'empreinte RAM via `sys.intern()`.
-- **Fragments Streamlit** : Isolation du rendu pour éviter les reruns complets.
-- **File d'attente (Gros uploads)** : Slot unique pour le parsing et le calcul des fichiers volumineux (> 10 Mo).
+- **File d'attente (Gros uploads)** : Slot unique tenu du début du parsing jusqu'à la fin du calcul pour les fichiers volumineux (> 10 Mo). Inclut un timeout de réservation sécurisé (45s) et une réincrémentation défensive du compteur de slots.
+- **Respiration CPU** : Points de respiration (`time.sleep(0)`) dans `_process_rows` et `_run_oss_loop` pour garantir la fluidité de l'interface sur vCPU partagé.
+- **Optimisation de la RAM** : String Interning (ASIN, TVA, pays) et gestion fine des caches (suppression des `cache_clear()` globaux impactant les autres sessions).
+- **Fragments Streamlit** : Utilisation intensive de `@st.fragment` pour isoler le rendu et éviter les reruns complets lors d'interactions locales.
 - **Cache intelligent** : Mise en cache des parsers, du catalogue et des exports via signatures MD5 (128 Ko start/end).
-- **Optimisation de la RAM** : Nettoyage proactif du cache et **Scale-to-Zero** infrastructure (Railway).
 
 ### UX & Fiabilité
-- **Mode Simple / Détaillé** : Bascule d'affichage globale pour simplifier l'interface ou accéder aux détails d'audit.
-- **Barre de statut persistante** : Affichage constant du fichier chargé, de la période détectée et de l'état du calcul.
+- **Mode Simple / Détaillé** : Bascule d'affichage globale et persistante par compte pour simplifier l'interface ou accéder aux détails d'audit.
+- **Barre de statut persistante** : Affichage constant du nombre de fichiers chargés, de la période détectée et de l'état du calcul.
+- **Onboarding guidé** : Checklist interactive avec guidage visuel "Lighthouse" pour la configuration initiale (SIREN, TVA, IOSS, premier upload).
+- **Boucle de ré-essai VIES automatique** : Revérification en arrière-plan des numéros inconclusifs (erreurs serveur transitoires) après chaque calcul.
 - **Gestion de la confidentialité** : Sortie des paramètres sensibles vers une modale dédiée (`st.dialog`).
-- **Modale de succès VIES automatique** et bouton de synchronisation ("Mettre à jour le calcul") pour les calculs en arrière-plan.
-- **MD5 Upload Signature** : Détection fiable des modifications de fichiers pour invalider le cache.
-- **Feedback utilisateur enrichi** : Usage de `st.status` pour le suivi détaillé du parsing et de la validation VIES.
 - **Persistance multilingue** : Interface et exports localisés en 7 langues (FR, EN, DE, ES, IT, PL, PT).
-- **Warm-up BCE** : Chargement batch des taux de change au démarrage pour optimiser les exports multi-années.
+
+---
+
+## Audit conformité TVA (08/2026)
+
+Audit réglementaire ciblé portant sur le moteur fiscal et les rapports :
+- **Seuil OSS 10 000 €** : Appreciation sur l'année en cours et l'année précédente (N-1). Les avoirs suivent désormais le régime (OSS ou DOMESTIC) de la vente d'origine même s'ils font repasser le cumul sous le seuil.
+- **IOSS_DIRECT vs DEEMED_SUPPLIER** : Le comportement par défaut devient `DEEMED_SUPPLIER` (Amazon redevable), `IOSS_DIRECT` est désormais un choix explicite via toggle.
+- **Monaco** : Traitement des ventes et stocks à Monaco comme des ventes domestiques françaises (Convention fiscale franco-monégasque du 18/05/1963).
+- **Ligne 18 CA3 (Monaco)** : Remplissage de la ligne mémo dédiée (case 0038) sur le Cerfa 3310-CA3-SD.
+- **Séparation OSS et IOSS** : Agrégations et exports distincts pour les deux régimes (mensuel pour l'IOSS, trimestriel pour l'OSS).
 
 ---
 
@@ -372,7 +393,7 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 ```bash
 pytest -q
 ```
-La suite couvre la classification fiscale, le cache VIES, le seuil OSS, les formats Amazon 1–5, la conversion BCE et la thread-safety du pool DB.
+La suite couvre la classification fiscale, le cache VIES, le seuil OSS multi-année, les formats Amazon 1–5, la conversion BCE, la thread-safety du pool DB et l'équilibrage FEC.
 
 ---
 
@@ -393,7 +414,7 @@ La suite couvre la classification fiscale, le cache VIES, le seuil OSS, les form
 ## Roadmap
 
 - **EDI-TVA** : Export pour télétransmission directe des CA3 (actuellement HTML pour saisie manuelle).
-- **b2b_lines** : Découpage mensuel de l'état récapitulatif B2B (actuellement agrégé sur la période importée).
+- **XML IOSS** : Export XML officiel pour le guichet unique IOSS (Import Scheme).
 
 ---
 > Ce projet est un outil d'aide au calcul et à la préparation des déclarations.
