@@ -6386,3 +6386,30 @@ modifiés. Suite `pytest` complète : **227 passed / 3 failed** (baseline
 inchangée, les 3 échecs restent ceux liés à l'absence de
 `SUPABASE_DB_URL` en sandbox).
 
+### Complément (même jour) — horloge de dernier tick serveur
+
+Reproduction avec capture d'écran multi-fenêtres (2 navigateurs, 1 onglet
+privé chacun, 4 comptes) : corrélation log ↔ écran confirme qu'à aucun
+moment le serveur n'a fait tourner deux jobs "Analyse de ..." en
+simultané (fenêtres concernées séparées de ~4 minutes côté serveur,
+`active_jobs_count` toujours ≤ 1) — l'affichage simultané vu sur la
+capture est donc un **onglet resté visuellement figé** sur un état
+passé, pas un vrai doublon de calcul. Cohérent aussi avec le panneau qui
+n'a jamais affiché son texte de file d'attente alors que les logs
+montrent des ticks serveur réguliers et continus pendant ~3,5 minutes
+pour ce job.
+
+Ajouté : `st.caption("🕓 dernier tick serveur : HH:MM:SS (sid=...)")`
+sous le texte de file d'attente (`render_queue_status`) et sous la barre
+de progression (`render_job_progress`). Sur une prochaine capture,
+compare cette heure à l'heure système visible ailleurs à l'écran : un
+écart confirme que l'onglet/navigateur n'a pas appliqué les derniers
+reruns du serveur (throttling d'un onglet en arrière-plan, ou message
+WebSocket manqué) — pas un problème côté serveur. DEBUG TEMPORAIRE, à
+retirer une fois confirmé.
+
+Fichier modifié (en plus des deux ci-dessus) : `tva_intracom/ui/background_calc.py`.
+
+Railway / scale-to-zero : aucun impact (un seul `st.caption()` par tick,
+aucune ressource supplémentaire).
+

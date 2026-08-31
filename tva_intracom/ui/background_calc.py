@@ -34,6 +34,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 import streamlit as st
@@ -581,6 +582,10 @@ def render_job_progress(job_id: str, label: str) -> None:
     _suffix = f" ({_elapsed:.0f}s)" if _elapsed >= 3 else ""
     _display_text = _text if _text else label
     st.progress(_progress, text=f"{_display_text}{_suffix}")
+    # DEBUG TEMPORAIRE (même diagnostic que dans render_queue_status
+    # ci-dessous) : horloge de dernier tick serveur pour cette barre de
+    # progression.
+    st.caption(f"🕓 dernier tick serveur : {datetime.now().strftime('%H:%M:%S')} (sid={_sid()})")
 
 
 @st.fragment(run_every=0.6)
@@ -626,6 +631,14 @@ def render_queue_status(job_id: str, lang: str) -> None:
         os.getpid(), _sid(), job_id, _position,
     )
     st.info(_translate("calc_queue_position", lang=lang, position=_position))
+    # DEBUG TEMPORAIRE (diagnostic onglet figé, capture multi-fenêtres du
+    # 2026-08-31) : horloge de dernier tick serveur, à comparer à l'heure
+    # système visible ailleurs à l'écran sur une capture. Si elle est en
+    # retard sur l'heure réelle, l'onglet/navigateur n'a pas appliqué les
+    # derniers reruns du serveur (throttling d'onglet en arrière-plan ou
+    # message WebSocket perdu) -- le serveur, lui, a bien exécuté ce tick
+    # à l'instant affiché. À retirer une fois le diagnostic tranché.
+    st.caption(f"🕓 dernier tick serveur : {datetime.now().strftime('%H:%M:%S')} (sid={_sid()})")
 
 
 # =============================================================================
