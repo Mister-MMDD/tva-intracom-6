@@ -1077,6 +1077,17 @@ def list_available_promotions(org_id: Optional[str] = None) -> list[dict]:
             expand=["data.coupon", "data.promotion.coupon"]
         )
     except Exception:
+        # CORRECTIF 2026-09-01 (audit) : avant, erreur avalée silencieusement,
+        # y compris pour des causes autres qu'un simple aléa réseau (clé API
+        # invalide/expirée, compte Stripe mal configuré...). Résultat : la
+        # grille de codes promo s'affichait juste vide côté UI, sans aucune
+        # trace exploitable en prod pour distinguer "pas de promo active" de
+        # "l'appel Stripe a échoué". On logue désormais l'échec (le
+        # comportement de fallback — liste vide — reste identique).
+        logger.warning(
+            "list_available_promotions : échec de stripe.PromotionCode.list "
+            "(org_id=%s) — liste vide retournée.", org_id, exc_info=True,
+        )
         return results
 
     for promo in promos.auto_paging_iter():
@@ -1094,6 +1105,15 @@ def list_available_promotions(org_id: Optional[str] = None) -> list[dict]:
             # On récupère l'objet complet pour être sûr d'avoir applies_to et les montants
             coupon = stripe.Coupon.retrieve(coupon_id, expand=["applies_to"]) if coupon_id else coupon_ref
         except Exception:
+            # CORRECTIF 2026-09-01 (audit) : même remarque que le except
+            # ci-dessus (stripe.PromotionCode.list) — le repli sur coupon_ref
+            # (objet partiel, sans applies_to ni montants complets) reste le
+            # bon comportement de fallback, mais l'échec doit être visible en
+            # prod plutôt que totalement invisible.
+            logger.warning(
+                "list_available_promotions : échec de stripe.Coupon.retrieve "
+                "pour coupon_id=%s — repli sur la référence partielle.", coupon_id, exc_info=True,
+            )
             coupon = coupon_ref
 
         # Conversion en dict pour la stabilité du cache et de l'accès aux champs

@@ -124,6 +124,19 @@ _vies_scope_id = _auth_ctx.vies_scope_id
 _stripe_success_url = _auth_ctx.stripe_success_url
 _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 
+# CORRECTIF 2026-09-01 (audit) : `success_url` du Checkout Stripe (PAYG et
+# abonnement, voir ui/sidebar.py et ui/billing_gate.py) porte `export_ok=1`,
+# mais ce paramètre n'était jusqu'ici jamais relu. Or `get_subscription_status`
+# (billing.py, @st.cache_data ttl=60) peut avoir été peuplé à `active=False`
+# juste avant que l'utilisateur ne parte payer, et le rester jusqu'à
+# expiration du TTL à son retour — le webhook Stripe (process Vercel séparé)
+# ne peut pas appeler .clear() sur le cache de CE process Streamlit. On force
+# donc ici un rafraîchissement dès la détection du retour de paiement, avant
+# que render_sidebar() (juste en dessous) ne lise le statut d'abonnement.
+if st.query_params.get("export_ok") == "1":
+    _tva_billing.get_subscription_status.clear()
+    st.query_params.pop("export_ok", None)
+
 # NOTE : le mécanisme applicatif de "veille" (détection d'inactivité côté
 # app + purge mémoire + écran ?sleep=1) a été retiré volontairement.
 #

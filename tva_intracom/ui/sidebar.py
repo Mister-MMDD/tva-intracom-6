@@ -1070,13 +1070,23 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                             st.caption(f"✅ **{_c['period']}** — {_('purchased_at', date=_at)}")
                 except Exception as _credit_err:
                     st.caption(_("purchase_history_unavailable", error=_credit_err))
-                else:
-                    # Ce bloc ne concerne QUE les comptes non premium : avant ce
-                    # correctif, il s'exécutait dès que la lecture des crédits
-                    # réussissait (c'est un `else` de try/except, pas une
-                    # condition sur l'abonnement), donc la bannière "Passez
-                    # Premium" et la grille tarifaire restaient visibles même
-                    # pour un compte avec un abonnement actif.
+                if True:
+                    # CORRECTIF 2026-09-01 (audit) : tout ce qui suit à cette
+                    # indentation (bannière Premium, grille tarifaire, boutons
+                    # d'abonnement/achat ponctuel — plusieurs blocs, pas un
+                    # seul) vivait auparavant dans le `else:` du try/except
+                    # ci-dessus, dont le seul rôle est de lire l'historique des
+                    # crédits déjà achetés. Une panne transitoire de CETTE
+                    # lecture seule (aléa Supabase, réseau...), sans rapport
+                    # avec le statut d'abonnement lui-même, faisait donc
+                    # disparaître TOUT le chemin de conversion pour un compte
+                    # non premium, sans aucun message expliquant pourquoi
+                    # (juste "historique d'achat indisponible" puis plus
+                    # rien). `if True:` (plutôt qu'un `else:`) rend ce bloc
+                    # inconditionnel vis-à-vis du try/except, SANS ré-indenter
+                    # les ~230 lignes qui suivent (risque de transcription sur
+                    # un bloc de cette taille) : il ne dépend plus que de
+                    # `_sub_status`, déjà résolu plus haut.
                     if not (_sub_status and _sub_status.active):
                         if _sub_status and _sub_status.status:
                             # Abonnement existant mais inactif (annulé/expiré) : état actuel

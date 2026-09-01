@@ -6413,3 +6413,105 @@ Fichier modifié (en plus des deux ci-dessus) : `tva_intracom/ui/background_calc
 Railway / scale-to-zero : aucun impact (un seul `st.caption()` par tick,
 aucune ressource supplémentaire).
 
+## 2026-09-01 — Audit exhaustif complémentaire (sidebar.py, excel_report.py en intégral + billing.py, ecb_rates.py, rates.py, oss_export.py, ca3_report.py, fec_export.py, cli.py) + correctifs groupés
+
+Suite de l'audit du 2026-08-31 : reprise des modules non encore couverts
+en lecture intégrale ligne à ligne (`sidebar.py` : 1524/1524 lignes,
+`excel_report.py` : 2207/2207 lignes), plus relecture ciblée de
+`billing.py`, `rates.py`, `ecb_rates.py`, `oss_export.py`,
+`ca3_report.py`, `fec_export.py`, `cli.py`. 4 points traités avec
+modification de code dans ce lot ; le point concurrence
+(`background_calc.py`) reste en attente d'arbitrage de Matthieu (voir
+plus bas).
+
+### 1. `billing.py` — deux échecs Stripe avalés silencieusement dans `list_available_promotions()`
+
+`stripe.PromotionCode.list()` et `stripe.Coupon.retrieve()` étaient tous
+deux entourés d'un `except Exception:` sans aucune trace, contrairement
+au reste du fichier où ce type d'échec est déjà loggé (`lock_org_for_user`,
+fallback `customer.retrieve` du webhook). Un souci Stripe (clé API
+expirée, compte mal configuré) se traduisait juste par une grille de
+promos vide, sans rien d'exploitable en prod pour le diagnostiquer.
+
+**Correctif** : `logger.warning(..., exc_info=True)` ajouté aux deux
+endroits. Comportement de repli inchangé (liste vide / coupon partiel).
+
+Fichier modifié : `tva_intracom/billing.py`.
+
+### 2. `app.py` — statut d'abonnement périmé jusqu'à 60s après un paiement Stripe réussi
+
+`get_subscription_status()` est en `@st.cache_data(ttl=60)`. Le webhook
+Stripe (process Vercel séparé) ne peut pas appeler `.clear()` sur le
+cache de CE process Streamlit après avoir activé l'abonnement en base —
+un compte revenant du Checkout avant expiration du TTL pouvait donc
+retomber sur l'écran de paywall comme si le paiement n'avait pas abouti,
+sans aucun message l'indiquant. `export_ok=1` était déjà posé sur
+`success_url` (PAYG et abonnements Pro/Cabinet) mais jamais relu.
+
+**Correctif** : détection de `export_ok=1` dans `st.query_params` juste
+après résolution de l'auth, `get_subscription_status.clear()` puis retrait
+du paramètre, avant que `render_sidebar()` ne lise le statut.
+
+Fichier modifié : `app.py`.
+
+### 3. `sidebar.py` — tout le parcours d'abonnement disparaissait si la lecture (non liée) de l'historique des crédits échouait
+
+La bannière Premium, la grille tarifaire et les boutons PAYG/Pro/Cabinet
+vivaient dans le `else:` du `try/except` entourant `list_purchased_credits()`
+— un `else` de `try/except` ne s'exécute que si le `try` réussit. Une
+panne transitoire de CETTE lecture seule (aléa Supabase, réseau), sans
+rapport avec le statut d'abonnement lui-même, faisait donc disparaître
+tout le chemin de conversion pour un compte non premium, avec pour seul
+message "historique d'achat indisponible".
+
+**Correctif** : `else:` remplacé par `if True:` (documenté en commentaire)
+pour rendre ce bloc inconditionnel vis-à-vis du try/except, sans
+ré-indenter à la main les ~230 lignes concernées (le bloc contient
+plusieurs `if` frères, pas un seul — un premier essai de restructuration
+complète s'est cassé sur ce point, corrigé avant validation).
+
+Fichier modifié : `tva_intracom/ui/sidebar.py`.
+
+### 4. i18n — note de suivi (pas de correctif ce lot, décision Matthieu)
+
+Script de contrôle croisé écrit et exécuté (chaque appel `_()`/`i18n_()`
+du code comparé aux clés réellement définies dans `fr.toml` — le contrôle
+de symétrie existant ne compare que les TOML entre eux, jamais le code
+aux TOML). Constats : `pt.toml::xl_tab_audit` fait 32 caractères (limite
+Excel 31 caractères pour un nom d'onglet — vérifié sans crash mais avec
+`UserWarning` sur l'openpyxl 3.1.5 du projet) ; 10 clés référencées dans
+le code mais absentes des 7 TOML, dont 4 réellement visibles dans l'app
+elle-même (`app.py::foreign_currency_warning`,
+`ui/tabs/audit.py::col_vat_rate_amazon/col_vat_rate_engine/col_channel`) ;
+`excel_report.py::_write_fba_aic_tab` (onglet "Analyse AIC FBA")
+n'appelle jamais `i18n_()`, contrairement à tous les autres onglets.
+Détail complet dans `optimisations_en_attente.md` (§12). **Reporté à une
+session dédiée** sur décision de Matthieu.
+
+### Point en attente d'arbitrage (pas encore traité)
+
+- **`background_calc.py`** — le correctif du 2026-08-31 (timeout 45s +
+  réincrémentation défensive) élimine le drift du compteur, mais pas la
+  collision transitoire elle-même (`start_background_job()` démarre le
+  thread sans revérifier le plafond). Une élimination complète
+  demanderait de changer le contrat de cette fonction (retour
+  démarré/remis en file) et d'adapter tous les appelants dans `app.py` —
+  changement d'architecture, pas un correctif surgical. En attente de
+  savoir si Matthieu veut (a) attendre la confirmation du prochain test
+  4 comptes avant de retirer le `DEBUG_TEMPORAIRE`, ou (b) faire le
+  changement d'architecture maintenant.
+
+Railway / scale-to-zero : aucun impact sur les 3 correctifs de ce lot
+(aucun nouveau thread, aucune connexion persistante, aucun polling
+supplémentaire — le `.clear()` de cache est une opération locale
+process, sans appel réseau).
+
+Validation : `py_compile` propre sur les 3 fichiers modifiés
+(`app.py`, `tva_intracom/billing.py`, `tva_intracom/ui/sidebar.py`).
+`pyflakes` : aucun nouvel avertissement (le seul remonté, `_dt` masqué
+dans `sidebar.py:1068`, est confirmé préexistant dans le fichier
+d'origine avant toute modification). Suite `pytest` complète : **227
+passed / 3 failed** (baseline inchangée, mêmes 3 échecs préexistants
+liés à l'absence de `SUPABASE_DB_URL` en sandbox).
+
+
