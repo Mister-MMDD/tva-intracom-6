@@ -76,14 +76,8 @@ Ce fichier liste les propositions d'améliorations techniques notées pour le sy
 
 ## Internationalisation (i18n)
 
-### 12. Nettoyage des clés i18n cassées + onglet Excel non traduit
-*   **Description** : Audit du 2026-09-01 (comparaison programmatique de chaque appel `_()`/`i18n_()` du code contre les clés réellement définies dans `fr.toml`) — constats à traiter ensemble :
-    - `pt.toml` : `xl_tab_audit` fait 32 caractères, dépasse la limite Excel de 31 (nom d'onglet). Vérifié avec l'openpyxl 3.1.5 du projet : pas de crash, mais `UserWarning` + fichier potentiellement mal lu par des lecteurs stricts.
-    - 10 clés référencées dans le code mais absentes des 7 fichiers TOML (retombent silencieusement sur le texte brut de la clé via le fallback de `get_text()`) : `app.py:1053` (`foreign_currency_warning`, visible dans l'app), `ui/tabs/audit.py:153-155` (`col_vat_rate_amazon`, `col_vat_rate_engine`, `col_channel`, visibles dans l'app), `excel_report.py:1051` (`"Intro"`/`"Expé"`) et `excel_report.py:1271` (phrase française complète utilisée comme clé), `oss_export.py` ×5 (`"TOTAL"`/`"TOTAL HT"`).
-    - `excel_report.py::_write_fba_aic_tab` (onglet "Analyse AIC FBA") n'appelle jamais `i18n_()` : titre, en-têtes, avertissement légal et statuts sont en dur en français, contrairement à tous les autres onglets du classeur.
-*   **Objectif** : Restaurer la garantie de symétrie 7 langues pour ces cas non couverts par le contrôle actuel (qui ne compare que les TOML entre eux, jamais le code aux TOML) ; ajouter durablement ce script de contrôle croisé code↔TOML à la séquence de validation.
-*   **Statut** : Reporté à une session dédiée (décision Matthieu du 2026-09-01).
-*   **Lieu concerné** : `tva_intracom/i18n/pt.toml`, `app.py`, `tva_intracom/ui/tabs/audit.py`, `tva_intracom/excel_report.py`, `tva_intracom/oss_export.py`
+*Néant pour le moment — dernier point (entrée #12, onglet "Analyse AIC FBA")
+traité et clos le 2026-09-02, voir `README - evolution.md`.*
 
 ---
 *Note : Les propositions A (Avoid to_dicts), B (MD5 robuste) et C (Streaming CSV) citées dans les versions précédentes du README sont exclues de cette liste pour le moment.*

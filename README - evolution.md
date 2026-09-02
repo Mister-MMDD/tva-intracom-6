@@ -6515,3 +6515,137 @@ passed / 3 failed** (baseline inchangée, mêmes 3 échecs préexistants
 liés à l'absence de `SUPABASE_DB_URL` en sandbox).
 
 
+
+## 2026-09-02 — i18n : entrée #12 traitée (2 constats sur 3) + suite investigation queue/GIL
+
+### 1. `pt.toml::xl_tab_audit` trop long pour un nom d'onglet Excel
+
+Valeur raccourcie de 32 à 29 caractères ("Auditoria Divergencias Amazon"),
+sous la limite Excel de 31 caractères pour `ws.title`. Vérifié : seule
+langue concernée (es.toml est à 31, pile la limite, laissé tel quel).
+
+### 2. Clés i18n manquantes dans les 7 TOML
+
+9 clés référencées dans le code mais absentes des 7 fichiers TOML
+(retombaient silencieusement sur le texte brut de la clé via le fallback
+de `get_text()`) ajoutées avec traduction dans les 7 langues :
+`foreign_currency_warning`, `col_vat_rate_amazon`, `col_vat_rate_engine`,
+`col_channel`, `TOTAL`, `TOTAL HT`. Trois clés supplémentaires
+renommées (l'ancienne clé brute servait de texte français affiché à
+toutes les langues) : `"Intro"`/`"Expé"` → `xl_flux_intro` /
+`xl_flux_expedition`, et la phrase française complète utilisée comme clé
+dans `excel_report.py:1271` → `emebi_intrastat_desc` (points d'appel mis
+à jour en conséquence).
+
+Note : le constat du 2026-09-01 (§12 de `optimisations_en_attente.md`)
+parlait de "10 clés" ; seules 9 clés distinctes manquantes ont été
+retrouvées dans le code réel lors de cette session — écart non résolu,
+possible imprécision de l'audit initial (conforme au principe déjà
+retenu : les constats d'audit externes sont à revérifier sur le code
+réel avant application).
+
+Symétrie vérifiée programmatiquement après ajout : 1216 clés dans
+chacun des 7 fichiers, aucune clé dupliquée.
+
+### 3. Point non traité (reporté, feu vert requis)
+
+`excel_report.py::_write_fba_aic_tab` (onglet "Analyse AIC FBA", ~763
+lignes, ~40 chaînes en dur : titre, en-têtes de sections, avertissement
+légal art. 83 dir. 2006/112/CE, libellés de statuts) n'appelle toujours
+jamais `i18n_()`. Volume de traduction juridique/technique sur 7 langues
+jugé suffisant pour mériter une validation explicite avant traitement —
+laissé en attente dans `optimisations_en_attente.md` (§12, mis à jour).
+
+Fichiers modifiés : `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`,
+`tva_intracom/excel_report.py`.
+
+Validation : `py_compile` propre sur les fichiers modifiés (+
+`app.py`, `ui/tabs/audit.py`, `oss_export.py`, non modifiés mais
+revérifiés car cités dans l'audit). `pyflakes` : aucun nouvel
+avertissement introduit (les 3 remontés sur `excel_report.py` sont
+préexistants, lignes 1656/1664/1751, hors zone modifiée). Suite
+`pytest` complète : **227 passed / 3 failed** (baseline inchangée,
+mêmes 3 échecs préexistants liés à l'absence de `SUPABASE_DB_URL` en
+sandbox).
+
+Railway / scale-to-zero : aucun impact (fichiers de traduction statiques
+chargés via `lru_cache`, aucune connexion ni thread supplémentaire).
+
+### Réponse à la question sur le délai de 5s (`_POST_CALC_SLOT_HOLD_S`)
+
+Analyse des logs du 2026-09-01 (session 4 comptes simultanés) : le délai
+de 5s est bien respecté (`state.done=True` posé immédiatement en fin de
+calcul, log "slot libéré" systématiquement ~5s après). Mais il ne pilote
+que la réutilisation du slot par le job SUIVANT en file — un
+`time.sleep()` ne consomme aucun CPU pendant ce temps. Le décalage
+d'affichage observé (rendu des comptes 1-3 apparaissant seulement à la
+fin du calcul du compte 4) est un effet de contention GIL sur le vCPU
+unique partagé de Streamlit Cloud, sans lien avec ce délai : le fragment
+`render_job_progress` d'une session peut lui-même être retardé de
+plusieurs secondes sur son propre polling à 0,4s pendant qu'un thread de
+calcul lourd tourne ailleurs (confirmé dans les logs : `done=True`
+détecté en interne ~7,4s avant que le fragment de la session concernée
+ne le remonte). Aucun changement de code proposé ici — la seule piste
+réelle (réduire les portions de calcul pur-Python qui retiennent le GIL
+sans le céder) rejoint l'optimisation #2 déjà "Reportée" dans
+`optimisations_en_attente.md` (vectorisation `_run_oss_loop`).
+
+## 2026-09-02 (suite) — i18n : entrée #12 close (traduction complète de `_write_fba_aic_tab`)
+
+Suite et clôture du point laissé en attente plus haut le même jour.
+Décision Matthieu : go pour traduire l'onglet "Analyse AIC FBA".
+
+`excel_report.py::_write_fba_aic_tab` (onglet AIC FBA, ~210 lignes utiles —
+la fonction s'arrête en réalité ligne 1627, pas 2176 comme mal estimé dans
+la note précédente : la plage citée incluait par erreur d'autres fonctions
+plus bas dans le fichier) câblée intégralement sur `i18n_()`.
+
+Bonne surprise à la lecture du code réel (toujours vérifier avant d'agir) :
+les 34 clés `xl_aic_*` nécessaires existaient déjà, traduites et
+symétriques dans les 7 TOML — elles avaient été préparées lors d'une
+session antérieure mais jamais câblées côté `excel_report.py`, qui
+continuait à utiliser des chaînes françaises en dur. Correctifs
+complémentaires apportés à ces clés pré-existantes :
+
+- 5 clés (`xl_aic_col_avg_price`, `xl_aic_col_base`, `xl_aic_col_vat`,
+  `xl_aic_sub_col_base`, `xl_aic_sub_col_vat`) avaient un "(€)" figé dans
+  les 7 langues au lieu de suivre `display_currency` comme le fait le
+  reste de l'onglet (et comme le fait cette même fonction pour les
+  montants réellement affichés, via `_conv()`) — remplacé par
+  `({currency})` paramétré, valeur passée à l'appel.
+- 1 clé manquante ajoutée dans les 7 langues : `xl_aic_col_asins_distinct`
+  ("Nb ASIN distincts", en-tête de la section flux inactifs).
+
+Point non modifié : `xl_aic_action_required` garde un "€" litéral
+(`"Inclure {amount} € en TVA {country}..."`) — comportement identique à
+l'original, le montant qu'il affiche (`tva`) n'est volontairement pas
+passé dans `_conv()` dans le code source (donc toujours en EUR quelle que
+soit `display_currency`) ; non traité ici car hors périmètre de ce
+correctif i18n et pas un bug nouveau.
+
+Tests : nouveau fichier `tests/test_excel_aic_i18n.py` (3 tests) —
+génération de l'onglet sans exception dans les 7 langues, absence de
+fallback brut (`get_text()` renvoyant la clé au lieu d'une traduction)
+sur les 34 clés `xl_aic_*`, et non-régression sur le paramétrage
+dynamique de devise dans les en-têtes.
+
+Fichiers modifiés : `tva_intracom/excel_report.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`,
+`tests/test_excel_aic_i18n.py` (nouveau).
+
+Validation : `py_compile` propre. `pyflakes` : mêmes 3 avertissements
+préexistants qu'avant ce correctif (décalés de quelques lignes suite à
+la suppression des f-strings multi-lignes, mais situés hors de la zone
+modifiée — lignes 1653/1661/1748). Symétrie TOML reconfirmée après ajout
+(1217 clés dans chacune des 7 langues, aucun doublon). Contrôle croisé
+programmatique code→TOML sur tout `excel_report.py` : aucune clé
+`i18n_()` orpheline. Suite `pytest` complète : **230 passed / 3 failed**
+(+3 nouveaux tests verts, baseline des 3 échecs préexistants inchangée —
+toujours liés à l'absence de `SUPABASE_DB_URL` en sandbox).
+
+Railway / scale-to-zero : aucun impact (aucun nouveau thread, connexion
+ou polling — traduction statique chargée via `lru_cache` existant).
+
+**Entrée #12 de `optimisations_en_attente.md` intégralement traitée et
+retirée du tracker.** Section "Internationalisation (i18n)" du tracker
+vide pour le moment.

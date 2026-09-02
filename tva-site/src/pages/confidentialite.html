@@ -26,7 +26,7 @@
         <ul>
             <li><strong>Données de compte :</strong> Email, nom d'utilisateur et jetons d'authentification (Supabase Auth : Mot de passe ou OAuth).</li>
             <li><strong>Données fiscales et d'entreprise :</strong> SIREN, Nom de l'entreprise, numéros de TVA, nécessaires à la génération des rapports.</li>
-            <li><strong>Données de transaction :</strong> Fichiers importés (Amazon). Seuls les extraits nécessaires à la piste d'audit VIES et fiscale sont persistés sous forme chiffrée.</li>
+            <li><strong>Données d'audit fiscal (VIES) :</strong> Les informations liées aux vérifications VIES (numéro de TVA, nom et adresse de l'acheteur) sont les seules données issues de vos transactions persistées sous forme chiffrée pour constituer votre piste d'audit légale.</li>
         </ul>
     </section>
 
@@ -42,7 +42,7 @@
 
     <section class="card">
         <h2>4. Durée de conservation</h2>
-        <p>Les données de transaction sont conservées pendant une durée de 365 jours pour permettre le suivi des seuils OSS et la génération de rapports rectificatifs, après quoi elles sont automatiquement anonymisées ou supprimées.</p>
+        <p>Les données de la piste d'audit fiscal (VIES) sont conservées pendant une durée de 365 jours conformément aux exigences de conformité Amazon et pour justifier vos exonérations B2B en cas de contrôle, après quoi elles sont automatiquement anonymisées ou supprimées. Les fichiers de transactions importés ne sont jamais stockés sur nos serveurs.</p>
     </section>
 
     <section class="card">

@@ -368,6 +368,8 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 - **Cache intelligent** : Mise en cache des parsers, du catalogue et des exports via signatures MD5 (128 Ko start/end).
 
 ### UX & Fiabilité
+- **Réactivité post-paiement** : Rafraîchissement instantané du statut d'abonnement lors du retour de Checkout Stripe (via `export_ok=1`) pour supprimer le délai de latence du cache (60s).
+- **Résilience de la barre latérale** : Isolation des pannes transitoires (lecture de l'historique de crédits) pour garantir l'accès permanent aux options d'abonnement et de paiement.
 - **Mode Simple / Détaillé** : Bascule d'affichage globale et persistante par compte pour simplifier l'interface ou accéder aux détails d'audit.
 - **Barre de statut persistante** : Affichage constant du nombre de fichiers chargés, de la période détectée et de l'état du calcul.
 - **Onboarding guidé** : Checklist interactive avec guidage visuel "Lighthouse" pour la configuration initiale (SIREN, TVA, IOSS, premier upload).
@@ -377,14 +379,16 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 
 ---
 
-## Audit conformité TVA (08/2026)
+## Audit de conformité & Technique (08/2026 - 09/2026)
 
-Audit réglementaire ciblé portant sur le moteur fiscal et les rapports :
+Audit réglementaire et structurel exhaustif (moteur fiscal, sécurité, exports, UI) :
 - **Seuil OSS 10 000 €** : Appreciation sur l'année en cours et l'année précédente (N-1). Les avoirs suivent désormais le régime (OSS ou DOMESTIC) de la vente d'origine même s'ils font repasser le cumul sous le seuil.
 - **IOSS_DIRECT vs DEEMED_SUPPLIER** : Le comportement par défaut devient `DEEMED_SUPPLIER` (Amazon redevable), `IOSS_DIRECT` est désormais un choix explicite via toggle.
 - **Monaco** : Traitement des ventes et stocks à Monaco comme des ventes domestiques françaises (Convention fiscale franco-monégasque du 18/05/1963).
 - **Ligne 18 CA3 (Monaco)** : Remplissage de la ligne mémo dédiée (case 0038) sur le Cerfa 3310-CA3-SD.
 - **Séparation OSS et IOSS** : Agrégations et exports distincts pour les deux régimes (mensuel pour l'IOSS, trimestriel pour l'OSS).
+- **Audit exhaustif du code** : Revue intégrale ligne à ligne des modules critiques (`sidebar.py`, `excel_report.py`, `billing.py`, `engine.py`, etc.) pour garantir la robustesse structurelle et la cohérence des flux de données.
+- **Traçabilité & Monitoring** : Instrumentation renforcée des échecs d'API tiers (Stripe) et des flux de calculs longs pour un diagnostic rapide en production.
 
 ---
 

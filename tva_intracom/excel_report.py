@@ -1048,7 +1048,7 @@ def _write_intrastat_tab(
         current_row += 1
 
         rows_written = 0
-        sens = i18n_("Intro") if is_intro else i18n_("Expé")
+        sens = i18n_("xl_flux_intro") if is_intro else i18n_("xl_flux_expedition")
         for (dep, arr, asin, mois), data in sorted(flux.items()):
             if is_intro and arr != seller_country:
                 continue
@@ -1268,7 +1268,7 @@ def _write_calendar_tab(
                 d_limit += timedelta(days=1)
         _write_row(
             "EMEBI (Intrastat)",
-            i18n_("Enquête statistique EMEBI {country} (introductions + expéditions, sous réserve de seuil — voir onglet dédié)", country=seller_country),
+            i18n_("emebi_intrastat_desc", country=seller_country),
             f"{yr}-{mo:02d}",
             d_limit,
             "pro.douane.gouv.fr → EMEBI/Intrastat",
@@ -1437,7 +1437,7 @@ def _write_fba_aic_tab(
     """
     from .rates import vat_rate as _vat_rate, STANDARD_VAT_RATES
 
-    ws.title = "Analyse AIC FBA"
+    ws.title = i18n_("xl_tab_aic")
     countries_with_vat = [c.upper() for c in (countries_with_vat or [])]
 
     _fmt_curr = _currency_format(display_currency)
@@ -1481,13 +1481,10 @@ def _write_fba_aic_tab(
     # ----------------------------------------------------------------
     # En-tête de l'onglet
     # ----------------------------------------------------------------
-    ws.append([_wcell(ws, "ANALYSE DES ACQUISITIONS INTRACOMMUNAUTAIRES ASSIMILÉES (FC TRANSFERS)", font=_TITLE_FONT)])
+    ws.append([_wcell(ws, i18n_("xl_aic_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
 
-    ws.append([_wcell(ws, (
-        "⚠ Base AIC estimée = prix de vente HT moyen (Amazon ne fournit pas le prix d'achat). "
-        "Approximation par excès — remplacer par le coût d'achat réel si disponible (art. 83 dir. 2006/112/CE)."
-    ), font=Font(italic=True, size=10, color="C00000"))])
+    ws.append([_wcell(ws, i18n_("xl_aic_note"), font=Font(italic=True, size=10, color="C00000"))])
     ws.row_dimensions[2].height = 30
     ws.append([])
 
@@ -1496,20 +1493,20 @@ def _write_fba_aic_tab(
     # ----------------------------------------------------------------
     # Section 1 : Flux actifs (immatriculation dans les deux pays)
     # ----------------------------------------------------------------
-    ws.append([_wcell(ws, "FLUX AVEC IMMATRICULATION DANS LES DEUX PAYS — AIC À DÉCLARER", font=Font(bold=True, size=11, color="C00000"))])
+    ws.append([_wcell(ws, i18n_("xl_aic_active_title"), font=Font(bold=True, size=11, color="C00000"))])
     current_row += 1
 
     if not flux_actifs:
-        ws.append([_wcell(ws, "Aucun flux ne nécessite de déclaration AIC (immatriculations croisées insuffisantes).")])
+        ws.append([_wcell(ws, i18n_("xl_aic_no_active"))])
         current_row += 2
     else:
         # En-tête détail ASIN
         _headers_detail = [
-            "Départ", "Arrivée",
-            "ASIN", "Désignation",
-            "Qté transférée", f"Prix vente moy. HT ({display_currency})",
-            f"Base AIC estimée ({display_currency})", "Taux TVA arrivée (%)",
-            f"TVA AIC estimée ({display_currency})", "Statut",
+            i18n_("xl_aic_col_dep"), i18n_("xl_aic_col_arr"),
+            i18n_("xl_aic_col_asin"), i18n_("xl_aic_col_desc"),
+            i18n_("xl_aic_col_qty"), i18n_("xl_aic_col_avg_price", currency=display_currency),
+            i18n_("xl_aic_col_base", currency=display_currency), i18n_("xl_aic_col_rate"),
+            i18n_("xl_aic_col_vat", currency=display_currency), i18n_("xl_aic_col_status"),
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                           alignment=Alignment(horizontal="center", vertical="center"))
@@ -1532,7 +1529,7 @@ def _write_fba_aic_tab(
             base_aic    = _round(Decimal(str(qty)) * avg_price)
             taux_arr    = _vat_rate(arr, "STANDARD") if arr in STANDARD_VAT_RATES else Decimal("0")
             tva_aic     = _round(base_aic * taux_arr / Decimal("100"))
-            statut      = "✅ Immatriculé" if (dep in countries_with_vat and arr in countries_with_vat) else "🚨 Vérifier"
+            statut      = i18n_("xl_aic_status_ok") if (dep in countries_with_vat and arr in countries_with_vat) else i18n_("xl_aic_status_check")
 
             flux_totaux[(dep, arr)]["base"] += base_aic
             flux_totaux[(dep, arr)]["tva"]  += tva_aic
@@ -1554,12 +1551,12 @@ def _write_fba_aic_tab(
 
         # Lignes de sous-total par flux
         current_row += 1
-        ws.append([_wcell(ws, "SOUS-TOTAUX PAR FLUX", font=Font(bold=True, size=10))])
+        ws.append([_wcell(ws, i18n_("xl_aic_subtotals_title"), font=Font(bold=True, size=10))])
         current_row += 1
         _headers_sub = [
-            "Flux (Départ → Arrivée)", "Nb transferts", "Nb ASIN",
-            f"Base AIC totale estimée ({display_currency})", f"TVA AIC totale estimée ({display_currency})",
-            "Référence légale", "Action requise",
+            i18n_("xl_aic_sub_col_flow"), i18n_("xl_aic_sub_col_transfers"), i18n_("xl_aic_sub_col_asins"),
+            i18n_("xl_aic_sub_col_base", currency=display_currency), i18n_("xl_aic_sub_col_vat", currency=display_currency),
+            i18n_("xl_aic_sub_col_ref"), i18n_("xl_aic_sub_col_action"),
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
                           alignment=Alignment(horizontal="center", vertical="center"))
@@ -1572,8 +1569,8 @@ def _write_fba_aic_tab(
             nb_a  = len(flux_actifs[(dep, arr)]["asins"])
             base  = flux_totaux[(dep, arr)]["base"]
             tva   = flux_totaux[(dep, arr)]["tva"]
-            ref   = f"AIC art. 17 dir. 2006/112/CE — déclarer en TVA {arr}"
-            action = f"Inclure {float(tva):,.2f} € en TVA {arr} (autodéclaration)"
+            ref   = i18n_("xl_aic_legal_ref", country=arr)
+            action = i18n_("xl_aic_action_required", amount=f"{float(tva):,.2f}", country=arr)
             _flow_lbl = f"{_get_country_name(dep)} → {_get_country_name(arr)}"
             ws.append([
                 _wcell(ws, _flow_lbl), _wcell(ws, nb_t), _wcell(ws, nb_a),
@@ -1590,7 +1587,7 @@ def _write_fba_aic_tab(
     # Section 2 : Flux sans double immatriculation (pour mémoire)
     # ----------------------------------------------------------------
     ws.append([])
-    ws.append([_wcell(ws, "FLUX SANS IMMATRICULATION CROISÉE — POUR MÉMOIRE (Amazon gère)", font=Font(bold=True, size=11, color="808080"))])
+    ws.append([_wcell(ws, i18n_("xl_aic_inactive_title"), font=Font(bold=True, size=11, color="808080"))])
     current_row += 1
 
     if not flux_inactifs:
@@ -1598,8 +1595,8 @@ def _write_fba_aic_tab(
         current_row += 1
     else:
         _headers_inact = [
-            "Départ", "Arrivée", "Nb transferts", "Nb ASIN distincts",
-            "Immat. départ", "Immat. arrivée", "Observation",
+            i18n_("xl_aic_col_dep"), i18n_("xl_aic_col_arr"), i18n_("xl_aic_sub_col_transfers"), i18n_("xl_aic_col_asins_distinct"),
+            i18n_("xl_aic_col_imm_dep"), i18n_("xl_aic_col_imm_arr"), i18n_("xl_aic_col_obs"),
         ]
         ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE,
                           fill=PatternFill(start_color="A6A6A6", end_color="A6A6A6", fill_type="solid"),
@@ -1614,11 +1611,11 @@ def _write_fba_aic_tab(
             imm_dep = "✅" if dep in countries_with_vat else "—"
             imm_arr = "✅" if arr in countries_with_vat else "—"
             if dep not in countries_with_vat and arr not in countries_with_vat:
-                obs = "Aucune immatriculation — Amazon gère l'AIC"
+                obs = i18n_("xl_aic_obs_none")
             elif dep in countries_with_vat:
-                obs = f"LIC à déclarer côté {dep} (case exonérations)"
+                obs = i18n_("xl_aic_obs_lic", country=dep)
             else:
-                obs = f"Vérifier immatriculation {arr}"
+                obs = i18n_("xl_aic_obs_verify", country=arr)
             _dep_lbl2 = f"{_get_country_name(dep)} ({dep})"
             _arr_lbl2 = f"{_get_country_name(arr)} ({arr})"
             _vals_inact = [_dep_lbl2, _arr_lbl2, nb_t, nb_a, imm_dep, imm_arr, obs]
