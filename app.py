@@ -1191,7 +1191,7 @@ if uploaded_files:
                             st.caption(_("calc_bg_running_caption", rows=f"{total_rows_sum:,}".replace(",", " ")))
                             render_queue_status(_job_id, lang=_lang_for_thread)
                         # Le fragment ci-dessus retente lui-même d'obtenir un
-                        # slot à chaque tick (0,6s) et déclenche un rerun
+                        # slot à chaque tick (1,5s) et déclenche un rerun
                         # complet dès que c'est le cas — on s'arrête ici pour
                         # CE rerun, la sidebar reste utilisable entre-temps.
                         st.stop()
@@ -1204,7 +1204,7 @@ if uploaded_files:
                     _job_done, _job_error = _job_state.done, _job_state.error
                 if not _job_done:
                     # Le fragment ci-dessus continue de se rafraîchir tout
-                    # seul (run_every=0.4s) sans ré-exécuter le reste du
+                    # seul (run_every=1.2s) sans ré-exécuter le reste du
                     # script : on s'arrête ici pour CE rerun, la sidebar et
                     # les widgets déjà rendus plus haut restent utilisables.
                     st.stop()

@@ -14,7 +14,7 @@ import streamlit as st
 from tva_intracom.i18n import _
 from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _render_filter_bar, \
-    _fmt
+    _fmt, _resolve_display_limit
 from tva_intracom.ui.tabs.context import TabContext
 
 
@@ -83,16 +83,21 @@ def render_audit() -> None:
     # que ce sous-onglet soit affiché ou non.
     _is_detailed = st.session_state.get("display_mode") == "detaille"
 
+    # PERF (2026-09-03) : même rationnel que detail_ventes.py — `st.tabs()`
+    # exécute le corps de tous ses onglets à chaque rerun du fragment, y
+    # compris le sous-onglet "Mouvements stock FBA" quand l'utilisateur
+    # regarde "Écarts TVA Amazon" (et vice-versa). Remplacé par un
+    # sélecteur radio + branche conditionnelle.
     if _is_detailed:
-        audit_sub1, audit_sub2 = st.tabs([
-            _("subtab_amazon_gaps"),
-            _("subtab_fba_inventory"),
-        ])
+        _outer_labels = [_("subtab_amazon_gaps"), _("subtab_fba_inventory")]
+        _active_outer = st.radio(
+            "", options=list(range(len(_outer_labels))), format_func=lambda i: _outer_labels[i],
+            horizontal=True, key="audit_active_outer_subtab", label_visibility="collapsed",
+        )
     else:
-        (audit_sub1,) = st.tabs([_("subtab_amazon_gaps")])
-        audit_sub2 = None
+        _active_outer = 0
 
-    with audit_sub1:
+    if _active_outer == 0:
         has_amazon_vat = any(getattr(r.sale,"amazon_vat_amount",Decimal("0"))>0 for r in results)
         if not has_amazon_vat:
             st.info(_("no_amazon_vat_info"))
@@ -181,7 +186,7 @@ def render_audit() -> None:
                 _ps = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
                                        value=250, key=f"page_size_{key_suffix}")
                 _n = len(_df_filt)
-                _lim = _n if _ps == _("rows_all") else int(_ps)
+                _lim = _resolve_display_limit(_ps, _n)
                 st.caption(_("results_count_caption", count=_n,
                              filtered=(_("results_filtered_tag") if _n < len(_df_full) else ''),
                              visible=min(_lim, _n)))
@@ -192,21 +197,28 @@ def render_audit() -> None:
                                        pct_cols=[_("col_rate_amz_pct"), _("col_rate_moteur_pct")])
                 _gated_preview_table(_df_page, _can_export, column_config=_cfg, total_count=_n)
 
-            sub1, sub2, sub3, sub4, sub5 = st.tabs([
+            # PERF (2026-09-03) : même rationnel que ci-dessus — st.tabs()
+            # exécutait les 5 sous-onglets (filtre + pagination + tableau)
+            # à chaque rerun. Remplacé par un sélecteur radio conditionnel.
+            _inner_labels = [
                 _("audit_tab_rate_gaps", count=len(ecarts_autres_tab)),
                 _("audit_tab_vies_risk", count=len(ecarts_vies_tab)),
                 _("audit_tab_uk", count=len(ecarts_gb_tab)),
                 _("audit_tab_art194", count=len(ecarts_b2b_dom_tab)),
                 _("audit_tab_missing_amz", count=len(ecarts_amz_manquante_tab)),
-            ])
-            with sub1:
+            ]
+            _active_inner = st.radio(
+                "", options=list(range(len(_inner_labels))), format_func=lambda i: _inner_labels[i],
+                horizontal=True, key="audit_active_inner_subtab", label_visibility="collapsed",
+            )
+            if _active_inner == 0:
                 if ecarts_autres_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_autres_tab)
                     st.error(_("audit_taux_error", count=len(ecarts_autres_tab), total=_fmt(total)))
                     _audit_df(ecarts_autres_tab, "audit_taux")
                 else:
                     st.success(_("audit_taux_success"))
-            with sub2:
+            if _active_inner == 1:
                 if not enable_vies: st.info(_("audit_vies_info"))
                 elif ecarts_vies_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_vies_tab)
@@ -214,14 +226,14 @@ def render_audit() -> None:
                     _audit_df(ecarts_vies_tab, "audit_vies")
                 else:
                     st.success(_("audit_vies_success"))
-            with sub3:
+            if _active_inner == 2:
                 st.caption(_("audit_uk_info"))
                 if ecarts_gb_tab:
                     st.metric(_("audit_uk_metric"), _fmt(sum(r[_lbl_gap] for r in ecarts_gb_tab)))
                     _audit_df(ecarts_gb_tab, "audit_gb")
                 else:
                     st.success(_("audit_uk_success"))
-            with sub4:
+            if _active_inner == 3:
                 st.caption(_("audit_art194_info"))
                 if ecarts_b2b_dom_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_b2b_dom_tab)
@@ -229,7 +241,7 @@ def render_audit() -> None:
                     _audit_df(ecarts_b2b_dom_tab, "audit_art194")
                 else:
                     st.success(_("audit_art194_success"))
-            with sub5:
+            if _active_inner == 4:
                 st.info(_("audit_manquante_info"))
                 if ecarts_amz_manquante_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_amz_manquante_tab)
@@ -277,7 +289,7 @@ def render_audit() -> None:
                 _ps_fc = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
                                           value=250, key="page_size_fba_transfers")
                 _n_fc = len(_df_fc_filt)
-                _lim_fc = _n_fc if _ps_fc == _("rows_all") else int(_ps_fc)
+                _lim_fc = _resolve_display_limit(_ps_fc, _n_fc)
                 st.caption(_("results_count_caption", count=_n_fc,
                              filtered=(_("results_filtered_tag") if _n_fc < len(_df_fc) else ''),
                              visible=min(_lim_fc, _n_fc)))
@@ -285,6 +297,5 @@ def render_audit() -> None:
         else:
             st.info(_("audit_fba_none"))
 
-    if audit_sub2 is not None:
-        with audit_sub2:
-            _render_fba_subtab()
+    if _is_detailed and _active_outer == 1:
+        _render_fba_subtab()

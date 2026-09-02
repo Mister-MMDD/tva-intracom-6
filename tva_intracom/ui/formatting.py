@@ -76,6 +76,29 @@ def _fec_period_end_date(period: str) -> str:
     return _today.strftime("%Y%m%d")
 
 
+# PERF/SÉCURITÉ (2026-09-03) : plafond appliqué à l'option "Tous" des
+# sélecteurs `rows_per_page_label` (detail_ventes.py, audit.py). Sans ce
+# plafond, un fichier de plusieurs dizaines/centaines de milliers de lignes
+# avec "Tous" sélectionné force `st.dataframe` à sérialiser l'intégralité
+# du tableau en JSON : le CPU serveur (vCPU partagé Streamlit Cloud) sature
+# le temps de la sérialisation, ET le navigateur du client peut geler en
+# tentant d'afficher un tableau de cette taille. Le compteur déjà affiché
+# par ailleurs (`results_count_caption`, "visible=X sur Y") continue de
+# signaler à l'utilisateur que l'affichage est borné ; au-delà, l'export
+# Excel (onglet Téléchargements) reste la voie recommandée pour consulter
+# l'intégralité des lignes.
+MAX_ROWS_ALL_DISPLAY = 5000
+
+
+def _resolve_display_limit(selected_option, filtered_count: int) -> int:
+    """Résout le nombre de lignes à afficher à partir de la valeur choisie
+    dans un `st.select_slider` "lignes par page" (voir MAX_ROWS_ALL_DISPLAY
+    ci-dessus pour le rationnel du plafond sur l'option "Tous")."""
+    if selected_option == _("rows_all"):
+        return min(filtered_count, MAX_ROWS_ALL_DISPLAY)
+    return int(selected_option)
+
+
 def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
     """Affiche une barre de filtres (Recherche, Destination, Scénario, Canal) 
     et retourne le DataFrame filtré. Utilisé uniformément sur tous les tableaux.

@@ -12,7 +12,7 @@ import streamlit as st
 from tva_intracom.i18n import _
 from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.ui.formatting import _fmt, _gated_preview_table, _smart_money_df, \
-    _render_filter_bar
+    _render_filter_bar, _resolve_display_limit
 from tva_intracom.ui.tabs.context import TabContext
 
 
@@ -181,10 +181,23 @@ def render_detail_ventes() -> None:
         "currency": _c_currency, "orig": _lbl_orig, "note": _c_note,
     }
 
-    sub_a, sub_b, sub_c, sub_d, sub_e = st.tabs([
+    # PERF (2026-09-03) : `st.tabs()` exécute le corps de TOUS ses onglets à
+    # chaque rerun du fragment, que l'utilisateur regarde ou non chaque
+    # sous-onglet (Streamlit envoie et sérialise les 5 tableaux à chaque
+    # passage, seul l'affichage est masqué côté client). Sur un fichier de
+    # plusieurs dizaines de milliers de lignes, chaque sous-onglet refait un
+    # tri + un filtrage + une pagination + une sérialisation de tableau —
+    # jusqu'à 5x le travail utile pour n'en afficher qu'un seul. Remplacé
+    # par un sélecteur radio + branches conditionnelles : seul le
+    # sous-onglet actif s'exécute désormais.
+    _subtab_labels = [
         _("subtab_what_you_owe"), _("subtab_exemptions"), _("subtab_managed_by_tiers"), _("subtab_row_by_row"),
         _("subtab_refunds", count=len(refund_results or [])),
-    ])
+    ]
+    _active_subtab = st.radio(
+        "", options=list(range(len(_subtab_labels))), format_func=lambda i: _subtab_labels[i],
+        horizontal=True, key="detail_ventes_active_subtab", label_visibility="collapsed",
+    )
 
     # Construction des DataFrames bruts (mise en cache par calc_key + devise,
     # voir _build_rows_df) : un seul passage O(n) sur `results` et un sur
@@ -198,7 +211,7 @@ def render_detail_ventes() -> None:
         _("sort_ht"): "HT"
     }
 
-    with sub_a:
+    if _active_subtab == 0:
         st.caption(_("what_you_owe_caption"))
         _your_raw = _sales_df_raw[(_sales_df_raw["collector"] == "SELLER") & (_sales_df_raw["vat"] > 0)]
         sort_yours_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_yours")
@@ -215,7 +228,7 @@ def render_detail_ventes() -> None:
         _ps_your = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
             value=250, key="page_size_your")
         _n_your = len(_your_df_filt)
-        _lim_your = _n_your if _ps_your == _("rows_all") else int(_ps_your)
+        _lim_your = _resolve_display_limit(_ps_your, _n_your)
         st.caption(_("results_count_caption", count=_n_your, filtered=(_("results_filtered_tag") if _n_your < len(_your_df_full) else ''), visible=min(_lim_your, _n_your)))
 
         _your_df = _your_df_filt.head(_lim_your).copy()
@@ -227,7 +240,7 @@ def render_detail_ventes() -> None:
         _gated_preview_table(_your_df, _can_export, column_config=_your_cfg, total_count=_n_your,
                              extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig])
 
-    with sub_b:
+    if _active_subtab == 1:
         st.caption(_("subtab_exemptions_caption"))
         # Exonérations : 
         # 1. Vendeur responsable mais TVA à 0 (ex: Export, ou option sous seuil)
@@ -250,7 +263,7 @@ def render_detail_ventes() -> None:
         _ps_exempt = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
             value=250, key="page_size_exempt")
         _n_exempt = len(_exempt_df_filt)
-        _lim_exempt = _n_exempt if _ps_exempt == _("rows_all") else int(_ps_exempt)
+        _lim_exempt = _resolve_display_limit(_ps_exempt, _n_exempt)
         st.caption(_("results_count_caption", count=_n_exempt, filtered=(_("results_filtered_tag") if _n_exempt < len(_exempt_df_full) else ''), visible=min(_lim_exempt, _n_exempt)))
 
         _exempt_df = _exempt_df_filt.head(_lim_exempt).copy()
@@ -261,7 +274,7 @@ def render_detail_ventes() -> None:
             existing_config=_orig_cfg)
         _gated_preview_table(_exempt_df, _can_export, column_config=_exempt_cfg, total_count=_n_exempt, lock_all=True)
 
-    with sub_c:
+    if _active_subtab == 2:
         st.caption(_("subtab_managed_by_tiers_caption"))
         st.info(_("subtab_managed_by_tiers_note"))
         # Géré par des tiers :
@@ -284,7 +297,7 @@ def render_detail_ventes() -> None:
             existing_config=_orig_cfg)
         _gated_preview_table(_third_df, _can_export, column_config=_third_cfg, total_count=len(_third_df_filt))
 
-    with sub_d:
+    if _active_subtab == 3:
         st.caption(_("subtab_row_by_row_caption"))
         sort_all_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_all")
         sort_all = _sort_opts[sort_all_lbl]
@@ -301,7 +314,7 @@ def render_detail_ventes() -> None:
         _page_size_all = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
             value=250, key="page_size_all")
         _n_all = len(_all_df_filt)
-        _limit_all = _n_all if _page_size_all == _("rows_all") else int(_page_size_all)
+        _limit_all = _resolve_display_limit(_page_size_all, _n_all)
         st.caption(_("results_count_caption", count=_n_all, filtered=(_("results_filtered_tag") if _n_all < len(_all_df_full) else ''), visible=min(_limit_all, _n_all)))
 
         _all_df_page = _all_df_filt.head(_limit_all).copy()
@@ -313,7 +326,7 @@ def render_detail_ventes() -> None:
         _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg, total_count=_n_all,
                              extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig])
 
-    with sub_e:
+    if _active_subtab == 4:
         if not refund_results:
             st.info(_("no_refunds_info"))
         else:
