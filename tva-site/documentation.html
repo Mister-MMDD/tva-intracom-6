@@ -42,12 +42,11 @@
     <div class="card alert" style="margin-bottom: 30px;">
         <h2>Checklist de Conformité</h2>
         <ul style="list-style-type: '✅ ';">
+            <li>Compléter l'<strong>Onboarding Lighthouse</strong> pour configurer votre fiche entreprise.</li>
             <li>Vérifier la validité des numéros TVA B2B via l'onglet <strong>VIES</strong>.</li>
             <li>S'assurer que le <strong>Pays de Siège</strong> est correctement configuré.</li>
             <li>Vérifier les alertes de <strong>Stock FBA</strong> pour les immatriculations locales.</li>
-            <li>Vérifier les <strong>taux de change BCE</strong> de clôture pour l'OSS (Règl. 2020/194).</li>
             <li>Réconcilier le <strong>CA HT Net</strong> avec votre comptabilité via l'export FEC.</li>
-            <li>Télécharger et conserver le <strong>Rapport Principal Excel</strong> pour chaque période.</li>
         </ul>
     </div>
 
@@ -104,13 +103,19 @@ tva-intracom/
 │   │   ├── shopify.py                Parser Shopify
 │   │   └── woocommerce.py            Parser WooCommerce
 │   ├── ui/                           Interface Streamlit modulaire
-│   │   ├── tabs/                     Modules d'onglets (OSS, Ventes, VIES...)
-│   │   ├── theme.py                  Thème et CSS
-│   │   ├── formatting.py             Helpers d'affichage
+│   │   ├── admin.py                  Gestion des rôles et organisation
 │   │   ├── auth_flow.py              Flux d'authentification UI
+│   │   ├── background_calc.py        Calculs longs et file d'attente (MAX=1)
+│   │   ├── billing_gate.py           Gating de facturation et quotas
+│   │   ├── calc_cache.py             State management (CalcCacheState)
+│   │   ├── display_mode.py           Mode Simple / Détaillé global
+│   │   ├── files.py                  Cache compressé des uploads (MD5)
+│   │   ├── formatting.py             Helpers d'affichage et conversion
+│   │   ├── onboarding.py             Stepper guidé Lighthouse CSS
+│   │   ├── rerun_utils.py            Gestion des st.rerun()
 │   │   ├── sidebar.py                Barre latérale de configuration
-│   │   ├── billing_gate.py           Gating de facturation
-│   │   └── background_calc.py        Calculs longs en thread séparé
+│   │   ├── theme.py                  Thème et CSS adaptatif
+│   │   └── tabs/                     Modules d'onglets (OSS, Ventes, VIES...)
 │   ├── amazon_adapter.py             Passerelle de compatibilité modèles
 │   ├── auth_supabase.py              Authentification Supabase Auth
 │   ├── billing.py                    Facturation Stripe et quotas SIREN
@@ -146,7 +151,7 @@ tva-intracom/
                         </tr>
                         <tr>
                             <td style="padding: 8px; border: 1px solid #ddd;"><strong>DOMESTIC</strong></td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Stock et acheteur dans le même pays UE (ou B2B art. 194).</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Stock et acheteur dans le même pays UE (y compris <strong>Monaco</strong>).</td>
                             <td style="padding: 8px; border: 1px solid #ddd;">TVA locale du pays.</td>
                         </tr>
                         <tr>
@@ -197,7 +202,7 @@ tva-intracom/
                 <h3 style="margin-top: 20px;">Roadmap</h3>
                 <ul style="font-size: 0.9rem;">
                     <li>⏳ Intégration directe EDI-TVA (Télédéclaration automatique Cerfa).</li>
-                    <li>🔄 Amélioration des corrections OSS pour les avoirs complexes.</li>
+                    <li>📄 Export XML IOSS officiel (Import Scheme).</li>
                 </ul>
             </div>
             <button class="toggle-button">Afficher les spécifications complètes</button>

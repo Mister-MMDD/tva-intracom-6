@@ -49,8 +49,20 @@
             <p>Nous utilisons exclusivement les API gouvernementales : <strong>VIES</strong> (Commission Européenne) pour la TVA et <strong>SDW</strong> (Banque Centrale Européenne) pour les taux de change.</p>
         </div>
         <div class="card">
-            <h3>🔐 Chiffrement AES-128</h3>
-            <p>Toutes les données persistantes (SIREN, Emails) sont chiffrées au niveau applicatif avant d'être écrites sur le disque, rendant toute fuite de données inexploitable.</p>
+            <h3>🔐 Chiffrement Fail-Safe</h3>
+            <p>Données sensibles (SIREN, IOSS) chiffrées au repos (Fernet AES-128) avec mécanisme interdisant tout traitement si la clé est absente.</p>
+        </div>
+        <div class="card">
+            <h3>👥 Gestion d'Organisation</h3>
+            <p>Partage de l'abonnement et des SIREN par domaine professionnel (org_id). Distinction stricte entre rôles <strong>Admin</strong> et <strong>Lecteur</strong>.</p>
+        </div>
+        <div class="card">
+            <h3>🆔 Auth Supabase + PKCE</h3>
+            <p>Authentification déléguée à Supabase Auth via flux PKCE sécurisé (OAuth Google, Microsoft, Amazon), sans jetons sensibles dans l'URL.</p>
+        </div>
+        <div class="card">
+            <h3>🛡️ Protection des Données</h3>
+            <p>Pseudonymisation SHA-256 salée pour l'historique VIES et verrous avisés PostgreSQL pour garantir l'intégrité des quotas.</p>
         </div>
         <div class="card">
             <h3>📦 Conformité Amazon DPP</h3>

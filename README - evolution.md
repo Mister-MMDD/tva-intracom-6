@@ -6650,20 +6650,24 @@ ou polling — traduction statique chargée via `lru_cache` existant).
 retirée du tracker.** Section "Internationalisation (i18n)" du tracker
 vide pour le moment.
 
-## 2026-09-03 — Audit externe CPU/rendu (13 points au total) : fragments st.tabs, run_every, plafond d'affichage, boucles O(n) mémoïsées, cache VAT, arrondi Plotly, dtype category
+## 2026-09-03 — Audit externe CPU/rendu (14 points au total) : fragments st.tabs, run_every, plafond d'affichage, boucles O(n) mémoïsées, cache VAT (x2), arrondi Plotly, dtype category
 
-Suite de deux audits externes successifs (proposition libre + relecture des
-logs d'un rerun réel) portant sur le temps de rendu perçu et la charge CPU
-sur le vCPU partagé de Streamlit Community Cloud. 13 points examinés au
-total, chacun vérifié sur le code réel avant décision (jamais par
-déduction) — 8 traités, 2 déjà faits, 1 abandonné après chiffrage
-risque/gain, 2 jugés hors sujet ou à impact négligeable.
+Suite de trois audits externes successifs (proposition libre → relecture des
+logs d'un rerun réel → nouvelle recherche libre de pistes CPU
+additionnelles) portant sur le temps de rendu perçu et la charge CPU sur le
+vCPU partagé de Streamlit Community Cloud. 14 points examinés au total,
+chacun vérifié sur le code réel avant décision (jamais par déduction) — 9
+traités, 2 déjà faits, 1 abandonné après chiffrage risque/gain, 2 jugés
+hors sujet ou à impact négligeable.
 
 **Fichiers vérifiés** : `app.py`, `billing_gate.py`, `background_calc.py`,
 `formatting.py`, `detail_ventes.py`, `audit.py`, `visualisations.py`,
 `vies_engine.py`, `historical_rates_widget.py`, `engine.py` (`_note`),
 `i18n/i18n.py`, `models.py`, `report.py`, `ecb_rates.py`,
-`parsers/amazon/loader.py`.
+`parsers/amazon/loader.py`, `parsers/amazon/classify.py`,
+`parsers/amazon/aggregate.py`, `excel_report.py`, `oss_export.py`,
+`oss_xml.py`, `sidebar.py`, plus une recherche automatisée de boucles
+imbriquées (candidats O(n²)) sur tout `tva_intracom/`.
 
 ### Traités
 
@@ -6744,6 +6748,27 @@ principe que le cache déjà en place dans `audit.py`
     session_state quand fourni ; comportement inchangé (toujours recalculé)
     si omis. Appel dans `app.py` mis à jour pour passer `_cache_key`.
 
+**9. `lru_cache` sur `_normalize_vat_id`/`_clean_vat_number` (`vies_engine.py`)
+— trouvé lors d'un 3e passage de recherche libre.** Distinctes de
+`normalize_full_vat` (point 4, appelée plus tard au moment du calcul TVA),
+ces deux fonctions pures sont appelées PENDANT LE PARSING, une fois par
+ligne B2B, via `parsers/amazon/classify.py::classify_buyer()`. Même
+rationnel que le point 4 : sur un fichier avec des clients B2B récurrents,
+le même numéro de TVA brut revient sur plusieurs commandes. `lru_cache
+(maxsize=4096)` ajouté sur les deux (`_normalize_vat_id` appelle
+`_clean_vat_number`, donc double bénéfice en cascade). `_clean_vat_number`
+est également appelée directement à 2 autres endroits de ce fichier
+(`validate_vat_numbers_bulk`, `force_revalidate`) — bénéficient du même
+coup, sans risque (fonction pure à un seul argument, les exceptions
+`ValueError` levées sur numéro trop court ne sont de toute façon jamais
+mises en cache par `lru_cache`).
+
+Note annexe (aucune action) : `excel_report.py::_write_vies_history_tab`
+contient un cache local `_norm_cache` ajouté manuellement avant ce point 9
+pour pallier l'absence de cache sur `normalize_full_vat`. Il est désormais
+redondant (la fonction se cache déjà elle-même depuis le point 4) mais
+totalement inoffensif — laissé tel quel pour limiter le diff.
+
 ### Évalué et abandonné
 
 **3. `lru_cache` sur `i18n.get_text()` — abandonné après chiffrage
@@ -6796,7 +6821,23 @@ tous deux bornés à un très petit nombre de lignes (aperçu bridé ≤20 ligne
 ou récap par pays de quelques dizaines de lignes max), jamais appliqués sur
 un gros volume ; les `sort_values()` de `detail_ventes.py` sont inhérents à
 l'interaction utilisateur (tri demandé) et déjà réduits à un seul
-sous-onglet actif par le point 1 ci-dessus.
+sous-onglet actif par le point 1 ci-dessus ; `parsers/amazon/aggregate.py`
+(`preaggregate_v5`) — déjà optimisé (un seul passage sur les lignes brutes,
+accumulation de 9 totaux en même temps plutôt que 9 `sum()` séparés,
+libération mémoire progressive via `dict.pop()`) ; recherche automatisée de
+boucles imbriquées (candidats O(n²)) sur tout `tva_intracom/` — toutes les
+occurrences trouvées (`ecb_rates.py`, `excel_report.py`, `oss_export.py`,
+`oss_xml.py`, `declarations.py`, `sidebar.py`, `billing.py`,
+`historical_rates_widget.py`) portent sur des structures déjà agrégées
+(pays × taux × devise, quelques dizaines d'entrées), aucune sur les lignes
+de vente brutes ; `sidebar.py` (rendu à chaque rerun, tout onglet confondu)
+— les lectures Postgres répétées sont déjà protégées par un cache TTL de
+20s (`_cached_db_read`), et il s'agit d'I/O réseau, pas de calcul CPU ;
+`excel_report.py`/`oss_export.py` (génération des exports Excel/XML) —
+plusieurs passages sur `results` constatés, mais déclenchés uniquement au
+clic utilisateur sur export (pas à chaque rerun) et l'utilisateur s'attend
+à un temps de traitement à ce moment-là — priorité jugée plus faible que
+les boucles déclenchées à chaque rerun, non retouché cette session.
 
 **Validation** : `py_compile` + `pyflakes` propres sur tous les fichiers
 modifiés (`app.py`, `billing_gate.py`, `background_calc.py`,
@@ -6804,11 +6845,11 @@ modifiés (`app.py`, `billing_gate.py`, `background_calc.py`,
 `vies_engine.py`, `historical_rates_widget.py`). Symétrie i18n
 programmatique confirmée à chaque étape (1217 → 1218 clés × 7 langues,
 seule variation : ajout de `subtab_selector_label` au point 1). Suite
-`pytest` complète : **230 passed / 3 failed** à chaque étape — baseline
-inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en
-sandbox).
+`pytest` complète : **230 passed / 3 failed** à chaque étape (y compris
+après le point 9 ajouté lors du 3e passage) — baseline inchangée (échecs
+pré-existants liés à l'absence de `SUPABASE_DB_URL` en sandbox).
 
-Railway / scale-to-zero : aucun impact sur aucun des 8 points traités —
+Railway / scale-to-zero : aucun impact sur aucun des 9 points traités —
 uniquement du calcul pur, de la mémoïsation `session_state` (déjà utilisée
 ailleurs dans le projet) et des changements de fréquence de polling
 (`run_every`), aucun nouveau thread, connexion persistante ou mécanisme de
