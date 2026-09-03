@@ -19,7 +19,7 @@ en France opérant sur des places de marché (Amazon FBA, formats 1 à 5).
 
 | Scénario | Situation | Règle appliquée | Qui collecte | Canal |
 |---|---|---|---|---|
-| **DOMESTIC** | Stock et acheteur dans le même pays UE **ou** B2B cross-border avec n° TVA acheteur invalide vers un pays couvert par l'art. 194 (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV) | TVA locale du pays (départ si cross-border) | Vendeur | CA3 (FR) ou immatriculation locale |
+| **DOMESTIC** | Stock et acheteur dans le même pays UE (y compris **Monaco**) **ou** B2B cross-border avec n° TVA acheteur invalide vers un pays couvert par l'art. 194 (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV) | TVA locale du pays (départ si cross-border) | Vendeur | CA3 (FR) ou immatriculation locale |
 | **OSS_B2C** | B2C intra-UE transfrontalier, stock EU, acheteur EU différent **ou** B2B cross-border avec n° TVA acheteur invalide vers un pays non couvert par l'art. 194 (reclassifiée B2C) | TVA du pays de **destination** | Vendeur | Guichet **OSS** (déclaré en France) |
 | **DEEMED_SUPPLIER** | Vendeur hors UE, ou import ≤ 150 € marketplace B2C | Amazon collecte et reverse | **Amazon** | EXONERATION (collecté par tiers) |
 | **B2B_REVERSE_CHARGE** | B2B intra-UE avec n° TVA VIES valide | Exonération, autoliquidation acheteur | Acheteur | EXONERATION (autoliquidation) |
@@ -119,30 +119,30 @@ tva-intracom/
 │   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
 │   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
 │   │   ├── __init__.py
-│   │   ├── theme.py                  Configuration de page + CSS de marque (apply_theme())
-│   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
-│   │   │                             _gated_preview_table, _fec_period_end_date…)
+│   │   ├── admin.py                  Gestion des rôles et organisation (admin/lecteur).
 │   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth
 │   │   │                             (Google/Microsoft/GitHub/Amazon) via Supabase Auth,
-│   │   │                             cookie de session, callback OAuth Amazon SP-API
-│   │   │                             (liaison de compte, distincte du login Amazon), écran
-│   │   │                             de connexion/déconnexion. Lien magique conservé dans le
-│   │   │                             code mais désactivé côté UI ("en préparation").
+│   │   │                             cookie de session, callback OAuth Amazon SP-API.
+│   │   ├── background_calc.py        Exécution des calculs longs avec file d'attente FIFO (MAX=1).
+│   │   ├── billing_gate.py           Gating crédit PAYG/abonnement/quota SIREN/conformité TVA-IOSS.
+│   │   ├── calc_cache.py             Centralisation du state management des calculs (CalcCacheState).
+│   │   ├── display_mode.py           Gestion globale du mode d'affichage Simple / Détaillé.
+│   │   ├── files.py                  Cache compressé des fichiers uploadés (compression gzip).
+│   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
+│   │   │                             _gated_preview_table, _fec_period_end_date…)
+│   │   ├── onboarding.py             Stepper guidé d'onboarding (Lighthouse CSS).
 │   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
-│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, catalogue produits,
-│   │   │                             abonnements & forfaits Stripe)
-│   │   ├── billing_gate.py           Détection de période, gating crédit PAYG/abonnement/quota
-│   │   │                             SIREN/conformité TVA-IOSS, téléchargements gatés
-│   │   ├── background_calc.py        Exécution des calculs longs en thread séparé avec suivi de progression (st.fragment).
+│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, Facturation Stripe)
+│   │   ├── theme.py                  Configuration de page + CSS de marque adaptatif.
 │   │   └── tabs/                     Un module par onglet de l'app, tous consommant un TabContext
 │   │       ├── __init__.py
 │   │       ├── context.py            TabContext — état partagé construit une fois avant les onglets
-│   │       ├── declarations.py       Onglet "💶 Déclarations"
-│   │       ├── detail_ventes.py      Onglet "📋 Détail ventes"
-│   │       ├── vies_ui.py            Onglet "🛡️ VIES"
-│   │       ├── audit.py              Onglet "🔬 Audit Amazon"
-│   │       ├── telechargements.py    Onglet "📥 Téléchargements"
-│   │       └── visualisations.py     Onglet "📊 Visualisations"
+│   │       ├── declarations.py       Onglet "💶 Déclarations" (Rendu optimisé)
+│   │       ├── detail_ventes.py      Onglet "📋 Détail ventes" (Rendu conditionnel)
+│   │       ├── vies_ui.py            Onglet "🛡️ VIES" (Fragments)
+│   │       ├── audit.py              Onglet "🔬 Audit Amazon" (Rendu conditionnel)
+│   │       ├── telechargements.py    Onglet "📥 Téléchargements" (Caches)
+│   │       └── visualisations.py     Onglet "📊 Visualisations" (JSON Plotly arrondi)
 │   
 ├── vercel_webhook/
 │   └── api/
@@ -193,6 +193,27 @@ tva-intracom/
 
 ---
 
+## Architecture de l'interface Streamlit (`tva_intracom/ui/`)
+
+Chaque module reprend une partie logique de l'interface, isolé et paramétré par un objet de contexte.
+
+| Module | Rôle |
+|---|---|
+| `ui/admin.py` | Gestion des rôles admin/lecteur et de la whitelist d'organisation. |
+| `ui/auth_flow.py` | Authentification complète via Supabase Auth (mot de passe, OAuth, PKCE, cookie de session). |
+| `ui/background_calc.py` | Exécution des calculs longs en thread séparé avec file d'attente FIFO. |
+| `ui/billing_gate.py` | Détection de période et gating des téléchargements (PAYG, abonnements, quotas). |
+| `ui/calc_cache.py` | Centralisation de l'état du cache de calcul (CalcCacheState). |
+| `ui/display_mode.py` | Gestion globale du mode d'affichage Simple / Détaillé. |
+| `ui/files.py` | Gestion du cache des fichiers uploadés (compression gzip, signatures MD5). |
+| `ui/formatting.py` | Helpers d'affichage partagés et conversion vers la devise d'affichage UI. |
+| `ui/onboarding.py` | Stepper guidé d'onboarding avec guidage visuel "Lighthouse". |
+| `ui/sidebar.py` | Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe). |
+| `ui/theme.py` | Configuration de page et injection du CSS de marque (Design System). |
+| `ui/tabs/` | Un module par onglet de l'application (Declarations, VIES, Audit, etc.). |
+
+---
+
 ## Pays d'origine du compte (`home_country`)
 
 Réglage **global au compte** (pas par SIREN — contrairement à l'IOSS ou au mode
@@ -215,9 +236,11 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
     - **Pay-as-you-go** : Déblocage par période fiscale.
     - **Pro** : Abonnement illimité pour 1 SIREN client par compte.
     - **Cabinet** : Abonnement multi-SIREN avec tarif dégressif Stripe (tiered pricing).
-- **Quotas & Profils SIREN** : Mémorisation des paramètres par SIREN (IOSS, DDP, seuil OSS, pays d'immatriculation). Rattachement anti-abus Compte Amazon <-> SIREN pour limiter l'usage détourné.
+- **Quotas & Profils SIREN** : Mémorisation des paramètres par SIREN (IOSS, DDP, seuil OSS, pays d'immatriculation). **Rattachement anti-abus Compte Amazon <-> SIREN** pour limiter l'usage détourné.
 - **Contenu gratuit limité** : Aperçu bridé des résultats (10 premières lignes ou 15%, montants et scénarios verrouillés) tant que la période n'est pas débloquée.
 - **Base de données partagée** : Postgres (Supabase) centralisé, compatible scale-to-zero, utilisé par Streamlit et les webhooks Vercel.
+- **Webhooks Stripe** : Déployés sur Vercel serverless, gèrent l'activation instantanée des abonnements et des crédits.
+
 
 ---
 
@@ -361,18 +384,24 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 ## Optimisations de performance & UX (Mises à jour récentes)
 
 ### Performance & Réactivité
+- **Optimisations CPU (Audit 09/2026)** :
+  - Remplacement de `st.tabs` par des sélecteurs radio conditionnels pour n'exécuter que l'onglet actif (gain massif sur le vCPU partagé).
+  - Mémoïsation des boucles O(n) du thread principal via `calc_key` (KPIs, alertes, devises).
+  - Utilisation de `lru_cache` sur la normalisation VIES et interning des chaînes répétitives (`sys.intern`).
+  - Arrondi des données Plotly pour une sérialisation JSON plus légère vers le navigateur.
 - **File d'attente (Gros uploads)** : Slot unique tenu du début du parsing jusqu'à la fin du calcul pour les fichiers volumineux (> 10 Mo). Inclut un timeout de réservation sécurisé (45s) et une réincrémentation défensive du compteur de slots.
 - **Respiration CPU** : Points de respiration (`time.sleep(0)`) dans `_process_rows` et `_run_oss_loop` pour garantir la fluidité de l'interface sur vCPU partagé.
 - **Optimisation de la RAM** : String Interning (ASIN, TVA, pays) et gestion fine des caches (suppression des `cache_clear()` globaux impactant les autres sessions).
 - **Fragments Streamlit** : Utilisation intensive de `@st.fragment` pour isoler le rendu et éviter les reruns complets lors d'interactions locales.
 - **Cache intelligent** : Mise en cache des parsers, du catalogue et des exports via signatures MD5 (128 Ko start/end).
+- **Réactivité post-paiement** : Rafraîchissement instantané du statut d'abonnement lors du retour de Checkout Stripe (via `export_ok=1`) pour supprimer la latence du cache.
 
 ### UX & Fiabilité
+- **Onboarding Lighthouse** : Guidage visuel par pulsations CSS vers les sections requises pour la configuration (Entreprise, TVA, Upload).
 - **Réactivité post-paiement** : Rafraîchissement instantané du statut d'abonnement lors du retour de Checkout Stripe (via `export_ok=1`) pour supprimer le délai de latence du cache (60s).
 - **Résilience de la barre latérale** : Isolation des pannes transitoires (lecture de l'historique de crédits) pour garantir l'accès permanent aux options d'abonnement et de paiement.
 - **Mode Simple / Détaillé** : Bascule d'affichage globale et persistante par compte pour simplifier l'interface ou accéder aux détails d'audit.
 - **Barre de statut persistante** : Affichage constant du nombre de fichiers chargés, de la période détectée et de l'état du calcul.
-- **Onboarding guidé** : Checklist interactive avec guidage visuel "Lighthouse" pour la configuration initiale (SIREN, TVA, IOSS, premier upload).
 - **Boucle de ré-essai VIES automatique** : Revérification en arrière-plan des numéros inconclusifs (erreurs serveur transitoires) après chaque calcul.
 - **Gestion de la confidentialité** : Sortie des paramètres sensibles vers une modale dédiée (`st.dialog`).
 - **Persistance multilingue** : Interface et exports localisés en 7 langues (FR, EN, DE, ES, IT, PL, PT).
@@ -386,8 +415,10 @@ Audit réglementaire et structurel exhaustif (moteur fiscal, sécurité, exports
 - **IOSS_DIRECT vs DEEMED_SUPPLIER** : Le comportement par défaut devient `DEEMED_SUPPLIER` (Amazon redevable), `IOSS_DIRECT` est désormais un choix explicite via toggle.
 - **Monaco** : Traitement des ventes et stocks à Monaco comme des ventes domestiques françaises (Convention fiscale franco-monégasque du 18/05/1963).
 - **Ligne 18 CA3 (Monaco)** : Remplissage de la ligne mémo dédiée (case 0038) sur le Cerfa 3310-CA3-SD.
-- **Séparation OSS et IOSS** : Agrégations et exports distincts pour les deux régimes (mensuel pour l'IOSS, trimestriel pour l'OSS).
-- **Audit exhaustif du code** : Revue intégrale ligne à ligne des modules critiques (`sidebar.py`, `excel_report.py`, `billing.py`, `engine.py`, etc.) pour garantir la robustesse structurelle et la cohérence des flux de données.
+- **Gestion d'Organisation** : Partage de l'abonnement et des SIREN par domaine e-mail professionnel (`org_id`) avec rôles Admin/Lecteur.
+- **Concurrence & Verrous** : Utilisation de verrous avisés Postgres (`pg_advisory_xact_lock`) pour sécuriser les quotas SIREN et le verrouillage d'organisation.
+- **Optimisations CPU** : Migration vers un rendu conditionnel des onglets et mémoïsation intensive des scans O(n) pour fluidifier l'interface sur vCPU partagé.
+- **Audit exhaustif du code** : Revue intégrale ligne à ligne des modules critiques pour garantir la robustesse structurelle et la cohérence des flux de données.
 - **Traçabilité & Monitoring** : Instrumentation renforcée des échecs d'API tiers (Stripe) et des flux de calculs longs pour un diagnostic rapide en production.
 
 ---
