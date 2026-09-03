@@ -252,6 +252,7 @@ tab_downloads = "📥 Do pobrania"
 tab_visualizations = "📈 Wizualizacje"
 
 # Sales Detail Sub-tabs
+subtab_selector_label = "Wybór podzakładki"
 subtab_what_you_owe = "💸 Co jesteś winien"
 subtab_exemptions = "🛡️ Zwolnienie"
 subtab_exemptions_caption = "Sprzedaż, za którą jesteś odpowiedzialny, ale która jest zwolniona z VAT (eksport, wewnątrzwspólnotowe B2B itp.)."

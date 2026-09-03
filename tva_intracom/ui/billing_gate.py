@@ -337,7 +337,20 @@ def build_billing_gate(
     """Exécute tout le gating (période, crédit/abonnement, quota SIREN,
     conformité TVA/IOSS) et retourne un BillingGate prêt à l'emploi.
     """
-    period_label, period_detected_range = detect_period_label(results, oss_period)
+    # PERF (2026-09-03, voir README - évolution.md) : `detect_period_label`
+    # rescannait `results` (min/max des dates) à chaque rerun, même quand ni
+    # `results` ni `oss_period` n'avaient changé. Mémoïsé par `(cache_key,
+    # oss_period)` — `cache_key` était reçu en paramètre mais jusqu'ici
+    # jamais exploité (voir note historique juste en dessous).
+    _PERIOD_CACHE_KEY_SS = "_period_label_cache_key"
+    _PERIOD_CACHE_VAL_SS = "_period_label_cache_val"
+    _period_cache_key = (cache_key, oss_period)
+    if st.session_state.get(_PERIOD_CACHE_KEY_SS) != _period_cache_key:
+        period_label, period_detected_range = detect_period_label(results, oss_period)
+        st.session_state[_PERIOD_CACHE_KEY_SS] = _period_cache_key
+        st.session_state[_PERIOD_CACHE_VAL_SS] = (period_label, period_detected_range)
+    else:
+        period_label, period_detected_range = st.session_state[_PERIOD_CACHE_VAL_SS]
     st.session_state["_period_label"] = period_label
 
     # NOTE (correctif) : ce bloc forçait auparavant un st.rerun() complet dès

@@ -65,17 +65,39 @@ def _sale_dates_by_country_category(
     return out
 
 
-def render_historical_rates_alert(results: List[VatResult]) -> None:
+def render_historical_rates_alert(results: List[VatResult], calc_key=None) -> None:
     """Affiche l'encart taux historiques si et seulement si des ventes sont
     concernées par un changement de taux dans la période couverte par le fichier.
 
     Ne fait rien si aucun pays avec historique n'est présent dans les données.
+
+    `calc_key` (optionnel, rétrocompatible) : PERF (2026-09-03, voir README -
+    évolution.md) — `_countries_with_sales`/`_sale_dates_by_country_category`
+    scannaient tout `results` (avec un parsing de date par ligne, deux fois)
+    à CHAQUE rerun où le mode détaillé est actif, jamais mis en cache par
+    calc_key contrairement au reste du pipeline. Si `calc_key` est fourni,
+    les deux dicts (immuables, fonction pure de `results`) sont mémoïsés en
+    session_state et ne sont recalculés que quand `calc_key` change — même
+    pattern que les autres mémoïsations de app.py/billing_gate.py. Si omis,
+    comportement inchangé (toujours recalculé), pour ne pas casser d'appelant
+    existant qui ne dispose pas encore d'un calc_key à ce stade.
     """
     if not results:
         return
 
-    countries_dates = _countries_with_sales(results)
-    dates_by_country_category = _sale_dates_by_country_category(results)
+    if calc_key is not None:
+        _HIST_CACHE_KEY_SS = "_historical_rates_cache_key"
+        _HIST_CACHE_VAL_SS = "_historical_rates_cache_val"
+        if st.session_state.get(_HIST_CACHE_KEY_SS) != calc_key:
+            countries_dates = _countries_with_sales(results)
+            dates_by_country_category = _sale_dates_by_country_category(results)
+            st.session_state[_HIST_CACHE_KEY_SS] = calc_key
+            st.session_state[_HIST_CACHE_VAL_SS] = (countries_dates, dates_by_country_category)
+        else:
+            countries_dates, dates_by_country_category = st.session_state[_HIST_CACHE_VAL_SS]
+    else:
+        countries_dates = _countries_with_sales(results)
+        dates_by_country_category = _sale_dates_by_country_category(results)
 
     # Candidats bruts : pays présents dans les données ET ayant au moins une
     # entrée d'historique, TOUTES catégories confondues (STANDARD, FOOD,

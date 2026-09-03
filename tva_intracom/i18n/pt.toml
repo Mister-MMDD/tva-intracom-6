@@ -252,6 +252,7 @@ tab_downloads = "📥 Downloads"
 tab_visualizations = "📈 Visualizações"
 
 # Sales Detail Sub-tabs
+subtab_selector_label = "Seleção da subaba"
 subtab_what_you_owe = "💸 O que deve"
 subtab_exemptions = "🛡️ Isenção"
 subtab_exemptions_caption = "Vendas pelas quais é responsável, mas que estão isentas de IVA (Exportação, B2B intracomunitário, etc.)."

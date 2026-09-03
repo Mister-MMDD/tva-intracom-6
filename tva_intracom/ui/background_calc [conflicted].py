@@ -151,7 +151,8 @@ _reserved_at: dict[str, float] = {}
 # devant vous" simultané constaté par Matthieu) : 15s s'est révélé trop court
 # précisément dans le scénario que ce timeout est censé couvrir. Séquence
 # identifiée : la réservation est posée par le FRAGMENT de file d'attente
-# (thread de script, tick ~0,6s), mais le démarrage réel du thread de calcul
+# (thread de script, tick ~1,5s depuis le correctif perf du 2026-09-03,
+# ~0,6s à l'origine), mais le démarrage réel du thread de calcul
 # (start_background_job, appelé depuis app.py) n'a lieu qu'au PROCHAIN rerun
 # complet de CETTE session — qui peut être retardé de bien plus de 15s sous
 # la contention CPU même que la file existe pour absorber (1 vCPU partagé,
@@ -170,7 +171,7 @@ _RESERVATION_TIMEOUT_S = 45.0
 # thread Streamlit de l'utilisateur ayant terminé de démarrer le rendu des
 # résultats (graphiques, tableaux) avant que le slot ne soit repris par le
 # job suivant, évitant une compétition CPU/RAM immédiate.
-_POST_CALC_SLOT_HOLD_S = 12.0
+_POST_CALC_SLOT_HOLD_S = 5.0
 
 
 def _reap_stale_reservations_locked() -> None:
@@ -513,12 +514,19 @@ def is_job_done(job_id: str) -> bool:
         return state.done
 
 
-@st.fragment(run_every=0.4)
+@st.fragment(run_every=1.2)
 def render_job_progress(job_id: str, label: str) -> None:
-    """Barre de progression qui se rafraîchit toute seule (0,4s) tant que le
+    """Barre de progression qui se rafraîchit toute seule (1,2s) tant que le
     job tourne, sans bloquer ni rafraîchir le reste de la page. Une fois le
     job terminé, déclenche un rerun complet (hors fragment) pour que le
     script principal aille lire `get_job_state(job_id).result`.
+
+    PERF (2026-09-03) : passé de 0,4s à 1,2s. Sur le vCPU partagé de
+    Streamlit Cloud, ce polling entrait en contention avec le thread de
+    calcul lui-même (voir README - évolution.md) ; une barre de progression
+    n'a pas besoin d'être fluide à 2,5 FPS, et libérer ces cycles CPU
+    pendant les calculs longs (le moment où le CPU est justement le plus
+    sollicité) est le vrai bénéfice.
 
     BUGFIX 2026-08-28 (voir README - évolution.md) : `label` (le message
     statique initial, ex. "Interrogation VIES...") restait auparavant
@@ -588,7 +596,7 @@ def render_job_progress(job_id: str, label: str) -> None:
     st.caption(f"🕓 dernier tick serveur : {datetime.now().strftime('%H:%M:%S')} (sid={_sid()})")
 
 
-@st.fragment(run_every=0.6)
+@st.fragment(run_every=1.5)
 def render_queue_status(job_id: str, lang: str) -> None:
     """Affiche la position d'attente d'un job pas encore démarré (plafond
     MAX_CONCURRENT_BIG_JOBS atteint, voir reserve_or_enqueue) et retente

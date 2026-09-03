@@ -6649,3 +6649,171 @@ ou polling — traduction statique chargée via `lru_cache` existant).
 **Entrée #12 de `optimisations_en_attente.md` intégralement traitée et
 retirée du tracker.** Section "Internationalisation (i18n)" du tracker
 vide pour le moment.
+
+## 2026-09-03 — Audit externe CPU/rendu (13 points au total) : fragments st.tabs, run_every, plafond d'affichage, boucles O(n) mémoïsées, cache VAT, arrondi Plotly, dtype category
+
+Suite de deux audits externes successifs (proposition libre + relecture des
+logs d'un rerun réel) portant sur le temps de rendu perçu et la charge CPU
+sur le vCPU partagé de Streamlit Community Cloud. 13 points examinés au
+total, chacun vérifié sur le code réel avant décision (jamais par
+déduction) — 8 traités, 2 déjà faits, 1 abandonné après chiffrage
+risque/gain, 2 jugés hors sujet ou à impact négligeable.
+
+**Fichiers vérifiés** : `app.py`, `billing_gate.py`, `background_calc.py`,
+`formatting.py`, `detail_ventes.py`, `audit.py`, `visualisations.py`,
+`vies_engine.py`, `historical_rates_widget.py`, `engine.py` (`_note`),
+`i18n/i18n.py`, `models.py`, `report.py`, `ecb_rates.py`,
+`parsers/amazon/loader.py`.
+
+### Traités
+
+**1. `st.tabs()` remplacé par sélecteur radio conditionnel (`detail_ventes.py`,
+`audit.py`).** `st.tabs()` exécute le corps de TOUS ses onglets à chaque
+rerun du fragment (tri + filtre + pagination + sérialisation de tableau),
+même pour les onglets non visibles à l'écran — jusqu'à 5x le travail utile
+pour n'en afficher qu'un. Remplacé par `st.radio(..., label_visibility=
+"collapsed")` + branches `if _active_subtab == N:` : `detail_ventes.py` (5
+sous-onglets Ce que vous devez/Exonération/Géré par des tiers/Ligne par
+ligne/Avoirs) et `audit.py` (2 niveaux : Écarts Amazon/FBA, puis les 5
+catégories d'écarts). Seul le sous-onglet actif s'exécute désormais par
+rerun. Nouvelle clé i18n `subtab_selector_label` ajoutée dans les 7 TOML
+(label du radio, masqué visuellement) après qu'un premier passage avec
+`label=""` ait déclenché un warning Streamlit à chaque rerun (voir logs
+utilisateur du 2026-09-02) — corrigé le jour même.
+
+**2. `dest` casté en `category` dans `_build_rows_df` (`detail_ventes.py`).**
+`Canal`/`Scénario`/`vat_country`/`collector` bénéficiaient déjà du dtype
+`category` (évite un objet `str` Python par cellule sur 50k+ lignes) ; seule
+`Dest`, utilisée par `.unique()` dans `_render_filter_bar` à chaque
+interaction du filtre, restait en `object`. Ajoutée à la liste de cast,
+propagée automatiquement via `_finalize_df` (simple sélection + rename,
+dtype préservé).
+
+**4. `lru_cache(maxsize=4096)` sur `normalize_full_vat` (`vies_engine.py`).**
+Fonction pure (2 arguments), appelée une fois par vente B2B dans
+`engine.py` — sur un fichier avec des clients récurrents (numéro de TVA
+répété sur plusieurs commandes), gain immédiat. Les constantes `_ALIASES`/
+`EU_CC`, recréées en dict/set literals à chaque appel, sorties au niveau
+module (`_VAT_ALIASES`/`_VAT_EU_CC`) au passage.
+
+**5. `sys.intern()` sur les catégories de `Sale`/`VatResult` : déjà fait.**
+Vérifié dans `models.py` : `Sale.__post_init__` interne déjà
+`stock_country`, `buyer_country`, `seller_country`, `original_currency`,
+`product_category`, `asin`, `buyer_vat_number`, `transaction_date`,
+`order_date` ; `VatResult.__post_init__` interne `vat_country`. Les champs
+`channel`/`scenario`/`collector` sont des `Enum` (singletons par nature,
+comparaison déjà en pointeur). Rien à ajouter — mémoire mise à jour pour ne
+plus re-suggérer ce point.
+
+**6. Arrondi à 2 décimales avant sérialisation Plotly (`visualisations.py`).**
+`_build_fig_bar`/`_build_fig_pie`/`_build_fig_map`/`_build_fig_time_scen`
+envoyaient des flottants à 15+ décimales (issus de `float(Decimal) * rate`)
+au client via la sérialisation JSON des figures Plotly. `round(x, 2)`
+ajouté sur chaque valeur monétaire juste avant construction des traces.
+Gain réel modeste à confirmer en pratique : ces figures agrègent déjà par
+mois/pays (dizaines/centaines de points), pas par ligne de vente — fait par
+prudence/propreté plutôt que pour un gain CPU majeur.
+
+**1 bis / nouveau — Boucles O(n) du thread principal mémoïsées par
+`calc_key` (`app.py`, `billing_gate.py`, `historical_rates_widget.py`.)**
+Point majeur de l'audit : plusieurs scans complets de `results`/`all_sales`
+tournaient à CHAQUE rerun complet du script (clic, changement de langue,
+sidebar...), y compris quand le calcul lui-même était déjà en cache et
+n'avait strictement pas changé. Mémoïsés en `session_state`, sur le même
+principe que le cache déjà en place dans `audit.py`
+(`_audit_cats_cache_key`/`_val`) :
+  - `app.py::_fx_currencies_used` — clé `(_parse_cache_key, convert_fx)`.
+  - `app.py::total_ecarts_autres` (KPI carte d'écart Amazon) — clé
+    `_cache_key`. Seul le total (float) est conservé ; la liste
+    `ecarts_autres` de tuples `(résultat, écart)` n'était de toute façon
+    utilisée que pour le sommer.
+  - `app.py::pay_eu` — clé `_cache_key`.
+  - `billing_gate.py::build_billing_gate` → `detect_period_label(results,
+    oss_period)` — clé `(cache_key, oss_period)`. Le paramètre `cache_key`
+    était déjà reçu par la fonction mais jamais exploité jusqu'ici (résidu
+    d'un ancien comportement de rerun forcé, retiré depuis) — réutilisé
+    tel quel, aucun changement de signature.
+  - `historical_rates_widget.py::render_historical_rates_alert` — trouvé en
+    creusant au-delà de la liste initiale : `_countries_with_sales()` et
+    `_sale_dates_by_country_category()` scannaient CHACUNE la totalité de
+    `results` (avec un parsing de date par ligne, deux fois), appelées à
+    chaque rerun où le mode détaillé est actif (`app.py`), sans aucun cache
+    par `calc_key` contrairement au reste du pipeline. Nouveau paramètre
+    optionnel `calc_key=None` (rétrocompatible) ajouté à la fonction :
+    mémoïse les deux dicts (immuables, fonction pure de `results`) en
+    session_state quand fourni ; comportement inchangé (toujours recalculé)
+    si omis. Appel dans `app.py` mis à jour pour passer `_cache_key`.
+
+### Évalué et abandonné
+
+**3. `lru_cache` sur `i18n.get_text()` — abandonné après chiffrage
+risque/gain.** Le problème identifié est réel (`engine.py::_note` appelle
+`get_text().format()` à chaque ligne pour les langues ≠ fr, sans que le
+cache d'interning existant n'évite ce calcul, seulement la duplication de
+l'objet string résultant). Mais deux réserves ont fait pencher la balance
+côté abandon :
+  - **Risque de fuite de traduction entre sessions.** `get_text(lang=None)`
+    résout la langue via `st.session_state` À L'INTÉRIEUR de la fonction.
+    Un `lru_cache` naïf décorant `get_text` directement cacherait sur
+    `lang=None` (valeur brute, pas la langue résolue) : deux sessions de
+    langues différentes sur le même process Streamlit Cloud partagé
+    (process-wide, pas par session — comme documenté pour
+    `heavy_cache_data`) pourraient alors se voir servir la traduction de
+    l'autre. Implémentable correctement (résoudre `lang` AVANT la clé de
+    cache), mais pas trivial.
+  - **Gain réel restreint.** Les appels à plus fort volume (notes de seuil
+    OSS avec montant cumulé courant, compteurs, montants formatés) ont une
+    cardinalité quasi unique par appel — 0% de hit rate attendu, exactement
+    le même écueil déjà documenté pour le cache d'interning existant dans
+    `engine.py`. Le gain ne porterait que sur les appels à kwargs fixes
+    (labels d'UI), en langue non-française uniquement (le français,
+    majoritaire, n'appelle pas `i18n._` dans `_note`).
+  Rapport gain/risque jugé défavorable. Mémoire mise à jour pour ne plus
+  re-suggérer ce point sans nouvelle justification.
+
+### Vérifié, aucune action nécessaire
+
+**7. `functools.cached_property` sur `ReportSummary` (`report.py`) — non
+retenu.** `net_local_by_country`/`net_oss_by_country` reconstruisent bien un
+dict à chaque accès (`net_local_total`/`net_oss_total` en déclenchent même
+un second), mais la cardinalité de ces dicts est bornée au nombre de pays
+UE (~27 max), pas au nombre de lignes de vente — coût de l'ordre de la
+microseconde, négligeable même appelé plusieurs dizaines de fois par
+rerun. `ReportSummary` utilise par ailleurs `@dataclass(slots=True)`
+(optimisation mémoire délibérée, −52 % documentée ailleurs sur les
+dataclasses métier) : `functools.cached_property` nécessite un `__dict__`
+d'instance pour stocker son cache, ce qui casserait ou compliquerait
+`slots=True` pour un gain quasi nul. Laissé tel quel.
+
+**Autres pistes examinées sans anomalie trouvée** : `_run_oss_loop`/
+`compute_vat` (moteur fiscal) — déjà optimisés (cache de date locale, cache
+de taux OSS local, régex précompilées au niveau module, points de
+respiration CPU déjà en place) ; `ecb_rates.py` — déjà un cache deux
+niveaux (mémoire + Postgres) avec prefetch groupé, pas de pattern N+1 ;
+`.iterrows()`/`.apply(lambda)` repérés dans `formatting.py`
+(`_gated_preview_table`) et `declarations.py` (tableau récap par pays) —
+tous deux bornés à un très petit nombre de lignes (aperçu bridé ≤20 lignes,
+ou récap par pays de quelques dizaines de lignes max), jamais appliqués sur
+un gros volume ; les `sort_values()` de `detail_ventes.py` sont inhérents à
+l'interaction utilisateur (tri demandé) et déjà réduits à un seul
+sous-onglet actif par le point 1 ci-dessus.
+
+**Validation** : `py_compile` + `pyflakes` propres sur tous les fichiers
+modifiés (`app.py`, `billing_gate.py`, `background_calc.py`,
+`formatting.py`, `detail_ventes.py`, `audit.py`, `visualisations.py`,
+`vies_engine.py`, `historical_rates_widget.py`). Symétrie i18n
+programmatique confirmée à chaque étape (1217 → 1218 clés × 7 langues,
+seule variation : ajout de `subtab_selector_label` au point 1). Suite
+`pytest` complète : **230 passed / 3 failed** à chaque étape — baseline
+inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en
+sandbox).
+
+Railway / scale-to-zero : aucun impact sur aucun des 8 points traités —
+uniquement du calcul pur, de la mémoïsation `session_state` (déjà utilisée
+ailleurs dans le projet) et des changements de fréquence de polling
+(`run_every`), aucun nouveau thread, connexion persistante ou mécanisme de
+keep-alive introduit.
+
+**`optimisations_en_attente.md`** : aucune entrée de ce tracker concernée
+par cette session (audit mené hors tracker, à la demande directe de
+Matthieu).

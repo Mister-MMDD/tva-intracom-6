@@ -253,6 +253,7 @@ tab_downloads = "📥 Téléchargements"
 tab_visualizations = "📈 Graphiques"
 
 # Sous-onglets Détail Ventes
+subtab_selector_label = "Sélection du sous-onglet"
 subtab_what_you_owe = "💸 Ce que vous devez"
 subtab_exemptions = "🛡️ Exonération"
 subtab_exemptions_caption = "Ventes dont vous êtes responsable mais qui sont exonérées de TVA (Export, B2B intracommunautaire, etc.)."

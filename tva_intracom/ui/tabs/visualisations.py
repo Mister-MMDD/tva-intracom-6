@@ -132,9 +132,13 @@ def _build_fig_bar(
     for t in types:
         # Conversion EUR (devise de calcul interne) -> devise cible du
         # pays d'origine choisi, avant affichage (voir _get_conversion_rate).
-        vals = [viz_data_by_country[c].get(t, 0) * rate for c in sorted_countries]
+        # PERF (2026-09-03) : arrondi à 2 décimales avant sérialisation JSON
+        # vers le navigateur (Streamlit sérialise les figures Plotly en
+        # JSON) -- sans ça, la conversion de devise (`* rate`) produit des
+        # flottants à 15+ décimales inutiles pour un montant en euros/devise.
+        vals = [round(viz_data_by_country[c].get(t, 0) * rate, 2) for c in sorted_countries]
         # On prépare les totaux par pays pour les afficher dans la bulle d'aide (tooltip)
-        totals = [vat_net_by_country[c] * rate for c in sorted_countries]
+        totals = [round(vat_net_by_country[c] * rate, 2) for c in sorted_countries]
 
         if any(v != 0 for v in vals):
             fig_bar.add_trace(go.Bar(
@@ -174,11 +178,11 @@ def _build_fig_pie(
     """Construit le camembert Vous/Plateforme/Douane."""
     pie_l, pie_v, pie_c = [], [], []
     if total_you_owe > 0:
-        pie_l.append(_("viz_you")); pie_v.append(total_you_owe * rate); pie_c.append("#2ca02c")
+        pie_l.append(_("viz_you")); pie_v.append(round(total_you_owe * rate, 2)); pie_c.append("#2ca02c")
     if amazon_vat > 0:
-        pie_l.append(platform_name); pie_v.append(amazon_vat * rate); pie_c.append("#ff7f0e")
+        pie_l.append(platform_name); pie_v.append(round(amazon_vat * rate, 2)); pie_c.append("#ff7f0e")
     if import_vat > 0:
-        pie_l.append(_("viz_customs")); pie_v.append(import_vat * rate); pie_c.append("#9467bd")
+        pie_l.append(_("viz_customs")); pie_v.append(round(import_vat * rate, 2)); pie_c.append("#9467bd")
     if not pie_v:
         return None
 
@@ -193,7 +197,7 @@ def _build_fig_pie(
 @heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _build_fig_map(vat_net_by_country: dict, rate: float, lang: str, calc_key=None) -> "go.Figure | None":
     """Construit la carte choroplèthe Europe."""
-    map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": country_label(c), "tva": amt * rate}
+    map_data = [{"iso_alpha": COUNTRY_ISO3[c], "pays": country_label(c), "tva": round(amt * rate, 2)}
                 for c, amt in vat_net_by_country.items() if c in COUNTRY_ISO3]
     if not map_data:
         return None
@@ -412,9 +416,9 @@ def render_visualisations() -> None:
         _monthly_records = tuple(
             (
                 _mois_label(m),
-                float(_monthly_df.at[m, "CA HT"]) * _rate,
-                float(_monthly_df.at[m, "Remb. HT"]) * _rate,
-                (float(_monthly_df.at[m, "TVA due"]) + float(_monthly_df.at[m, "TVA remb."])) * _rate,
+                round(float(_monthly_df.at[m, "CA HT"]) * _rate, 2),
+                round(float(_monthly_df.at[m, "Remb. HT"]) * _rate, 2),
+                round((float(_monthly_df.at[m, "TVA due"]) + float(_monthly_df.at[m, "TVA remb."])) * _rate, 2),
             )
             for m in _months_sorted
         )

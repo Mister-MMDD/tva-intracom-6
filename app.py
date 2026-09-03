@@ -1040,11 +1040,24 @@ if uploaded_files:
     # Devises étrangères utilisées (le taux BCE de clôture de période
     # réellement appliqué à la déclaration OSS est affiché plus bas, une
     # fois `period_label` résolu — voir bloc après build_billing_gate).
-    _fx_currencies_used: set = set()
-    if convert_fx:
-        for _s in all_sales:
-            if _s.original_currency and _s.original_currency != "EUR":
-                _fx_currencies_used.add(_s.original_currency)
+    # PERF (2026-09-03, voir README - évolution.md) : ce scan de toutes les
+    # ventes tournait à CHAQUE rerun complet (clic, changement de langue...),
+    # même quand aucun fichier n'a été re-parsé. Mémoïsé par _parse_cache_key
+    # (all_sales n'est stable QUE tant que le parsing n'a pas changé) +
+    # convert_fx (seul autre paramètre dont dépend ce calcul).
+    _FX_CACHE_KEY_SS = "_fx_currencies_cache_key"
+    _FX_CACHE_VAL_SS = "_fx_currencies_cache_val"
+    _fx_cache_key = (_parse_cache_key, convert_fx)
+    if st.session_state.get(_FX_CACHE_KEY_SS) != _fx_cache_key:
+        _fx_currencies_used: set = set()
+        if convert_fx:
+            for _s in all_sales:
+                if _s.original_currency and _s.original_currency != "EUR":
+                    _fx_currencies_used.add(_s.original_currency)
+        st.session_state[_FX_CACHE_KEY_SS] = _fx_cache_key
+        st.session_state[_FX_CACHE_VAL_SS] = _fx_currencies_used
+    else:
+        _fx_currencies_used = st.session_state[_FX_CACHE_VAL_SS]
 
     sales, refunds = all_sales, all_refunds
 
@@ -1263,30 +1276,50 @@ if uploaded_files:
                     _dom_rc_ids_kpi.add(_rc_kpi.sale_id)
                 else:
                     _vies_rc_ids_kpi.add(_rc_kpi.sale_id)
-        from tva_intracom.rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES as _DRC_KPI
-        from tva_intracom.models import BuyerType as _BT_KPI
-        ecarts_autres = []
-        for _r in results:
-            _tva_amz = float(getattr(_r.sale, 'amazon_vat_amount', Decimal('0')))
-            _tva_mot = float(_r.vat_amount)
-            _ecart_kpi = _tva_amz - _tva_mot
-            if abs(_ecart_kpi) <= 0.05: continue
-            if _r.sale.stock_country == 'GB' or _r.sale.buyer_country == 'GB': continue
-            _sid_kpi = str(_r.sale.sale_id)
-            if _sid_kpi in _vies_rc_ids_kpi or (_sid_kpi, _r.sale.amount_ht) in _vies_ids_kpi: continue
-            if _sid_kpi in _dom_rc_ids_kpi or (_r.sale.buyer_type == _BT_KPI.B2B and _r.sale.buyer_country in _DRC_KPI and _tva_mot == 0 and _tva_amz > 0): continue
-            if _tva_amz == 0 and _tva_mot > 0: continue
-            ecarts_autres.append((_r, _ecart_kpi))
-        total_ecarts_autres = sum(d for _, d in ecarts_autres)
+        # PERF (2026-09-03, voir README - évolution.md) : cette boucle sur
+        # `results` (déjà en cache via `_cache_key`) tournait pourtant à
+        # nouveau à chaque rerun (clic, filtre, changement de langue...).
+        # Mémoïsée par `_cache_key` : `results`/`vies_summary` ne changent
+        # que quand `_cache_key` change, donc `total_ecarts_autres` non plus.
+        # Seul le total (un float) est conservé — `ecarts_autres` (la liste
+        # de tuples) n'était de toute façon utilisée que pour le calculer.
+        _ECARTS_KPI_CACHE_KEY_SS = "_ecarts_autres_kpi_cache_key"
+        _ECARTS_KPI_CACHE_VAL_SS = "_ecarts_autres_kpi_cache_val"
+        if st.session_state.get(_ECARTS_KPI_CACHE_KEY_SS) != _cache_key:
+            from tva_intracom.rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES as _DRC_KPI
+            from tva_intracom.models import BuyerType as _BT_KPI
+            _ecarts_autres_sum = 0.0
+            for _r in results:
+                _tva_amz = float(getattr(_r.sale, 'amazon_vat_amount', Decimal('0')))
+                _tva_mot = float(_r.vat_amount)
+                _ecart_kpi = _tva_amz - _tva_mot
+                if abs(_ecart_kpi) <= 0.05: continue
+                if _r.sale.stock_country == 'GB' or _r.sale.buyer_country == 'GB': continue
+                _sid_kpi = str(_r.sale.sale_id)
+                if _sid_kpi in _vies_rc_ids_kpi or (_sid_kpi, _r.sale.amount_ht) in _vies_ids_kpi: continue
+                if _sid_kpi in _dom_rc_ids_kpi or (_r.sale.buyer_type == _BT_KPI.B2B and _r.sale.buyer_country in _DRC_KPI and _tva_mot == 0 and _tva_amz > 0): continue
+                if _tva_amz == 0 and _tva_mot > 0: continue
+                _ecarts_autres_sum += _ecart_kpi
+            st.session_state[_ECARTS_KPI_CACHE_KEY_SS] = _cache_key
+            st.session_state[_ECARTS_KPI_CACHE_VAL_SS] = _ecarts_autres_sum
+        total_ecarts_autres = st.session_state[_ECARTS_KPI_CACHE_VAL_SS]
 
         # =====================================================================
         # ALERTES — toujours en haut, conditionnelles
         # =====================================================================
         if _is_detailed:
-            render_historical_rates_alert(results)
+            render_historical_rates_alert(results, calc_key=_cache_key)
 
-        # On calcule pay_eu nécessaire pour le billing gate et les immatriculations
-        pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
+        # PERF (2026-09-03) : même rationnel que ci-dessus — mémoïsé par
+        # `_cache_key` plutôt que rescanné à chaque rerun.
+        _PAY_EU_CACHE_KEY_SS = "_pay_eu_cache_key"
+        _PAY_EU_CACHE_VAL_SS = "_pay_eu_cache_val"
+        if st.session_state.get(_PAY_EU_CACHE_KEY_SS) != _cache_key:
+            pay_eu = {r.vat_country for r in results if r.channel.value == "LOCAL" and r.vat_country}
+            st.session_state[_PAY_EU_CACHE_KEY_SS] = _cache_key
+            st.session_state[_PAY_EU_CACHE_VAL_SS] = pay_eu
+        else:
+            pay_eu = st.session_state[_PAY_EU_CACHE_VAL_SS]
 
         # =====================================================================
         # GATING BILLING

@@ -100,7 +100,11 @@ def _build_rows_df(_results: list, target_currency: str, calc_key, label: str) -
     # seule fois en interne (dictionnaire de codes), au lieu d'un objet str
     # Python par cellule. Comparaisons (==, !=) et `sort_values` restent
     # inchangés pour l'appelant — pandas les gère nativement sur ce dtype.
-    for _col in ("canal", "scenario", "vat_country", "collector"):
+    # PERF (2026-09-03) : `dest` ajouté à cette liste -- c'est la seule des 4
+    # colonnes utilisées par `_render_filter_bar` (via `.unique()` sur
+    # Dest/Canal/Scénario/vat_country à CHAQUE interaction du filtre) qui ne
+    # bénéficiait pas encore du typage `category`.
+    for _col in ("canal", "scenario", "vat_country", "collector", "dest"):
         if _col in df.columns:
             df[_col] = df[_col].astype("category")
     return df
@@ -195,7 +199,7 @@ def render_detail_ventes() -> None:
         _("subtab_refunds", count=len(refund_results or [])),
     ]
     _active_subtab = st.radio(
-        "", options=list(range(len(_subtab_labels))), format_func=lambda i: _subtab_labels[i],
+        _("subtab_selector_label"), options=list(range(len(_subtab_labels))), format_func=lambda i: _subtab_labels[i],
         horizontal=True, key="detail_ventes_active_subtab", label_visibility="collapsed",
     )
 

@@ -48,6 +48,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
 
 # Verrou global (process entier) bornant le nombre de requêtes HTTP VIES
 # réellement EN VOL simultanément, tous appels/utilisateurs confondus.
@@ -1369,6 +1370,17 @@ def _is_downgrade(previous: ViesResult, new_result: ViesResult) -> bool:
 # Normalisation des numéros de TVA
 # ---------------------------------------------------------------------------
 
+# PERF (2026-09-03, voir README - évolution.md) : `lru_cache` ajouté sur ces
+# deux fonctions pures. `_normalize_vat_id` est appelée une fois par ligne
+# B2B PENDANT LE PARSING (via classify.py::classify_buyer, chemin différent
+# de normalize_full_vat plus haut dans ce fichier, utilisée elle plus tard
+# au moment du calcul TVA) -- même rationnel que pour normalize_full_vat :
+# sur un fichier avec des clients B2B récurrents, le même numéro de TVA brut
+# revient sur plusieurs commandes. `_clean_vat_number` est également appelée
+# directement à 2 autres endroits de ce fichier (validate_vat_numbers_bulk,
+# force_revalidate) ; mise en cache par la même occasion, sans risque
+# (fonction pure à un seul argument).
+@lru_cache(maxsize=4096)
 def _clean_vat_number(raw: str) -> tuple[str, str]:
     cleaned = _VAT_CLEAN_RE.sub("", raw.strip())
     if len(cleaned) < 3:
@@ -1376,11 +1388,27 @@ def _clean_vat_number(raw: str) -> tuple[str, str]:
     return cleaned[:2].upper(), cleaned[2:].upper()
 
 
+@lru_cache(maxsize=4096)
 def _normalize_vat_id(raw: str) -> str:
     cc, num = _clean_vat_number(raw)
     return f"{cc}{num}"
 
 
+_VAT_ALIASES = {"EL": "GR", "UK": "GB"}
+_VAT_EU_CC = {
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
+    "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "XI",
+}
+
+
+# PERF (2026-09-03, voir README - évolution.md) : `lru_cache` ajouté — cette
+# fonction est pure (uniquement fonction de ses 2 arguments), et sur un
+# fichier B2B les numéros de TVA se répètent souvent (un même client sur
+# plusieurs commandes). maxsize=4096 largement suffisant : même un très gros
+# fichier compte rarement plus de quelques milliers de clients B2B distincts.
+# Les deux constantes ci-dessus étaient recréées (dict + set literals) à
+# chaque appel ; sorties au niveau module par la même occasion.
+@lru_cache(maxsize=4096)
 def normalize_full_vat(buyer_vat: str, buyer_country: str) -> str:
     """Normalise un numéro de TVA au format VIES complet : CC + numéro.
 
@@ -1402,11 +1430,8 @@ def normalize_full_vat(buyer_vat: str, buyer_country: str) -> str:
 
     Fonction canonique (référence unique) — importée par engine.py.
     """
-    _ALIASES = {"EL": "GR", "UK": "GB"}
-    EU_CC = {
-        "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
-        "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "XI",
-    }
+    _ALIASES = _VAT_ALIASES
+    EU_CC = _VAT_EU_CC
     raw = buyer_vat.strip().upper()
     clean = raw.replace(" ", "").replace("-", "").replace(".", "")
     if not clean:

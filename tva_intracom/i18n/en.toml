@@ -252,6 +252,7 @@ tab_downloads = "📥 Downloads"
 tab_visualizations = "📈 Visualizations"
 
 # Sales Detail Sub-tabs
+subtab_selector_label = "Subtab selection"
 subtab_what_you_owe = "💸 What you owe"
 subtab_exemptions = "🛡️ Exemption"
 subtab_exemptions_caption = "Sales for which you are responsible but are tax-exempt (Export, B2B intra-community, etc.)."

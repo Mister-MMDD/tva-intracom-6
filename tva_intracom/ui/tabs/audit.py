@@ -91,7 +91,7 @@ def render_audit() -> None:
     if _is_detailed:
         _outer_labels = [_("subtab_amazon_gaps"), _("subtab_fba_inventory")]
         _active_outer = st.radio(
-            "", options=list(range(len(_outer_labels))), format_func=lambda i: _outer_labels[i],
+            _("subtab_selector_label"), options=list(range(len(_outer_labels))), format_func=lambda i: _outer_labels[i],
             horizontal=True, key="audit_active_outer_subtab", label_visibility="collapsed",
         )
     else:
@@ -208,7 +208,7 @@ def render_audit() -> None:
                 _("audit_tab_missing_amz", count=len(ecarts_amz_manquante_tab)),
             ]
             _active_inner = st.radio(
-                "", options=list(range(len(_inner_labels))), format_func=lambda i: _inner_labels[i],
+                _("subtab_selector_label"), options=list(range(len(_inner_labels))), format_func=lambda i: _inner_labels[i],
                 horizontal=True, key="audit_active_inner_subtab", label_visibility="collapsed",
             )
             if _active_inner == 0:
