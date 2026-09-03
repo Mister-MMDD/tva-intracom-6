@@ -6650,24 +6650,20 @@ ou polling — traduction statique chargée via `lru_cache` existant).
 retirée du tracker.** Section "Internationalisation (i18n)" du tracker
 vide pour le moment.
 
-## 2026-09-03 — Audit externe CPU/rendu (14 points au total) : fragments st.tabs, run_every, plafond d'affichage, boucles O(n) mémoïsées, cache VAT (x2), arrondi Plotly, dtype category
+## 2026-09-03 — Audit externe CPU/rendu (13 points au total) : fragments st.tabs, run_every, plafond d'affichage, boucles O(n) mémoïsées, cache VAT, arrondi Plotly, dtype category
 
-Suite de trois audits externes successifs (proposition libre → relecture des
-logs d'un rerun réel → nouvelle recherche libre de pistes CPU
-additionnelles) portant sur le temps de rendu perçu et la charge CPU sur le
-vCPU partagé de Streamlit Community Cloud. 14 points examinés au total,
-chacun vérifié sur le code réel avant décision (jamais par déduction) — 9
-traités, 2 déjà faits, 1 abandonné après chiffrage risque/gain, 2 jugés
-hors sujet ou à impact négligeable.
+Suite de deux audits externes successifs (proposition libre + relecture des
+logs d'un rerun réel) portant sur le temps de rendu perçu et la charge CPU
+sur le vCPU partagé de Streamlit Community Cloud. 13 points examinés au
+total, chacun vérifié sur le code réel avant décision (jamais par
+déduction) — 8 traités, 2 déjà faits, 1 abandonné après chiffrage
+risque/gain, 2 jugés hors sujet ou à impact négligeable.
 
 **Fichiers vérifiés** : `app.py`, `billing_gate.py`, `background_calc.py`,
 `formatting.py`, `detail_ventes.py`, `audit.py`, `visualisations.py`,
 `vies_engine.py`, `historical_rates_widget.py`, `engine.py` (`_note`),
 `i18n/i18n.py`, `models.py`, `report.py`, `ecb_rates.py`,
-`parsers/amazon/loader.py`, `parsers/amazon/classify.py`,
-`parsers/amazon/aggregate.py`, `excel_report.py`, `oss_export.py`,
-`oss_xml.py`, `sidebar.py`, plus une recherche automatisée de boucles
-imbriquées (candidats O(n²)) sur tout `tva_intracom/`.
+`parsers/amazon/loader.py`.
 
 ### Traités
 
@@ -6748,27 +6744,6 @@ principe que le cache déjà en place dans `audit.py`
     session_state quand fourni ; comportement inchangé (toujours recalculé)
     si omis. Appel dans `app.py` mis à jour pour passer `_cache_key`.
 
-**9. `lru_cache` sur `_normalize_vat_id`/`_clean_vat_number` (`vies_engine.py`)
-— trouvé lors d'un 3e passage de recherche libre.** Distinctes de
-`normalize_full_vat` (point 4, appelée plus tard au moment du calcul TVA),
-ces deux fonctions pures sont appelées PENDANT LE PARSING, une fois par
-ligne B2B, via `parsers/amazon/classify.py::classify_buyer()`. Même
-rationnel que le point 4 : sur un fichier avec des clients B2B récurrents,
-le même numéro de TVA brut revient sur plusieurs commandes. `lru_cache
-(maxsize=4096)` ajouté sur les deux (`_normalize_vat_id` appelle
-`_clean_vat_number`, donc double bénéfice en cascade). `_clean_vat_number`
-est également appelée directement à 2 autres endroits de ce fichier
-(`validate_vat_numbers_bulk`, `force_revalidate`) — bénéficient du même
-coup, sans risque (fonction pure à un seul argument, les exceptions
-`ValueError` levées sur numéro trop court ne sont de toute façon jamais
-mises en cache par `lru_cache`).
-
-Note annexe (aucune action) : `excel_report.py::_write_vies_history_tab`
-contient un cache local `_norm_cache` ajouté manuellement avant ce point 9
-pour pallier l'absence de cache sur `normalize_full_vat`. Il est désormais
-redondant (la fonction se cache déjà elle-même depuis le point 4) mais
-totalement inoffensif — laissé tel quel pour limiter le diff.
-
 ### Évalué et abandonné
 
 **3. `lru_cache` sur `i18n.get_text()` — abandonné après chiffrage
@@ -6821,23 +6796,7 @@ tous deux bornés à un très petit nombre de lignes (aperçu bridé ≤20 ligne
 ou récap par pays de quelques dizaines de lignes max), jamais appliqués sur
 un gros volume ; les `sort_values()` de `detail_ventes.py` sont inhérents à
 l'interaction utilisateur (tri demandé) et déjà réduits à un seul
-sous-onglet actif par le point 1 ci-dessus ; `parsers/amazon/aggregate.py`
-(`preaggregate_v5`) — déjà optimisé (un seul passage sur les lignes brutes,
-accumulation de 9 totaux en même temps plutôt que 9 `sum()` séparés,
-libération mémoire progressive via `dict.pop()`) ; recherche automatisée de
-boucles imbriquées (candidats O(n²)) sur tout `tva_intracom/` — toutes les
-occurrences trouvées (`ecb_rates.py`, `excel_report.py`, `oss_export.py`,
-`oss_xml.py`, `declarations.py`, `sidebar.py`, `billing.py`,
-`historical_rates_widget.py`) portent sur des structures déjà agrégées
-(pays × taux × devise, quelques dizaines d'entrées), aucune sur les lignes
-de vente brutes ; `sidebar.py` (rendu à chaque rerun, tout onglet confondu)
-— les lectures Postgres répétées sont déjà protégées par un cache TTL de
-20s (`_cached_db_read`), et il s'agit d'I/O réseau, pas de calcul CPU ;
-`excel_report.py`/`oss_export.py` (génération des exports Excel/XML) —
-plusieurs passages sur `results` constatés, mais déclenchés uniquement au
-clic utilisateur sur export (pas à chaque rerun) et l'utilisateur s'attend
-à un temps de traitement à ce moment-là — priorité jugée plus faible que
-les boucles déclenchées à chaque rerun, non retouché cette session.
+sous-onglet actif par le point 1 ci-dessus.
 
 **Validation** : `py_compile` + `pyflakes` propres sur tous les fichiers
 modifiés (`app.py`, `billing_gate.py`, `background_calc.py`,
@@ -6845,11 +6804,11 @@ modifiés (`app.py`, `billing_gate.py`, `background_calc.py`,
 `vies_engine.py`, `historical_rates_widget.py`). Symétrie i18n
 programmatique confirmée à chaque étape (1217 → 1218 clés × 7 langues,
 seule variation : ajout de `subtab_selector_label` au point 1). Suite
-`pytest` complète : **230 passed / 3 failed** à chaque étape (y compris
-après le point 9 ajouté lors du 3e passage) — baseline inchangée (échecs
-pré-existants liés à l'absence de `SUPABASE_DB_URL` en sandbox).
+`pytest` complète : **230 passed / 3 failed** à chaque étape — baseline
+inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en
+sandbox).
 
-Railway / scale-to-zero : aucun impact sur aucun des 9 points traités —
+Railway / scale-to-zero : aucun impact sur aucun des 8 points traités —
 uniquement du calcul pur, de la mémoïsation `session_state` (déjà utilisée
 ailleurs dans le projet) et des changements de fréquence de polling
 (`run_every`), aucun nouveau thread, connexion persistante ou mécanisme de
@@ -6858,3 +6817,28 @@ keep-alive introduit.
 **`optimisations_en_attente.md`** : aucune entrée de ce tracker concernée
 par cette session (audit mené hors tracker, à la demande directe de
 Matthieu).
+
+## 2026-09-03 (2) — Bugfix critique : `git push origin dev:main` révèle un backfill `org_id` manquant dans `billing.py` (échec sur prod/main uniquement)
+
+**Contexte** : Matthieu a poussé `dev` vers `main` (pas fait depuis un moment) pour la première fois depuis l'introduction de la migration `user_id` → `org_id` (voir entrée 2026-08-24). L'app plante immédiatement sur `main` avec `psycopg2.errors.UndefinedColumn: column "org_id" does not exist` dans `billing.get_subscription_status`, alors que `dev` fonctionne sans problème avec le même code.
+
+**Diagnostic** (script lecture seule dédié, `scripts/diag_org_id_state.py`, jamais exécuté en tâche de fond, connexion fermée en sortie) :
+- Sur la base **main** : colonne `org_id` absente sur les 4 tables de facturation (`tva_customers`, `tva_subscriptions`, `tva_export_credits`, `tva_siren_registrations`), alors que chacune contient déjà des lignes avec `user_id` renseigné (3/1/1/1 lignes). Contrainte PK toujours l'ancienne (`_pkey`), jamais basculée vers `_org_pkey`.
+- Sur la base **dev** : `org_id` déjà présent partout, aucun NULL, PK déjà basculée vers `_org_pkey` — migration déjà appliquée intégralement (vraisemblablement via une intervention manuelle en base à l'époque, avant que ce bug de code ne soit jamais sollicité côté dev).
+
+**Cause racine** : `_migrate_billing_to_org_id()` dans `billing.py` faisait `ALTER TABLE ... ADD COLUMN IF NOT EXISTS org_id` puis directement `ALTER TABLE ... ALTER COLUMN org_id SET NOT NULL`, **sans jamais exécuter le backfill `UPDATE ... SET org_id = user_id` que son propre docstring annonçait pourtant**. Sur une table contenant déjà des lignes (`user_id` rempli, `org_id` encore NULL juste après l'`ADD COLUMN`), le `SET NOT NULL` échoue aussitôt → Postgres annule toute la transaction → **l'`ADD COLUMN` est lui-même annulé (rollback)**, la colonne disparaissant complètement. D'où l'erreur "colonne n'existe pas" au lieu d'une erreur de contrainte. Par ailleurs, `_schema_ready` est mis à `True` *avant* l'appel à `_init_schema()` (protection anti-deadlock documentée pour le pool partagé) : une fois l'exception levée une première fois au démarrage du process, plus aucune nouvelle tentative de migration n'a lieu tant que le process ne redémarre pas — la base reste bloquée dans cet état tant que le code n'est pas corrigé.
+
+**Correctif** : ajout du backfill manquant dans `_migrate_billing_to_org_id()`, pour les 4 tables :
+```python
+cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS org_id TEXT")
+cur.execute(f"UPDATE {table} SET org_id = user_id WHERE org_id IS NULL")
+```
+Idempotent et sans danger sur les deux bases : sur main, comble le vide (0 conflit, `user_id` renseigné à 100 % sur les 4 tables donc aucun NULL résiduel possible) ; sur dev, no-op total (`org_id` déjà rempli partout, `UPDATE ... WHERE org_id IS NULL` ne matche aucune ligne, bascule de PK déjà skippée par le test d'existence de `_org_pkey`). **Même fichier `billing.py` déployable tel quel sur les deux branches, sans divergence à maintenir.**
+
+**Validation** : `py_compile` et `pyflakes` propres sur `billing.py`. Aucune chaîne UI touchée (pas d'impact i18n). Suite `pytest` complète : **230 passed / 3 failed** — baseline inchangée, échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en sandbox, sans lien avec ce correctif.
+
+**Railway / scale-to-zero** : aucun impact — la migration reste une exécution unique au premier démarrage du process (`_schema_ready`), aucune connexion persistante, aucun thread, aucun mécanisme de keep-alive ajouté.
+
+**Nouvel outil ajouté** : `scripts/diag_org_id_state.py` (lecture seule, autocommit readonly, connexion fermée en sortie) — vérifie par table la présence de `org_id`, le nombre de lignes `org_id IS NULL`/`user_id IS NULL`, et l'état des contraintes PK `_pkey`/`_org_pkey`. À conserver dans le dépôt pour tout diagnostic futur similaire avant migration de schéma.
+
+**Livraison** : `billing.py` seul (chemin repo-relatif `tva_intracom/billing.py`), à déployer sur `main` en priorité (bloquant en prod), puis sur `dev` par cohérence (no-op confirmé, aucun risque).

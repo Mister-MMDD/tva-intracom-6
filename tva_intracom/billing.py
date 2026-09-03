@@ -305,6 +305,14 @@ def _migrate_billing_to_org_id(cur) -> None:
     """
     for table in ("tva_customers", "tva_subscriptions", "tva_export_credits", "tva_siren_registrations"):
         cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS org_id TEXT")
+        # BACKFILL (2026-09-03) : manquant jusqu'ici alors que le docstring de
+        # cette fonction l'annonçait déjà — sans lui, le ALTER COLUMN ... SET
+        # NOT NULL plus bas échoue dès qu'il existe des lignes existantes
+        # (org_id encore NULL juste après l'ADD COLUMN), ce qui fait échouer
+        # toute la transaction et annule même l'ADD COLUMN (rollback), d'où
+        # l'erreur "column org_id does not exist" observée en production sur
+        # la branche main malgré un déploiement en apparence identique à dev.
+        cur.execute(f"UPDATE {table} SET org_id = user_id WHERE org_id IS NULL")
 
     # NOTE : la colonne `user_id` existante N'EST PAS retirée. Elle change
     # juste de rôle : de clé primaire, elle devient une colonne d'audit
