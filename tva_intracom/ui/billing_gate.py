@@ -117,6 +117,14 @@ class BillingGate:
     # du paywall Stripe dans gated_download() — voir BUGFIX ci-dessous.
     siren_mismatch: bool = False
 
+    # BUGFIX (2026-09-04) : un compte gratuit ayant fait un achat PAYG sans
+    # avoir renseigné de SIREN passait `can_export=True` sans jamais être
+    # bloqué par le gate SIREN ci-dessus (qui ne s'exécute que `if
+    # siren_entreprise` — donc sauté si vide). Un export payant nécessite
+    # désormais toujours un SIREN. Distinct de `siren_mismatch` (SIREN saisi
+    # mais non reconnu) pour un message dédié dans gated_download().
+    siren_missing: bool = False
+
     # Abonnement actif OU crédit ponctuel — indépendant des gates de
     # conformité (SIREN, rattachement compte, quota). Voir build_billing_gate.
     billing_ok: bool = True
@@ -140,7 +148,14 @@ class BillingGate:
         traitement UI (bouton visible mais désactivé, pas masqué)."""
         if not tva_auth.is_admin(self.current_user):
             return None
-        _cache_key = f"_stripe_checkout_url::{self.period_label}"
+        # BUGFIX (2026-09-04) : la clé de cache incluait seulement la période,
+        # pas le SIREN — en changeant de SIREN sélectionné dans la même
+        # session (période identique), le lien Stripe déjà en cache aurait
+        # été réutilisé tel quel, avec le SIREN de la 1ère création dans sa
+        # metadata (voir create_payg_checkout_session). Le SIREN fait
+        # maintenant partie de la clé.
+        _cache_key = f"_stripe_checkout_url::{self.period_label}::{self.siren_entreprise}"
+        _err_key = f"_stripe_checkout_error::{self.period_label}::{self.siren_entreprise}"
         if _cache_key not in st.session_state:
             try:
                 st.session_state[_cache_key] = tva_billing.create_payg_checkout_session(
@@ -150,10 +165,11 @@ class BillingGate:
                     period_label=self.period_label,
                     success_url=self.stripe_success_url("export_ok=1"),
                     cancel_url=self.stripe_cancel_url(),
+                    siren=self.siren_entreprise,
                 )
             except Exception as _billing_err:
                 st.session_state.pop(_cache_key, None)
-                st.session_state[f"_stripe_checkout_error::{self.period_label}"] = str(_billing_err)
+                st.session_state[_err_key] = str(_billing_err)
         return st.session_state.get(_cache_key)
 
     def gated_download(self, label, data, file_name, mime, **kwargs) -> None:
@@ -201,6 +217,10 @@ class BillingGate:
 
             elif self.siren_mismatch:
                 st.error(_("gate_siren_not_registered_err", siren=self.siren_entreprise))
+                return
+
+            elif self.siren_missing:
+                st.error(_("gate_siren_missing_err"))
                 return
 
             _btn_key = "paywall_btn_" + hashlib.sha256(
@@ -267,7 +287,10 @@ class BillingGate:
                 )
                 st.caption(_("unlock_export_footer"))
             else:
-                _err = st.session_state.get(f"_stripe_checkout_error::{self.period_label}", _("unknown_error"))
+                _err = st.session_state.get(
+                    f"_stripe_checkout_error::{self.period_label}::{self.siren_entreprise}",
+                    _("unknown_error"),
+                )
                 st.error(_("gate_payment_unavailable_err", label=label, error=_err))
             return
 
@@ -381,7 +404,7 @@ def build_billing_gate(
     )
     can_export = bool(period_label) and (
         (_cached_sub_status and _cached_sub_status.active)
-        or tva_billing.has_export_credit(current_user.org_id, period_label)
+        or tva_billing.has_export_credit(current_user.org_id, period_label, siren_entreprise)
     )
     # État "financier" pur (abonnement actif OU crédit ponctuel), capturé
     # AVANT les gates de conformité (SIREN, quota, rattachement compte)
@@ -392,6 +415,21 @@ def build_billing_gate(
     billing_ok = can_export
 
     quota_status = siren_quota_status
+
+    # ── Gate SIREN obligatoire ────────────────────────────────────────────
+    # BUGFIX (2026-09-04) : un compte sans SIREN renseigné (typiquement un
+    # compte gratuit qui vient de faire un achat PAYG à l'unité sans jamais
+    # avoir enregistré de SIREN, celui-ci n'étant pas requis pour créer le
+    # compte) débloquait quand même l'affichage premium — le gate SIREN
+    # historique juste en dessous ne s'exécute que si `siren_entreprise` est
+    # renseigné, donc était silencieusement sauté. Un export payant doit
+    # toujours être rattaché à un SIREN (c'est d'ailleurs la clé du crédit
+    # PAYG désormais, voir has_export_credit) : on bloque explicitement ici.
+    siren_missing = False
+    if can_export and not siren_entreprise:
+        can_export = False
+        siren_missing = True
+        st.error(_("gate_siren_missing_err"))
 
     # ── Gate SIREN
     # Réutilise le même cache (clé identique) que render_sidebar() : la
@@ -510,6 +548,7 @@ def build_billing_gate(
         sub_status=_cached_sub_status.status if _cached_sub_status else None,
         account_link_blocked=account_link_blocked,
         siren_mismatch=siren_mismatch,
+        siren_missing=siren_missing,
         unlinked_identifiers=unlinked_identifiers,
         conflicting_links=conflicting_links,
         current_user=current_user,
@@ -594,5 +633,12 @@ def render_account_link_panel(gate: BillingGate) -> None:
             st.caption(_("account_link_conflict_text", other_label=_other_label, current_label=_current_label))
             if st.button(_("account_link_switch_btn", other_label=_other_label),
                          key=f"btn_switch_{gate.vies_scope_id}_{_identifier}"):
-                st.session_state["siren_select_box"] = _other_siren
+                # BUGFIX : le widget `siren_select_box` est déjà instancié à ce
+                # stade du script (render_sidebar() tourne avant ce panneau,
+                # voir app.py) — y écrire directement lève StreamlitAPIException
+                # ("cannot be modified after the widget ... is instantiated").
+                # On dépose l'intention dans un tampon consommé en tout début de
+                # render_sidebar() (avant l'instanciation du selectbox), au run
+                # suivant déclenché par ce rerun.
+                st.session_state["_pending_siren_switch"] = _other_siren
                 st.rerun()

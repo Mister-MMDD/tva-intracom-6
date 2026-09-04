@@ -554,6 +554,7 @@ gate_compliance_missing_ioss = "- Własny ważny numer IOSS jest obowiązkowy (w
 gate_compliance_blocked_footer = "\nProsimy uzupełnić te informacje w sekcji **Firma i Ustawienia** na pasku bocznym."
 gate_vies_warning = "⚠️ {label} — Tylko **{auto_verified} z {total} numer(ów) VAT** zostało automatycznie zweryfikowanych i uwzględnionych jako takie w raporcie. Reszta nie jest świeżą automatyczną weryfikacją: {manual} sklasyfikowano ręcznie, {inconclusive} niemożliwych do zweryfikowania — te ostatnie są domyślnie traktowane jako B2C (VAT należny) dla bezpieczeństwa."
 gate_siren_not_registered_err = "🔒 Numer SIREN **{siren}** nie jest zarejestrowany na Twoim koncie. Zarejestruj go w sekcji „Okres i Firma” lub uaktualnij swój plan, jeśli osiągnąłeś limit."
+gate_siren_missing_err = "🔒 Do Twojego konta nie przypisano żadnego numeru SIREN. Podaj SIREN firmy w sekcji „Okres i Firma” przed odblokowaniem eksportu."
 gate_quota_global_blocked_err = "🔒 To konto ma {registered} zarejestrowanych numerów SIREN przy limicie {quota}. Usuń {over} SIREN lub zwiększ swój abonament (w sekcji \" 💳 Subskrypcje i Plany\"), aby odblokować eksport."
 unlock_label_discounted = "odblokuj pojedynczy okres za {discounted_amount} {currency} zamiast {amount} {currency} (kod {discount_code}) lub wykup subskrypcję"
 unlock_label_standard = "odblokuj pojedynczy okres za {amount} {currency} lub wykup subskrypcję"

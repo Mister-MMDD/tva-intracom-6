@@ -544,7 +544,22 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                   ui/theme.py pour le CSS). Calculé au run PRÉCÉDENT :
                   purement décoratif, ne conditionne aucune valeur
                   retournée ni aucun calcul.
+
+    BUGFIX (bascule SIREN suite à conflit de rattachement compte Amazon) :
+    `st.session_state["siren_select_box"]` ne peut être écrit QUE avant que
+    le widget `st.selectbox(key="siren_select_box")` plus bas dans cette
+    fonction n'ait été instancié pour ce run — Streamlit lève
+    StreamlitAPIException sinon. `render_account_link_panel()` (appelé bien
+    après render_sidebar() dans app.py, une fois les résultats calculés) ne
+    peut donc pas écrire directement sur cette clé : il dépose son intention
+    dans `_pending_siren_switch`, puis demande un rerun. On consomme ce
+    tampon ici, tout en tout début de fonction — donc avant l'instanciation
+    du selectbox — ce qui rend l'écriture licite.
     """
+    _pending_siren_switch = st.session_state.pop("_pending_siren_switch", None)
+    if _pending_siren_switch is not None:
+        st.session_state["siren_select_box"] = _pending_siren_switch
+
     _current_user = auth_ctx.current_user
     _vies_scope_id = auth_ctx.vies_scope_id
     _stripe_success_url = auth_ctx.stripe_success_url
@@ -1262,7 +1277,14 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                             st.caption(_("payg_detected_period_msg", period=_detected_period_for_payg))
                             if st.button(_("payg_buy_btn"), key="btn_payg_sidebar"):
                                 try:
-                                    _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}"
+                                    # BUGFIX (2026-09-04) : la clé de cache incluait
+                                    # seulement la période — voir même correctif dans
+                                    # ui/billing_gate.py::get_payg_checkout_url. Le
+                                    # SIREN doit aussi être scellé dans la metadata
+                                    # Stripe pour que le crédit octroyé ne débloque
+                                    # que ce SIREN (voir create_payg_checkout_session/
+                                    # billing.has_export_credit).
+                                    _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}::{siren_entreprise}"
                                     if _payg_cache_key not in st.session_state:
                                         st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
                                             org_id=_current_user.org_id, acting_user_id=_current_user.id,
@@ -1270,6 +1292,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                             period_label=_detected_period_for_payg,
                                             success_url=_stripe_success_url("export_ok=1"),
                                             cancel_url=_stripe_cancel_url(),
+                                            siren=siren_entreprise,
                                         )
                                     st.link_button(_("continue_to_payment_btn"), st.session_state[_payg_cache_key])
                                 except Exception as _payg_err:

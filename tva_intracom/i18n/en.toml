@@ -554,6 +554,7 @@ gate_compliance_missing_ioss = "- Own valid IOSS number is mandatory (imported s
 gate_compliance_blocked_footer = "\nPlease complete this information in the **Company & Settings** section of the sidebar."
 gate_vies_warning = "⚠️ {label} — Only **{auto_verified} out of {total} VAT number(s)** were automatically verified and included in the report as such. The rest is not a fresh automatic verification: {manual} manually classified, {inconclusive} unverifiable — these are treated as B2C by default (VAT due) for safety."
 gate_siren_not_registered_err = "🔒 The SIREN **{siren}** is not registered to your account. Register it in the \"Period & Company\" section, or upgrade your plan if your quota is reached."
+gate_siren_missing_err = "🔒 No SIREN is set for your account. Enter your company's SIREN in the \"Period & Company\" section before unlocking an export."
 gate_quota_global_blocked_err = "🔒 This account has {registered} registered SIRENs for a quota of {quota}. Remove {over} SIREN(s) or upgrade your plan (in \" 💳 Subscriptions & Plans\") to unlock exports."
 unlock_label_discounted = "unlock a single period for {discounted_amount} {currency} instead of {amount} {currency} (code {discount_code}) or subscribe"
 unlock_label_standard = "unlock a single period for {amount} {currency} or subscribe"

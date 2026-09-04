@@ -554,6 +554,7 @@ gate_compliance_missing_ioss = "- Eine eigene und gültige IOSS-Nummer ist oblig
 gate_compliance_blocked_footer = "\nBitte ergänzen Sie diese Informationen im Bereich **Unternehmen & Konfiguration** in der Seitenleiste."
 gate_vies_warning = "⚠️ {label} — Nur **{auto_verified} von {total} USt-IdNr.(n)** wurden automatisch verifiziert und als solche in den Bericht aufgenommen. Der Rest ist keine frische automatische Verifizierung: {manual} manuell klassifiziert, {inconclusive} nicht überprüfbar — diese werden sicherheitshalber standardmäßig als B2C (USt. fällig) behandelt."
 gate_siren_not_registered_err = "🔒 Die SIREN **{siren}** ist nicht für Ihr Konto registriert. Bitte registrieren Sie sie im Bereich „Zeitraum & Unternehmen“ oder upgraden Sie Ihren Plan, falls Ihr Kontingent erschöpft ist."
+gate_siren_missing_err = "🔒 Für Ihr Konto ist keine SIREN hinterlegt. Bitte tragen Sie die SIREN Ihres Unternehmens im Bereich „Zeitraum & Unternehmen“ ein, bevor Sie einen Export freischalten."
 gate_quota_global_blocked_err = "🔒 Dieses Konto hat {registered} registrierte SIREN bei einem Kontingent von {quota}. Entfernen Sie {over} SIREN(s) oder erweitern Sie Ihr Abonnement (unter \" 💳 Subscriptions & Plans\"), um die Exporte freizuschalten."
 unlock_label_discounted = "Einzelnen Zeitraum freischalten für {discounted_amount} {currency} statt {amount} {currency} (Code {discount_code}) oder abonnieren"
 unlock_label_standard = "Einzelnen Zeitraum freischalten für {amount} {currency} oder abonnieren"

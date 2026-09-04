@@ -225,6 +225,21 @@ def _init_schema() -> None:
             )
             """
         )
+        # BUGFIX (2026-09-04) : un crédit PAYG n'était scellé qu'à (org_id,
+        # period_label) — aucune notion de SIREN. Deux fichiers de vente sur
+        # la même période mais rattachés à des SIREN différents (donc à des
+        # clients différents) débloquaient tous les deux l'export dès qu'UN
+        # SEUL crédit avait été acheté pour cette période, alors qu'un
+        # paiement à l'unité doit couvrir un SIREN précis. Colonne ajoutée
+        # avec défaut '' (chaîne vide, pas NULL — impossible dans une clé
+        # primaire) : les crédits déjà achetés avant ce correctif restent
+        # valables pour n'importe quel SIREN de l'org (voir has_export_credit),
+        # par rétrocompatibilité — seuls les nouveaux crédits sont scellés à
+        # un SIREN précis dès leur achat (voir create_payg_checkout_session /
+        # _fulfill_checkout_session).
+        cur.execute(
+            "ALTER TABLE tva_export_credits ADD COLUMN IF NOT EXISTS siren TEXT NOT NULL DEFAULT ''"
+        )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS tva_siren_registrations (
@@ -361,6 +376,24 @@ def _migrate_billing_to_org_id(cur) -> None:
         # quel abonnement garder) AVANT de relancer cette migration.
         cur.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {old_pk}")
         cur.execute(f"ALTER TABLE {table} ADD CONSTRAINT {new_pk} PRIMARY KEY {key_cols}")
+
+    # BUGFIX (2026-09-04) : élargissement de la PK tva_export_credits pour y
+    # inclure le SIREN (voir ADD COLUMN plus haut) — étape séparée de la
+    # boucle ci-dessus car elle vient APRÈS la migration user_id -> org_id
+    # (dont dépend le nom de contrainte de départ) et ne concerne qu'une
+    # seule table. `siren` vaut '' par défaut pour toutes les lignes
+    # existantes : (org_id, period_label) était déjà unique, donc l'élargir
+    # à (org_id, period_label, siren='') ne peut pas créer de doublon.
+    cur.execute(
+        "SELECT 1 FROM information_schema.table_constraints "
+        "WHERE table_name='tva_export_credits' AND constraint_name='tva_export_credits_siren_pkey'"
+    )
+    if not cur.fetchone():
+        cur.execute("ALTER TABLE tva_export_credits DROP CONSTRAINT IF EXISTS tva_export_credits_org_pkey")
+        cur.execute(
+            "ALTER TABLE tva_export_credits ADD CONSTRAINT tva_export_credits_siren_pkey "
+            "PRIMARY KEY (org_id, period_label, siren)"
+        )
 
 
 def _org_id_for_user(user_id: str) -> Optional[str]:
@@ -551,34 +584,52 @@ def has_active_subscription_direct(org_id: str) -> bool:
     return get_subscription_status(org_id).active
 
 
-def has_export_credit(org_id: str, period_label: str) -> bool:
+def has_export_credit(org_id: str, period_label: str, siren: str = "") -> bool:
+    """BUGFIX (2026-09-04) : un crédit PAYG doit être scellé à UN SIREN (donc
+    un seul client/compte Amazon), pas seulement à une période — sinon deux
+    fichiers de vente différents sur la même période mais rattachés à des
+    SIREN distincts se débloquaient tous les deux au premier achat. On
+    n'accepte donc qu'un crédit dont `siren` correspond exactement à celui
+    demandé, ou un crédit legacy (`siren=''`, acheté avant ce correctif) —
+    ces derniers restent valables pour n'importe quel SIREN de l'org, par
+    rétrocompatibilité pure ; tout nouvel achat est scellé au SIREN courant
+    (voir grant_export_credit / create_payg_checkout_session).
+    """
     if has_active_subscription_direct(org_id):
         return True
 
     def _fn(conn, cur):
         cur.execute(
-            "SELECT 1 FROM tva_export_credits WHERE org_id=%s AND period_label=%s",
-            (org_id, period_label),
+            "SELECT 1 FROM tva_export_credits WHERE org_id=%s AND period_label=%s AND siren IN (%s, '')",
+            (org_id, period_label, siren or ""),
         )
         return cur.fetchone() is not None
 
     return _run(_fn)
 
 
-def grant_export_credit(org_id: str, period_label: str, payment_intent_id: str = "", acting_user_id: str = "") -> None:
+def grant_export_credit(
+        org_id: str, period_label: str, payment_intent_id: str = "",
+        acting_user_id: str = "", siren: str = "",
+) -> None:
     """acting_user_id : compte à l'origine de l'achat (audit uniquement,
-    colonne `user_id` conservée à titre historique — org_id est la clé)."""
+    colonne `user_id` conservée à titre historique — org_id est la clé).
+
+    siren : SIREN pour lequel ce crédit est valable (voir has_export_credit).
+    Laissé à '' seulement pour les rares cas où aucun SIREN n'a encore pu
+    être déterminé au moment de l'achat — ce crédit sera alors valable pour
+    tout SIREN de l'org, comme les crédits legacy."""
     def _fn(conn, cur):
         cur.execute(
             """
-            INSERT INTO tva_export_credits (org_id, user_id, period_label, purchased_at, stripe_payment_intent_id)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (org_id, period_label)
+            INSERT INTO tva_export_credits (org_id, user_id, period_label, siren, purchased_at, stripe_payment_intent_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (org_id, period_label, siren)
             DO UPDATE SET purchased_at = EXCLUDED.purchased_at,
                           stripe_payment_intent_id = EXCLUDED.stripe_payment_intent_id,
                           user_id = EXCLUDED.user_id
             """,
-            (org_id, acting_user_id or org_id, period_label, time.time(), payment_intent_id),
+            (org_id, acting_user_id or org_id, period_label, siren or "", time.time(), payment_intent_id),
         )
         conn.commit()
 
@@ -589,13 +640,51 @@ def list_purchased_credits(org_id: str) -> list[dict]:
     """Liste tous les crédits d'export PAYG achetés par l'organisation."""
     def _fn(conn, cur):
         cur.execute(
-            "SELECT period_label, purchased_at FROM tva_export_credits WHERE org_id=%s ORDER BY purchased_at DESC",
+            "SELECT period_label, purchased_at, siren FROM tva_export_credits WHERE org_id=%s ORDER BY purchased_at DESC",
             (org_id,),
         )
         return cur.fetchall()
 
     rows = _run(_fn)
-    return [{"period": r[0], "at": r[1]} for r in rows]
+    return [{"period": r[0], "at": r[1], "siren": r[2]} for r in rows]
+
+
+def list_legacy_export_credits() -> list[dict]:
+    """Migration manuelle (2026-09-04) : liste tous les crédits PAYG achetés
+    AVANT le rattachement d'un crédit à un SIREN précis (voir ADD COLUMN
+    siren dans _init_schema / has_export_credit) — reconnaissables à
+    `siren=''`. Ces crédits restent valables pour tout SIREN de leur org
+    (rétrocompatibilité, voir has_export_credit) ; cette fonction sert
+    uniquement à préparer un resserrement manuel via
+    assign_siren_to_legacy_credit(), pour les org dont on peut établir sans
+    ambiguïté le SIREN concerné (typiquement : un seul SIREN enregistré)."""
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT org_id, period_label, purchased_at FROM tva_export_credits "
+            "WHERE siren = '' ORDER BY org_id, period_label"
+        )
+        return cur.fetchall()
+
+    rows = _run(_fn)
+    return [{"org_id": r[0], "period_label": r[1], "purchased_at": r[2]} for r in rows]
+
+
+def assign_siren_to_legacy_credit(org_id: str, period_label: str, siren: str) -> None:
+    """Migration manuelle (2026-09-04) : resserre un crédit legacy
+    (siren='') sur un SIREN précis a posteriori. À utiliser uniquement quand
+    le SIREN concerné peut être établi avec certitude (voir
+    scripts/migrate_legacy_export_credits.py) — ne fait rien de magique,
+    n'écrit que ce qu'on lui donne explicitement."""
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_export_credits SET siren=%s "
+            "WHERE org_id=%s AND period_label=%s AND siren=''",
+            (siren, org_id, period_label),
+        )
+        conn.commit()
+        return cur.rowcount
+
+    return _run(_fn)
 
 
 # =============================================================================
@@ -1427,9 +1516,18 @@ def _get_or_create_stripe_customer(org_id: str, email: str, acting_user_id: str 
 
 def create_payg_checkout_session(
         org_id: str, acting_user_id: str, email: str, period_label: str, success_url: str, cancel_url: str,
+        siren: str = "",
 ) -> str:
     """Crée une session Stripe Checkout pour l'achat d'un crédit d'export
     PAYG (à l'unité, hors abonnement).
+
+    siren (2026-09-04) : SIREN sélectionné au moment de l'achat, propagé en
+    metadata Stripe pour que le webhook scelle le crédit octroyé à ce SIREN
+    précis (voir _fulfill_checkout_session / grant_export_credit) — un
+    paiement à l'unité ne doit débloquer qu'un SIREN, pas toute
+    l'organisation. Laissé à '' si aucun SIREN n'est encore sélectionné
+    (compte gratuit sans SIREN saisi) : le crédit sera alors valable pour
+    tout SIREN de l'org, comme les crédits legacy — voir has_export_credit.
 
     RÔLES (2026-08-25) : défense en profondeur — `_require_write_access`
     lève déjà `PermissionError` si `acting_user_id` correspond à un compte
@@ -1456,7 +1554,7 @@ def create_payg_checkout_session(
         allow_promotion_codes=True,
         metadata={
             "org_id": org_id, "user_id": acting_user_id, "period_label": period_label,
-            "kind": "payg_export",
+            "siren": siren or "", "kind": "payg_export",
         },
     )
     return session.url
@@ -1755,6 +1853,7 @@ def _fulfill_checkout_session(data: dict) -> None:
             _safe_get(metadata, "period_label", ""),
             _safe_get(data, "payment_intent", ""),
             acting_user_id=acting_user_id or "",
+            siren=_safe_get(metadata, "siren", ""),
         )
 
     elif _safe_get(data, "mode") == "subscription":
