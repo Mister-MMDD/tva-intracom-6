@@ -32,7 +32,7 @@
   "index.html": {
     "title": "Moteur TVA Intracommunautaire",
     "description": "Moteur de conformité TVA intracommunautaire pour vendeurs Amazon et cabinets comptables : OSS, CA3, IOSS, VIES, Intrastat, FEC. Calcul automatique et déclarations prêtes à l'emploi.",
-    "extra_head": "",
+    "extra_head": "<script type=\"application/ld+json\">\n    {\n        \"@context\": \"https://schema.org\",\n        \"@type\": \"SoftwareApplication\",\n        \"name\": \"Moteur TVA Intracommunautaire\",\n        \"applicationCategory\": \"FinanceApplication\",\n        \"operatingSystem\": \"Web\",\n        \"description\": \"Moteur de conformité TVA intracommunautaire pour vendeurs Amazon et cabinets comptables : OSS, CA3, IOSS, VIES, Intrastat, FEC.\",\n        \"offers\": {\n            \"@type\": \"Offer\",\n            \"priceCurrency\": \"EUR\"\n        }\n    }\n    </script>",
     "extra_foot": ""
   },
   "interface.html": {

@@ -440,6 +440,13 @@ Audit réglementaire et structurel exhaustif (moteur fiscal, sécurité, exports
 
 ---
 
+## Incidents de production résolus
+
+- **2026-09-03 — Backfill `org_id` manquant (`billing.py`)** : le premier déploiement `dev → main` post-migration `user_id → org_id` a fait planter la prod (`psycopg2.errors.UndefinedColumn: column "org_id" does not exist`). Cause : `_migrate_billing_to_org_id()` tentait un `SET NOT NULL` sans backfill préalable, provoquant un rollback complet de l'`ALTER TABLE ADD COLUMN`. Corrigé par l'ajout du backfill `UPDATE ... SET org_id = user_id WHERE org_id IS NULL` avant la contrainte `NOT NULL`, sur les 4 tables de facturation. Script de diagnostic dédié conservé (`scripts/diag_org_id_state.py`).
+- **2026-09-03 — Nettoyage de l'instrumentation de debug** : retrait des logs `[QUEUE_DEBUG]` temporaires (file d'attente de calcul), des affichages `st.caption` de diagnostic serveur, et du script `backfill_encrypt_pii.py` (déjà exécuté en production avec `--apply`, migration close). Scripts de diagnostic utiles conservés (`debug_can_export.py`, `scripts/diag_org_migration.py`, `scripts/diag_org_id_state.py`).
+
+---
+
 ## Tests
 
 ```bash

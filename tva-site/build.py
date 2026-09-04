@@ -3,10 +3,10 @@
 Build script — tva-site
 ========================
 Assemble les pages finales à partir de fragments partagés pour éviter
-la duplication du nav/head/footer sur les 13 pages du site.
+la duplication du nav/head/footer sur les 12 pages du site.
 
 Structure source :
-  _includes/head.html     -> squelette <head> paramétrable ({{TITLE}}, {{DESCRIPTION}}, {{EXTRA_HEAD}})
+  _includes/head.html     -> squelette <head> paramétrable ({{TITLE}}, {{DESCRIPTION}}, {{EXTRA_HEAD}}, {{CSS_HASH}}, {{JS_HASH}})
   _includes/footer.html   -> footer identique sur toutes les pages
   src/meta/pages.json     -> métadonnées par page (title, description, extra_head, extra_foot)
   src/pages/<page>.html   -> contenu unique de chaque page (header + main)
@@ -14,17 +14,46 @@ Structure source :
 Usage :
   python3 build.py
 
-Régénère les fichiers .html à la racine de tva-site/. Le nav est généré
-directement ici (pas un fichier séparé) afin de marquer proprement le
-lien actif (class="active" + aria-current="page") sans templating fragile.
+Régénère les fichiers .html à la racine de tva-site/, ainsi que
+style.min.css (version minifiée de style.css, servie en prod).
+Le nav est généré directement ici (pas un fichier séparé) afin de
+marquer proprement le lien actif (class="active" + aria-current="page")
+sans templating fragile.
+
+Cache-busting : {{CSS_HASH}}/{{JS_HASH}} sont calculés automatiquement
+(hash MD5 du contenu, 8 car.) -> plus besoin de bump manuel du ?v=,
+le paramètre change dès que le fichier change.
+
+Minification : uniquement le CSS (regex sûre : commentaires + espaces).
+Le JS n'est PAS minifié (une minification par regex serait risquée sur
+du JS — nécessiterait un vrai outil type esbuild/terser, non fait ici).
 
 Pour ajouter une page : créer src/pages/nouvelle-page.html, ajouter une
 entrée dans NAV_LINKS et dans src/meta/pages.json, puis relancer le build.
 """
+import hashlib
 import json
 import os
+import re
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def file_hash(path: str) -> str:
+    """Hash court (8 car.) du contenu du fichier, pour cache-busting automatique.
+    Change uniquement si le contenu change -> plus besoin de bump manuel du ?v=."""
+    with open(path, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()[:8]
+
+
+def minify_css(css: str) -> str:
+    """Minification CSS sûre (commentaires + espaces superflus).
+    N'affecte pas la version lisible en source (fichier séparé en sortie)."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    css = re.sub(r"\s+", " ", css)
+    css = re.sub(r"\s*([{}:;,])\s*", r"\1", css)
+    css = re.sub(r";}", "}", css)
+    return css.strip()
 
 NAV_LINKS = [
     ("index.html", "Accueil"),
@@ -62,6 +91,16 @@ def main():
     footer_html = open(os.path.join(ROOT, "_includes", "footer.html"), encoding="utf-8").read().strip()
     meta_all = json.load(open(os.path.join(ROOT, "src", "meta", "pages.json"), encoding="utf-8"))
 
+    # Minification CSS -> fichier séparé (style.css source reste lisible pour l'édition)
+    css_src_path = os.path.join(ROOT, "style.css")
+    css_src = open(css_src_path, encoding="utf-8").read()
+    css_min_path = os.path.join(ROOT, "style.min.css")
+    open(css_min_path, "w", encoding="utf-8").write(minify_css(css_src))
+
+    # Cache-busting automatique par hash de contenu (plus de version manuelle à incrémenter)
+    css_hash = file_hash(css_min_path)
+    js_hash = file_hash(os.path.join(ROOT, "script.js"))
+
     built = []
     for fname, meta in meta_all.items():
         page_id = fname.replace(".html", "")
@@ -72,6 +111,8 @@ def main():
             head_tpl.replace("{{TITLE}}", meta["title"])
             .replace("{{DESCRIPTION}}", meta["description"])
             .replace("{{EXTRA_HEAD}}", meta["extra_head"])
+            .replace("{{CSS_HASH}}", css_hash)
+            .replace("{{JS_HASH}}", js_hash)
         )
         # Nettoyage : ligne vide si pas d'extra_head
         head = head.replace("\n\n</head>", "\n</head>")
@@ -101,6 +142,7 @@ def main():
         built.append(fname)
 
     print(f"{len(built)} pages générées : {', '.join(built)}")
+    print(f"style.min.css régénéré (hash v={css_hash}) — script.js non minifié (hash v={js_hash})")
 
 
 if __name__ == "__main__":
