@@ -1,6 +1,34 @@
 console.log("Moteur TVA Intracommunautaire — Design System Activé.");
 
 document.addEventListener("DOMContentLoaded", () => {
+    // Menu hamburger (mobile) : ouverture / fermeture + fermeture au clic sur un lien
+    const menuToggle = document.getElementById("menu-toggle");
+    const menuLinksEl = document.getElementById("menu-links");
+    if (menuToggle && menuLinksEl) {
+        const closeMenu = () => {
+            menuLinksEl.classList.remove("open");
+            menuToggle.setAttribute("aria-expanded", "false");
+            menuToggle.setAttribute("aria-label", "Ouvrir le menu");
+        };
+        const openMenu = () => {
+            menuLinksEl.classList.add("open");
+            menuToggle.setAttribute("aria-expanded", "true");
+            menuToggle.setAttribute("aria-label", "Fermer le menu");
+        };
+        menuToggle.addEventListener("click", () => {
+            const isOpen = menuLinksEl.classList.contains("open");
+            if (isOpen) closeMenu(); else openMenu();
+        });
+        // Ferme le menu après un clic sur un lien (évite de rester ouvert après navigation)
+        menuLinksEl.querySelectorAll("a").forEach(link => {
+            link.addEventListener("click", closeMenu);
+        });
+        // Repasse en état "fermé" propre si on repasse en desktop après redimensionnement
+        window.addEventListener("resize", () => {
+            if (window.innerWidth > 768) closeMenu();
+        });
+    }
+
     // Bascule de thème clair / sombre
     const themeToggle = document.getElementById("theme-toggle");
     const root = document.documentElement;

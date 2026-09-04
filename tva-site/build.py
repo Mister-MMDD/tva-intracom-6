@@ -42,7 +42,7 @@ import re
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE_URL = "https://www.tvacalculator.eu"
-OG_IMAGE = "https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/logo.svg"
+OG_IMAGE = "https://www.tvacalculator.eu/assets/logo/og-image.png"
 
 
 def file_hash(path: str) -> str:
@@ -79,15 +79,22 @@ def build_nav(active_page: str) -> str:
     links = []
     for href, label in NAV_LINKS:
         if href == active_page:
-            links.append(f'    <a href="{href}" class="active" aria-current="page">{label}</a>')
+            links.append(f'        <a href="{href}" class="active" aria-current="page">{label}</a>')
         else:
-            links.append(f'    <a href="{href}">{label}</a>')
+            links.append(f'        <a href="{href}">{label}</a>')
     links_html = "\n".join(links)
     return f'''<nav class="menu" aria-label="Navigation principale">
+    <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="menu-links" aria-label="Ouvrir le menu">
+        <span class="menu-toggle-bar"></span>
+        <span class="menu-toggle-bar"></span>
+        <span class="menu-toggle-bar"></span>
+    </button>
+    <div class="menu-links" id="menu-links">
 {links_html}
-    <div class="search-container">
-        <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
-        <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Passer en mode sombre">🌙</button>
+        <div class="search-container">
+            <input type="text" id="site-search" placeholder="Rechercher..." aria-label="Rechercher dans le site">
+            <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Passer en mode sombre">🌙</button>
+        </div>
     </div>
 </nav>'''
 

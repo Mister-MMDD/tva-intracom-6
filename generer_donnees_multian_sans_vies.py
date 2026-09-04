@@ -1,20 +1,18 @@
-"""Générateur de données de ventes multi-années pour tester le seuil OSS.
+"""Générateur de données de ventes pour mars 2026 pour tester le seuil OSS.
 
 Produit un fichier CSV au format Amazon VAT Transactions Report (Format 4)
-identique à source_vente.csv, couvrant plusieurs années civiles.
+identique à source_vente.csv, couvrant uniquement le mois de mars 2026.
 
-Scénarios générés par année pour tester les cas limites OSS :
-  - Ventes B2C intra-UE cross-border (OSS) — réparties pour piloter le cumul
+Scénarios générés :
+  - Ventes B2C intra-UE cross-border (OSS)
   - Ventes B2C domestiques France
   - Ventes B2B cross-border (reverse charge)
   - Ventes B2B avec NIF national ES/IT (autoliquidation art.194)
   - Avoirs (RETURN)
-  - Passage de seuil OSS en cours d'année (vente de franchissement)
-  - Reset du cumul au 1er janvier
 
 Usage:
-    python generer_donnees_multian.py [--annees 2022 2023 2024] [--output fichier.csv]
-    python generer_donnees_multian.py  # produit data/ventes_multian_test.csv
+    python generer_donnees_multian_sans_vies.py [--annees 2026] [--output fichier.csv]
+    python generer_donnees_multian_sans_vies.py  # produit data/ventes_multian_test.csv
 """
 
 from __future__ import annotations
@@ -215,11 +213,11 @@ def _make_row(
     year: int,
     spec: ScenarioSpec,
     seq: int,
-    account_id: str = "FR_SELLER_001",
+    account_id: str = "77777777",
 ) -> dict:
     """Construit un dict complet prêt à écrire en CSV."""
 
-    tx_date = _rnd_date(year)
+    tx_date = _rnd_date(year, month_start=3, month_end=3)
     tx_date_str = _fmt_date(tx_date)
     activity_period = tx_date.strftime("%Y-%m")
 
@@ -483,7 +481,8 @@ def generate(
         year_rows = []
 
         for spec in specs:
-            row = _make_row(year, spec, seq, account_id="FR_SELLER_TEST_001")
+            # On utilise ici le numéro d'identifiant unique (ex: SIREN) pour tout le fichier
+            row = _make_row(year, spec, seq, account_id="12377456789")
             year_rows.append(row)
             seq += 1
 
@@ -528,9 +527,9 @@ def main(argv: List[str] | None = None) -> int:
         "--annees",
         nargs="+",
         type=int,
-        default=[2022, 2023, 2024],
+        default=[2026],
         metavar="ANNEE",
-        help="Années à générer (défaut : 2022 2023 2024).",
+        help="Années à générer (défaut : 2026).",
     )
     parser.add_argument(
         "--output",
