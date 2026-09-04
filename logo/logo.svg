@@ -1,0 +1,16 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fond Bleu Arrondi -->
+  <rect width="512" height="512" rx="100" fill="#003399"/>
+  
+  <!-- Cercle d'étoiles (symbolisant l'Europe) -->
+  <g opacity="0.8">
+    <path d="M256 80L262 98H281L266 109L272 127L256 116L240 127L246 109L231 98H250L256 80Z" fill="#FFD700"/>
+    <!-- (Autres étoiles disposées en cercle...) -->
+    <circle cx="256" cy="256" r="160" stroke="#FFD700" stroke-width="2" stroke-dasharray="1 40" stroke-linecap="round"/>
+  </g>
+
+  <!-- Symbole Euro stylisé -->
+  <path d="M320 200C305 180 280 170 250 170C200 170 160 210 160 260C160 310 200 350 250 350C280 350 305 340 320 320" stroke="#FFD700" stroke-width="35" stroke-linecap="round"/>
+  <path d="M140 245H260" stroke="#FFD700" stroke-width="30" stroke-linecap="round"/>
+  <path d="M140 285H260" stroke="#FFD700" stroke-width="30" stroke-linecap="round"/>
+</svg>

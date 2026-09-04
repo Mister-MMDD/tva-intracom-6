@@ -6,7 +6,7 @@ Assemble les pages finales à partir de fragments partagés pour éviter
 la duplication du nav/head/footer sur les 12 pages du site.
 
 Structure source :
-  _includes/head.html     -> squelette <head> paramétrable ({{TITLE}}, {{DESCRIPTION}}, {{EXTRA_HEAD}}, {{CSS_HASH}}, {{JS_HASH}})
+  _includes/head.html     -> squelette <head> paramétrable ({{TITLE}}, {{DESCRIPTION}}, {{EXTRA_HEAD}}, {{CSS_HASH}}, {{JS_HASH}}, {{CANONICAL_URL}}, {{OG_IMAGE}})
   _includes/footer.html   -> footer identique sur toutes les pages
   src/meta/pages.json     -> métadonnées par page (title, description, extra_head, extra_foot)
   src/pages/<page>.html   -> contenu unique de chaque page (header + main)
@@ -24,6 +24,10 @@ Cache-busting : {{CSS_HASH}}/{{JS_HASH}} sont calculés automatiquement
 (hash MD5 du contenu, 8 car.) -> plus besoin de bump manuel du ?v=,
 le paramètre change dès que le fichier change.
 
+Open Graph / Twitter Card : canonical + og:*/twitter:* générés pour
+chaque page (SITE_URL + OG_IMAGE en constantes en tête de ce fichier,
+à mettre à jour si le domaine ou le visuel changent).
+
 Minification : uniquement le CSS (regex sûre : commentaires + espaces).
 Le JS n'est PAS minifié (une minification par regex serait risquée sur
 du JS — nécessiterait un vrai outil type esbuild/terser, non fait ici).
@@ -37,6 +41,8 @@ import os
 import re
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+SITE_URL = "https://www.tvacalculator.eu"
+OG_IMAGE = "https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/logo.svg"
 
 
 def file_hash(path: str) -> str:
@@ -107,12 +113,16 @@ def main():
         content_path = os.path.join(ROOT, "src", "pages", f"{page_id}.html")
         content = open(content_path, encoding="utf-8").read().strip()
 
+        canonical_url = SITE_URL + "/" if fname == "index.html" else f"{SITE_URL}/{fname}"
+
         head = (
             head_tpl.replace("{{TITLE}}", meta["title"])
             .replace("{{DESCRIPTION}}", meta["description"])
             .replace("{{EXTRA_HEAD}}", meta["extra_head"])
             .replace("{{CSS_HASH}}", css_hash)
             .replace("{{JS_HASH}}", js_hash)
+            .replace("{{CANONICAL_URL}}", canonical_url)
+            .replace("{{OG_IMAGE}}", OG_IMAGE)
         )
         # Nettoyage : ligne vide si pas d'extra_head
         head = head.replace("\n\n</head>", "\n</head>")
