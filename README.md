@@ -402,26 +402,16 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 
 ### Performance & Réactivité
 - **Optimisations CPU (Audit 09/2026)** :
-<<<<<<< Updated upstream
   - Remplacement de `st.tabs` par des sélecteurs radio conditionnels pour n'exécuter que l'onglet actif (gain massif sur le vCPU partagé).
   - Mémoïsation des boucles O(n) du thread principal via `calc_key` (KPIs, alertes, devises).
   - Utilisation de `lru_cache` sur la normalisation VIES et interning des chaînes répétitives (`sys.intern`).
-=======
-  - Remplacement de `st.tabs` par des sélecteurs radio conditionnels pour éviter le rendu inutile des onglets masqués.
-  - Mémoïsation des boucles O(n) du thread principal via `calc_key` (KPIs, alertes, devises).
-  - Utilisation de `lru_cache` sur la normalisation VIES et interning des chaînes répétitives.
->>>>>>> Stashed changes
   - Arrondi des données Plotly pour une sérialisation JSON plus légère vers le navigateur.
 - **File d'attente (Gros uploads)** : Slot unique tenu du début du parsing jusqu'à la fin du calcul pour les fichiers volumineux (> 10 Mo). Inclut un timeout de réservation sécurisé (45s) et une réincrémentation défensive du compteur de slots.
 - **Respiration CPU** : Points de respiration (`time.sleep(0)`) dans `_process_rows` et `_run_oss_loop` pour garantir la fluidité de l'interface sur vCPU partagé.
 - **Optimisation de la RAM** : String Interning (ASIN, TVA, pays) et gestion fine des caches (suppression des `cache_clear()` globaux impactant les autres sessions).
 - **Fragments Streamlit** : Utilisation intensive de `@st.fragment` pour isoler le rendu et éviter les reruns complets lors d'interactions locales.
 - **Cache intelligent** : Mise en cache des parsers, du catalogue et des exports via signatures MD5 (128 Ko start/end).
-<<<<<<< Updated upstream
 - **Réactivité post-paiement** : Rafraîchissement instantané du statut d'abonnement lors du retour de Checkout Stripe (via `export_ok=1`) pour supprimer la latence du cache.
-=======
-- **Réactivité post-paiement** : Rafraîchissement instantané du statut d'abonnement au retour de Stripe (via `export_ok=1`) pour supprimer la latence du cache.
->>>>>>> Stashed changes
 
 ### UX & Fiabilité
 - **Onboarding Lighthouse** : Guidage visuel par pulsations CSS vers les sections requises pour la configuration (Entreprise, TVA, Upload).

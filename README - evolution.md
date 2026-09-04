@@ -6842,3 +6842,25 @@ Idempotent et sans danger sur les deux bases : sur main, comble le vide (0 confl
 **Nouvel outil ajouté** : `scripts/diag_org_id_state.py` (lecture seule, autocommit readonly, connexion fermée en sortie) — vérifie par table la présence de `org_id`, le nombre de lignes `org_id IS NULL`/`user_id IS NULL`, et l'état des contraintes PK `_pkey`/`_org_pkey`. À conserver dans le dépôt pour tout diagnostic futur similaire avant migration de schéma.
 
 **Livraison** : `billing.py` seul (chemin repo-relatif `tva_intracom/billing.py`), à déployer sur `main` en priorité (bloquant en prod), puis sur `dev` par cohérence (no-op confirmé, aucun risque).
+
+## 2026-09-03 (3) — Nettoyage : retrait des logs de diagnostic temporaires (file d'attente) et du script de migration PII déjà exécuté
+
+**Contexte** : à la demande de Matthieu, suite à la clôture du diagnostic "2 barres simultanées" / "onglet figé" (voir entrées 2026-08-29 et 2026-08-31), retrait de toute l'instrumentation `DEBUG TEMPORAIRE` associée, restée en place alors que le diagnostic était officiellement tranché (conclusion : artefact d'onglet resté figé côté navigateur, aucun bug serveur réel).
+
+**Logs `[QUEUE_DEBUG]` retirés** :
+- `app.py` : 2 `logger.info` de bascule file→démarrage (chemin combiné parse+calcul et chemin calcul seul)
+- `tva_intracom/ui/background_calc.py` : les 12 `logger.info`/`logger.warning` restants dans `_reap_stale_reservations_locked`, `reserve_or_enqueue`, `try_advance_queue`, `start_background_job` (2 points), `render_job_progress` (2 points), `render_queue_status` (3 points)
+- Les 2 `st.caption("🕓 dernier tick serveur...")` (`render_job_progress`, `render_queue_status`)
+- La fonction `_sid()` et la constante `_SESSION_ID_KEY` (`_bgjob_debug_session_id`) : plus aucun appelant une fois les logs ci-dessus retirés
+- Nettoyage induit : variable `_age` (`_reap_stale_reservations_locked`) et `_sid_val` (`start_background_job`) devenues orphelines ; imports `os` (`app.py`, `background_calc.py`) et `datetime` (`background_calc.py`) retirés, plus utilisés dans ces fichiers après nettoyage (confirmé par `pyflakes`)
+- Commentaire résiduel dans `app.py` (docstring du bugfix `_parse_cache_key`) allégé de sa référence aux logs `[QUEUE_DEBUG]` supprimés — le correctif fonctionnel documenté, lui, reste en place (toujours valide, ce n'était pas de l'instrumentation temporaire)
+
+**Non touché, sur demande explicite** : `debug_can_export.py` et `scripts/diag_org_migration.py` / `scripts/diag_org_id_state.py` (diagnostics conservés à dessein pour resservir), ainsi que tous les générateurs de données de test (`generate_dataset.py`, `generer_donnees_10k.py`, `generer_donnees_multian_sans_vies.py`, `generer_donnees_multian_avec_VIES.py`) — non concernés par ce nettoyage.
+
+**Script de migration retiré** : `backfill_encrypt_pii.py` (racine du dépôt) — déjà exécuté en production par Matthieu avec `--apply` (voir clôture point 2, entrée 2026-08-16) ; le fail-open de `decrypt_data` qu'il devait permettre de retirer a lui-même déjà été retiré à cette date. Migration définitivement close, script sans utilité restante. Les mentions historiques du script dans les docstrings de `billing.py` et `security.py` sont conservées telles quelles (traçabilité d'audit).
+
+**Validation** : `py_compile` + `pyflakes` propres sur `app.py` et `tva_intracom/ui/background_calc.py`. Symétrie i18n confirmée inchangée (1218 clés × 7 langues — aucune chaîne UI touchée par ce nettoyage). Suite `pytest` complète : **230 passed / 3 failed** — baseline strictement inchangée (échecs pré-existants liés à l'absence de `SUPABASE_DB_URL` en sandbox).
+
+**Railway / scale-to-zero** : aucun impact — retrait pur de logs et d'un script one-off déjà utilisé, aucune connexion, thread ou polling modifié.
+
+Fichiers modifiés : `app.py`, `tva_intracom/ui/background_calc.py`. Fichier supprimé : `backfill_encrypt_pii.py`.

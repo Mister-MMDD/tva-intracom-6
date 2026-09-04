@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="79ed2874-8f72-4b6a-9591-3010d75f4bcd" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/data/ventes_multian_test_15.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/data/ventes_multian_test_16.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/data/ventes_multian_test_18.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/data/ventes_multian_test_21.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/data/ventes_multian_test_23.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/data/ventes_multian_test_25.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/data/ventes_multian_test_27.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "dev"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <servers />
+  </component>
+</project>
