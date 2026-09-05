@@ -1468,24 +1468,19 @@ if uploaded_files:
                 st.markdown(_kpi_card(_("kpi_ca_ht"), _fmt(ca_net), "#1f4e79",
                                       _("kpi_ca_ht_help", gross=_fmt(ca_brut), refunds=_fmt(ca_remb))), unsafe_allow_html=True)
             with c2:
-                _val_owe = _fmt(float(summary.total_you_owe)) if _can_export else _lock_message
-                st.markdown(_kpi_card(_("kpi_vat_you_owe"), _val_owe, "#d97706",
+                st.markdown(_kpi_card(_("kpi_vat_you_owe"), _fmt(float(summary.total_you_owe)), "#d97706",
                                       _("kpi_vat_you_owe_help")), unsafe_allow_html=True)
             with c3:
-                _val_amz = _fmt(float(summary.amazon_vat)) if _can_export else _lock_message
-                st.markdown(_kpi_card(_("kpi_vat_amazon", platform=platform_name), _val_amz, "#2ca02c",
+                st.markdown(_kpi_card(_("kpi_vat_amazon", platform=platform_name), _fmt(float(summary.amazon_vat)), "#2ca02c",
                                       _("kpi_vat_amazon_help", platform=platform_name)), unsafe_allow_html=True)
             with c4:
                 if abs(total_ecarts_autres) > 0.05:
                     _sign = "+" if total_ecarts_autres >= 0 else ""
-                    _val_err = f"{_sign}{_fmt(total_ecarts_autres)}" if _can_export else _lock_message
-                    st.markdown(_kpi_card(_("amazon_config_error", platform=platform_name), _val_err, "#d62728"),
+                    st.markdown(_kpi_card(_("amazon_config_error", platform=platform_name), f"{_sign}{_fmt(total_ecarts_autres)}", "#d62728"),
                                 unsafe_allow_html=True)
-                    if _can_export:
-                        st.markdown(f'<span class="badge-alert">{_("config_error_badge")}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span class="badge-alert">{_("config_error_badge")}</span>', unsafe_allow_html=True)
                 else:
-                    _val_ok = _fmt(0) if _can_export else _lock_message
-                    st.markdown(_kpi_card(_("amazon_config_success", platform=platform_name), _val_ok, "#2ca02c"), unsafe_allow_html=True)
+                    st.markdown(_kpi_card(_("amazon_config_success", platform=platform_name), _fmt(0), "#2ca02c"), unsafe_allow_html=True)
 
         # =====================================================================
         # ONGLETS PRINCIPAUX

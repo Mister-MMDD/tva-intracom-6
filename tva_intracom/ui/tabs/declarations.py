@@ -350,11 +350,9 @@ def render_declarations(ctx: TabContext) -> None:
                                      column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))},
                                      total_count=len(_bucket_rows), lock_msg=ctx.lock_message)
             c1, c2, c3 = st.columns(3)
-            _val_sum = _fmt(_bucket_net_ht) if _can_export else ctx.lock_message
-            _val_gap = _fmt(_coherence_delta) if _can_export else ctx.lock_message
             c1.metric(_("kpi_declared_net_ht"), _fmt(_declared_net_ht))
-            c2.metric(_("kpi_sum_canals_net_ht"), _val_sum)
-            c3.metric(_("kpi_gap"), _val_gap)
+            c2.metric(_("kpi_sum_canals_net_ht"), _fmt(_bucket_net_ht))
+            c3.metric(_("kpi_gap"), _fmt(_coherence_delta))
             st.caption(_("coherence_caption"))
 
     # Exposé pour l'onglet Téléchargements (voir docstring de ce module).
