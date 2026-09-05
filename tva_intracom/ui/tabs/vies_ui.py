@@ -507,7 +507,7 @@ def render_vies(ctx: TabContext) -> None:
                     money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
                     note_cols=[_("vies_col_rejected_vat"), _("vies_col_id"), _("col_scenario"), _("vies_col_expl")])
                 _gated_preview_table(_fraud_df_filt, _can_export, column_config=_fraud_cfg, total_count=len(_fraud_df_filt),
-                                     exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")])
+                                     exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")], lock_msg=ctx.lock_message)
 
             if national_ids:
                 with st.expander(_("vies_national_id_expander", count=len(national_ids))):
@@ -536,7 +536,7 @@ def render_vies(ctx: TabContext) -> None:
                     # quelques lignes visibles, le reste verrouillé tant que la
                     # période n'est pas débloquée.
                     _gated_preview_table(_nat_df, _can_export, column_config=_nat_cfg, total_count=len(_nat_df),
-                                         exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")])
+                                         exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")], lock_msg=ctx.lock_message)
 
             if avec_delta:
                 by_c = {}

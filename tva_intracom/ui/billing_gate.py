@@ -336,6 +336,36 @@ class BillingGate:
         st.download_button(label, data=data, file_name=file_name, mime=mime, **kwargs)
 
 
+def preview_lock_message(gate: "BillingGate") -> str:
+    """Message court (avec cadenas) pour les aperçus bridés (tableaux masqués
+    de detail_ventes/vies_ui/audit/declarations, métriques de
+    telechargements/declarations) — PAS pour gated_download() qui a son
+    propre message complet (st.error/st.info).
+
+    Même ordre de priorité que BillingGate.gated_download() (voir son
+    commentaire "Priorité 0") : paiement/quota d'abord (le paywall doit
+    toujours primer pour un compte non débloqué), puis, seulement pour un
+    compte déjà payant (billing_ok), les gates de conformité un par un.
+    Retourne toujours un message pertinent : n'est appelé que lorsque
+    `can_export` est False, donc au moins une des conditions ci-dessous est
+    vraie."""
+    if gate.sub_status == "incomplete":
+        return "🔒 " + _("locked_premium")
+    if gate.quota_status and gate.quota_status.blocked:
+        return "🔒 " + _("locked_quota")
+    if not gate.billing_ok:
+        return "🔒 " + _("locked_premium")
+    if gate.account_link_blocked:
+        return _("locked_account_link")
+    if gate.siren_mismatch:
+        return "🔒 " + _("locked_siren_mismatch")
+    if gate.siren_missing:
+        return "🔒 " + _("locked_siren_missing")
+    # Filet de sécurité (ne devrait pas arriver : can_export=False implique
+    # forcément un des cas ci-dessus) — même repli que gated_download.
+    return "🔒 " + _("locked_premium")
+
+
 def build_billing_gate(
         *,
         results,

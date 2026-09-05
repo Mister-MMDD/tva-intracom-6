@@ -6890,3 +6890,28 @@ Fichiers modifiés : `app.py`, `tva_intracom/ui/background_calc.py`. Fichier sup
 **Railway / scale-to-zero** : aucun impact — migration de schéma toujours en exécution unique au premier démarrage (`_schema_ready`), aucun nouveau thread, connexion persistante ou mécanisme de keep-alive introduit. Le script de migration est un outil ponctuel, jamais exécuté par l'app elle-même.
 
 Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/ui/billing_gate.py`, `tva_intracom/ui/sidebar.py`, `tva_intracom/i18n/{fr,en,es,de,it,pt,pl}.toml`. Fichier ajouté : `scripts/migrate_legacy_export_credits.py`. Correction hors dépôt : secret Streamlit Cloud `APP_BASE_URL`.
+
+## 2026-09-05 (2) — Messages de blocage génériques ("Option Premium") dans les aperçus bridés, incohérents avec le vrai message de `gated_download()`
+
+**Contexte** : demande de Matthieu de vérifier que le message de blocage affiché est toujours spécifique à la vraie raison (premium, SIREN, rattachement compte Amazon, quota), avec le paywall prioritaire tant que le compte n'est pas payant, et le relais pris par les autres raisons une fois payant.
+
+**Constat** : `BillingGate.gated_download()` (`ui/billing_gate.py`) applique déjà cette priorité correctement (paiement/quota > rattachement compte > SIREN non reconnu > SIREN manquant — voir le BUGFIX du 2026-09-04 déjà en place). Mais ce n'était **pas le cas** pour les aperçus bridés qui court-circuitent `gated_download()` :
+- `_gated_preview_table()` (`ui/formatting.py`, 8 appels dans `detail_ventes.py`/`vies_ui.py`/`audit.py`/`declarations.py`) ne recevait que `can_export: bool` et affichait toujours le même message générique `🔒 Option premium`, quelle que soit la vraie raison.
+- `declarations.py` (récapitulatif "Ce que vous devez reverser") et `telechargements.py` (métrique TVA due localement) dupliquaient une logique à seulement 2 branches (`account_link_blocked` vs sinon "premium"), ignorant `siren_mismatch`/`siren_missing`/quota.
+
+Un compte déjà abonné mais bloqué pour SIREN non reconnu ou quota dépassé voyait donc "Option Premium Bloquée" dans ces aperçus, comme s'il n'avait pas payé — alors que le vrai bouton de téléchargement juste en dessous affichait le bon message.
+
+**Cause racine** : `TabContext` (contexte partagé entre onglets) ne transportait que `billing_ok` et `account_link_blocked` depuis le `BillingGate` — ni `siren_mismatch`, ni `siren_missing`, ni le statut de quota n'étaient propagés, donc structurellement indisponibles pour ces onglets.
+
+**Correctif** :
+- nouvelle fonction `billing_gate.preview_lock_message(gate)` : message court avec cadenas, même ordre de priorité que `gated_download()` (paiement/quota d'incomplet → non payant → rattachement compte → SIREN non reconnu → SIREN manquant) ;
+- `TabContext` gagne un champ `lock_message: str`, calculé une seule fois dans `app.py` juste après `build_billing_gate()` et propagé à tous les onglets ;
+- `_gated_preview_table()` accepte un paramètre `lock_msg` optionnel (repli sur l'ancien message générique si non fourni, compatibilité ascendante) — les 8 appels lui passent désormais `ctx.lock_message` ;
+- `declarations.py` et `telechargements.py` utilisent directement `ctx.lock_message` au lieu de leur logique à 2 branches.
+- i18n : nouvelles clés courtes `locked_siren_mismatch`, `locked_siren_missing`, `locked_quota` (7 langues).
+
+**Railway / scale-to-zero** : aucun impact — calcul synchrone, aucun thread ni connexion persistante introduits.
+
+**Validation** : `py_compile` + `pyflakes` propres sur tous les fichiers modifiés. Symétrie i18n confirmée : 1222 clés × 7 langues (3 nouvelles clés ajoutées ce jour, sur une base de 1219 déjà en place après les ajouts des entrées précédentes). Suite `pytest` complète : **230 passed / 3 failed** — baseline inchangée.
+
+Fichiers modifiés : `app.py`, `tva_intracom/ui/billing_gate.py`, `tva_intracom/ui/formatting.py`, `tva_intracom/ui/tabs/context.py`, `tva_intracom/ui/tabs/declarations.py`, `tva_intracom/ui/tabs/telechargements.py`, `tva_intracom/ui/tabs/detail_ventes.py`, `tva_intracom/ui/tabs/vies_ui.py`, `tva_intracom/ui/tabs/audit.py`, `tva_intracom/i18n/{fr,en,es,de,it,pt,pl}.toml`.

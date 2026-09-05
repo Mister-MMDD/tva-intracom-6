@@ -314,11 +314,10 @@ def render_declarations(ctx: TabContext) -> None:
             if col in _recap_preview.columns:
                 _recap_preview[col] = _recap_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
         
-        # Masquage
-        if ctx.billing_ok and ctx.account_link_blocked:
-            lock_msg = _("locked_account_link")
-        else:
-            lock_msg = "🔒 " + _("locked_premium")
+        # Masquage — message spécifique à la vraie raison du blocage (paiement,
+        # rattachement compte, SIREN, quota), pas seulement "premium" vs
+        # "rattachement" — voir billing_gate.preview_lock_message().
+        lock_msg = ctx.lock_message
         for idx, row in _recap_preview.iterrows():
             # CA est maintenant toujours visible (total et pays)
             # Seule la TVA reste verrouillée partout
@@ -349,7 +348,7 @@ def render_declarations(ctx: TabContext) -> None:
             if _bucket_rows:
                 _gated_preview_table(pd.DataFrame(_bucket_rows), _can_export,
                                      column_config={_("col_net_ht_eur"): _money_col(_("col_net_ht_eur"))},
-                                     total_count=len(_bucket_rows))
+                                     total_count=len(_bucket_rows), lock_msg=ctx.lock_message)
             c1, c2, c3 = st.columns(3)
             c1.metric(_("kpi_declared_net_ht"), _fmt(_declared_net_ht))
             c2.metric(_("kpi_sum_canals_net_ht"), _fmt(_bucket_net_ht))

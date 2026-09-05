@@ -35,6 +35,12 @@ class TabContext:
     account_link_blocked: bool
     gated_download: Any    # callable : BillingGate.gated_download
     unlock_label_suffix: str
+    # Message court (avec cadenas) pour les aperçus bridés (tableaux masqués,
+    # métriques) — calculé une fois par billing_gate.preview_lock_message()
+    # et réutilisé par tous les onglets, pour que la raison affichée soit
+    # toujours cohérente avec celle du vrai bouton de téléchargement
+    # (gated_download). Voir README - évolution.md.
+    lock_message: str
 
     # Auth / VIES
     vies_scope_id: str

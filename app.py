@@ -1306,7 +1306,7 @@ if uploaded_files:
         # =====================================================================
         # GATING BILLING
         # =====================================================================
-        from tva_intracom.ui.billing_gate import build_billing_gate, render_account_link_panel
+        from tva_intracom.ui.billing_gate import build_billing_gate, render_account_link_panel, preview_lock_message
 
         _gate = build_billing_gate(
             results=results, oss_period=oss_period, cache_key=_cache_key,
@@ -1333,6 +1333,11 @@ if uploaded_files:
         _ioss_missing = _gate.ioss_missing
         _unlock_label_suffix = _gate.unlock_label_suffix
         _gated_download = _gate.gated_download
+        # Message court (cadenas) pour les aperçus bridés — même priorité que
+        # gated_download(), voir preview_lock_message(). Calculé une seule
+        # fois ici et propagé via TabContext.lock_message à tous les onglets
+        # (detail_ventes, vies_ui, audit, declarations, telechargements).
+        _lock_message = preview_lock_message(_gate)
         _get_payg_checkout_url = _gate.get_payg_checkout_url
 
         # Taux BCE de clôture de période réellement utilisés pour la
@@ -1533,6 +1538,7 @@ if uploaded_files:
             account_link_blocked=_gate.account_link_blocked,
             gated_download=_gated_download,
             unlock_label_suffix=_unlock_label_suffix,
+            lock_message=_lock_message,
             vies_scope_id=_vies_scope_id,
             vies_retry_nonce=_vies_retry_nonce,
             enable_vies=enable_vies,

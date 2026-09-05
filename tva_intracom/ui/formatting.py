@@ -361,7 +361,8 @@ def _gated_preview_table(
     total_count: Optional[int] = None,
     extra_safe_cols: Optional[list[str]] = None,
     lock_all: bool = False,
-    exclude_safe_cols: Optional[list[str]] = None
+    exclude_safe_cols: Optional[list[str]] = None,
+    lock_msg: Optional[str] = None,
 ) -> None:
     """Affiche un tableau de résultats avec protection des données sensibles."""
     if can_export:
@@ -415,7 +416,13 @@ def _gated_preview_table(
         else:
             df_preview[col] = df_preview[col].astype(str).astype(object)
 
-    lock_msg = "🔒 " + _("gated_locked")
+    # `lock_msg` : message spécifique à la vraie raison du blocage (paiement,
+    # rattachement compte, SIREN non reconnu/manquant, quota — voir
+    # billing_gate.preview_lock_message()), transmis par l'appelant via
+    # `ctx.lock_message`. Repli sur l'ancien message générique si un appelant
+    # ne le fournit pas (compatibilité ascendante).
+    if lock_msg is None:
+        lock_msg = "🔒 " + _("gated_locked")
     safe_cols = [] if lock_all else ["Date", "Pays", "Dest", "ID", "Transaction", "Type", "Stock"]
     if extra_safe_cols:
         safe_cols.extend(extra_safe_cols)

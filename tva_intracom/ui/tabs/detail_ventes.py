@@ -242,7 +242,7 @@ def render_detail_ventes() -> None:
             note_cols=[_("col_note")],
             existing_config=_orig_cfg)
         _gated_preview_table(_your_df, _can_export, column_config=_your_cfg, total_count=_n_your,
-                             extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig])
+                             extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig], lock_msg=ctx.lock_message)
 
     if _active_subtab == 1:
         st.caption(_("subtab_exemptions_caption"))
@@ -276,7 +276,7 @@ def render_detail_ventes() -> None:
             pct_cols=[_("col_rate_pct")],
             note_cols=[_("col_note")],
             existing_config=_orig_cfg)
-        _gated_preview_table(_exempt_df, _can_export, column_config=_exempt_cfg, total_count=_n_exempt, lock_all=True)
+        _gated_preview_table(_exempt_df, _can_export, column_config=_exempt_cfg, total_count=_n_exempt, lock_all=True, lock_msg=ctx.lock_message)
 
     if _active_subtab == 2:
         st.caption(_("subtab_managed_by_tiers_caption"))
@@ -299,7 +299,7 @@ def render_detail_ventes() -> None:
             pct_cols=[_("col_rate_pct")],
             note_cols=[_("col_note")],
             existing_config=_orig_cfg)
-        _gated_preview_table(_third_df, _can_export, column_config=_third_cfg, total_count=len(_third_df_filt))
+        _gated_preview_table(_third_df, _can_export, column_config=_third_cfg, total_count=len(_third_df_filt), lock_msg=ctx.lock_message)
 
     if _active_subtab == 3:
         st.caption(_("subtab_row_by_row_caption"))
@@ -328,7 +328,7 @@ def render_detail_ventes() -> None:
             note_cols=[_("col_note")],
             existing_config=_orig_cfg)
         _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg, total_count=_n_all,
-                             extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig])
+                             extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig], lock_msg=ctx.lock_message)
 
     if _active_subtab == 4:
         if not refund_results:
@@ -358,4 +358,4 @@ def render_detail_ventes() -> None:
                 note_cols=[_("col_note")],
                 existing_config=_orig_cfg)
             _gated_preview_table(_ref_df, _can_export, column_config=_ref_cfg, total_count=len(_ref_df_filt),
-                                 extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig])
+                                 extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig], lock_msg=ctx.lock_message)
