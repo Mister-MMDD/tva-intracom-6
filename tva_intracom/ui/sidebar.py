@@ -1410,7 +1410,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
             if pulse_target == "vies_ttl":
                 with st.container(key="onb_pulse_vies"):
                     pass
-            with st.expander(_("cache_vies_header"), expanded=False):
+            with st.expander(_("cache_vies_header"), expanded=True):
                 try:
                     _cs = vies_cache_stats(_vies_scope_id)
                     # Plafond réduit de 365 à 30 jours (2026-08-23) : une donnée
