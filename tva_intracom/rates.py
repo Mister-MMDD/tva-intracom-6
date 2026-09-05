@@ -417,7 +417,27 @@ def is_non_fiscal_eu(country: str, post_code: str | None) -> bool:
             return True
     return False
 
+@lru_cache(maxsize=64)
 def is_eu(country: str) -> bool:
+    """Retourne True si le code pays appartient à l'UE (EU_COUNTRIES).
+
+    NOTE (profiling 2026-09-05, voir README - évolution.md) : is_eu() est
+    appelée 2 à 3 fois par ligne dans compute_vat() (seller_country,
+    stock_country, et via is_fiscal_eu()), sur un domaine fini d'une
+    trentaine de codes pays déjà normalisés/internés dans
+    Sale.__post_init__. Micro-benchmark : lru_cache apporte ~15-25% de gain
+    sur cette fonction isolée (~3% sur compute_vat() dans son ensemble,
+    is_eu/is_fiscal_eu pesant ~19% du temps total mesuré par cProfile).
+    EU_COUNTRIES est une constante statique (jamais modifiée à l'exécution,
+    vérifié) : aucun risque d'invalidation de cache.
+    Ne PAS appliquer ce même pattern à is_fiscal_eu()/is_non_fiscal_eu() :
+    leur argument post_code a une cardinalité élevée en production (code
+    postal réel de l'acheteur, alimenté par le parser Amazon), ce qui
+    donnerait un taux de cache-hit quasi nul et ajouterait un coût de
+    hachage sans bénéfice (même écueil que le rejet du lru_cache sur
+    i18n.get_text() : cardinalité de la clé incompatible avec un cache
+    utile — voir notes mémoire correspondantes).
+    """
     return country.upper() in EU_COUNTRIES
 
 def is_fiscal_eu(country: str, post_code: str | None = None) -> bool:

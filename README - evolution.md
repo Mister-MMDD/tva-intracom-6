@@ -6650,47 +6650,6 @@ ou polling — traduction statique chargée via `lru_cache` existant).
 retirée du tracker.** Section "Internationalisation (i18n)" du tracker
 vide pour le moment.
 
-## 2026-09-05 — Réétude des points 2, 3 et 4 de `optimisations_en_attente.md` : vectorisation Polars OSS, dtype category, isolation multi-tenant du cache
-
-Réexamen à la demande de Matthieu (arbitrage : peu d'utilisateurs restent
-sous le seuil OSS de 10 000 €, l'app leur étant peu utile à ce niveau de
-volume) de 3 points historiques du fichier `optimisations_en_attente.md`,
-chacun vérifié sur le code réel du dépôt `dev` avant décision.
-
-**Point 2 — Vectorisation Polars de `_run_oss_loop` : abandonné.** Le cumul
-`cumulative_oss_ht` (cumsum groupé par année) serait en réalité trivialement
-vectorisable en Polars (`cum_sum().over(year)`) — la logique "stateful" du
-seuil n'a jamais été le vrai obstacle. Le coût CPU réel de la boucle vient
-de `compute_vat()` appelé ligne à ligne (cas Monaco, export hors UE,
-reclassification B2C/B2B sur échec VIES, taux historiques datés...), non
-vectorisable sans réécriture complète de la logique fiscale —
-disproportionné vu la charge réelle (Streamlit Cloud, 1 vCPU). Le constat de
-Matthieu (rareté des utilisateurs sous le seuil) réduit encore l'intérêt de
-vectoriser spécifiquement cette branche, rarement empruntée en pratique.
-Décision et justification complète documentées dans la docstring de
-`_run_oss_loop` (`engine.py`).
-
-**Point 3 — Optimisation RAM via type `category` : déjà traité.** Vérifié
-dans `tva_intracom/ui/tabs/detail_ventes.py::_build_rows_df` (le fichier
-`optimisations_en_attente.md` référençait encore l'ancien emplacement
-`formatting.py`, obsolète) : `canal`/`scenario`/`vat_country`/`collector`/
-`dest` sont déjà castées en `category` (voir entrée du 2026-09-03 pour
-l'ajout de `dest`). Aucune action supplémentaire nécessaire.
-
-**Point 4 — Isolation multi-tenant du cache Streamlit : non-risque, clos.**
-Tous les `@st.cache_data` du projet (`billing.py`, `sidebar.py`) sont déjà
-clés sur `org_id`/`scope_id` en premier argument — Streamlit clé son cache
-sur les arguments de la fonction décorée, donc deux tenants avec des
-`org_id` différents ont déjà des entrées de cache distinctes. Aucune
-fonction cache-data globale sans clé de tenant identifiée dans le code
-actuel.
-
-**Fichier `optimisations_en_attente.md` mis à jour** : les 3 points retirés
-(traité ou abandonné), points restants renumérotés (6→3, 7→4, 8→5, 9→6,
-10→7, 11→8).
-
----
-
 ## 2026-09-03 — Audit externe CPU/rendu (13 points au total) : fragments st.tabs, run_every, plafond d'affichage, boucles O(n) mémoïsées, cache VAT, arrondi Plotly, dtype category
 
 Suite de deux audits externes successifs (proposition libre + relecture des
@@ -6997,3 +6956,101 @@ Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/ui/sidebar.py`, `t
 **Validation** : `py_compile` + `pyflakes` propres. Suite `pytest` complète : **239 passed / 3 failed** — baseline inchangée (aucun test dédié à `auth_flow.py` dans la suite actuelle, le comportement est couvert indirectement par les tests de `get_account_status` ajoutés en (3)).
 
 Fichiers modifiés : `tva_intracom/ui/auth_flow.py`, `tva_intracom/ui/theme.py`.
+
+## 2026-09-05 (5) — Réétude des points 2, 3 et 4 de `optimisations_en_attente.md` : vectorisation Polars OSS, dtype category, isolation multi-tenant du cache
+
+Réexamen à la demande de Matthieu (arbitrage : peu d'utilisateurs restent
+sous le seuil OSS de 10 000 €, l'app leur étant peu utile à ce niveau de
+volume) de 3 points historiques du fichier `optimisations_en_attente.md`,
+chacun vérifié sur le code réel du dépôt `dev` avant décision.
+
+**Point 2 — Vectorisation Polars de `_run_oss_loop` : abandonné.** Le cumul
+`cumulative_oss_ht` (cumsum groupé par année) serait en réalité trivialement
+vectorisable en Polars (`cum_sum().over(year)`) — la logique "stateful" du
+seuil n'a jamais été le vrai obstacle. Le coût CPU réel de la boucle vient
+de `compute_vat()` appelé ligne à ligne (cas Monaco, export hors UE,
+reclassification B2C/B2B sur échec VIES, taux historiques datés...), non
+vectorisable sans réécriture complète de la logique fiscale —
+disproportionné vu la charge réelle (Streamlit Cloud, 1 vCPU). Le constat de
+Matthieu (rareté des utilisateurs sous le seuil) réduit encore l'intérêt de
+vectoriser spécifiquement cette branche, rarement empruntée en pratique.
+Décision et justification complète documentées dans la docstring de
+`_run_oss_loop` (`engine.py`).
+
+**Point 3 — Optimisation RAM via type `category` : déjà traité.** Vérifié
+dans `tva_intracom/ui/tabs/detail_ventes.py::_build_rows_df` (le fichier
+`optimisations_en_attente.md` référençait encore l'ancien emplacement
+`formatting.py`, obsolète) : `canal`/`scenario`/`vat_country`/`collector`/
+`dest` sont déjà castées en `category` (voir entrée du 2026-09-03 pour
+l'ajout de `dest`). Aucune action supplémentaire nécessaire.
+
+**Point 4 — Isolation multi-tenant du cache Streamlit : non-risque, clos.**
+Tous les `@st.cache_data` du projet (`billing.py`, `sidebar.py`) sont déjà
+clés sur `org_id`/`scope_id` en premier argument — Streamlit clé son cache
+sur les arguments de la fonction décorée, donc deux tenants avec des
+`org_id` différents ont déjà des entrées de cache distinctes. Aucune
+fonction cache-data globale sans clé de tenant identifiée dans le code
+actuel.
+
+**Fichier `optimisations_en_attente.md` mis à jour** : les 3 points retirés
+(traité ou abandonné), points restants renumérotés (6→3, 7→4, 8→5, 9→6,
+10→7, 11→8).
+
+## 2026-09-05 (6) — Profiling `_run_oss_loop` (100k lignes synthétiques) : confirmation chiffrée de l'abandon du point 2, patch `lru_cache` sur `is_eu()`
+
+**Contexte** : suite à (5), Matthieu demande un chiffrage du gain potentiel
+de la vectorisation Polars sur gros fichiers. Un script de profiling
+(`profile_oss.py`, non versionné dans le dépôt — outil de mesure ponctuel)
+génère un jeu de 10k/100k ventes synthétiques représentatif des scénarios
+réels (B2C domestique/cross-border, B2B intra-UE, export hors UE, Monaco)
+et mesure séparément `compute_vat()` et `_build_oss_note()`, hors VIES
+(réseau) et hors génération d'export.
+
+**Résultat** : sur 100k lignes, `_build_oss_note()` (cumul + seuil 10 000 €)
+ne représente qu'environ **9-10 % du temps de la boucle** ; `compute_vat()`
+(logique fiscale ligne à ligne) en représente **~90 %**. Le surcoût mesuré
+du seuil OSS activé vs désactivé est dans le bruit de mesure (proche de
+0 %). Ceci confirme quantitativement la décision d'abandon du point 2 prise
+en (5) : vectoriser spécifiquement le seuil OSS n'aurait rapporté qu'un
+gain marginal, non mesurable de façon fiable.
+
+**cProfile sur `compute_vat()`** : la validation Pydantic à l'instanciation
+(`VatResult`/`Sale`) domine (~35 % du temps), suivie des appels répétés à
+`is_eu()`/`is_fiscal_eu()` (~19 %, appelées 2 à 3 fois par ligne sur un
+domaine fini d'une trentaine de codes pays déjà normalisés/internés dans
+`Sale.__post_init__`).
+
+**Patch appliqué (`tva_intracom/rates.py`)** : ajout de `@lru_cache(maxsize=64)`
+sur `is_eu()` uniquement. Micro-benchmark dédié (4 runs) : gain de 10 à 25 %
+sur cette fonction isolée, soit environ 3 % sur `compute_vat()` dans son
+ensemble — gain modeste mais gratuit et sans risque, `EU_COUNTRIES` étant
+une constante statique jamais modifiée à l'exécution (vérifié). **Ne
+s'applique volontairement pas à `is_fiscal_eu()`/`is_non_fiscal_eu()`** :
+leur argument `post_code` a une cardinalité élevée en production (code
+postal réel de l'acheteur, alimenté par le parser Amazon), ce qui aurait
+donné un taux de cache-hit quasi nul — même écueil que le rejet du
+`lru_cache` sur `i18n.get_text()`.
+
+**Validation** : `py_compile` + `pyflakes` propres sur `rates.py`. Aucun
+changement de comportement fonctionnel (résultat de `is_eu()` strictement
+identique, seule la vitesse change). Suite `pytest` complète relancée par
+prudence : d'abord **236 passed / 6 failed** — écart de 3 échecs en trop
+par rapport à la baseline connue (230/3, ou 239/3 selon le nombre de tests
+actuel). Investigation : les 3 échecs supplémentaires
+(`TestSubscriptionScheduleWebhookEvents::*`) levaient tous
+`AttributeError: 'NoneType' object has no attribute 'Webhook'` —
+`billing.py` a un pattern d'import optionnel (`try: import stripe except
+ImportError: stripe = None`, ligne 71) et le package `stripe` n'était
+simplement pas installé dans ce sandbox d'exécution. Après installation de
+`stripe`, retour exact à **239 passed / 3 failed** — les 3 échecs restants
+étant les échecs `SUPABASE_DB_URL` déjà connus et documentés
+(`test_vies.py`). Confirmé également sur une copie pristine du dépôt (sans
+ce patch) : mêmes 6 échecs avant installation de `stripe`, mêmes 3 après —
+**aucune régression imputable à ce changement**, l'écart initial était un
+faux-positif d'environnement (dépendance manquante), pas un bug applicatif.
+
+**Railway / scale-to-zero** : aucun impact — `lru_cache` en mémoire
+process, pas de connexion, thread ou polling introduit.
+
+Fichiers modifiés : `tva_intracom/rates.py`, `tva_intracom/engine.py`
+(docstring uniquement, voir (5)).
