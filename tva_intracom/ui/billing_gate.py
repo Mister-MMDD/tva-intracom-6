@@ -216,6 +216,16 @@ class BillingGate:
                 st.error(_("gate_siren_missing_err"))
                 return
 
+            elif self.compliance_blocked:
+                _msg = _("gate_compliance_blocked_header", label=label)
+                if self.missing_vats:
+                    _msg += _("gate_compliance_missing_vats", vats=', '.join(self.missing_vats))
+                if self.ioss_missing:
+                    _msg += _("gate_compliance_missing_ioss")
+                _msg += _("gate_compliance_blocked_footer")
+                st.error(_msg)
+                return
+
             _btn_key = "paywall_btn_" + hashlib.sha256(
                 f"{self.period_label}_{file_name}".encode()
             ).hexdigest()[:16]
@@ -287,26 +297,6 @@ class BillingGate:
                 st.error(_("gate_payment_unavailable_err", label=label, error=_err))
             return
 
-        # Priorité 1 : Rattachement compte Amazon <-> SIREN non résolu (anti-abus).
-        # Vérifié seulement une fois l'abonnement/crédit confirmé : peu importe
-        # qu'une période soit déjà débloquée, un fichier appartenant à un autre
-        # client ne doit jamais être exportable sans confirmation/résolution
-        # explicite du conflit.
-        if self.account_link_blocked:
-            st.error(_("gate_account_link_blocked_err", label=label))
-            return
-
-        # Priorité 2 : Conformité (seulement si la période est débloquée)
-        if self.compliance_blocked:
-            _msg = _("gate_compliance_blocked_header", label=label)
-            if self.missing_vats:
-                _msg += _("gate_compliance_missing_vats", vats=', '.join(self.missing_vats))
-            if self.ioss_missing:
-                _msg += _("gate_compliance_missing_ioss")
-            _msg += _("gate_compliance_blocked_footer")
-            st.error(_msg)
-            return
-
         # Priorité 3 : Affichage du bouton de téléchargement (avec warning VIES éventuel)
         #
         # Le compteur affiché reflète tout ce qui N'EST PAS une vérification
@@ -354,6 +344,8 @@ def preview_lock_message(gate: "BillingGate") -> str:
         return "🔒 " + _("locked_siren_mismatch")
     if gate.siren_missing:
         return "🔒 " + _("locked_siren_missing")
+    if gate.compliance_blocked:
+        return "🔒 " + _("locked_compliance")
     # Filet de sécurité (ne devrait pas arriver : can_export=False implique
     # forcément un des cas ci-dessus) — même repli que gated_download.
     return "🔒 " + _("locked_premium")
@@ -505,6 +497,8 @@ def build_billing_gate(
     ioss_missing = _has_ioss_vendeur and not ioss_number.strip()
 
     compliance_blocked = bool(missing_vats or ioss_missing)
+    if compliance_blocked:
+        can_export = False
 
     # ── Gate Rattachement compte Amazon <-> SIREN (anti-abus) ─────────────
     # Scope identique à celui du cache VIES (partagé par domaine pro, isolé

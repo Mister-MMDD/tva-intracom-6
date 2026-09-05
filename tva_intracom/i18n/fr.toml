@@ -353,6 +353,7 @@ locked_account_link = "[🔒 Rattachement Amazon requis]"
 locked_siren_mismatch = "[SIREN non reconnu]"
 locked_siren_missing = "[SIREN manquant]"
 locked_quota = "[Quota SIREN dépassé]"
+locked_compliance = "[🔒 Conformité TVA requise]"
 locked_preview_caption = "🔒 Aperçu limité : débloquez cette période (achat ou abonnement) pour voir le détail par pays et les montants de TVA dus."
 refund_summary_info = "🔄 **{count} remboursement(s)** — HT : {ht} €"
 

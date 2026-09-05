@@ -352,6 +352,7 @@ locked_account_link = "[🔒 Wymagane powiązanie z Amazon]"
 locked_siren_mismatch = "[Nierozpoznany SIREN]"
 locked_siren_missing = "[Brak numeru SIREN]"
 locked_quota = "[Przekroczony limit SIREN]"
+locked_compliance = "[🔒 Wymagana zgodność z VAT]"
 locked_preview_caption = "🔒 Ograniczony podgląd: odblokuj ten okres (zakup lub subskrypcja), aby zobaczyć szczegóły dotyczące krajów i należnych kwot VAT."
 refund_summary_info = "🔄 **{count} zwrot(ów)** — Netto: {ht} €"
 

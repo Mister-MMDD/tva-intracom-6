@@ -352,6 +352,7 @@ locked_account_link = "[🔒 Amazon linking required]"
 locked_siren_mismatch = "[Business ID not recognized]"
 locked_siren_missing = "[Business ID missing]"
 locked_quota = "[Business ID quota exceeded]"
+locked_compliance = "[🔒 VAT Compliance required]"
 locked_preview_caption = "🔒 Limited preview: unlock this period (purchase or subscription) to see the country detail and VAT amounts due."
 refund_summary_info = "🔄 **{count} refund(s)** — HT: {ht} €"
 

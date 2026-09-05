@@ -352,6 +352,7 @@ locked_account_link = "[🔒 Collegamento Amazon richiesto]"
 locked_siren_mismatch = "[SIREN non riconosciuto]"
 locked_siren_missing = "[SIREN mancante]"
 locked_quota = "[Quota SIREN superata]"
+locked_compliance = "[🔒 Conformità IVA richiesta]"
 locked_preview_caption = "🔒 Anteprima limitata: sblocca questo periodo (acquisto singolo o abbonamento) per vedere il dettaglio dei paesi e gli importi IVA dovuti."
 refund_summary_info = "🔄 **{count} rimborso/i** — CV: {ht} €"
 

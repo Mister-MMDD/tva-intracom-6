@@ -352,6 +352,7 @@ locked_account_link = "[🔒 Amazon-Verknüpfung erforderlich]"
 locked_siren_mismatch = "[SIREN nicht erkannt]"
 locked_siren_missing = "[SIREN fehlt]"
 locked_quota = "[SIREN-Kontingent überschritten]"
+locked_compliance = "[🔒 USt-Compliance erforderlich]"
 locked_preview_caption = "🔒 Eingeschränkte Vorschau: Schalten Sie diesen Zeitraum frei (Einmalzahlung oder Abonnement), um die Aufteilung nach Ländern und die fälligen MwSt-Beträge zu sehen."
 refund_summary_info = "🔄 **{count} Erstattung(en)** — Netto: {ht} €"
 
