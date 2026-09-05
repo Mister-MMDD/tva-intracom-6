@@ -715,14 +715,35 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             )
         except Exception:
             _acct_sub_status = None
-        _acct_plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
-            _acct_sub_status.plan if (_acct_sub_status and _acct_sub_status.active) else None,
-            _("plan_free"),
-        )
-        _acct_plan_css = {"business": "plan-business", "cabinet": "plan-cabinet"}.get(
-            _acct_sub_status.plan if (_acct_sub_status and _acct_sub_status.active) else None,
-            "plan-free",
-        )
+
+        # Statut "Achat" (2026-09-05) : même source de vérité et même clé de
+        # cache que le badge équivalent de sidebar.py (`account_status_{org_id}`)
+        # — un compte PAYG sans abonnement ne doit plus s'afficher comme
+        # "Gratuit" ici, cf. verrouillage SIREN désormais appliqué à ce statut.
+        # Uniquement calculé quand nécessaire (pas d'abonnement actif) pour
+        # éviter une lecture DB superflue sur les comptes payants.
+        _acct_status = None
+        if not (_acct_sub_status and _acct_sub_status.active):
+            try:
+                _acct_status = _cached_db_read(
+                    f"account_status_{_current_user.org_id}",
+                    lambda: tva_billing.get_account_status(_current_user.org_id),
+                )
+            except Exception:
+                _acct_status = None
+
+        if _acct_status == tva_billing.ACCOUNT_STATUS_ACHAT:
+            _acct_plan_label = _("plan_achat")
+            _acct_plan_css = "plan-achat"
+        else:
+            _acct_plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
+                _acct_sub_status.plan if (_acct_sub_status and _acct_sub_status.active) else None,
+                _("plan_free"),
+            )
+            _acct_plan_css = {"business": "plan-business", "cabinet": "plan-cabinet"}.get(
+                _acct_sub_status.plan if (_acct_sub_status and _acct_sub_status.active) else None,
+                "plan-free",
+            )
         _col_user.markdown(
             f"""<div class="account-badge">
                 <span class="account-badge-dot"></span>

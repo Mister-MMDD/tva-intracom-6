@@ -231,7 +231,7 @@ amazon_config_success = "Config. {platform} conforme"
 
 
 display_mode_label = "Modalità di visualizzazione"
-display_mode_simple = "Semplice"
+display_mode_simple = "Semplificato"
 display_mode_detailed = "Dettagliata"
 
 # Barre de statut persistante

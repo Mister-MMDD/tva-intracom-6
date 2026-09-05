@@ -348,6 +348,10 @@ button[data-testid="stBaseButton-secondary"]:hover {
     background-color: color-mix(in srgb, #b8860b 25%, transparent);
     color: #d4a017;
 }
+.account-badge-plan.plan-achat {
+    background-color: color-mix(in srgb, #6b46c1 22%, transparent);
+    color: #8b5cf6;
+}
 </style>
 """
 

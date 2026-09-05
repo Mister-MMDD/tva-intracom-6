@@ -369,7 +369,7 @@ def get_or_create_user(email: str) -> User:
 
         user_id = secrets.token_hex(12)
         cur.execute(
-            "INSERT INTO tva_users (id, email, created_at, org_id, role) VALUES (%s, %s, %s, %s, %s)",
+            "INSERT INTO tva_users (id, email, created_at, org_id, role, display_mode) VALUES (%s, %s, %s, %s, %s, 'simple')",
             (user_id, email, time.time(), org_id, role),
         )
         conn.commit()

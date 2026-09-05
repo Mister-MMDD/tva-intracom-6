@@ -6940,3 +6940,19 @@ Fichiers modifiés : `app.py`, `tva_intracom/ui/billing_gate.py`, `tva_intracom/
 **Validation** : `py_compile` + `pyflakes` propres sur les fichiers modifiés (le seul avertissement `pyflakes` restant sur `sidebar.py` est préexistant, sans rapport). Suite `pytest` complète : **239 passed / 3 failed** — baseline inchangée (3 échecs liés à `SUPABASE_DB_URL` absente en sandbox) ; 7 nouveaux tests ajoutés pour couvrir le verrou "Achat", la priorité des statuts et le déclenchement du lock sur achat PAYG ; 2 tests existants ajustés pour refléter le changement de comportement intentionnel (retrait immédiat désormais conditionné à un historique d'abonnement, pas simplement à l'absence d'abonnement actif).
 
 Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/ui/sidebar.py`, `tva_intracom/i18n/{fr,en,es,de,it,pt,pl}.toml`, `tests/test_billing_payment_quotas.py`.
+
+## 2026-09-05 (4) — Bugfix badge "Achat" : le badge de plan en haut de page (à côté de l'email) restait affiché "Gratuit" après le correctif (3)
+
+**Contexte** : Matthieu signale qu'un compte n'ayant fait que des achats PAYG avant la MAJ (3) s'affiche toujours "Gratuit", alors que le nouveau verrouillage SIREN fonctionne bien (donc `get_account_status` calcule correctement "achat" côté backend).
+
+**Cause racine** : le verrou SIREN et le badge ajouté en (3) sont corrects, mais il existe un **second** badge de plan, totalement distinct, dans `auth_flow.py` (la barre d'état connecté en haut de page, à côté de l'email — `account-badge-plan`) — non touché par le correctif (3). Ce badge a sa propre logique de libellé, calquée sur l'ancienne logique de `sidebar.py` (`business`/`cabinet` si abonnement actif, sinon toujours `plan_free`), sans aucune notion du statut "Achat".
+
+**Correctif (`tva_intracom/ui/auth_flow.py`)** : même logique que le badge de `sidebar.py` — `get_account_status()` (mémoïsé via la même clé de cache partagée `account_status_{org_id}`, donc pas de lecture DB en double avec `sidebar.py`) n'est appelé que si aucun abonnement n'est actif ; si le statut vaut `ACCOUNT_STATUS_ACHAT`, le badge affiche `plan_achat` avec la classe CSS `plan-achat`, sinon comportement inchangé (`plan_free`/`plan-free`).
+
+**CSS (`tva_intracom/ui/theme.py`)** : nouvelle classe `.account-badge-plan.plan-achat` (violet, cohérent avec le style des autres badges de plan).
+
+**Railway / scale-to-zero** : aucun impact — lecture DB déjà existante et déjà mémoïsée, aucun appel supplémentaire pour les comptes abonnés actifs (court-circuité avant `get_account_status`).
+
+**Validation** : `py_compile` + `pyflakes` propres. Suite `pytest` complète : **239 passed / 3 failed** — baseline inchangée (aucun test dédié à `auth_flow.py` dans la suite actuelle, le comportement est couvert indirectement par les tests de `get_account_status` ajoutés en (3)).
+
+Fichiers modifiés : `tva_intracom/ui/auth_flow.py`, `tva_intracom/ui/theme.py`.
