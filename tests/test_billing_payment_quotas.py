@@ -354,8 +354,26 @@ class TestRequestSirenRemoval:
     pour éviter les abus d'ajout/retrait en cours de période."""
 
     def test_immediate_removal_without_active_subscription(self, fake_db, monkeypatch):
+        # Compte réellement gratuit : jamais d'abonnement (status=None,
+        # défaut du dataclass) ET jamais d'achat PAYG -> pas de verrou
+        # "Achat" (voir TestSirenLockedForAchatOnlyAccount ci-dessous),
+        # retrait immédiat comme avant.
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: False)
+        before = time.time()
+        effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
+        after = time.time()
+        assert before <= effective_at <= after
+
+    def test_immediate_removal_with_past_subscription(self, fake_db, monkeypatch):
+        """Abonnement déjà existant mais résilié/expiré (status non None) :
+        comportement standard (immédiat), même si des crédits PAYG existent
+        par ailleurs — un abonnement passé sort définitivement l'organisation
+        du statut "Achat"."""
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False, status="canceled"))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
         before = time.time()
         effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
         after = time.time()
@@ -370,8 +388,13 @@ class TestRequestSirenRemoval:
         assert effective_at == period_end
 
     def test_removal_writes_pending_removal_at_via_sql(self, fake_db, monkeypatch):
+        # status="canceled" (abonnement déjà existant, résilié) plutôt que le
+        # défaut None : évite de déclencher la requête _has_any_payg_purchase
+        # (compte jamais abonné + PAYG) ajoutée par le verrou "Achat", pour
+        # garder le call_count == 2 ci-dessous inchangé — ce test porte sur
+        # l'écriture SQL, pas sur la logique de verrouillage.
         monkeypatch.setattr(billing, "get_subscription_status",
-                             lambda org_id: billing.SubscriptionStatus(active=False))
+                             lambda org_id: billing.SubscriptionStatus(active=False, status="canceled"))
         # Le mock de cursor.fetchone() (utilisé par _require_write_access
         # pour vérifier le rôle) renvoie None par défaut sur ce MagicMock
         # non configuré explicitement -> traité comme "pas lecteur" (rôle
@@ -389,6 +412,83 @@ class TestRequestSirenRemoval:
         # (effective_at, acting_user_id, org_id, siren) — org_id est
         # désormais la clé de l'UPDATE, acting_user_id est l'audit.
         assert params[1:] == ("user-42", "org-42", "999888777")
+
+
+# ---------------------------------------------------------------------------
+# Statut "Achat" (2026-09-05) : verrouillage définitif du SIREN pour une
+# organisation n'ayant jamais souscrit d'abonnement mais ayant déjà effectué
+# au moins un achat PAYG — voir get_account_status / ACCOUNT_STATUS_ACHAT.
+# ---------------------------------------------------------------------------
+
+class TestSirenLockedForAchatOnlyAccount:
+    def test_removal_blocked_for_payg_only_account(self, fake_db, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        with pytest.raises(PermissionError, match="verrouillé"):
+            billing.request_siren_removal("org-1", "user-1", "123456789")
+
+    def test_removal_allowed_once_subscription_exists_even_if_inactive(self, fake_db, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False, status="canceled"))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        # Ne doit PAS lever : un abonnement déjà existant (même résilié)
+        # sort l'organisation du statut "Achat".
+        billing.request_siren_removal("org-1", "user-1", "123456789")
+
+    def test_removal_not_blocked_for_never_purchased_free_account(self, fake_db, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: False)
+        billing.request_siren_removal("org-1", "user-1", "123456789")
+
+
+class TestGetAccountStatus:
+    def test_active_subscription_takes_priority(self, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=True, plan="cabinet"))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        assert billing.get_account_status("org-1") == "cabinet"
+
+    def test_payg_only_is_achat(self, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        assert billing.get_account_status("org-1") == billing.ACCOUNT_STATUS_ACHAT
+
+    def test_past_subscription_is_not_achat_even_with_payg_credits(self, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False, status="canceled"))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        assert billing.get_account_status("org-1") == billing.ACCOUNT_STATUS_GRATUIT
+
+    def test_never_paid_is_gratuit(self, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: False)
+        assert billing.get_account_status("org-1") == billing.ACCOUNT_STATUS_GRATUIT
+
+
+# ---------------------------------------------------------------------------
+# _fulfill_checkout_session : un achat PAYG déclenche désormais le même
+# verrouillage organisation/passage admin qu'un abonnement (2026-09-05).
+# ---------------------------------------------------------------------------
+
+class TestPaygTriggersOrgLock:
+    def test_payg_purchase_calls_lock_org_for_user(self, monkeypatch):
+        monkeypatch.setattr(billing, "grant_export_credit", lambda *a, **k: None)
+        captured = {}
+
+        def _fake_lock(user_id):
+            captured["user_id"] = user_id
+
+        monkeypatch.setattr("tva_intracom.auth.lock_org_for_user", _fake_lock)
+        billing._fulfill_checkout_session({
+            "metadata": {"org_id": "org-1", "user_id": "user-1", "kind": "payg_export",
+                         "period_label": "2026-Q1", "siren": "123456789"},
+            "payment_intent": "pi_fake",
+        })
+        assert captured.get("user_id") == "user-1"
 
 
 # ---------------------------------------------------------------------------

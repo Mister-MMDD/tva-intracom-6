@@ -6915,3 +6915,28 @@ Un compte déjà abonné mais bloqué pour SIREN non reconnu ou quota dépassé 
 **Validation** : `py_compile` + `pyflakes` propres sur tous les fichiers modifiés. Symétrie i18n confirmée : 1222 clés × 7 langues (3 nouvelles clés ajoutées ce jour, sur une base de 1219 déjà en place après les ajouts des entrées précédentes). Suite `pytest` complète : **230 passed / 3 failed** — baseline inchangée.
 
 Fichiers modifiés : `app.py`, `tva_intracom/ui/billing_gate.py`, `tva_intracom/ui/formatting.py`, `tva_intracom/ui/tabs/context.py`, `tva_intracom/ui/tabs/declarations.py`, `tva_intracom/ui/tabs/telechargements.py`, `tva_intracom/ui/tabs/detail_ventes.py`, `tva_intracom/ui/tabs/vies_ui.py`, `tva_intracom/ui/tabs/audit.py`, `tva_intracom/i18n/{fr,en,es,de,it,pt,pl}.toml`.
+
+## 2026-09-05 (3) — Nouveau statut "Achat" : verrouillage du SIREN pour les comptes PAYG sans abonnement + déclenchement admin/org identique à un abonnement
+
+**Contexte** : demande de Matthieu. Pour un achat unique (PAYG), le SIREN est censé être verrouillé comme pour un compte Pro (1 SIREN, jamais modifiable) tant que le compte n'a pas d'abonnement. Il posait aussi deux questions de vérification : les achats PAYG sont-ils partagés au niveau de l'organisation comme les abonnements ? Le verrouillage organisation/passage admin déclenché au 1er paiement s'applique-t-il aussi à un achat unique ?
+
+**Constats (vérifiés sur le vrai code, pas par déduction)** :
+- Les crédits PAYG (`tva_export_credits`) sont bien clés sur `org_id` et partagés entre membres, exactement comme `tva_subscriptions` — pas de bug ici.
+- `_fulfill_checkout_session()` n'appelait `auth.lock_org_for_user()` (verrouillage organisation + passage admin) que dans la branche `mode == "subscription"`. La branche `kind == "payg_export"` ne l'appelait jamais : un achat unique ne verrouillait donc ni l'organisation ni les rôles.
+- `request_siren_removal()` autorisait un retrait **immédiat** dès qu'il n'y avait pas d'abonnement actif — y compris pour un compte n'ayant jamais souscrit d'abonnement mais ayant déjà payé du PAYG. Le quota (1 SIREN à la fois, déjà correct) n'empêchait donc pas la rotation : ajouter un SIREN, l'utiliser, le retirer, en ajouter un autre, etc.
+- Aucun statut ne distinguait "jamais rien payé" de "a payé du PAYG mais jamais d'abonnement" : les deux tombaient dans le même bucket `not sub.active`.
+
+**Correctifs (`tva_intracom/billing.py`)** :
+- Nouveau statut de compte **"Achat"** : `get_account_status(org_id)` → `"business"`/`"cabinet"` si abonnement actif (priorité absolue) ; `"achat"` (`ACCOUNT_STATUS_ACHAT`) si aucun abonnement n'a **jamais** existé pour cette organisation (actif ou passé) mais qu'au moins un achat PAYG a été effectué ; `"gratuit"` sinon — y compris un abonnement déjà résilié/expiré, qui sort définitivement l'organisation du statut "Achat" même s'il reste des crédits PAYG.
+- `request_siren_removal()` : pour un compte "Achat" (jamais abonné + PAYG existant), le retrait est désormais **bloqué** (`PermissionError`, message explicite) — plus de fenêtre "immédiat" à exploiter. Dès qu'un abonnement existe, actif ou non, le comportement standard reprend (différé à échéance si actif, immédiat sinon), inchangé.
+- `_fulfill_checkout_session()` : la branche `payg_export` appelle désormais `_lock_org_after_payment()` (nouvelle fonction, factorisée à partir du code déjà en place pour les abonnements) — un achat unique déclenche donc le même verrouillage organisation + passage admin qu'un abonnement, idempotent, sans effet sur une org solo ou déjà verrouillée.
+
+**UI (`tva_intracom/ui/sidebar.py`)** : le bouton de retrait SIREN capture désormais le `PermissionError` du verrou "Achat" et l'affiche via `st.error()` (même pattern que `delete_account`) au lieu de laisser remonter une exception non catchée. Badge "Achat" affiché dans le bloc facturation quand pertinent (`get_account_status`), sans toucher à la bannière premium existante.
+
+**i18n** : nouvelles clés `plan_achat` / `plan_achat_desc` (7 langues). Symétrie confirmée : 1225 clés × 7 langues.
+
+**Railway / scale-to-zero** : aucun impact — uniquement des lectures/écritures DB synchrones existantes, aucun thread ni connexion persistante ajoutés.
+
+**Validation** : `py_compile` + `pyflakes` propres sur les fichiers modifiés (le seul avertissement `pyflakes` restant sur `sidebar.py` est préexistant, sans rapport). Suite `pytest` complète : **239 passed / 3 failed** — baseline inchangée (3 échecs liés à `SUPABASE_DB_URL` absente en sandbox) ; 7 nouveaux tests ajoutés pour couvrir le verrou "Achat", la priorité des statuts et le déclenchement du lock sur achat PAYG ; 2 tests existants ajustés pour refléter le changement de comportement intentionnel (retrait immédiat désormais conditionné à un historique d'abonnement, pas simplement à l'absence d'abonnement actif).
+
+Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/ui/sidebar.py`, `tva_intracom/i18n/{fr,en,es,de,it,pt,pl}.toml`, `tests/test_billing_payment_quotas.py`.

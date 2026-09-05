@@ -595,6 +595,46 @@ def has_active_subscription_direct(org_id: str) -> bool:
     return get_subscription_status(org_id).active
 
 
+# Statuts de compte de haut niveau (2026-09-05) — voir get_account_status().
+ACCOUNT_STATUS_GRATUIT = "gratuit"
+ACCOUNT_STATUS_ACHAT = "achat"
+
+
+def _has_any_payg_purchase(org_id: str) -> bool:
+    """True si cette organisation a déjà effectué au moins un achat PAYG
+    (peu importe la période ou le SIREN concerné) — sert uniquement à
+    distinguer un compte "Achat" (voir get_account_status/ACCOUNT_STATUS_ACHAT)
+    d'un compte gratuit n'ayant jamais payé, dans request_siren_removal()."""
+    def _fn(conn, cur):
+        cur.execute("SELECT 1 FROM tva_export_credits WHERE org_id=%s LIMIT 1", (org_id,))
+        return cur.fetchone() is not None
+
+    return _run(_fn)
+
+
+def get_account_status(org_id: str) -> str:
+    """Statut de compte affiché à l'utilisateur, par ordre de priorité :
+    - "business" / "cabinet" : abonnement actif de ce type — un abonnement
+      actif prime toujours sur un historique d'achat PAYG (demande produit
+      explicite du 2026-09-05).
+    - "achat" : aucun abonnement actif NI passé, mais au moins un achat PAYG
+      déjà effectué. C'est ce statut qui verrouille le SIREN dans
+      request_siren_removal() — dès qu'un abonnement a existé (même résilié
+      depuis), l'organisation n'est plus considérée "achat unique" et
+      redevient "gratuit" au sens de ce statut (le détail reste visible via
+      last_sub_msg dans la sidebar).
+    - "gratuit" : aucun paiement, abonnement ou PAYG, jamais effectué (ou
+      abonnement déjà existant mais inactif)."""
+    sub = get_subscription_status(org_id)
+    if sub.active:
+        return sub.plan or ACCOUNT_STATUS_GRATUIT
+    if sub.status is not None:
+        return ACCOUNT_STATUS_GRATUIT
+    if _has_any_payg_purchase(org_id):
+        return ACCOUNT_STATUS_ACHAT
+    return ACCOUNT_STATUS_GRATUIT
+
+
 def has_export_credit(org_id: str, period_label: str, siren: str = "") -> bool:
     """BUGFIX (2026-09-04) : un crédit PAYG doit être scellé à UN SIREN (donc
     un seul client/compte Amazon), pas seulement à une période — sinon deux
@@ -1013,11 +1053,37 @@ def request_siren_removal(org_id: str, acting_user_id: str, siren: str) -> float
     """Marque un SIREN "en attente de retrait". Le retrait est effectif à la
     date anniversaire de l'abonnement en cours (current_period_end) pour
     éviter les abus (retirer/ajouter un SIREN à volonté en cours de période).
-    Sans abonnement actif, le retrait est immédiat (pas de notion de période).
+    Sans abonnement actif MAIS ayant déjà eu un abonnement (même résilié
+    depuis), le retrait est immédiat (pas de notion de période).
+
+    STATUT "Achat" (2026-09-05) : une organisation qui n'a JAMAIS souscrit
+    d'abonnement mais a déjà effectué au moins un achat PAYG a son SIREN
+    VERROUILLÉ — aucun retrait possible (PermissionError) — pour empêcher
+    l'abus consistant à retirer/réajouter un SIREN différent à volonté sur
+    un compte à l'unité (le quota de 1 SIREN à la fois ne suffisait pas à
+    lui seul à empêcher cette rotation). Le verrou saute dès que
+    l'organisation souscrit un abonnement, actif ou non : voir
+    get_account_status() pour la même logique de priorité.
+
     Retourne le timestamp d'échéance effective."""
     _require_write_access(acting_user_id)
     sub = get_subscription_status(org_id)
-    effective_at = sub.current_period_end if (sub.active and sub.current_period_end) else time.time()
+    if sub.active and sub.current_period_end:
+        effective_at = sub.current_period_end
+    elif sub.status is not None:
+        # Abonnement déjà existant (actif ou passé/résilié) : comportement
+        # standard, immédiat puisqu'on sait déjà qu'il n'est pas actif ici.
+        effective_at = time.time()
+    elif _has_any_payg_purchase(org_id):
+        raise PermissionError(
+            "Ce SIREN est verrouillé : un compte à l'achat unique (PAYG) ne "
+            "permet pas de changer de SIREN. Souscrivez un abonnement pour "
+            "pouvoir en changer (retrait possible ensuite à la date de "
+            "renouvellement)."
+        )
+    else:
+        # Jamais rien payé (ni abonnement, ni PAYG) : retrait immédiat.
+        effective_at = time.time()
 
     def _fn(conn, cur):
         cur.execute(
@@ -1830,6 +1896,31 @@ def _first_item_price_id(subscription_like) -> Optional[str]:
     return _safe_get(_safe_get(items_data[0], "price", {}), "id")
 
 
+def _lock_org_after_payment(org_id: str, acting_user_id: str | None, *, context: str) -> None:
+    """Verrouille l'organisation du payeur après un paiement confirmé —
+    factorisé pour être appelé identiquement après un abonnement OU un achat
+    PAYG (statut "Achat", 2026-09-05) : décision produit explicite, un achat
+    unique doit désormais déclencher le même verrouillage
+    organisation/passage admin qu'un abonnement, pas seulement les
+    abonnements. Voir auth.lock_org_for_user (idempotent, sans effet sur une
+    org déjà verrouillée ou une org solo). `context` sert uniquement au
+    message de log (ex. "abonnement", "achat PAYG")."""
+    if acting_user_id:
+        try:
+            from .auth import lock_org_for_user
+            lock_org_for_user(acting_user_id)
+        except Exception:
+            logger.warning(
+                "lock_org_for_user a échoué pour user_id=%s (%s quand même activé)",
+                acting_user_id, context, exc_info=True,
+            )
+    else:
+        logger.warning(
+            "Impossible de verrouiller l'organisation %s après %s : acting_user_id inconnu "
+            "(ni metadata.user_id ni fallback e-mail n'ont résolu de compte).", org_id, context,
+        )
+
+
 def _fulfill_checkout_session(data: dict) -> None:
     """Débloque l'accès (crédit PAYG ou abonnement) pour une session Checkout
     dont le paiement est confirmé — appelée uniquement quand payment_status
@@ -1866,6 +1957,12 @@ def _fulfill_checkout_session(data: dict) -> None:
             acting_user_id=acting_user_id or "",
             siren=_safe_get(metadata, "siren", ""),
         )
+        # Statut "Achat" (2026-09-05) : un paiement PAYG déclenche désormais
+        # le même verrouillage organisation + passage admin qu'un abonnement
+        # (voir _lock_org_after_payment) — auparavant réservé à la branche
+        # subscription ci-dessous, ce qui laissait un achat unique sans
+        # aucun effet sur les rôles de l'organisation.
+        _lock_org_after_payment(org_id, acting_user_id, context="achat PAYG")
 
     elif _safe_get(data, "mode") == "subscription":
         subscription_id = _safe_get(data, "subscription")
@@ -1897,31 +1994,11 @@ def _fulfill_checkout_session(data: dict) -> None:
             acting_user_id=acting_user_id or "",
         )
         # Rôles & organisation (2026-08-23) : le 1er abonnement payant
-        # verrouille l'organisation du souscripteur (voir
-        # auth.lock_org_for_user — idempotent, sans effet sur un
-        # renouvellement ou un changement de plan puisque l'organisation
-        # est déjà verrouillée à ce moment-là). ATTENTION : lock_org_for_user
-        # attend un vrai `user_id` (il fait WHERE id=%s sur tva_users pour
-        # retrouver l'org_id lui-même) — PAS un org_id, malgré la proximité
-        # sémantique de ce bloc avec org_id. Sans acting_user_id connu (cas
-        # où ni la metadata ni le fallback e-mail n'ont abouti — ne devrait
-        # pas arriver puisqu'on est déjà sorti plus haut si org_id est vide),
-        # on ne peut pas verrouiller : on logue et on continue sans lever,
-        # l'abonnement reste activé dans tous les cas.
-        if acting_user_id:
-            try:
-                from .auth import lock_org_for_user
-                lock_org_for_user(acting_user_id)
-            except Exception:
-                logger.warning(
-                    "lock_org_for_user a échoué pour user_id=%s (abonnement quand même activé)",
-                    acting_user_id, exc_info=True,
-                )
-        else:
-            logger.warning(
-                "Impossible de verrouiller l'organisation %s : acting_user_id inconnu "
-                "(ni metadata.user_id ni fallback e-mail n'ont résolu de compte).", org_id,
-            )
+        # verrouille l'organisation du souscripteur — voir
+        # _lock_org_after_payment (idempotent, sans effet sur un
+        # renouvellement, un changement de plan, ou une org déjà verrouillée
+        # par un précédent achat PAYG, cf. branche payg_export ci-dessus).
+        _lock_org_after_payment(org_id, acting_user_id, context="abonnement")
 
 
 def _set_scheduled_change(org_id: str, plan: str, interval: Optional[str], change_at: float) -> None:

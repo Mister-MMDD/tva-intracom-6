@@ -980,15 +980,21 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                      help=_("remove_siren_help"),
                                      width="stretch"):
                             # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
-                            _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, siren_entreprise)
-                            _invalidate_db_cache(f"sirens_{_current_user.org_id}")
-                            _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
-                            import datetime as _dt
-                            if _eff <= time.time() + 5:
-                                st.success(_("remove_success"))
+                            try:
+                                _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, siren_entreprise)
+                            except PermissionError as _lock_err:
+                                # Statut "Achat" (2026-09-05) : SIREN verrouillé pour un
+                                # compte PAYG n'ayant jamais souscrit d'abonnement.
+                                st.error(str(_lock_err))
                             else:
-                                st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
-                            preserve_upload_rerun()
+                                _invalidate_db_cache(f"sirens_{_current_user.org_id}")
+                                _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
+                                import datetime as _dt
+                                if _eff <= time.time() + 5:
+                                    st.success(_("remove_success"))
+                                else:
+                                    st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
+                                preserve_upload_rerun()
 
         # ── Abonnements & forfaits ────────────────────────────────────────────────
         # RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — abonnement
@@ -1009,6 +1015,21 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
 
                 _plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
                     _sub_status.plan if _sub_status else None, _sub_status.plan if _sub_status else "—")
+
+                # Statut "Achat" (2026-09-05) : compte n'ayant jamais souscrit
+                # d'abonnement mais ayant déjà effectué un achat PAYG — affiché
+                # distinctement d'un compte gratuit n'ayant jamais payé.
+                _account_status = None
+                if not (_sub_status and _sub_status.active):
+                    try:
+                        _account_status = _cached_db_read(
+                            f"account_status_{_current_user.org_id}",
+                            lambda: tva_billing.get_account_status(_current_user.org_id),
+                        )
+                    except Exception:
+                        _account_status = None
+                    if _account_status == tva_billing.ACCOUNT_STATUS_ACHAT:
+                        st.info(f"**{_('plan_achat')}** — {_('plan_achat_desc')}")
                 _interval_label = {"month": _("interval_monthly"), "year": _("interval_yearly")}.get(
                     _sub_status.billing_interval if _sub_status else None, "")
 
