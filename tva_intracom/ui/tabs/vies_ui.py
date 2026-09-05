@@ -260,7 +260,9 @@ def render_vies(ctx: TabContext) -> None:
         # comme B2C, exactement comme un inconclusif classique.
         v4.metric(_("vies_kpi_unverified"), vies_summary.total_not_auto_verified,
             delta=f"{vies_summary.total_not_auto_verified}" if vies_summary.total_not_auto_verified else None, delta_color="off")
-        v5.metric(_("vies_kpi_recovered_vat"), f"{float(vies_summary.fraud_avoided_amount):,.2f} €")
+        
+        _val_fraud = f"{float(vies_summary.fraud_avoided_amount):,.2f} €" if _can_export else ctx.lock_message
+        v5.metric(_("vies_kpi_recovered_vat"), _val_fraud)
 
         if vies_summary.total_inconclusive > 0:
             st.warning(_("vies_unverified_warning", count=vies_summary.total_inconclusive))

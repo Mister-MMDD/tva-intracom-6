@@ -357,7 +357,7 @@ def render_visualisations() -> None:
 
     st.subheader(_("viz_vat_by_country_subheader"))
     if not _can_export:
-        st.info(_("viz_locked_geography_info"))
+        st.info(f"{ctx.lock_message} — " + _("viz_locked_geography_info"))
     elif viz_data_by_country:
         # Figure construite (et mise en cache) par calc_key + devise + langue :
         # voir _build_fig_bar plus haut dans ce fichier pour le rationnel.
@@ -381,7 +381,7 @@ def render_visualisations() -> None:
     with ch2:
         st.subheader(_("viz_map_subheader"))
         if not _can_export:
-            st.info(_("viz_locked_map_info"))
+            st.info(f"{ctx.lock_message} — " + _("viz_locked_map_info"))
         elif vat_net_by_country:
             fig_map = _build_fig_map(vat_net_by_country, _rate, _lang, ctx.calc_key)
             if fig_map is not None:

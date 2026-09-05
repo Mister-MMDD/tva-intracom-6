@@ -184,7 +184,17 @@ class BillingGate:
                 st.info(_("gate_payment_pending_info"))
                 return
 
-            if self.quota_status and self.quota_status.blocked:
+            # BUGFIX (priorité) : le paywall Stripe doit toujours primer
+            # pour un compte non-abonné / non-débloqué, avant de parler de
+            # quota ou de conformité. `billing_ok` est calculé plus haut,
+            # AVANT les gates de conformité, précisément pour permettre
+            # cette distinction.
+            if not self.billing_ok:
+                pass  # tombe directement dans le paywall Stripe ci-dessous
+
+            # Si le compte est à jour de paiement (billing_ok True) mais
+            # reste bloqué (can_export False), on affiche la raison précise.
+            elif self.quota_status and self.quota_status.blocked:
                 st.error(
                     _("gate_quota_blocked_err",
                       label=label,
@@ -194,23 +204,6 @@ class BillingGate:
                 )
                 return
 
-            # BUGFIX (priorité) : account_link_blocked / siren_mismatch
-            # forcent can_export=False mais N'ONT DE SENS QUE pour un compte
-            # DÉJÀ payant — ce sont des gates de conformité, pas de
-            # facturation. Un utilisateur qui n'est PAS (encore) abonné doit
-            # toujours voir le paywall Stripe en priorité : sinon, un
-            # nouveau compte non-abonné (dont le rattachement Amazon<->SIREN
-            # n'a par définition jamais pu être confirmé) voyait le message
-            # "confirmez le rattachement du compte" au lieu du vrai message
-            # bloquant, "abonnez-vous". `billing_ok` est calculé plus haut,
-            # AVANT les gates de conformité, précisément pour permettre
-            # cette distinction.
-            if not self.billing_ok:
-                pass  # tombe directement dans le paywall Stripe ci-dessous
-
-            # Ces deux cas ne concernent donc que le cas où le compte EST
-            # déjà payant (billing_ok True) mais reste bloqué par une
-            # conformité non résolue.
             elif self.account_link_blocked:
                 st.error(_("gate_account_link_blocked_err", label=label))
                 return
@@ -343,18 +336,18 @@ def preview_lock_message(gate: "BillingGate") -> str:
     propre message complet (st.error/st.info).
 
     Même ordre de priorité que BillingGate.gated_download() (voir son
-    commentaire "Priorité 0") : paiement/quota d'abord (le paywall doit
-    toujours primer pour un compte non débloqué), puis, seulement pour un
-    compte déjà payant (billing_ok), les gates de conformité un par un.
+    commentaire "Priorité 0") : paiement d'abord (le paywall doit toujours
+    primer pour un compte non débloqué), puis le quota, puis, seulement pour
+    un compte déjà payant (billing_ok), les gates de conformité un par un.
     Retourne toujours un message pertinent : n'est appelé que lorsque
     `can_export` est False, donc au moins une des conditions ci-dessous est
     vraie."""
     if gate.sub_status == "incomplete":
         return "🔒 " + _("locked_premium")
-    if gate.quota_status and gate.quota_status.blocked:
-        return "🔒 " + _("locked_quota")
     if not gate.billing_ok:
         return "🔒 " + _("locked_premium")
+    if gate.quota_status and gate.quota_status.blocked:
+        return "🔒 " + _("locked_quota")
     if gate.account_link_blocked:
         return _("locked_account_link")
     if gate.siren_mismatch:

@@ -246,7 +246,7 @@ def render_telechargements() -> None:
 
             _confirm_corrections = st.session_state.get("confirm_oss_corrections", False)
 
-            if _negative_buckets:
+            if _negative_buckets and _can_export:
                 _res_net = _get_results_net()
                 _suggestions = preview_negative_bucket_suggestions(_res_net, period_label)
                 _any_matched = any(s.matched for s in _suggestions)

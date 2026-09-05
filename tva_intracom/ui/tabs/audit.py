@@ -214,7 +214,8 @@ def render_audit() -> None:
             if _active_inner == 0:
                 if ecarts_autres_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_autres_tab)
-                    st.error(_("audit_taux_error", count=len(ecarts_autres_tab), total=_fmt(total)))
+                    _total_lbl = _fmt(total) if _can_export else ctx.lock_message
+                    st.error(_("audit_taux_error", count=len(ecarts_autres_tab), total=_total_lbl))
                     _audit_df(ecarts_autres_tab, "audit_taux")
                 else:
                     st.success(_("audit_taux_success"))
@@ -222,14 +223,16 @@ def render_audit() -> None:
                 if not enable_vies: st.info(_("audit_vies_info"))
                 elif ecarts_vies_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_vies_tab)
-                    st.error(_("audit_vies_error", amount=_fmt(abs(total))))
+                    _amount_lbl = _fmt(abs(total)) if _can_export else ctx.lock_message
+                    st.error(_("audit_vies_error", amount=_amount_lbl))
                     _audit_df(ecarts_vies_tab, "audit_vies")
                 else:
                     st.success(_("audit_vies_success"))
             if _active_inner == 2:
                 st.caption(_("audit_uk_info"))
                 if ecarts_gb_tab:
-                    st.metric(_("audit_uk_metric"), _fmt(sum(r[_lbl_gap] for r in ecarts_gb_tab)))
+                    _val_uk = _fmt(sum(r[_lbl_gap] for r in ecarts_gb_tab)) if _can_export else ctx.lock_message
+                    st.metric(_("audit_uk_metric"), _val_uk)
                     _audit_df(ecarts_gb_tab, "audit_gb")
                 else:
                     st.success(_("audit_uk_success"))
@@ -237,7 +240,8 @@ def render_audit() -> None:
                 st.caption(_("audit_art194_info"))
                 if ecarts_b2b_dom_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_b2b_dom_tab)
-                    st.metric(_("audit_art194_metric"), _fmt(abs(total)))
+                    _val_194 = _fmt(abs(total)) if _can_export else ctx.lock_message
+                    st.metric(_("audit_art194_metric"), _val_194)
                     _audit_df(ecarts_b2b_dom_tab, "audit_art194")
                 else:
                     st.success(_("audit_art194_success"))
@@ -245,7 +249,8 @@ def render_audit() -> None:
                 st.info(_("audit_manquante_info"))
                 if ecarts_amz_manquante_tab:
                     total = sum(r[_lbl_gap] for r in ecarts_amz_manquante_tab)
-                    st.metric(_("audit_manquante_metric"), _fmt(abs(total)))
+                    _val_manq = _fmt(abs(total)) if _can_export else ctx.lock_message
+                    st.metric(_("audit_manquante_metric"), _val_manq)
                     _audit_df(ecarts_amz_manquante_tab, "audit_manquante")
                     import io as _io2, csv as _csv2
                     _buf2 = _io2.StringIO(); _w2 = _csv2.writer(_buf2, delimiter=";")
