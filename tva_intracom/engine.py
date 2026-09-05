@@ -933,6 +933,25 @@ def _run_oss_loop(
             peut lui-même déclencher un rerun Streamlit — voir
             _vies_progress_cb dans app.py, appelé depuis un thread via
             report(), déjà conçu pour supporter ce genre d'appel).
+
+    NOTE (vectorisation Polars, réétudié 2026-09-05, ancien point #2 de
+    optimisations_en_attente.md — désormais retiré du fichier, décision
+    actée ici) : le cumul `cumulative_oss_ht` lui-même (cumsum groupé par
+    année) serait trivialement vectorisable en Polars (`cum_sum().over(year)`)
+    — la logique "stateful" du seuil n'a jamais été un vrai obstacle
+    technique en soi. Le vrai coût CPU de cette boucle vient de
+    `compute_vat()` appelé ligne à ligne juste avant (cas Monaco, export
+    hors UE, reclassification B2C/B2B sur échec VIES, taux historiques
+    datés...), qui n'est PAS vectorisable sans réécriture complète de la
+    logique fiscale — disproportionné vu la charge réelle (Streamlit
+    Cloud, 1 vCPU).
+    De plus, en pratique très peu d'utilisateurs restent sous le seuil de
+    10 000 € (l'app leur est peu utile à ce niveau de volume) : la branche
+    "sous le seuil" de `_build_oss_note` est donc rarement empruntée, ce
+    qui réduit encore l'intérêt de vectoriser spécifiquement cette partie
+    plutôt que `compute_vat` dans son ensemble.
+    Décision : abandonné (pas seulement reporté) — pas de vectorisation
+    Polars de cette boucle pour l'instant.
     """
     results: list[VatResult] = []
     refund_results: list[VatResult] = []

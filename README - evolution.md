@@ -6650,6 +6650,47 @@ ou polling — traduction statique chargée via `lru_cache` existant).
 retirée du tracker.** Section "Internationalisation (i18n)" du tracker
 vide pour le moment.
 
+## 2026-09-05 — Réétude des points 2, 3 et 4 de `optimisations_en_attente.md` : vectorisation Polars OSS, dtype category, isolation multi-tenant du cache
+
+Réexamen à la demande de Matthieu (arbitrage : peu d'utilisateurs restent
+sous le seuil OSS de 10 000 €, l'app leur étant peu utile à ce niveau de
+volume) de 3 points historiques du fichier `optimisations_en_attente.md`,
+chacun vérifié sur le code réel du dépôt `dev` avant décision.
+
+**Point 2 — Vectorisation Polars de `_run_oss_loop` : abandonné.** Le cumul
+`cumulative_oss_ht` (cumsum groupé par année) serait en réalité trivialement
+vectorisable en Polars (`cum_sum().over(year)`) — la logique "stateful" du
+seuil n'a jamais été le vrai obstacle. Le coût CPU réel de la boucle vient
+de `compute_vat()` appelé ligne à ligne (cas Monaco, export hors UE,
+reclassification B2C/B2B sur échec VIES, taux historiques datés...), non
+vectorisable sans réécriture complète de la logique fiscale —
+disproportionné vu la charge réelle (Streamlit Cloud, 1 vCPU). Le constat de
+Matthieu (rareté des utilisateurs sous le seuil) réduit encore l'intérêt de
+vectoriser spécifiquement cette branche, rarement empruntée en pratique.
+Décision et justification complète documentées dans la docstring de
+`_run_oss_loop` (`engine.py`).
+
+**Point 3 — Optimisation RAM via type `category` : déjà traité.** Vérifié
+dans `tva_intracom/ui/tabs/detail_ventes.py::_build_rows_df` (le fichier
+`optimisations_en_attente.md` référençait encore l'ancien emplacement
+`formatting.py`, obsolète) : `canal`/`scenario`/`vat_country`/`collector`/
+`dest` sont déjà castées en `category` (voir entrée du 2026-09-03 pour
+l'ajout de `dest`). Aucune action supplémentaire nécessaire.
+
+**Point 4 — Isolation multi-tenant du cache Streamlit : non-risque, clos.**
+Tous les `@st.cache_data` du projet (`billing.py`, `sidebar.py`) sont déjà
+clés sur `org_id`/`scope_id` en premier argument — Streamlit clé son cache
+sur les arguments de la fonction décorée, donc deux tenants avec des
+`org_id` différents ont déjà des entrées de cache distinctes. Aucune
+fonction cache-data globale sans clé de tenant identifiée dans le code
+actuel.
+
+**Fichier `optimisations_en_attente.md` mis à jour** : les 3 points retirés
+(traité ou abandonné), points restants renumérotés (6→3, 7→4, 8→5, 9→6,
+10→7, 11→8).
+
+---
+
 ## 2026-09-03 — Audit externe CPU/rendu (13 points au total) : fragments st.tabs, run_every, plafond d'affichage, boucles O(n) mémoïsées, cache VAT, arrondi Plotly, dtype category
 
 Suite de deux audits externes successifs (proposition libre + relecture des
