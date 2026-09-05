@@ -29,6 +29,15 @@ Nécessite les mêmes variables d'environnement que l'app en local
 (SUPABASE_DB_URL notamment).
 """
 import sys
+from pathlib import Path
+
+# Le script vit dans scripts/, un niveau sous la racine du projet (là où se
+# trouve le package tva_intracom/) — contrairement à debug_can_export.py qui
+# est à la racine et bénéficie automatiquement de l'ajout de son propre
+# dossier à sys.path par Python. On ajoute donc explicitement la racine du
+# projet (dossier parent de scripts/) à sys.path, AVANT l'import, sinon :
+# "ModuleNotFoundError: No module named 'tva_intracom'".
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tva_intracom import billing as tva_billing
 

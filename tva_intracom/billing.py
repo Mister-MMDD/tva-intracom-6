@@ -350,14 +350,24 @@ def _migrate_billing_to_org_id(cur) -> None:
         "ALTER TABLE tva_siren_registrations ALTER COLUMN org_id SET NOT NULL"
     )
 
-    # Bascule de la PRIMARY KEY : user_id -> org_id (ou (org_id, siren) /
-    # (org_id, period_label) pour les tables composites). Gardée par
-    # l'existence de la nouvelle contrainte pour rester idempotente sans
-    # tenter un DROP/ADD à chaque démarrage.
+    # Bascule de la PRIMARY KEY : user_id -> org_id (ou (org_id, siren) pour
+    # les tables composites). Gardée par l'existence de la nouvelle
+    # contrainte pour rester idempotente sans tenter un DROP/ADD à chaque
+    # démarrage.
+    #
+    # BUGFIX (2026-09-04) : tva_export_credits est sorti de cette boucle
+    # générique. Sa PK a une 3e étape (org_pkey -> siren_pkey, voir juste en
+    # dessous) : au 2e démarrage après cette 3e étape, le test d'idempotence
+    # ci-dessous (qui ne connaît que new_pk="tva_export_credits_org_pkey")
+    # ne trouvait plus cette contrainte — remplacée entre-temps par
+    # siren_pkey — et retentait un ADD CONSTRAINT org_pkey en plus de la PK
+    # déjà en place, ce que Postgres refuse ("multiple primary keys for
+    # table ... are not allowed"). La migration complète de cette table est
+    # donc gérée dans un seul bloc dédié, qui connaît toute la chaîne des
+    # noms de contrainte possibles.
     _pk_migrations = [
         ("tva_customers", "tva_customers_pkey", "tva_customers_org_pkey", "(org_id)"),
         ("tva_subscriptions", "tva_subscriptions_pkey", "tva_subscriptions_org_pkey", "(org_id)"),
-        ("tva_export_credits", "tva_export_credits_pkey", "tva_export_credits_org_pkey", "(org_id, period_label)"),
         ("tva_siren_registrations", "tva_siren_registrations_pkey", "tva_siren_registrations_org_pkey", "(org_id, siren)"),
     ]
     for table, old_pk, new_pk, key_cols in _pk_migrations:
@@ -377,18 +387,19 @@ def _migrate_billing_to_org_id(cur) -> None:
         cur.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {old_pk}")
         cur.execute(f"ALTER TABLE {table} ADD CONSTRAINT {new_pk} PRIMARY KEY {key_cols}")
 
-    # BUGFIX (2026-09-04) : élargissement de la PK tva_export_credits pour y
-    # inclure le SIREN (voir ADD COLUMN plus haut) — étape séparée de la
-    # boucle ci-dessus car elle vient APRÈS la migration user_id -> org_id
-    # (dont dépend le nom de contrainte de départ) et ne concerne qu'une
-    # seule table. `siren` vaut '' par défaut pour toutes les lignes
-    # existantes : (org_id, period_label) était déjà unique, donc l'élargir
-    # à (org_id, period_label, siren='') ne peut pas créer de doublon.
+    # tva_export_credits : chaîne complète user_id -> (org_id, period_label)
+    # -> (org_id, period_label, siren) gérée ici en une seule étape
+    # idempotente, indépendamment d'où en est la table (jamais migrée,
+    # migrée seulement jusqu'à org_pkey, ou déjà à siren_pkey). `siren` vaut
+    # '' par défaut pour toutes les lignes existantes : (org_id,
+    # period_label) était déjà unique, donc élargir à (org_id, period_label,
+    # siren='') ne peut pas créer de doublon.
     cur.execute(
         "SELECT 1 FROM information_schema.table_constraints "
         "WHERE table_name='tva_export_credits' AND constraint_name='tva_export_credits_siren_pkey'"
     )
     if not cur.fetchone():
+        cur.execute("ALTER TABLE tva_export_credits DROP CONSTRAINT IF EXISTS tva_export_credits_pkey")
         cur.execute("ALTER TABLE tva_export_credits DROP CONSTRAINT IF EXISTS tva_export_credits_org_pkey")
         cur.execute(
             "ALTER TABLE tva_export_credits ADD CONSTRAINT tva_export_credits_siren_pkey "

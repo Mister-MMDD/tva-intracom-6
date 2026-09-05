@@ -47,6 +47,13 @@ tva-intracom/
 │       └── ci.yml                    Pipeline CI (pytest sur push/PR)
 ├── data/
 ├── schemas/                          Schémas XSD officiels (DGFIP/UE) pour validation XML OSS
+├── scripts/                          Scripts ponctuels de diagnostic/migration DB (hors app, lancés manuellement)
+│   ├── diag_org_id_state.py           Diagnostic de l'état de la migration user_id -> org_id
+│   ├── diag_org_migration.py          Diagnostic préalable à la migration org_id (détection multi-comptes/org)
+│   ├── migrate_legacy_export_credits.py  Resserre a posteriori les crédits PAYG achetés avant le
+│   │                                      rattachement SIREN (siren='') sur un SIREN précis, quand
+│   │                                      l'org n'a qu'un seul SIREN enregistré (dry-run par défaut)
+│   └── profile_ram_parsing.py         Profilage mémoire du parsing de gros fichiers Amazon
 ├── tests/
 ├── tva-site/                         Site vitrine / landing page (HTML/JS/CSS statique)
 ├── tva_intracom/
@@ -119,27 +126,12 @@ tva-intracom/
 │   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
 │   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
 │   │   ├── __init__.py
-<<<<<<< Updated upstream
-│   │   ├── admin.py                  Gestion des rôles et organisation (admin/lecteur).
-│   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth
-│   │   │                             (Google/Microsoft/GitHub/Amazon) via Supabase Auth,
-│   │   │                             cookie de session, callback OAuth Amazon SP-API.
-│   │   ├── background_calc.py        Exécution des calculs longs avec file d'attente FIFO (MAX=1).
-│   │   ├── billing_gate.py           Gating crédit PAYG/abonnement/quota SIREN/conformité TVA-IOSS.
-│   │   ├── calc_cache.py             Centralisation du state management des calculs (CalcCacheState).
-│   │   ├── display_mode.py           Gestion globale du mode d'affichage Simple / Détaillé.
-│   │   ├── files.py                  Cache compressé des fichiers uploadés (compression gzip).
-│   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
-│   │   │                             _gated_preview_table, _fec_period_end_date…)
-│   │   ├── onboarding.py             Stepper guidé d'onboarding (Lighthouse CSS).
-│   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
-│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, Facturation Stripe)
-=======
 │   │   ├── admin.py                  Gestion des rôles admin/lecteur et whitelist organisation.
 │   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth
 │   │   │                             (Google/Microsoft/GitHub/Amazon) via Supabase Auth,
 │   │   │                             cookie de session, callback OAuth Amazon SP-API.
-│   │   ├── background_calc.py        Exécution des calculs longs en thread séparé avec suivi de progression.
+│   │   ├── background_calc.py        Exécution des calculs longs en thread séparé (avec suivi de
+│   │   │                             progression) derrière une file d'attente FIFO (slot unique).
 │   │   ├── billing_gate.py           Gating crédit PAYG/abonnement/quota SIREN/conformité TVA-IOSS.
 │   │   ├── calc_cache.py             Gestion centralisée de l'état du cache de calcul (CalcCacheState).
 │   │   ├── display_mode.py           Gestion globale du mode d'affichage Simple / Détaillé.
@@ -149,7 +141,6 @@ tva-intracom/
 │   │   ├── onboarding.py             Stepper guidé d'onboarding avec guidage visuel Lighthouse.
 │   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
 │   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, Facturation Stripe).
->>>>>>> Stashed changes
 │   │   ├── theme.py                  Configuration de page + CSS de marque adaptatif.
 │   │   └── tabs/                     Un module par onglet de l'app, tous consommant un TabContext
 │   │       ├── __init__.py
@@ -167,6 +158,8 @@ tva-intracom/
 │       └── stripe_webhook.py         Endpoint webhook Stripe, déployé sur Vercel
 ├── app.py                            Interface Streamlit — orchestrateur (auth, upload, calcul,
 │                                     construction du contexte, appel des modules tva_intracom/ui/)
+├── debug_can_export.py               Script de diagnostic manuel : rejoue la logique can_export
+│                                     pour un compte donné (aide au support/debug billing)
 ├── Procfile                          Processus de démarrage pour déploiement cloud
 ├── pyproject.toml
 ├── railway.toml                      Config spécifique Railway
@@ -205,7 +198,7 @@ tva-intracom/
 | `auth.py` | Authentification historique par magic link (Postgres/Supabase, désactivée côté UI), envoi d'e-mail via l'API Resend, chiffrement Fernet du refresh_token Amazon SP-API, stockage serveur des verifiers PKCE OAuth (`tva_oauth_pkce`) |
 | `auth_supabase.py` | Authentification par mot de passe et OAuth social (Google, Microsoft, GitHub, Amazon) via l'API Supabase Auth (GoTrue REST), flux PKCE |
 | `amazon_spapi.py` | Intégration Amazon Selling Partner API (SP-API) : OAuth 2.0, échange de code, rafraîchissement de token et identification du vendeur — sert à la **liaison de compte** pour la récupération des rapports de vente, distincte de la connexion Amazon de l'écran de login (voir section Authentification) |
-| `billing.py` | Facturation Stripe : Checkout PAYG, Pro et Cabinet (mensuel/annuel, paliers dégressifs), Customer Portal, quotas SIREN par compte, grille tarifaire lue en direct sur Stripe, traitement des webhooks, quotas stockés en Postgres/Supabase, et **rattachement anti-abus Compte Amazon <-> SIREN** |
+| `billing.py` | Facturation Stripe : Checkout PAYG, Pro et Cabinet (mensuel/annuel, paliers dégressifs), Customer Portal, quotas SIREN par compte, grille tarifaire lue en direct sur Stripe, traitement des webhooks, quotas stockés en Postgres/Supabase, et **rattachement anti-abus Compte Amazon <-> SIREN**. Les crédits PAYG (`tva_export_credits`) sont scellés à `(org_id, period_label, siren)` — un paiement à l'unité ne débloque qu'un SIREN précis (voir Incidents de production résolus, 2026-09-04) |
 | `app.py` | Orchestrateur Streamlit (racine du dépôt, pas dans `tva_intracom/`) — upload, calcul (avec cache `st.session_state`), construction du contexte, appel des modules `ui/` |
 
 ---
@@ -442,6 +435,12 @@ Audit réglementaire et structurel exhaustif (moteur fiscal, sécurité, exports
 
 ## Incidents de production résolus
 
+- **2026-09-04 — Retour de paiement Stripe cassé + crédit PAYG non scellé au SIREN (`billing.py`, `ui/billing_gate.py`, `ui/sidebar.py`)** : quatre bugs distincts remontés en test de paiement, corrigés ensemble.
+  1. *Redirection post-paiement en 404* — le secret `APP_BASE_URL` contenait une coquille (`tva-intracom-eu` au lieu de `tva-intracom-ue`), donc Stripe redirigeait vers un domaine différent de celui réellement déployé et de la liste blanche Supabase. Correction de configuration (secret), aucun changement de code.
+  2. *Export premium débloqué sans SIREN renseigné* — `build_billing_gate` ne bloquait l'absence de SIREN que si `siren_entreprise` était déjà non-vide (`if can_export and siren_entreprise:`), donc un compte n'ayant jamais renseigné de SIREN passait ce gate sans jamais être arrêté. Ajout d'un gate explicite `siren_missing` (nouvelle clé i18n `gate_siren_missing_err`, 7 langues).
+  3. *Crash `StreamlitAPIException: siren_select_box cannot be modified after the widget ... is instantiated`* — `render_account_link_panel()` (appelé après `render_sidebar()` dans `app.py`) écrivait directement dans `st.session_state["siren_select_box"]`, alors que le widget correspondant est déjà instancié plus tôt dans le même run. Remplacé par un tampon `_pending_siren_switch`, consommé en tout début de `render_sidebar()` (donc avant l'instanciation du widget), suivi d'un `st.rerun()`.
+  4. *Un crédit PAYG débloquait un SIREN/compte Amazon différent de celui acheté* — `tva_export_credits` avait pour clé `(org_id, period_label)` seulement, sans notion de SIREN : un paiement à l'unité débloquait toute l'organisation pour la période, quel que soit le SIREN du fichier de vente traité. Colonne `siren` ajoutée à la table (clé élargie à `(org_id, period_label, siren)`), propagée depuis la sélection courante jusqu'à la metadata Stripe puis au webhook (`create_payg_checkout_session` → `_fulfill_checkout_session` → `grant_export_credit`). Rétrocompatible : les crédits achetés avant ce correctif (`siren=''`) restent valables pour tout SIREN de l'org — script `scripts/migrate_legacy_export_credits.py` (dry-run par défaut) pour resserrer manuellement les cas non ambigus (org à un seul SIREN enregistré).
+  - **Piège de migration rencontré** : la boucle générique de migration de clé primaire (`_migrate_billing_to_org_id`) incluait à tort `tva_export_credits`, dont la PK a une étape supplémentaire (`org_pkey` → `siren_pkey`). Au 2ᵉ démarrage après la 1ʳᵉ migration réussie, elle retentait un `ADD CONSTRAINT` de l'ancienne PK alors que la nouvelle était déjà en place → `psycopg2.errors.InvalidTableDefinition: multiple primary keys`. Corrigé en sortant cette table de la boucle générique et en gérant toute sa chaîne de migration dans un bloc dédié idempotent, qui reconnaît directement la contrainte finale (`tva_export_credits_siren_pkey`) quel que soit l'état de départ.
 - **2026-09-03 — Backfill `org_id` manquant (`billing.py`)** : le premier déploiement `dev → main` post-migration `user_id → org_id` a fait planter la prod (`psycopg2.errors.UndefinedColumn: column "org_id" does not exist`). Cause : `_migrate_billing_to_org_id()` tentait un `SET NOT NULL` sans backfill préalable, provoquant un rollback complet de l'`ALTER TABLE ADD COLUMN`. Corrigé par l'ajout du backfill `UPDATE ... SET org_id = user_id WHERE org_id IS NULL` avant la contrainte `NOT NULL`, sur les 4 tables de facturation. Script de diagnostic dédié conservé (`scripts/diag_org_id_state.py`).
 - **2026-09-03 — Nettoyage de l'instrumentation de debug** : retrait des logs `[QUEUE_DEBUG]` temporaires (file d'attente de calcul), des affichages `st.caption` de diagnostic serveur, et du script `backfill_encrypt_pii.py` (déjà exécuté en production avec `--apply`, migration close). Scripts de diagnostic utiles conservés (`debug_can_export.py`, `scripts/diag_org_migration.py`, `scripts/diag_org_id_state.py`).
 
