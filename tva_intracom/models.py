@@ -188,6 +188,62 @@ class Sale:
         # inatteignable ici (Pydantic validait déjà amount_ht/original_amount/
         # exchange_rate/amazon_vat_amount en Decimal avant __post_init__).
 
+    @classmethod
+    def _replace_fast(cls, original: "Sale", *, buyer_vat_valid: bool,
+                       product_category: str, asin: str) -> "Sale":
+        """Reconstruit une Sale en ne changeant que buyer_vat_valid/
+        product_category/asin, en bypassant la validation Pydantic.
+
+        Perf : évite de refaire la validation complète des 23 champs (dont
+        les 4 CleanDecimal déjà propres) à chaque appel — mesuré 2026-09-06,
+        voir README - évolution.md (~68% du temps de `_run_oss_loop` sur un
+        portefeuille 100% B2B avec n° de TVA, contre ~28% sur un mix
+        85%/15% B2C/B2B réaliste).
+
+        ATTENTION — réservée EXCLUSIVEMENT à la signature exacte utilisée par
+        `_effective_sale_with_vies()` (engine.py) : ce sont les 3 SEULS
+        champs jamais modifiés à cet appel. Les 20 autres champs sont copiés
+        tels quels depuis `original` (déjà normalisés lors de sa propre
+        construction — `dataclasses.replace()` les revalidait pourtant à
+        chaque appel, un no-op coûteux : intern()/upper() sur une valeur déjà
+        normalisée redonne la même valeur). NE PAS généraliser cette méthode
+        à d'autres champs sans réévaluer soigneusement leur normalisation.
+
+        Reproduit à l'identique la partie de `__post_init__` concernant
+        product_category (upper + intern, si non vide) et asin (intern
+        seul, casse non modifiée, si non vide) — les 2 seuls champs modifiés
+        qui nécessitent une normalisation. `buyer_vat_valid` est un bool,
+        aucune normalisation. Voir test de parité dans tests/test_engine.py.
+        """
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "sale_id", original.sale_id)
+        object.__setattr__(obj, "amount_ht", original.amount_ht)
+        object.__setattr__(obj, "buyer_type", original.buyer_type)
+        object.__setattr__(obj, "stock_country", original.stock_country)
+        object.__setattr__(obj, "buyer_country", original.buyer_country)
+        object.__setattr__(obj, "seller_country", original.seller_country)
+        object.__setattr__(obj, "buyer_vat_valid", buyer_vat_valid)
+        object.__setattr__(obj, "buyer_vat_number", original.buyer_vat_number)
+        object.__setattr__(obj, "quantity", original.quantity)
+        object.__setattr__(obj, "original_currency", original.original_currency)
+        object.__setattr__(obj, "original_amount", original.original_amount)
+        object.__setattr__(obj, "exchange_rate", original.exchange_rate)
+        object.__setattr__(obj, "exchange_rate_source", original.exchange_rate_source)
+        object.__setattr__(obj, "transaction_date", original.transaction_date)
+        object.__setattr__(obj, "order_date", original.order_date)
+        object.__setattr__(
+            obj, "product_category",
+            sys.intern(product_category.upper()) if product_category else product_category,
+        )
+        object.__setattr__(obj, "asin", sys.intern(asin) if asin else asin)
+        object.__setattr__(obj, "amazon_vat_amount", original.amazon_vat_amount)
+        object.__setattr__(obj, "seller_is_importer", original.seller_is_importer)
+        object.__setattr__(obj, "ioss_number", original.ioss_number)
+        object.__setattr__(obj, "arrival_post_code", original.arrival_post_code)
+        object.__setattr__(obj, "display_id", original.display_id)
+        object.__setattr__(obj, "national_tax_id", original.national_tax_id)
+        return obj
+
 
 @dataclass(frozen=True, slots=True, config=ConfigDict(arbitrary_types_allowed=True))
 class VatResult:

@@ -3,38 +3,39 @@ import random
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+# Le moteur de TVA attend des clés en minuscules (normalisation interne du loader)
 HEADERS = [
-    "UNIQUE_ACCOUNT_IDENTIFIER", "ACTIVITY_PERIOD", "SALES_CHANNEL", "MARKETPLACE",
-    "PROGRAM_TYPE", "TRANSACTION_TYPE", "TRANSACTION_EVENT_ID", "ACTIVITY_TRANSACTION_ID",
-    "TAX_CALCULATION_DATE", "TRANSACTION_DEPART_DATE", "TRANSACTION_ARRIVAL_DATE", "TRANSACTION_COMPLETE_DATE",
-    "SELLER_SKU", "ASIN", "ITEM_DESCRIPTION", "ITEM_MANUFACTURE_COUNTRY", "QTY",
-    "ITEM_WEIGHT", "TOTAL_ACTIVITY_WEIGHT", "COST_PRICE_OF_ITEMS",
-    "PRICE_OF_ITEMS_AMT_VAT_EXCL", "PROMO_PRICE_OF_ITEMS_AMT_VAT_EXCL", "TOTAL_PRICE_OF_ITEMS_AMT_VAT_EXCL",
-    "SHIP_CHARGE_AMT_VAT_EXCL", "PROMO_SHIP_CHARGE_AMT_VAT_EXCL", "TOTAL_SHIP_CHARGE_AMT_VAT_EXCL",
-    "GIFT_WRAP_AMT_VAT_EXCL", "PROMO_GIFT_WRAP_AMT_VAT_EXCL", "TOTAL_GIFT_WRAP_AMT_VAT_EXCL",
-    "TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL",
-    "PRICE_OF_ITEMS_VAT_RATE_PERCENT", "PRICE_OF_ITEMS_VAT_AMT", "PROMO_PRICE_OF_ITEMS_VAT_AMT", "TOTAL_PRICE_OF_ITEMS_VAT_AMT",
-    "SHIP_CHARGE_VAT_RATE_PERCENT", "SHIP_CHARGE_VAT_AMT", "PROMO_SHIP_CHARGE_VAT_AMT", "TOTAL_SHIP_CHARGE_VAT_AMT",
-    "GIFT_WRAP_VAT_RATE_PERCENT", "GIFT_WRAP_VAT_AMT", "PROMO_GIFT_WRAP_VAT_AMT", "TOTAL_GIFT_WRAP_VAT_AMT",
-    "TOTAL_ACTIVITY_VALUE_VAT_AMT",
-    "PRICE_OF_ITEMS_AMT_VAT_INCL", "PROMO_PRICE_OF_ITEMS_AMT_VAT_INCL", "TOTAL_PRICE_OF_ITEMS_AMT_VAT_INCL",
-    "SHIP_CHARGE_AMT_VAT_INCL", "PROMO_SHIP_CHARGE_AMT_VAT_INCL", "TOTAL_SHIP_CHARGE_AMT_VAT_INCL",
-    "GIFT_WRAP_AMT_VAT_INCL", "PROMO_GIFT_WRAP_AMT_VAT_INCL", "TOTAL_GIFT_WRAP_AMT_VAT_INCL",
-    "TOTAL_ACTIVITY_VALUE_AMT_VAT_INCL",
-    "TRANSACTION_CURRENCY_CODE",
-    "EXPORT_DETAILED_STATUS", "EXCHANGE_RATE", "EXCHANGE_RATE_DATE", "DEFLATED_PRICE_OF_ITEMS_AMT_VAT_EXCL",
-    "DEFLATED_PRICE_OF_ITEMS_VAT_AMT", "DEFLATED_TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL", "DEFLATED_TOTAL_ACTIVITY_VALUE_VAT_AMT",
-    "TAX_COLLECTION_RESPONSIBILITY", "EXCLUSION_REASON_CODE",
-    "INVOICE_NUMBER", "INVOICE_DATE", "INVOICE_URL",
-    "BUYER_TAX_REGISTRATION_ID", "BUYER_TAX_REGISTRATION_TYPE", "BUYER_TAX_REGISTRATION_JURISDICTION",
-    "SELLER_TAX_REGISTRATION_ID", "SELLER_TAX_REGISTRATION_TYPE", "SELLER_TAX_REGISTRATION_JURISDICTION",
-    "FISCAL_CODE", "IS_TAX_INVOICE_REQUIRED", "TAX_REPORTING_SCHEME", "TAX_VALUATION_ASPECT",
-    "TAX_LOCATION_CODE", "TAX_RATE_MODEL", "TAX_POINT_DATE",
-    "SHIP_FROM_ADDRESS_1", "SHIP_FROM_ADDRESS_2", "SHIP_FROM_CITY", "SHIP_FROM_STATE", "SHIP_FROM_POSTAL_CODE", "SHIP_FROM_COUNTRY",
-    "SHIP_TO_ADDRESS_1", "SHIP_TO_ADDRESS_2", "SHIP_TO_CITY", "SHIP_TO_STATE", "SHIP_TO_POSTAL_CODE", "SHIP_TO_COUNTRY",
-    "BILL_TO_ADDRESS_1", "BILL_TO_ADDRESS_2", "BILL_TO_CITY", "BILL_TO_STATE", "BILL_TO_POSTAL_CODE", "BILL_TO_COUNTRY",
-    "DELIVERY_INCOTERMS", "ODR_TAX_CALCULATION_DATE", "ODR_TAX_POINT_DATE",
-    "ORDER_DATE", "MERCHANT_ORDER_ID",
+    "unique_account_identifier", "activity_period", "sales_channel", "marketplace",
+    "program_type", "transaction_type", "transaction_event_id", "activity_transaction_id",
+    "tax_calculation_date", "transaction_depart_date", "transaction_arrival_date", "transaction_complete_date",
+    "seller_sku", "asin", "item_description", "item_manufacture_country", "qty",
+    "item_weight", "total_activity_weight", "cost_price_of_items",
+    "price_of_items_amt_vat_excl", "promo_price_of_items_amt_vat_excl", "total_price_of_items_amt_vat_excl",
+    "ship_charge_amt_vat_excl", "promo_ship_charge_amt_vat_excl", "total_ship_charge_amt_vat_excl",
+    "gift_wrap_amt_vat_excl", "promo_gift_wrap_amt_vat_excl", "total_gift_wrap_amt_vat_excl",
+    "total_activity_value_amt_vat_excl",
+    "price_of_items_vat_rate_percent", "price_of_items_vat_amt", "promo_price_of_items_vat_amt", "total_price_of_items_vat_amt",
+    "ship_charge_vat_rate_percent", "ship_charge_vat_amt", "promo_ship_charge_vat_amt", "total_ship_charge_vat_amt",
+    "gift_wrap_vat_rate_percent", "gift_wrap_vat_amt", "promo_gift_wrap_vat_amt", "total_gift_wrap_vat_amt",
+    "total_activity_value_vat_amt",
+    "price_of_items_amt_vat_incl", "promo_price_of_items_amt_vat_incl", "total_price_of_items_amt_vat_incl",
+    "ship_charge_amt_vat_incl", "promo_ship_charge_amt_vat_incl", "total_ship_charge_amt_vat_incl",
+    "gift_wrap_amt_vat_incl", "promo_gift_wrap_amt_vat_incl", "total_gift_wrap_amt_vat_incl",
+    "total_activity_value_amt_vat_incl",
+    "transaction_currency_code",
+    "export_detailed_status", "exchange_rate", "exchange_rate_date", "deflated_price_of_items_amt_vat_excl",
+    "deflated_price_of_items_vat_amt", "deflated_total_activity_value_amt_vat_excl", "deflated_total_activity_value_vat_amt",
+    "tax_collection_responsibility", "exclusion_reason_code",
+    "invoice_number", "invoice_date", "invoice_url",
+    "buyer_tax_registration_id", "buyer_tax_registration_type", "buyer_tax_registration_jurisdiction",
+    "seller_tax_registration_id", "seller_tax_registration_type", "seller_tax_registration_jurisdiction",
+    "fiscal_code", "is_tax_invoice_required", "tax_reporting_scheme", "tax_valuation_aspect",
+    "tax_location_code", "tax_rate_model", "tax_point_date",
+    "ship_from_address_1", "ship_from_address_2", "ship_from_city", "ship_from_state", "ship_from_postal_code", "ship_from_country",
+    "ship_to_address_1", "ship_to_address_2", "ship_to_city", "ship_to_state", "ship_to_postal_code", "ship_to_country",
+    "bill_to_address_1", "bill_to_address_2", "bill_to_city", "bill_to_state", "bill_to_postal_code", "bill_to_country",
+    "delivery_incoterms", "odr_tax_calculation_date", "odr_tax_point_date",
+    "order_date", "merchant_order_id",
     "sale_depart_country", "sale_arrival_country"
 ]
 
@@ -65,19 +66,27 @@ CASES = [
     "OSS_B2C", "B2B_REVERSE_CHARGE",
     "DEEMED_SUPPLIER_OUTSIDE_EU", "DEEMED_SUPPLIER_IOSS",
     "EXPORT", "IMPORT_STANDARD",
-    "NON_EU_PURE_TRANSACTION", # Nouveau cas pur Chine/Japon pour tester tes bypass de validation TVA
+    "IMPORT_SELLER_AS_IMPORTER",
+    "IOSS_DIRECT",
+    "NON_EU_PURE_TRANSACTION",
     "SPECIAL_TERRITORY_ORIGIN", "SPECIAL_TERRITORY_DEST",
-    "REFUND_DOMESTIC", "REFUND_OSS"
+    "REFUND_DOMESTIC", "REFUND_OSS", "REFUND_B2B", "REFUND_EXPORT", "REFUND_DEEMED_SUPPLIER",
+    "TRANSFER_INTRA_EU", "TRANSFER_DOMESTIC",
+    "B2B_NATIONAL_ES", "B2B_NATIONAL_IT",
+    "DOMESTIC_REVERSE_CHARGE_IT",
+    "B2B_OSS_INCORRECT_VIES"
 ]
 
-def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
-    print(f"Génération de {total_rows} lignes au format correct...")
+def generate_avsr_file(filename="data/vente_amazon_complet3.csv", total_rows=100000):
+    print(f"Génération de {total_rows} lignes dans {filename}...")
     start_date = datetime(2024, 1, 1)
     end_date = datetime(2025, 12, 31)
     delta_days = (end_date - start_date).days
     
+    categories = ["STANDARD", "BOOKS", "FOOD", "MEDICINES", "CLOTHING"]
+    
     with open(filename, mode='w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f, delimiter=',', quoting=csv.QUOTE_ALL)
+        writer = csv.writer(f, delimiter=',', quoting=csv.QUOTE_MINIMAL)
         writer.writerow(HEADERS)
         
         for i in range(total_rows):
@@ -104,11 +113,13 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
             seller_vat = "FR54498123629"
             tax_scheme = "UNION-OSS"
             tax_responsibility = "SELLER"
+            product_cat = random.choice(categories)
             
             tax_rate = Decimal("0.20")
             price_incl = Decimal(random.randint(20, 150))
             TRANSACTION_CURRENCY_CODE = "EUR"
             
+            # --- Logic par cas ---
             if case == "DOMESTIC_B2C":
                 src_country = random.choice(EU_COUNTRIES)
                 dest_country = src_country
@@ -143,11 +154,18 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
                 tax_scheme = "MARKETPLACE-FACILITATED"
                 
             elif case == "DEEMED_SUPPLIER_IOSS":
-                # Vente depuis la Chine/Japon vers l'UE sous le seuil IOSS (TVA collectée par Amazon)
                 src_country = random.choice(NON_EU_COUNTRIES)
                 dest_country = "FR"
-                price_incl = Decimal(random.randint(15, 140)) # Seuil <= 150 EUR
+                price_incl = Decimal(random.randint(15, 140))
                 tax_responsibility = "MARKETPLACE"
+                tax_scheme = "IOSS"
+                tax_rate = Decimal("0.20")
+
+            elif case == "IOSS_DIRECT":
+                src_country = "CN"
+                dest_country = "FR"
+                price_incl = Decimal(random.randint(15, 140))
+                tax_responsibility = "SELLER"
                 tax_scheme = "IOSS"
                 tax_rate = Decimal("0.20")
                 
@@ -164,9 +182,16 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
                 price_incl = Decimal(random.randint(165, 500))
                 tax_rate = Decimal("0.00")
                 tax_scheme = "REGULAR"
+
+            elif case == "IMPORT_SELLER_AS_IMPORTER":
+                src_country = "US"
+                dest_country = "FR"
+                price_incl = Decimal(random.randint(200, 1000))
+                tax_rate = Decimal("0.20")
+                tax_scheme = "REGULAR"
+                tax_responsibility = "SELLER"
                 
             elif case == "NON_EU_PURE_TRANSACTION":
-                # Cas typique Chine -> Japon (Hors UE complet) : Aucune TVA intracommunautaire requise
                 src_country = "CN"
                 dest_country = "JP"
                 tax_rate = Decimal("0.00")
@@ -209,6 +234,87 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
                 price_incl = Decimal(random.randint(20, 100))
                 tax_scheme = "UNION-OSS"
 
+            elif case == "REFUND_B2B":
+                tx_type = "REFUND"
+                qty = "-1"
+                src_country = "FR"
+                dest_country = "IT"
+                buyer_vat = generate_valid_vat("IT")
+                buyer_type = "Business"
+                tax_rate = Decimal("0.00")
+                price_incl = Decimal(random.randint(50, 200))
+                tax_scheme = "REGULAR"
+
+            elif case == "REFUND_EXPORT":
+                tx_type = "REFUND"
+                qty = "-1"
+                src_country = "FR"
+                dest_country = "US"
+                tax_rate = Decimal("0.00")
+                price_incl = Decimal(random.randint(50, 200))
+                tax_scheme = "REGULAR"
+
+            elif case == "REFUND_DEEMED_SUPPLIER":
+                tx_type = "REFUND"
+                qty = "-1"
+                src_country = "FR"
+                dest_country = "IT"
+                tax_responsibility = "MARKETPLACE"
+                tax_scheme = "MARKETPLACE-FACILITATED"
+                tax_rate = Decimal("0.22")
+                price_incl = Decimal(random.randint(20, 100))
+
+            elif case == "TRANSFER_INTRA_EU":
+                tx_type = "FC_TRANSFER"
+                qty = "1"
+                src_country = "FR"
+                dest_country = "DE"
+                tax_rate = Decimal("0.00")
+                price_incl = Decimal("0.00")
+                tax_scheme = "REGULAR"
+
+            elif case == "TRANSFER_DOMESTIC":
+                tx_type = "FC_TRANSFER"
+                qty = "1"
+                src_country = "FR"
+                dest_country = "FR"
+                tax_rate = Decimal("0.00")
+                price_incl = Decimal("0.00")
+                tax_scheme = "REGULAR"
+
+            elif case == "B2B_NATIONAL_ES":
+                src_country = "ES"
+                dest_country = "ES"
+                buyer_vat = f"{random.randint(10000000, 99999999)}A"
+                buyer_type = "Business"
+                tax_scheme = "REGULAR"
+                tax_rate = Decimal("0.21")
+
+            elif case == "B2B_NATIONAL_IT":
+                src_country = "IT"
+                dest_country = "IT"
+                buyer_vat = f"IT{random.randint(10000000000, 99999999999)}"
+                buyer_type = "Business"
+                tax_scheme = "REGULAR"
+                tax_rate = Decimal("0.22")
+
+            elif case == "DOMESTIC_REVERSE_CHARGE_IT":
+                src_country = "IT"
+                dest_country = "IT"
+                buyer_vat = generate_valid_vat("IT")
+                buyer_type = "Business"
+                tax_rate = Decimal("0.00")
+                tax_scheme = "REGULAR"
+
+            elif case == "B2B_OSS_INCORRECT_VIES":
+                src_country = "FR"
+                dest_country = "DE"
+                buyer_vat = "DE123" 
+                buyer_type = "Business"
+                tax_scheme = "UNION-OSS"
+                tax_rate = Decimal("0.19")
+
+            # --- Calcul final ---
             price_excl = (price_incl / (Decimal("1.00") + tax_rate)).quantize(Decimal("0.01"))
             tax_amt = (price_incl - price_excl).quantize(Decimal("0.01"))
             
@@ -224,8 +330,8 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
                 "A21IQVJAS2C4XO", period_str, "amazon.fr", "amazon.fr",
                 "AFN", tx_type, tx_event_id, tx_event_id,
                 date_iso, date_iso, date_iso, date_iso,
-                f"SKU-{random.randint(100,999)}-PROD", f"B00{random.randint(100000,999999)}", "Product Mock Description", "FR", qty,
-                "0.2", "0.2", "",
+                f"SKU-{random.randint(100,999)}-PROD", f"B00{random.randint(100000,999999)}", f"Product Mock {product_cat}", "FR", qty,
+                "0.2", "0.2", "0.0",
                 str(price_excl), "0.0", str(price_excl),
                 "0.0", "0.0", "0.0",
                 "0.0", "0.0", "0.0",
@@ -239,7 +345,7 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
                 "0.0", "0.0", "0.0",
                 str(price_incl),
                 TRANSACTION_CURRENCY_CODE,
-                "", "", "", "", "", "", "",
+                "", "1.0", date_iso, "0.0", "0.0", "0.0", "0.0",
                 tax_responsibility, "",
                 f"INV-{i:07d}", date_iso, "https://sellercentral.amazon.fr/mock-invoice",
                 buyer_vat, buyer_type, dest_country,
@@ -255,7 +361,7 @@ def generate_avsr_file(filename="vente_amazon_complet.csv", total_rows=2000):
             ]
             writer.writerow(row)
             
-    print("Fichier de test généré.")
+    print(f"Fichier de test généré dans {filename}.")
 
 if __name__ == "__main__":
     generate_avsr_file()

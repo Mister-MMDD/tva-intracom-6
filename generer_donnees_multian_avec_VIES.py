@@ -540,7 +540,7 @@ def main(argv: List[str] | None = None) -> int:
     )
     parser.add_argument(
         "--output",
-        default="data/ventes_multian_test_27.csv",
+        default="data/ventes_multian_test_2.csv",
         help="Chemin du fichier CSV de sortie (défaut : data/ventes_multian_test.csv).",
     )
     parser.add_argument(
@@ -552,7 +552,7 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument(
         "--count",
         type=int,
-        default=27000,
+        default=100000,
         help="Nombre total de lignes à générer (défaut : 100000).",
     )
     args = parser.parse_args(argv)

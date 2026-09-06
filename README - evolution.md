@@ -7111,3 +7111,63 @@ introduit ou modifié.
 
 Fichiers modifiés : `tva_intracom/models.py`, `tva_intracom/engine.py`,
 `tests/test_engine.py`.
+
+## 2026-09-06 (2) — Profiling puis bypass Pydantic sur `_effective_sale_with_vies` (`_dc_replace` sur `Sale`) — point exclu par erreur du périmètre initial
+
+**Contexte** : Matthieu demande de regarder le point exclu de l'entrée
+précédente (`_dc_replace(sale, ...)` dans la reclassification VIES,
+initialement jugé "impact probablement marginal" faute de mesure).
+Profiling demandé avant toute décision — même méthode que d'habitude.
+
+**Profiling** (`compute_all_with_vies`, 20 000 ventes synthétiques,
+cProfile) : contrairement à l'hypothèse initiale, ce chemin n'est PAS
+marginal. `_effective_sale_with_vies()` (appelée pour **chaque vente**,
+sans condition, dans `_run_oss_loop`) représente :
+- **~28 % du temps de la boucle** sur un mix réaliste 85 % B2C / 15 % B2B
+  avec n° de TVA — déjà comparable à `compute_vat()` (~43 %).
+- **~68 % du temps de la boucle** sur un portefeuille 100 % B2B avec n° de
+  TVA (cabinet comptable gérant du wholesale) — y DOMINE largement,
+  `compute_vat()` ne pesant plus que ~20 % dans ce cas.
+
+Micro-benchmark isolé de `_dc_replace(sale, ...)` seul : **11,4 µs/appel**
+(plus cher que `VatResult` : 23 champs contre 8, `__post_init__` plus long
+— 9 champs internés —, et 4 validateurs `CleanDecimal` supplémentaires).
+
+**Changement (`tva_intracom/models.py`)** : ajout de `Sale._replace_fast()`,
+classmethod bypassant Pydantic, réservée EXCLUSIVEMENT à la signature exacte
+utilisée par `_effective_sale_with_vies()` (seuls `buyer_vat_valid`,
+`product_category`, `asin` changent — les 20 autres champs sont copiés tels
+quels depuis l'original déjà normalisé). Reproduit à l'identique la
+normalisation `__post_init__` de `product_category` (upper+intern) et
+`asin` (intern seul, casse préservée).
+
+**Changement (`tva_intracom/engine.py`)** : les 2 `_dc_replace(sale, ...)`
+de `_effective_sale_with_vies()` remplacés par `Sale._replace_fast(sale,
+...)`. Import `from dataclasses import replace as _dc_replace` retiré
+(devenu inutile, plus aucun usage dans le fichier).
+
+**Test ajouté (`tests/test_engine.py`, `TestSaleReplaceFast`)** : parité
+stricte avec `dataclasses.replace()` (égalité, normalisation
+`product_category`/`asin`, champs vides non normalisés, champs inchangés
+copiés fidèlement, `frozen` préservé), + un test bout-en-bout via
+`compute_all_with_vies()`.
+
+**Benchmarks end-to-end** (`compute_all_with_vies`, effet cumulé des 2
+changements du jour — VatResult + Sale — vs dépôt intact) :
+- Mix réaliste 85 % B2C / 15 % B2B : **-43,4 %**
+- Pire cas 100 % B2B : **-43,7 %**
+
+**Validation** : `py_compile` + `pyflakes` propres. i18n : symétrie
+inchangée (1225 clés × 7 langues). Suite `pytest` complète : **251 passed
+/ 3 failed** (244 + 7 nouveaux tests, mêmes 3 échecs `SUPABASE_DB_URL`
+préexistants — aucune régression).
+
+**Railway / scale-to-zero** : aucun impact — changement purement CPU.
+
+**Leçon** : le périmètre initial de l'entrée précédente excluait ce point
+en le jugeant "marginal" sans donnée — le profiling a montré l'inverse.
+À retenir pour la suite : ne pas statuer sur l'impact d'un chemin non
+mesuré, même par analogie avec un chemin voisin déjà optimisé.
+
+Fichiers modifiés : `tva_intracom/models.py`, `tva_intracom/engine.py`,
+`tests/test_engine.py`.

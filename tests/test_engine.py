@@ -767,3 +767,83 @@ class TestVatResultFastConstruction:
         res = compute_vat(sale)
         assert isinstance(res, VatResult)
         assert type(res) is VatResult
+
+
+# ---------------------------------------------------------------------------
+# 13. Parité Sale._replace_fast() vs dataclasses.replace()
+#
+# `_effective_sale_with_vies()` (compute_all_with_vies, engine.py) utilise
+# Sale._replace_fast() au lieu de dataclasses.replace(sale, ...) pour ne pas
+# revalider les 23 champs Pydantic à chaque vente B2B (profiling 2026-09-06,
+# voir README - évolution.md : jusqu'à ~68% du temps de _run_oss_loop sur un
+# portefeuille 100% B2B). Ce test garantit une équivalence stricte avec
+# dataclasses.replace() — garde-fou si Sale.__post_init__ change un jour
+# sans que _replace_fast() soit mis à jour en parallèle.
+# ---------------------------------------------------------------------------
+
+class TestSaleReplaceFast:
+    def _base_sale(self, **overrides):
+        return make_sale(
+            buyer_type=BuyerType.B2B,
+            buyer_vat_number="de123456789",  # minuscule volontaire : teste l'interning tel-quel (pas de casse modifiée)
+            buyer_vat_valid=False,
+            product_category="reduced",  # minuscule volontaire : teste l'uppercase
+            asin="b0example1",
+            **overrides,
+        )
+
+    def test_equal_to_dataclasses_replace(self):
+        from dataclasses import replace as dc_replace
+        sale = self._base_sale()
+        expected = dc_replace(sale, buyer_vat_valid=True, product_category="STANDARD", asin="B0NEW1")
+        fast = Sale._replace_fast(sale, buyer_vat_valid=True, product_category="STANDARD", asin="B0NEW1")
+        assert expected == fast
+
+    def test_product_category_normalized_upper_and_interned(self):
+        sale = self._base_sale()
+        fast = Sale._replace_fast(sale, buyer_vat_valid=True, product_category="reduced", asin="B0X")
+        assert fast.product_category == "REDUCED"
+        assert fast.product_category is sys.intern("REDUCED")
+
+    def test_asin_interned_case_preserved(self):
+        """asin : intern() seul, PAS d'uppercase (contrairement à product_category)."""
+        sale = self._base_sale()
+        fast = Sale._replace_fast(sale, buyer_vat_valid=True, product_category="STANDARD", asin="b0MixedCase")
+        assert fast.asin == "b0MixedCase"  # casse non modifiée
+        assert fast.asin is sys.intern("b0MixedCase")
+
+    def test_empty_product_category_and_asin_left_as_is(self):
+        """Comme __post_init__ : une valeur vide n'est pas normalisée (pas d'upper/intern sur '')."""
+        sale = self._base_sale()
+        fast = Sale._replace_fast(sale, buyer_vat_valid=True, product_category="", asin="")
+        assert fast.product_category == ""
+        assert fast.asin == ""
+
+    def test_unchanged_fields_copied_from_original(self):
+        sale = self._base_sale()
+        fast = Sale._replace_fast(sale, buyer_vat_valid=True, product_category="STANDARD", asin="B0X")
+        assert fast.sale_id == sale.sale_id
+        assert fast.amount_ht == sale.amount_ht
+        assert fast.stock_country == sale.stock_country
+        assert fast.buyer_country == sale.buyer_country
+        assert fast.buyer_vat_number == sale.buyer_vat_number
+        assert fast.national_tax_id == sale.national_tax_id
+
+    def test_still_frozen(self):
+        sale = self._base_sale()
+        fast = Sale._replace_fast(sale, buyer_vat_valid=True, product_category="STANDARD", asin="B0X")
+        with pytest.raises(Exception):
+            fast.buyer_vat_valid = False
+
+    def test_used_end_to_end_via_compute_all_with_vies(self):
+        """Sanity check bout-en-bout : le chemin réel (compute_all_with_vies
+        -> _effective_sale_with_vies -> Sale._replace_fast) produit un
+        résultat cohérent pour une vente B2B cross-border."""
+        sale = make_sale(
+            sale_id="E2E-1", stock_country="FR", buyer_country="DE",
+            buyer_type=BuyerType.B2B, buyer_vat_number="DE123456789",
+            buyer_vat_valid=True,
+        )
+        results, _refunds, _vies_summary, _oss = compute_all_with_vies([sale], scope_id="test-replace-fast")
+        assert len(results) == 1
+        assert results[0].sale.sale_id == "E2E-1"

@@ -16,7 +16,6 @@ import logging
 import time
 import threading
 from collections import OrderedDict
-from dataclasses import replace as _dc_replace
 from decimal import ROUND_HALF_UP, Decimal
 from itertools import chain
 
@@ -1424,8 +1423,8 @@ def compute_all_with_vies(
         )
 
         if is_valid:
-            effective = _dc_replace(sale, buyer_vat_valid=True,
-                                    product_category=product_category, asin=product_asin)
+            effective = Sale._replace_fast(sale, buyer_vat_valid=True,
+                                            product_category=product_category, asin=product_asin)
         else:
             # Numéro invalide ou inconclusive (service VIES indisponible).
             # On l'ajoute à la liste des anomalies VIES pour affichage dans l'onglet VIES,
@@ -1448,8 +1447,8 @@ def compute_all_with_vies(
             # buyer_vat_valid=False. Cela permet à compute_vat d'appliquer la TVA
             # au départ (Origin VAT) plutôt que l'OSS (Destination VAT).
             # Pour les ventes domestiques, le comportement reste identique.
-            effective = _dc_replace(sale, buyer_vat_valid=False,
-                                    product_category=product_category, asin=product_asin)
+            effective = Sale._replace_fast(sale, buyer_vat_valid=False,
+                                            product_category=product_category, asin=product_asin)
 
             if not is_refund and sale.stock_country != sale.buyer_country:
                 vies_summary.vies_affected_sale_ids.add(_sale_key(effective))
