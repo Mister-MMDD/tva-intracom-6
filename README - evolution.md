@@ -7054,3 +7054,60 @@ process, pas de connexion, thread ou polling introduit.
 
 Fichiers modifiés : `tva_intracom/rates.py`, `tva_intracom/engine.py`
 (docstring uniquement, voir (5)).
+
+## 2026-09-06 — Bypass de la validation Pydantic à l'instanciation de `VatResult` (suite du profiling (6), ~35 % du temps de `compute_vat()`)
+
+**Contexte** : Matthieu demande la vectorisation de `compute_vat()`.
+Rappel de la décision (5)/(6) de la veille (réécriture complète non
+vectorisable sans risque disproportionné vu la charge réelle) : Matthieu
+choisit de cibler spécifiquement l'instanciation Pydantic de `VatResult`
+(~35 % du temps mesuré en (6)), un gain à risque bien plus faible qu'une
+réécriture de la logique fiscale elle-même.
+
+**Analyse** : `VatResult` est une `pydantic.dataclass` (frozen, slots) dont
+le seul effet de `__post_init__` est la normalisation/interning de
+`vat_country`. `compute_vat()` la construit à 15 points de retour distincts,
+`_build_oss_note()` à 2 autres (appelée juste après pour chaque vente
+éligible OSS dans `_run_oss_loop`) — soit 17 points d'instanciation par
+ligne traitée.
+
+**Changement (`tva_intracom/models.py`)** : ajout de
+`VatResult._new_unchecked(...)`, classmethod qui construit l'objet via
+`object.__new__` + `object.__setattr__` sur chaque slot, en reproduisant à
+l'identique la normalisation de `__post_init__`. Bypass total de la
+validation Pydantic — documenté comme strictement réservé au chemin chaud
+interne d'`engine.py` (tous les types y sont déjà garantis corrects par
+construction), jamais à exposer à un parser ou une entrée externe.
+
+**Changement (`tva_intracom/engine.py`)** : les 17 `VatResult(...)`
+(15 dans `compute_vat()`, 2 dans `_build_oss_note()`) remplacés par
+`VatResult._new_unchecked(...)` — mêmes arguments nommés, diff minimal.
+Hors périmètre volontairement : `Sale` (construite une seule fois en amont,
+hors boucle chaude) et le `_dc_replace(sale, ...)` de la reclassification
+VIES (sous-ensemble B2B seulement, coût bien moindre) — pistes séparées si
+utile plus tard.
+
+**Benchmarks** (sur le vrai code, deux copies du dépôt avant/après) :
+- Construction `VatResult` isolée : 3.58 µs → 1.30 µs/appel (**-63,6 %**),
+  vérifié `==`, `hash()` identiques et toujours `frozen`.
+- `compute_vat()` end-to-end (60 000 appels, mix OSS B2C / B2B reverse
+  charge / domestique FR) : 6.48 µs → 3.61 µs/appel (**-44,3 %**).
+
+**Test ajouté (`tests/test_engine.py`, `TestVatResultFastConstruction`)** :
+parité stricte entre `VatResult(...)` et `VatResult._new_unchecked(...)`
+(égalité, hash, normalisation `vat_country`, `frozen`) — garde-fou si
+`__post_init__` change un jour sans mise à jour parallèle de
+`_new_unchecked`.
+
+**Validation** : `py_compile` + `pyflakes` propres sur les 3 fichiers
+modifiés. i18n : aucune nouvelle clé, symétrie 7 langues déjà vérifiée
+(1225 clés, inchangé). Suite `pytest` complète : **244 passed / 3 failed**
+(baseline 239/3 + 5 nouveaux tests, mêmes 3 échecs `SUPABASE_DB_URL`
+préexistants et documentés — aucune régression).
+
+**Railway / scale-to-zero** : aucun impact — changement purement CPU
+(construction d'objet en mémoire), aucune connexion, thread ou polling
+introduit ou modifié.
+
+Fichiers modifiés : `tva_intracom/models.py`, `tva_intracom/engine.py`,
+`tests/test_engine.py`.

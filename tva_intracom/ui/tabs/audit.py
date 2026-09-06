@@ -74,7 +74,7 @@ def render_audit() -> None:
     # libellés de colonnes dynamiques dans les deux sous-onglets ci-dessous.
     _target_currency = st.session_state.get("target_currency", "EUR")
 
-    # Mode simple : le sous-onglet "Mouvements stock FBA" (transferts FBA)
+    # Mode Simplifié : le sous-onglet "Mouvements stock FBA" (transferts FBA)
     # est masqué -- ces données restent disponibles pour l'utilisateur via
     # l'export Excel/CSV de l'onglet Téléchargements, plus lisible pour ce
     # cas d'usage qu'un tableau brut dans l'app. Purement un choix

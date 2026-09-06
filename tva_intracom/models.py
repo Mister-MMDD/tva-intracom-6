@@ -205,6 +205,40 @@ class VatResult:
     def __post_init__(self) -> None:
         object.__setattr__(self, "vat_country", sys.intern((self.vat_country or "").upper()))
 
+    @classmethod
+    def _new_unchecked(cls, *, sale, scenario, vat_country, vat_rate, vat_amount,
+                        collector, channel, note) -> "VatResult":
+        """Construit un VatResult en court-circuitant TOTALEMENT la validation
+        Pydantic (perf : ~64% plus rapide qu'un appel normal `VatResult(...)`,
+        mesuré 2026-09-06 — voir README - évolution.md).
+
+        ATTENTION — usage strictement réservé au chemin chaud interne de
+        `engine.py` (`compute_vat()` et `_build_oss_note()`), où tous les
+        arguments sont déjà garantis du bon type par construction (Decimal
+        natifs pour vat_rate/vat_amount via `_vat_amount()`/`vat_rate()`,
+        membres d'enum Scenario/Collector/Channel, jamais de valeurs brutes
+        non normalisées). NE JAMAIS exposer cette méthode à un parser, une
+        API externe, ou tout code qui pourrait passer des types non garantis
+        — aucune coercition, aucun nettoyage, aucune erreur de validation ne
+        sera levée en cas de type incorrect (comportement silencieusement
+        incorrect au lieu d'un échec explicite).
+
+        Reproduit à l'identique le seul effet de `__post_init__` ci-dessus
+        (normalisation + interning de `vat_country`) : si `__post_init__`
+        change un jour, cette méthode doit être mise à jour en parallèle —
+        voir test de parité dédié dans tests/test_engine.py.
+        """
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "sale", sale)
+        object.__setattr__(obj, "scenario", scenario)
+        object.__setattr__(obj, "vat_country", sys.intern((vat_country or "").upper()))
+        object.__setattr__(obj, "vat_rate", vat_rate)
+        object.__setattr__(obj, "vat_amount", vat_amount)
+        object.__setattr__(obj, "collector", collector)
+        object.__setattr__(obj, "channel", channel)
+        object.__setattr__(obj, "note", note)
+        return obj
+
 
 @dataclass(slots=True, config=ConfigDict(arbitrary_types_allowed=True))
 class ViesReclassification:

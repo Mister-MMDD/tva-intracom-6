@@ -227,7 +227,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             is_home = sale.stock_country == sale.seller_country
             channel = Channel.FR_DOMESTIC if is_home else Channel.LOCAL_REGISTRATION
 
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.DOMESTIC,
                 vat_country="FR",
@@ -246,7 +246,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
         else:
             # Cas stock_country != "FR" (ex: ES -> MC)
             # Monaco étant fiscalement la France, c'est une vente OSS vers la France.
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.OSS_B2C,
                 vat_country="FR",
@@ -286,7 +286,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             channel = Channel.FR_DOMESTIC if is_home else Channel.LOCAL_REGISTRATION
             mc_stock_amount = _vat_amount(sale.amount_ht, mc_stock_rate)
 
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.DOMESTIC,
                 vat_country="FR",
@@ -308,7 +308,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             mc_stock_dest_rate = vat_rate(sale.buyer_country, effective_category, tx_date=_tx_date)
             mc_stock_dest_amount = _vat_amount(sale.amount_ht, mc_stock_dest_rate)
 
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.OSS_B2C,
                 vat_country=sale.buyer_country,
@@ -342,7 +342,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             if is_excl_territory
             else "Exportation hors UE"
         )
-        return VatResult(
+        return VatResult._new_unchecked(
             sale=sale,
             scenario=Scenario.EXPORT,
             vat_country="",
@@ -378,7 +378,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             and sale.ioss_number
             and ioss_own_number_active
     ):
-        return VatResult(
+        return VatResult._new_unchecked(
             sale=sale,
             scenario=Scenario.IOSS_DIRECT,
             vat_country=sale.buyer_country,
@@ -401,7 +401,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
         seller_non_eu = not seller_eu
         low_value_import = (not stock_eu) and sale.amount_ht <= IOSS_THRESHOLD
         if seller_non_eu or low_value_import:
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.DEEMED_SUPPLIER,
                 vat_country=sale.buyer_country,
@@ -420,7 +420,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # ------------------------------------------------------------------
     if sale.buyer_type == BuyerType.B2B:
         if stock_eu and buyer_eu and cross_border and sale.buyer_vat_valid:
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.B2B_REVERSE_CHARGE,
                 vat_country="",
@@ -464,7 +464,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 is_stock_home = sale.stock_country == sale.seller_country
                 channel = Channel.FR_DOMESTIC if is_stock_home else Channel.LOCAL_REGISTRATION
 
-                return VatResult(
+                return VatResult._new_unchecked(
                     sale=sale,
                     scenario=Scenario.DOMESTIC,
                     vat_country=sale.stock_country,
@@ -491,7 +491,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 # la vente comme une vente à distance B2C classique (Art. 33
                 # Directive 2006/112/CE) : la vente est reclassifiée B2C et
                 # suit le régime OSS, taxée au pays de destination.
-                return VatResult(
+                return VatResult._new_unchecked(
                     sale=sale,
                     scenario=Scenario.OSS_B2C,
                     vat_country=sale.buyer_country,
@@ -515,7 +515,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # Cas 1 : vente B2C intra-UE transfrontaliere (OSS par défaut)
     # ------------------------------------------------------------------
     if stock_eu and buyer_eu and cross_border:
-        return VatResult(
+        return VatResult._new_unchecked(
             sale=sale,
             scenario=Scenario.OSS_B2C,
             vat_country=sale.buyer_country,
@@ -561,7 +561,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 or (sale.buyer_type == BuyerType.B2C and bool(sale.buyer_vat_number))
         )
         if is_b2b_domestic and not is_fr and sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.DOMESTIC,
                 vat_country=sale.stock_country,
@@ -590,7 +590,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 "engine_note_domestic_local", lang=lang, country=sale.stock_country, rate=tax_rate,
             )
         )
-        return VatResult(
+        return VatResult._new_unchecked(
             sale=sale,
             scenario=Scenario.DOMESTIC,
             vat_country=sale.stock_country,
@@ -619,7 +619,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 ),
                 "engine_note_ddp_import", lang=lang, country=sale.buyer_country, rate=tax_rate, home=sale.seller_country,
                 )
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.IMPORT_SELLER_AS_IMPORTER,
                 vat_country=sale.buyer_country,
@@ -631,7 +631,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
             )
         else:
             # Régime standard : TVA d'importation due à la douane par l'acheteur.
-            return VatResult(
+            return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.IMPORT_STANDARD,
                 vat_country=sale.buyer_country,
@@ -801,7 +801,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
             oss_period=oss_period, transaction_date=_oss_tx_date,
             rate_cache=rate_cache,
         )
-        return VatResult(
+        return VatResult._new_unchecked(
             sale=sale, scenario=Scenario.DOMESTIC,
             vat_country=origin_country,
             vat_rate=home_rate, vat_amount=home_vat_amount,
@@ -818,7 +818,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
         # un avoir (voir docstring ci-dessus, BUGFIX point #3) — il retombe
         # alors dans le `return res` final, conservant le régime OSS déjà
         # calculé par compute_vat, cohérent avec la vente qu'il annule.
-        return VatResult(
+        return VatResult._new_unchecked(
             sale=res.sale, scenario=res.scenario, vat_country=res.vat_country,
             vat_rate=res.vat_rate, vat_amount=res.vat_amount,
             collector=res.collector, channel=res.channel,

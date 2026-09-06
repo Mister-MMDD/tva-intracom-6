@@ -1,4 +1,4 @@
-"""Point de vérité unique pour le mode d'affichage Simple / Détaillé.
+"""Point de vérité unique pour le mode d'affichage Simplifié / Détaillé.
 
 Avant ce module, `display_mode` (session_state) n'était initialisé qu'à
 l'intérieur du bloc `if uploaded_files:` de app.py (donc inexistant tant

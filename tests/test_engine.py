@@ -702,3 +702,68 @@ class TestEdgeCases:
         )
         res = compute_vat(sale)
         assert res.scenario != Scenario.IOSS_DIRECT
+
+
+# ---------------------------------------------------------------------------
+# 12. Parité VatResult._new_unchecked() vs construction Pydantic normale
+#
+# `compute_vat()` et `_build_oss_note()` utilisent VatResult._new_unchecked()
+# (bypass total de la validation Pydantic, ~64% plus rapide, voir README -
+# évolution.md 2026-09-06) au lieu de VatResult(...) directement. Ce test
+# garantit que les deux méthodes de construction produisent des objets
+# strictement équivalents (égalité, hash, immutabilité, normalisation
+# vat_country) — garde-fou si VatResult.__post_init__ change un jour sans
+# que _new_unchecked() soit mis à jour en parallèle.
+# ---------------------------------------------------------------------------
+
+class TestVatResultFastConstruction:
+    def _kwargs(self, **overrides):
+        kwargs = dict(
+            sale=make_sale(),
+            scenario=Scenario.OSS_B2C,
+            vat_country="de",  # minuscule volontaire : teste la normalisation
+            vat_rate=Decimal("0.19"),
+            vat_amount=Decimal("8.08"),
+            collector=Collector.SELLER,
+            channel=Channel.OSS,
+            note="Vente OSS B2C vers DE.",
+        )
+        kwargs.update(overrides)
+        return kwargs
+
+    def test_equal_to_normal_construction(self):
+        from tva_intracom.models import VatResult
+        kwargs = self._kwargs()
+        normal = VatResult(**kwargs)
+        fast = VatResult._new_unchecked(**kwargs)
+        assert normal == fast
+
+    def test_same_hash(self):
+        from tva_intracom.models import VatResult
+        kwargs = self._kwargs()
+        normal = VatResult(**kwargs)
+        fast = VatResult._new_unchecked(**kwargs)
+        assert hash(normal) == hash(fast)
+
+    def test_vat_country_normalized_upper_and_interned(self):
+        from tva_intracom.models import VatResult
+        fast = VatResult._new_unchecked(**self._kwargs(vat_country="de"))
+        assert fast.vat_country == "DE"
+        # sys.intern garantit l'identité, pas seulement l'égalité
+        assert fast.vat_country is sys.intern("DE")
+
+    def test_still_frozen(self):
+        from tva_intracom.models import VatResult
+        fast = VatResult._new_unchecked(**self._kwargs())
+        with pytest.raises(Exception):
+            fast.note = "mutation interdite"
+
+    def test_compute_vat_return_type_is_vatresult(self):
+        """Sanity check : compute_vat() renvoie bien une vraie instance
+        VatResult utilisable partout où le code s'y attend (isinstance,
+        dataclasses.replace, etc.)."""
+        from tva_intracom.models import VatResult
+        sale = make_sale(stock_country="FR", buyer_country="DE")
+        res = compute_vat(sale)
+        assert isinstance(res, VatResult)
+        assert type(res) is VatResult
