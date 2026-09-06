@@ -506,7 +506,23 @@ def _read_and_prepare_rows(
         try:
             import polars as pl
             # On lit tout en string pour garder la cohérence avec le reste du moteur
-            df = pl.read_csv(handle, separator=sep, infer_schema_length=0, encoding=encoding)
+            # BUGFIX (2026-09-06) : sans `missing_utf8_is_empty_string=True`,
+            # polars représente une cellule CSV vide par `null` (None en
+            # Python après to_dicts()), et NON par une chaîne vide — quelle
+            # que soit la colonne. Le reste du moteur (classify.py, parsers/,
+            # loader.py) suppose partout des chaînes (`row.get(col, "").strip()`
+            # notamment), un défaut `""` qui ne s'applique QUE si la clé est
+            # absente, jamais si sa valeur est `None`. Résultat : AttributeError
+            # ('NoneType' object has no attribute 'strip') dès qu'une colonne
+            # utilisée (ex: exchange_rate) contient une cellule vide dans le
+            # fichier source — pas un problème de casse d'en-tête (déjà géré
+            # par normalize_header ci-dessous), mais de valeur manquante. Ce
+            # flag corrige la cause à la racine, pour toutes les colonnes,
+            # dans le chemin de lecture principal (polars).
+            df = pl.read_csv(
+                handle, separator=sep, infer_schema_length=0, encoding=encoding,
+                missing_utf8_is_empty_string=True,
+            )
             df = df.rename({c: normalize_header(c) for c in df.columns})
             full_headers = set(df.columns)
             # Optimisation RAM : ne garder que les colonnes réellement lues
@@ -574,9 +590,15 @@ def _read_and_prepare_rows(
                 # aucune colonne connue ne matche (fichier hors format), on
                 # ne filtre pas plutôt que de vider silencieusement les lignes.
                 _any_known_col = any(h in NEEDED_COLUMNS for h in full_headers)
+                # BUGFIX (2026-09-06) : `csv.DictReader` met `restval` (None
+                # par défaut) pour toute colonne manquante sur une ligne plus
+                # courte que l'en-tête (ligne mal formée / tronquée) — même
+                # cause racine que le correctif polars ci-dessus
+                # (`missing_utf8_is_empty_string`) : `v or ""` garantit ici
+                # aussi une chaîne pour TOUTE colonne, jamais None.
                 raw_rows = [
                     {
-                        normalize_header(k): v
+                        normalize_header(k): (v or "")
                         for k, v in row.items()
                         if k and (not _any_known_col or normalize_header(k) in NEEDED_COLUMNS)
                     }

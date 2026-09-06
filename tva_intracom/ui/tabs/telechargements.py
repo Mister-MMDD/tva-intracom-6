@@ -62,6 +62,7 @@ def render_telechargements() -> None:
     period_label = ctx.period_label
     _period_detected_range = ctx.period_detected_range
     _can_export = ctx.can_export
+    _billing_ok = ctx.billing_ok
     _gated_download = ctx.gated_download
     _unlock_label_suffix = ctx.unlock_label_suffix
     _vies_scope_id = ctx.vies_scope_id
@@ -152,7 +153,18 @@ def render_telechargements() -> None:
     if _period_detected_range:
         st.info(_("period_detected_info", period=period_label, start=_period_detected_range[0], end=_period_detected_range[1]))
 
-    if not _can_export and period_label:
+    # BUGFIX : ce warning est le message du paywall Stripe (déblocage
+    # période via achat/abonnement) — il ne doit apparaître QUE quand c'est
+    # réellement la raison du blocage (`not _billing_ok`), pas dès que
+    # `_can_export` est False pour n'importe quelle autre raison (quota,
+    # rattachement compte, SIREN non reconnu/manquant, conformité TVA/IOSS
+    # manquante...). Avant ce correctif, un compte déjà abonné (`billing_ok`
+    # True) mais bloqué par la conformité voyait quand même s'afficher ce
+    # message de paiement Stripe, en plus du message d'erreur de conformité
+    # affiché séparément par gated_download() — même priorité que
+    # BillingGate.gated_download() (voir son commentaire "Priorité 0") et
+    # billing_gate.preview_lock_message().
+    if not _can_export and not _billing_ok and period_label:
         st.warning(_("period_gated_warning", period=period_label, suffix=_unlock_label_suffix))
 
     st.subheader(_("tab_downloads"))
