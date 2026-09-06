@@ -63,6 +63,7 @@ def render_telechargements() -> None:
     _period_detected_range = ctx.period_detected_range
     _can_export = ctx.can_export
     _billing_ok = ctx.billing_ok
+    _sub_status = ctx.sub_status
     _gated_download = ctx.gated_download
     _unlock_label_suffix = ctx.unlock_label_suffix
     _vies_scope_id = ctx.vies_scope_id
@@ -164,7 +165,18 @@ def render_telechargements() -> None:
     # affiché séparément par gated_download() — même priorité que
     # BillingGate.gated_download() (voir son commentaire "Priorité 0") et
     # billing_gate.preview_lock_message().
-    if not _can_export and not _billing_ok and period_label:
+    #
+    # BUGFIX (2026-09-06) : `_billing_ok` est également False quand un
+    # paiement par virement/prélèvement SEPA est simplement en cours de
+    # traitement (`sub_status == "incomplete"`, délai bancaire normal, voir
+    # gate_payment_pending_info dans gated_download()) — l'utilisateur A payé
+    # dans ce cas, il ne faut donc jamais lui montrer le message "abonnez-
+    # vous / payez via Stripe" (`period_gated_warning`). On lui montre à la
+    # place le même message d'attente que celui déjà affiché sur chaque
+    # bouton de téléchargement individuel par gated_download().
+    if _sub_status == "incomplete" and period_label:
+        st.info(_("gate_payment_pending_info"))
+    elif not _can_export and not _billing_ok and period_label:
         st.warning(_("period_gated_warning", period=period_label, suffix=_unlock_label_suffix))
 
     st.subheader(_("tab_downloads"))

@@ -1535,6 +1535,7 @@ if uploaded_files:
             period_detected_range=_period_detected_range,
             can_export=_can_export,
             billing_ok=_gate.billing_ok,
+            sub_status=_gate.sub_status,
             account_link_blocked=_gate.account_link_blocked,
             gated_download=_gated_download,
             unlock_label_suffix=_unlock_label_suffix,

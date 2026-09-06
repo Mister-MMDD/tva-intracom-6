@@ -85,3 +85,10 @@ class TabContext:
     # qu'à chaque interaction avec un widget local à l'onglet (checkbox de
     # confirmation OSS, sélecteur de pays local...).
     calc_key: Any = None
+
+    # Statut Stripe brut ("incomplete" = virement/prélèvement SEPA en cours
+    # de traitement, distinct d'un compte réellement non payant) — voir
+    # billing_gate.BillingGate.sub_status. Utilisé pour ne jamais afficher
+    # le message paywall Stripe à un utilisateur qui a déjà payé mais dont
+    # le paiement n'est pas encore arrivé (délai bancaire normal).
+    sub_status: Optional[str] = None

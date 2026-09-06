@@ -333,7 +333,12 @@ def preview_lock_message(gate: "BillingGate") -> str:
     `can_export` est False, donc au moins une des conditions ci-dessous est
     vraie."""
     if gate.sub_status == "incomplete":
-        return "🔒 " + _("locked_premium")
+        # BUGFIX (2026-09-06) : paiement par virement/prélèvement SEPA en
+        # cours de traitement (délai bancaire normal, voir
+        # gate_payment_pending_info dans gated_download()) — l'utilisateur A
+        # payé, il ne faut donc jamais lui montrer le même message que
+        # "non abonné" (locked_premium) sur les tableaux/métriques masqués.
+        return _("locked_payment_pending")
     if not gate.billing_ok:
         return "🔒 " + _("locked_premium")
     if gate.quota_status and gate.quota_status.blocked:

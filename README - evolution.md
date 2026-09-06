@@ -7171,3 +7171,111 @@ mesuré, même par analogie avec un chemin voisin déjà optimisé.
 
 Fichiers modifiés : `tva_intracom/models.py`, `tva_intracom/engine.py`,
 `tests/test_engine.py`.
+
+## 2026-09-06 (3) — Bugfix : message paywall Stripe affiché même sans lien avec le paiement + crash import CSV sur cellule vide
+
+**Contexte** : Matthieu signale deux bugs remontés en usage réel :
+1. Un compte déjà abonné voyait quand même le message paywall Stripe
+   (« Cliquez sur un bouton d'export... payer 29 € ou abonnez-vous ») alors
+   que le vrai blocage était un défaut de conformité (numéros de TVA locaux
+   manquants pour AT/BE/IE/NL/SE) — les deux messages s'affichaient l'un à
+   côté de l'autre, contradictoires pour l'utilisateur.
+2. `AttributeError: 'NoneType' object has no attribute 'strip'` dans
+   `convert_currency`, sur un import CSV Amazon généré par
+   `generate_dataset.py` (colonnes en majuscules, cellule `EXCHANGE_RATE`
+   vide).
+
+**Bug 1 — analyse** : dans `telechargements.py`, le warning
+`period_gated_warning` s'affichait dès que `ctx.can_export` était `False`,
+quelle qu'en soit la raison (billing, quota SIREN, rattachement compte
+Amazon, SIREN non reconnu/manquant, **ou** conformité TVA/IOSS) — alors que
+`gated_download()` et `preview_lock_message()` (utilisés partout ailleurs
+dans les autres onglets) respectent déjà un ordre de priorité strict où le
+paywall Stripe ne s'affiche QUE si le compte n'est pas payant
+(`billing_ok=False`).
+
+**Bug 1 — correctif** : ajout de la condition `not ctx.billing_ok` (déjà
+calculé par `billing_gate.py`, déjà présent sur `TabContext`) en plus de
+`not ctx.can_export`. Le message Stripe ne s'affiche donc plus que quand
+c'est réellement la raison du blocage.
+
+**Bug 1 bis — creusé plus loin à la demande de Matthieu** : un compte ayant
+payé par virement/prélèvement SEPA (`sub_status == "incomplete"` côté
+Stripe, délai bancaire de quelques jours avant réception des fonds) a
+`billing_ok=False` exactement comme un compte jamais payant — le correctif
+ci-dessus aurait donc, à tort, affiché le même message paywall à un
+utilisateur ayant déjà payé. Trouvé également : `preview_lock_message()`
+(message court affiché sur TOUS les tableaux/métriques masqués de tous les
+onglets — declarations, detail_ventes, vies_ui, audit, visualisations)
+renvoyait le même texte générique `locked_premium` pour ce cas que pour un
+compte réellement non payant.
+
+**Correctif final** :
+- Nouvelle clé i18n `locked_payment_pending` (7 langues, symétrie
+  vérifiée programmatiquement).
+- `billing_gate.preview_lock_message()` : renvoie désormais ce message
+  dédié quand `sub_status == "incomplete"`, propagé automatiquement à tous
+  les onglets via `ctx.lock_message` (source unique déjà partagée).
+- `TabContext` (+ `app.py`) : ajout du champ `sub_status` pour que
+  `telechargements.py` puisse distinguer les deux cas.
+- `telechargements.py` : si `sub_status == "incomplete"`, affiche le
+  message d'attente déjà utilisé par `gated_download()`
+  (`gate_payment_pending_info` — « Paiement en cours de traitement,
+  délai habituel 3 à 6 jours ouvrés ») au lieu du paywall Stripe.
+
+**Bug 2 — analyse (cause racine, pas un problème de casse d'en-tête)** :
+`normalize_header()` gère déjà correctement la casse/espaces/tirets des
+noms de colonnes sur les 3 chemins de lecture (polars, pandas,
+`csv.DictReader`) — vérifié, aucun souci de ce côté. Le vrai problème :
+`pl.read_csv(..., infer_schema_length=0)` représente par défaut une
+**cellule CSV vide** par `null` (`None` en Python après `to_dicts()`), pour
+n'importe quelle colonne, indépendamment de sa casse. Or
+`row.get("exchange_rate", "").strip()` dans `classify.py` ne retombe sur
+`""` que si la **clé** est absente, jamais si sa **valeur** vaut `None` —
+d'où le crash dès qu'une ligne avait `EXCHANGE_RATE` vide.
+
+**Correctif (cause racine, toutes colonnes, chemin polars)** :
+`missing_utf8_is_empty_string=True` ajouté à `pl.read_csv()` — une cellule
+vide devient `""`, plus jamais `None`, quelle que soit la colonne, pas
+seulement `exchange_rate`.
+
+**Correctif (défense en profondeur)** :
+- Repli `csv.DictReader` : `v or ""` sur chaque valeur (le `restval` d'une
+  ligne trop courte vaut `None` par défaut).
+- Les 2 lignes vulnérables de `classify.py` : `(row.get(...) or "").strip()`
+  au lieu de `row.get(..., "").strip()`.
+
+**Audit complémentaire demandé par Matthieu** (garantie casse/valeurs
+manquantes, pour toute colonne, partout dans le parser Amazon) : grep
+exhaustif du pattern dangereux `.get(clé, "").strip()` sur tout le dépôt —
+seules ces 2 occurrences existaient, déjà corrigées. Tout le reste
+(`parsers.py`, `aggregate.py`, `loader.py`) utilise déjà systématiquement
+`(row.get(...) or "").strip()`. Fonctions utilitaires de `constants.py`
+(`is_valid_vat_intracom`, `is_national_tax_id`, `normalize_country_code`,
+`currency_from_marketplace`...) vérifiées gardées en interne ou toujours
+appelées avec un argument déjà nettoyé.
+
+**Tests manuels ajoutés** (reproduction du crash + non-régression) :
+- CSV avec `EXCHANGE_RATE` vide, en-têtes majuscules → import OK, 0 skip
+  (avant : crash).
+- CSV avec en-têtes en casse mixte, espaces et tirets
+  (`Transaction_Type`, `Sale Depart Country`, `transaction-complete-date`)
+  + cellule vide → import OK, 2 ventes, 0 skip.
+- `preview_lock_message()` : confirmé message distinct entre compte non
+  payant et paiement SEPA en attente.
+
+**Validation** : `py_compile` + `pyflakes` propres sur les 5 fichiers
+Python modifiés (1 warning pyflakes préexistant sans lien, non introduit).
+i18n : symétrie vérifiée programmatiquement, **1226 clés × 7 langues**
+(1225 + `locked_payment_pending`). Suite `pytest` complète : **251 passed
+/ 3 failed** (baseline inchangée, mêmes 3 échecs `SUPABASE_DB_URL`
+préexistants).
+
+**Railway / scale-to-zero** : aucun impact — aucune connexion, thread ou
+polling introduit ou modifié (lecture CSV et affichage UI uniquement).
+
+Fichiers modifiés : `tva_intracom/parsers/amazon/loader.py`,
+`tva_intracom/parsers/amazon/classify.py`,
+`tva_intracom/ui/tabs/telechargements.py`,
+`tva_intracom/ui/tabs/context.py`, `tva_intracom/ui/billing_gate.py`,
+`app.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
