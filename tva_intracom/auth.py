@@ -242,15 +242,15 @@ def resolve_org_id(email: str) -> str:
     email = (email or "").strip().lower()
     if "@" not in email:
         _org_id = f"solo:{email or 'inconnu'}"
-        logger.debug("[auth] resolve_org_id(%r) -> %r (pas de domaine)", email, _org_id)
+        logger.debug("[auth] resolve_org_id(...) -> (pas de domaine)")
         return _org_id
     domain = email.rsplit("@", 1)[1]
     if domain in PERSONAL_EMAIL_DOMAINS:
         _org_id = f"solo:{email}"
-        logger.debug("[auth] resolve_org_id(%r) -> %r (domaine public %s)", email, _org_id, domain)
+        logger.debug("[auth] resolve_org_id(...) -> (domaine public %s)", domain)
         return _org_id
     _org_id = f"domain:{domain}"
-    logger.debug("[auth] resolve_org_id(%r) -> %r", email, _org_id)
+    logger.debug("[auth] resolve_org_id")
     return _org_id
 
 
@@ -317,7 +317,7 @@ def get_or_create_user(email: str) -> User:
     """
     email = email.strip().lower()
     org_id = resolve_org_id(email)
-    logger.info("[auth] get_or_create_user(%r) — org_id=%r", email, org_id)
+    logger.info("[auth] get_or_create_user")
 
     def _fn(conn, cur):
         cur.execute(
@@ -328,8 +328,8 @@ def get_or_create_user(email: str) -> User:
         if row:
             _existing = _row_to_user(row)
             logger.info(
-                "[auth] Compte existant %r : org_id=%r role=%r",
-                email, _existing.org_id, _existing.role,
+                "[auth] Compte existant : role=%r",
+                _existing.role,
             )
             return _existing
 
@@ -337,7 +337,7 @@ def get_or_create_user(email: str) -> User:
         org_row = cur.fetchone()
 
         if org_row is None:
-            logger.info("[auth] Nouvelle organisation %r (bootstrap, %r devient admin)", org_id, email)
+            logger.info("[auth] Nouvelle organisation (bootstrap)")
             cur.execute(
                 "INSERT INTO tva_orgs (org_id, locked_at, created_at) VALUES (%s, NULL, %s)",
                 (org_id, time.time()),
@@ -345,8 +345,7 @@ def get_or_create_user(email: str) -> User:
             role = "admin"
         elif org_row[0] is None or is_solo_org(org_id):
             logger.info(
-                "[auth] Organisation %r non verrouillée (ou solo) — inscription libre, %r devient admin",
-                org_id, email,
+                "[auth] Organisation non verrouillée (ou solo) — inscription libre",
             )
             role = "admin"
         else:
@@ -357,14 +356,14 @@ def get_or_create_user(email: str) -> User:
             allowed_row = cur.fetchone()
             if not allowed_row:
                 logger.warning(
-                    "[auth] Inscription REFUSÉE pour %r — organisation %r verrouillée, "
-                    "e-mail absent de la whitelist.", email, org_id,
+                    "[auth] Inscription REFUSÉE — organisation verrouillée, "
+                    "e-mail absent de la whitelist.",
                 )
                 raise PermissionError(_SIGNUP_BLOCKED_MESSAGE)
             role = allowed_row[0] or "reader"
             logger.info(
-                "[auth] Inscription autorisée pour %r (organisation %r verrouillée, rôle whitelisté=%r)",
-                email, org_id, role,
+                "[auth] Inscription autorisée (organisation verrouillée, rôle whitelisté=%r)",
+                role,
             )
 
         user_id = secrets.token_hex(12)
@@ -405,11 +404,11 @@ def lock_org_for_user(user_id: str) -> None:
         cur.execute("SELECT org_id, email FROM tva_users WHERE id=%s", (user_id,))
         row = cur.fetchone()
         if not row:
-            logger.warning("[auth] lock_org_for_user(%r) : utilisateur introuvable.", user_id)
+            logger.warning("[auth] lock_org_for_user : utilisateur introuvable.")
             return
         org_id, email = row
         if is_solo_org(org_id):
-            logger.info("[auth] lock_org_for_user(%r) : organisation solo %r, aucun verrouillage.", user_id, org_id)
+            logger.info("[auth] lock_org_for_user : organisation solo, aucun verrouillage.")
             return
 
         # Verrou avisé transactionnel scopé à org_id : bloque ici si une
@@ -420,10 +419,10 @@ def lock_org_for_user(user_id: str) -> None:
         cur.execute("SELECT locked_at FROM tva_orgs WHERE org_id=%s", (org_id,))
         org_row = cur.fetchone()
         if org_row and org_row[0] is not None:
-            logger.info("[auth] lock_org_for_user(%r) : organisation %r déjà verrouillée, no-op.", user_id, org_id)
+            logger.info("[auth] lock_org_for_user : organisation déjà verrouillée, no-op.")
             return  # déjà verrouillée : ne pas écraser les rôles ajustés depuis
 
-        logger.info("[auth] Verrouillage de l'organisation %r par %r (%r)", org_id, email, user_id)
+        logger.info("[auth] Verrouillage de l'organisation")
         now = time.time()
         cur.execute(
             """

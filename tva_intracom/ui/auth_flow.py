@@ -819,14 +819,14 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 _is_solo = tva_auth.is_solo_org(_current_user.org_id)
                 _sub_active = tva_billing.get_subscription_status(_current_user.org_id).active
                 logging.getLogger("tva_intracom.auth_flow").info(
-                    "[org_lock_catchup] user=%r org_id=%r solo=%s locked=%s sub_active=%s",
-                    _current_user.email, _current_user.org_id, _is_solo, _locked_already, _sub_active,
+                    "[org_lock_catchup] solo=%s locked=%s sub_active=%s",
+                    _is_solo, _locked_already, _sub_active,
                 )
                 if not _is_solo and not _locked_already and _sub_active:
                     tva_auth.lock_org_for_user(_current_user.id)
             except Exception:
                 logging.getLogger("tva_intracom.auth_flow").warning(
-                    "[org_lock_catchup] échec pour user=%r", _current_user.email, exc_info=True,
+                    "[org_lock_catchup] échec", exc_info=True,
                 )
 
         return AuthContext(

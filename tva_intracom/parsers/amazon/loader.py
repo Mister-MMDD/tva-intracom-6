@@ -642,8 +642,8 @@ def _read_and_prepare_rows(
         result.detected_format = fmt
         parser = PARSERS[fmt]
         logger.info(
-            "Format Amazon détecté : %d (fichier: %s, séparateur: %r)",
-            fmt, path.name, sep,
+            "Format Amazon détecté : %d (séparateur: %r)",
+            fmt, sep,
         )
 
         # Warning colonnes critiques manquantes
@@ -715,7 +715,7 @@ def load_amazon_report(
         except UnicodeDecodeError:
             # Fallback sur l'encodage Windows européen standard
             encoding = "cp1252"
-            logger.info("Encodage UTF-8 échoué, bascule sur cp1252 pour %s", path.name)
+            logger.info("Encodage UTF-8 échoué, bascule sur cp1252")
 
     # raw_rows vit et meurt à l'intérieur de _read_and_prepare_rows : seule
     # la structure rows_to_process (souvent plus légère, cf. docstring de la
