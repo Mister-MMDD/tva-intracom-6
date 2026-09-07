@@ -48,14 +48,6 @@ Ce fichier liste les propositions d'améliorations techniques notées pour le sy
 *   **Statut** : En attente d'une extension future.
 *   **Lieu concerné** : `tva_intracom/fec_export.py`
 
-## Sécurité
-
-### 8. Durcissement du déchiffrement PII
-*   **Description** : Retirer la tolérance "fail-open" (préfixe `gAAAA`) dans `decrypt_data`.
-*   **Objectif** : Garantir que toutes les données sensibles en base sont effectivement chiffrées.
-*   **Statut** : Reporté en attente de la fin de migration/backfill des colonnes `vat_number`, `ioss_number`, etc.
-*   **Lieu concerné** : `tva_intracom/security.py`
-
 ## Internationalisation (i18n)
 
 *Néant pour le moment — dernier point (entrée #12, onglet "Analyse AIC FBA")

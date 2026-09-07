@@ -1477,7 +1477,7 @@ def compute_all_with_vies(
     # silencieusement les résultats en cas de doublon et attribuerait un
     # montant de TVA évitée à la mauvaise ligne dans l'onglet reclassifications VIES.
     result_by_key: dict[tuple[str, Decimal], VatResult] = {_sale_key(r.sale): r for r in results}
-    for i, reclass in enumerate(vies_summary.reclassifications):
+    for reclass in vies_summary.reclassifications:
         # ATTENTION : la clé DOIT être le Decimal brut (voir docstring de
         # _sale_key()) — result_by_key est indexé par (sale_id, Decimal),
         # pas (sale_id, str). Un str(reclass.amount_ht) ici ferait échouer
@@ -1495,20 +1495,22 @@ def compute_all_with_vies(
         taxed_at_departure = (
                 is_cross_border and res.vat_country == res.sale.stock_country
         )
-        vies_summary.reclassifications[i] = ViesReclassification(
-            sale_id=reclass.sale_id,
-            buyer_vat_number=reclass.buyer_vat_number,
-            buyer_country=reclass.buyer_country,
-            amount_ht=reclass.amount_ht,
-            vat_avoided=real_vat_avoided,
-            reason=reclass.reason,
-            vat_delta=real_vat_avoided,
-            is_domestic_reverse_charge=is_dom_rc,
-            display_id=reclass.display_id,
-            stock_country=reclass.stock_country,
-            taxed_at_departure=taxed_at_departure,
-            is_national_tax_id=reclass.is_national_tax_id,
-            scenario=res.scenario.value if hasattr(res.scenario, "value") else str(res.scenario),
-        )
+        # Mutation en place plutôt que reconstruction : ViesReclassification
+        # n'est PAS frozen et n'a pas de __post_init__ (contrairement à
+        # Sale/VatResult) — `reclass` EST déjà l'objet stocké dans
+        # vies_summary.reclassifications[i] (référence, pas une copie), donc
+        # le modifier directement suffit, sans reconstruire ni réassigner
+        # dans la liste. Profiling 2026-09-06 (voir README - évolution.md) :
+        # cette reconstruction se produisait pour chaque anomalie VIES en
+        # plus de sa construction initiale (double coût Pydantic par ligne
+        # concernée). Seuls 5 champs changent réellement ici ; les autres
+        # (sale_id, buyer_vat_number, buyer_country, amount_ht, reason,
+        # display_id, stock_country, is_national_tax_id) restent identiques
+        # et n'ont donc pas besoin d'être réécrits.
+        reclass.vat_avoided = real_vat_avoided
+        reclass.vat_delta = real_vat_avoided
+        reclass.is_domestic_reverse_charge = is_dom_rc
+        reclass.taxed_at_departure = taxed_at_departure
+        reclass.scenario = res.scenario.value if hasattr(res.scenario, "value") else str(res.scenario)
 
     return results, refund_results, vies_summary, oss_summary

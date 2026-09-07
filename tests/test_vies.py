@@ -206,5 +206,50 @@ def test_compute_all_with_vies_refund_reclassified_like_sale(mock_check):
     assert vies_summary.reclassifications[0].vat_avoided == Decimal("38.00")
 
 
+@patch("tva_intracom.vies_engine.check_vat_raw")
+def test_reclassification_post_processing_fields(mock_check):
+    """Vérifie explicitement les 5 champs mis à jour en post-traitement
+    dans compute_all_with_vies (engine.py, ~L1498) : vat_avoided, vat_delta,
+    is_domestic_reverse_charge, taxed_at_departure, scenario. Depuis le
+    2026-09-06, cette mise à jour se fait par mutation en place de l'objet
+    ViesReclassification existant (au lieu d'une reconstruction Pydantic) —
+    ce test garantit que les 5 champs sont toujours correctement renseignés
+    après la bascule.
+    """
+    mock_check.return_value = ViesResult(
+        valid=False, country_code="DE", vat_number="000000000",
+        error="numero invalide"
+    )
+    sale = Sale(
+        sale_id="T4",
+        amount_ht=Decimal("200"),
+        buyer_type=BuyerType.B2B,
+        stock_country="FR",
+        buyer_country="DE",
+        buyer_vat_number="DE000000000",
+        buyer_vat_valid=True,
+    )
+    results, _refund_results, vies_summary, _ = compute_all_with_vies([sale], scope_id="test")
+    assert len(vies_summary.reclassifications) == 1
+    reclass = vies_summary.reclassifications[0]
+    r = results[0]
+
+    assert reclass.vat_avoided == Decimal("38.00")
+    assert reclass.vat_delta == Decimal("38.00")
+    assert reclass.is_domestic_reverse_charge is False
+    assert reclass.taxed_at_departure is False  # cross-border, taxe a destination (OSS)
+    assert reclass.scenario == r.scenario.value
+
+    # Les champs NON concernés par le post-traitement doivent rester ceux
+    # de la construction initiale (pas écrasés par la mutation).
+    assert reclass.sale_id == "T4"
+    assert reclass.buyer_vat_number == "DE000000000"
+    assert reclass.buyer_country == "DE"
+    assert reclass.amount_ht == Decimal("200")
+    assert reclass.reason  # non vide
+    assert reclass.stock_country == "FR"
+    assert reclass.is_national_tax_id is False
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

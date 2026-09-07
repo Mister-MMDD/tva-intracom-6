@@ -925,14 +925,8 @@ def register_siren(
         un import séparé.
     ioss_own_number_active : voir docstring engine.compute_vat().
 
-    SÉCURITÉ (voir README - évolution.md) : `tva_number`, `ioss_number` et
-    `vat_numbers_json` sont désormais chiffrés (Fernet, `_enc`) avant
-    insertion, au même titre que `company_name` — ces numéros identifient
-    de manière unique l'activité fiscale d'un client et étaient stockés en
-    clair. Backfill effectué le 2026-08-16 (`backfill_encrypt_pii.py`) sur
-    toutes les lignes existantes ; le fail-open de `decrypt_data` a été
-    retiré en conséquence (security.py) — une valeur non chiffrée en base
-    lève désormais une erreur explicite plutôt que d'être acceptée.
+    SÉCURITÉ : `tva_number`, `ioss_number`, `vat_numbers_json` et `company_name` 
+    sont chiffrés (Fernet, `_enc`) avant insertion (Amazon PII compliance).
 
     RÔLES (2026-08-23) : un compte lecteur (`role="reader"`, voir auth.py)
     ne peut pas enregistrer/modifier de SIREN — contrôle fait ici, côté
@@ -1010,16 +1004,8 @@ def register_siren(
             ON CONFLICT (org_id, siren)
             DO UPDATE SET company_name = EXCLUDED.company_name,
                           user_id = EXCLUDED.user_id,
-                          -- SÉCURITÉ (voir README - évolution.md) : verrouillage définitif de
-                          -- tva_number/ioss_number appliqué désormais AUSSI côté SQL, pas
-                          -- seulement dans l'UI (_edit_siren_form_fragment cache le champ une
-                          -- fois rempli, mais un appel direct à register_siren -- bug de script,
-                          -- appel API -- pouvait jusqu'ici écraser une valeur déjà "verrouillée").
-                          -- Une valeur déjà enregistrée (non NULL/non vide) est conservée quel que
-                          -- soit ce qui est passé en paramètre ; seul un champ encore vide peut
-                          -- être renseigné. vat_numbers_json n'est volontairement PAS verrouillé
-                          -- ainsi : son usage légitime consiste à AJOUTER un nouveau pays au fil du
-                          -- temps (le verrouillage par pays déjà rempli est, lui, géré au niveau UI).
+                          -- SÉCURITÉ : verrouillage définitif de tva_number/ioss_number. 
+                          -- Une valeur déjà renseignée ne peut plus être modifiée (fail-safe).
                           tva_number = CASE
                               WHEN tva_siren_registrations.tva_number IS NOT NULL
                                    AND tva_siren_registrations.tva_number <> ''
