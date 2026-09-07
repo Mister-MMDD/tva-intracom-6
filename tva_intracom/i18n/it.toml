@@ -632,6 +632,7 @@ cancel_removal_btn = "↩️ Annulla rimozione"
 remove_siren_btn = "🗑️ Rimuovi questo SIREN"
 remove_siren_help = "La rimozione sarà efficace alla fine del periodo di fatturazione corrente."
 remove_success = "✅ SIREN rimosso."
+remove_success_payg_over_quota = "✅ SIREN rimosso immediatamente — il tuo account a consumo (PAYG) è limitato a 1 SIREN."
 remove_scheduled = "Rimozione programmata per il {date}."
 
 # Sidebar - Billing

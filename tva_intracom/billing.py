@@ -1051,25 +1051,45 @@ def request_siren_removal(org_id: str, acting_user_id: str, siren: str) -> float
     l'organisation souscrit un abonnement, actif ou non : voir
     get_account_status() pour la même logique de priorité.
 
+    HORS-QUOTA (2026-09-08) : si le nombre de SIREN enregistrés dépasse le
+    quota autorisé par l'abonnement actuel (ex: downgrade Cabinet réduisant
+    `siren_quantity`, ou compte PAYG se retrouvant accidentellement avec
+    plus d'un SIREN), le retrait est TOUJOURS immédiat, quel que soit le
+    statut d'abonnement — y compris pour un compte "Achat" normalement
+    verrouillé ci-dessus. Objectif : ne pas faire subir le blocage premium
+    pendant des mois à une organisation qui corrige elle-même son
+    dépassement de quota (ex: cabinet ayant réduit sa quantité Stripe).
+    Dès que le nombre de SIREN redescend au niveau du quota, cette
+    dérogation ne s'applique plus et le comportement standard (différé /
+    verrouillé) ci-dessus reprend normalement (voir aussi
+    is_payg_removal_over_quota(), utilisé côté UI pour distinguer ce cas
+    du retrait standard PAYG dans le message affiché).
+
     Retourne le timestamp d'échéance effective."""
     _require_write_access(acting_user_id)
-    sub = get_subscription_status(org_id)
-    if sub.active and sub.current_period_end:
-        effective_at = sub.current_period_end
-    elif sub.status is not None:
-        # Abonnement déjà existant (actif ou passé/résilié) : comportement
-        # standard, immédiat puisqu'on sait déjà qu'il n'est pas actif ici.
+
+    if get_siren_quota_status(org_id).blocked:
+        # Hors-quota : priorité absolue sur toute autre règle, y compris le
+        # verrou "Achat" PAYG ci-dessous.
         effective_at = time.time()
-    elif _has_any_payg_purchase(org_id):
-        raise PermissionError(
-            "Ce SIREN est verrouillé : un compte à l'achat unique (PAYG) ne "
-            "permet pas de changer de SIREN. Souscrivez un abonnement pour "
-            "pouvoir en changer (retrait possible ensuite à la date de "
-            "renouvellement)."
-        )
     else:
-        # Jamais rien payé (ni abonnement, ni PAYG) : retrait immédiat.
-        effective_at = time.time()
+        sub = get_subscription_status(org_id)
+        if sub.active and sub.current_period_end:
+            effective_at = sub.current_period_end
+        elif sub.status is not None:
+            # Abonnement déjà existant (actif ou passé/résilié) : comportement
+            # standard, immédiat puisqu'on sait déjà qu'il n'est pas actif ici.
+            effective_at = time.time()
+        elif _has_any_payg_purchase(org_id):
+            raise PermissionError(
+                "Ce SIREN est verrouillé : un compte à l'achat unique (PAYG) ne "
+                "permet pas de changer de SIREN. Souscrivez un abonnement pour "
+                "pouvoir en changer (retrait possible ensuite à la date de "
+                "renouvellement)."
+            )
+        else:
+            # Jamais rien payé (ni abonnement, ni PAYG) : retrait immédiat.
+            effective_at = time.time()
 
     def _fn(conn, cur):
         cur.execute(
@@ -1081,6 +1101,24 @@ def request_siren_removal(org_id: str, acting_user_id: str, siren: str) -> float
     _run(_fn)
     list_registered_sirens.clear()
     return effective_at
+
+
+def is_payg_removal_over_quota(org_id: str) -> bool:
+    """True si un retrait de SIREN pour cette organisation serait normalement
+    verrouillé (compte "Achat" PAYG, jamais abonné — voir le
+    PermissionError dans request_siren_removal()) mais est en réalité
+    autorisé immédiatement car l'organisation est hors-quota. Sert
+    UNIQUEMENT à choisir le bon message de succès côté UI (sidebar.py),
+    pour distinguer ce cas du retrait PAYG standard (1 SIREN, hors-quota
+    normalement impossible). La logique dupliquée ici est volontairement
+    en lecture seule : la vraie décision d'autorisation reste entièrement
+    dans request_siren_removal(), ce helper n'a aucun effet de bord."""
+    sub = get_subscription_status(org_id)
+    if sub.active or sub.status is not None:
+        return False
+    if not _has_any_payg_purchase(org_id):
+        return False
+    return get_siren_quota_status(org_id).blocked
 
 
 def cancel_siren_removal(org_id: str, acting_user_id: str, siren: str) -> None:

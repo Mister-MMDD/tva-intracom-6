@@ -7279,3 +7279,58 @@ Fichiers modifiés : `tva_intracom/parsers/amazon/loader.py`,
 `tva_intracom/ui/tabs/telechargements.py`,
 `tva_intracom/ui/tabs/context.py`, `tva_intracom/ui/billing_gate.py`,
 `app.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+## 2026-09-08 — Bugfix : retrait de SIREN non immédiat pour une organisation hors-quota (blocage premium persistant)
+
+**Problème signalé** : une organisation ayant plus de SIREN enregistrés que
+son abonnement ne l'autorise (ex: cabinet ayant réduit sa quantité Stripe,
+ou compte PAYG se retrouvant accidentellement avec plus d'un SIREN) et qui
+retire un SIREN pour repasser dans son quota voyait ce retrait différé à
+la date anniversaire de l'abonnement en cours (`current_period_end`),
+exactement comme un retrait normal en cours de période. Le blocage premium
+(`billing_gate.py`) persistait donc pendant des mois au lieu d'être levé
+dès la correction du dépassement.
+
+**Fix** : `request_siren_removal()` (`billing.py`) appelle désormais
+`get_siren_quota_status(org_id)` en tout premier. Si l'organisation est
+hors-quota (`over_quota_by > 0`), le retrait est **immédiat**
+(`effective_at = time.time()`), en priorité absolue sur toute autre règle
+— y compris le verrou "Achat" PAYG (une organisation PAYG avec >1 SIREN par
+accident peut retirer immédiatement jusqu'à revenir à 1 SIREN ; le verrou
+standard se réapplique automatiquement ensuite puisque `over_quota_by`
+retombe à 0, sans logique supplémentaire nécessaire). Sinon, comportement
+inchangé (différé si abonnement actif, immédiat sinon, verrouillé pour un
+compte "Achat" dans son quota).
+
+**Message UI dédié** : ajout de `is_payg_removal_over_quota()` (lecture
+seule, aucun effet de bord) pour que `sidebar.py` affiche un message de
+succès spécifique (`remove_success_payg_over_quota`) quand le retrait
+immédiat résulte de cette dérogation hors-quota sur un compte PAYG, plutôt
+que le message générique `remove_success` — pour ne pas laisser croire à
+l'utilisateur que le verrou PAYG standard (1 SIREN) n'existe plus. Ce
+message n'apparaît jamais pour un Cabinet (priorité Cabinet > Pro > Achat
+(PAYG) > gratuit : le verrou "Achat" ne s'applique qu'aux comptes jamais
+abonnés) ; un Cabinet hors-quota passe par le chemin générique (retrait
+immédiat + `remove_success` standard).
+
+**Tests** (`test_billing_payment_quotas.py`) :
+- `test_immediate_removal_if_over_quota_even_with_active_subscription` et
+  `test_deferred_removal_still_applies_when_within_quota` (non-régression)
+  dans `TestRequestSirenRemoval`.
+- `test_removal_allowed_immediately_if_payg_over_quota` dans
+  `TestSirenLockedForAchatOnlyAccount` (le hors-quota prime sur le verrou).
+- Nouvelle classe `TestIsPaygRemovalOverQuota` (5 cas : bloqué+hors-quota,
+  bloqué+dans le quota, jamais PAYG, abonnement passé, abonnement actif).
+- `test_removal_writes_pending_removal_at_via_sql` mis à jour : mock direct
+  de `get_siren_quota_status` (le check est désormais la toute première
+  opération de la fonction) pour garder le test centré sur l'écriture SQL
+  finale sans dépendre du comportement réel de `list_registered_sirens`.
+
+Suite complète : 260 passed / 3 failed (baseline `SUPABASE_DB_URL`
+inchangée, aucune régression). `py_compile` + `pyflakes` propres (un seul
+avertissement pyflakes préexistant dans `sidebar.py`, non lié à ce fix).
+Symétrie i18n vérifiée programmatiquement : 1227 clés × 7 langues.
+
+Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/ui/sidebar.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`,
+`tests/test_billing_payment_quotas.py`.

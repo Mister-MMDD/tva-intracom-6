@@ -387,14 +387,50 @@ class TestRequestSirenRemoval:
         effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
         assert effective_at == period_end
 
+    def test_immediate_removal_if_over_quota_even_with_active_subscription(self, fake_db, monkeypatch):
+        """Abonnement actif avec échéance lointaine, mais organisation
+        au-dessus de son quota (ex: downgrade Cabinet réduisant
+        siren_quantity) : le retrait doit être immédiat, pas différé à la
+        date anniversaire -- pour ne pas laisser le blocage premium
+        persister pendant des mois (bugfix 2026-09-08)."""
+        period_end = time.time() + 30 * 24 * 3600  # dans 30 jours
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(
+                                 active=True, plan="cabinet", current_period_end=period_end))
+        monkeypatch.setattr(billing, "get_siren_quota_status",
+                             lambda org_id: billing.SirenQuotaStatus(registered_count=5, quota=3, over_quota_by=2))
+        before = time.time()
+        effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
+        after = time.time()
+        assert before <= effective_at <= after
+
+    def test_deferred_removal_still_applies_when_within_quota(self, fake_db, monkeypatch):
+        """Non-régression : le check hors-quota ne doit pas casser le
+        différé standard quand l'organisation est dans les clous."""
+        period_end = time.time() + 30 * 24 * 3600
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(
+                                 active=True, plan="cabinet", current_period_end=period_end))
+        monkeypatch.setattr(billing, "get_siren_quota_status",
+                             lambda org_id: billing.SirenQuotaStatus(registered_count=3, quota=3, over_quota_by=0))
+        effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
+        assert effective_at == period_end
+
     def test_removal_writes_pending_removal_at_via_sql(self, fake_db, monkeypatch):
         # status="canceled" (abonnement déjà existant, résilié) plutôt que le
         # défaut None : évite de déclencher la requête _has_any_payg_purchase
         # (compte jamais abonné + PAYG) ajoutée par le verrou "Achat", pour
-        # garder le call_count == 2 ci-dessous inchangé — ce test porte sur
+        # garder le call_count ci-dessous prévisible — ce test porte sur
         # l'écriture SQL, pas sur la logique de verrouillage.
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda org_id: billing.SubscriptionStatus(active=False, status="canceled"))
+        # HORS-QUOTA (2026-09-08) : get_siren_quota_status() est désormais
+        # appelé en tout premier dans request_siren_removal() et ne doit pas
+        # aller taper la base (list_registered_sirens/_purge_expired_siren_
+        # removals) pour ce test qui porte sur l'écriture SQL finale, pas sur
+        # le calcul de quota -- mock direct à quota respecté (non bloquant).
+        monkeypatch.setattr(billing, "get_siren_quota_status",
+                             lambda org_id: billing.SirenQuotaStatus(registered_count=1, quota=1, over_quota_by=0))
         # Le mock de cursor.fetchone() (utilisé par _require_write_access
         # pour vérifier le rôle) renvoie None par défaut sur ce MagicMock
         # non configuré explicitement -> traité comme "pas lecteur" (rôle
@@ -402,7 +438,7 @@ class TestRequestSirenRemoval:
         # ne jamais bloquer sur une erreur de lecture du rôle.
         fake_db.cursor.fetchone.return_value = None
         billing.request_siren_removal("org-42", "user-42", "999888777")
-        # 2 requêtes désormais : 1) lecture du rôle (_require_write_access),
+        # 2 requêtes : 1) lecture du rôle (_require_write_access),
         # 2) UPDATE pending_removal_at — le dernier appel est bien l'écriture.
         assert fake_db.cursor.execute.call_count == 2
         _last_sql = fake_db.cursor.execute.call_args_list[-1][0][0]
@@ -441,6 +477,67 @@ class TestSirenLockedForAchatOnlyAccount:
                              lambda org_id: billing.SubscriptionStatus(active=False))
         monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: False)
         billing.request_siren_removal("org-1", "user-1", "123456789")
+
+    def test_removal_allowed_immediately_if_payg_over_quota(self, fake_db, monkeypatch):
+        """Compte PAYG normalement verrouillé (jamais abonné, achat PAYG
+        existant), mais qui se retrouve accidentellement avec plus d'un
+        SIREN enregistré : le hors-quota prime sur le verrou "Achat" --
+        retrait immédiat autorisé jusqu'à revenir à 1 SIREN (bugfix
+        2026-09-08), contrairement à test_removal_blocked_for_payg_only_account
+        ci-dessus où l'organisation reste dans son quota de 1."""
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        monkeypatch.setattr(billing, "get_siren_quota_status",
+                             lambda org_id: billing.SirenQuotaStatus(registered_count=2, quota=1, over_quota_by=1))
+        before = time.time()
+        # Ne doit PAS lever, contrairement à test_removal_blocked_for_payg_only_account.
+        effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
+        after = time.time()
+        assert before <= effective_at <= after
+
+
+class TestIsPaygRemovalOverQuota:
+    """is_payg_removal_over_quota() : sert uniquement à choisir le bon
+    message côté UI (sidebar.py) entre le succès générique et le message
+    dédié "hors-quota PAYG" -- n'a aucun effet sur l'autorisation réelle,
+    entièrement décidée dans request_siren_removal()."""
+
+    def test_true_when_payg_locked_but_over_quota(self, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        monkeypatch.setattr(billing, "get_siren_quota_status",
+                             lambda org_id: billing.SirenQuotaStatus(registered_count=2, quota=1, over_quota_by=1))
+        assert billing.is_payg_removal_over_quota("org-1") is True
+
+    def test_false_when_payg_locked_and_within_quota(self, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        monkeypatch.setattr(billing, "get_siren_quota_status",
+                             lambda org_id: billing.SirenQuotaStatus(registered_count=1, quota=1, over_quota_by=0))
+        assert billing.is_payg_removal_over_quota("org-1") is False
+
+    def test_false_when_never_purchased_payg(self, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: False)
+        assert billing.is_payg_removal_over_quota("org-1") is False
+
+    def test_false_when_subscription_already_exists(self, monkeypatch):
+        # Abonnement passé (résilié) : sort l'organisation du statut "Achat"
+        # -- pas de verrou PAYG à contourner, donc pas de message dédié.
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=False, status="canceled"))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        assert billing.is_payg_removal_over_quota("org-1") is False
+
+    def test_false_when_subscription_active(self, monkeypatch):
+        monkeypatch.setattr(billing, "get_subscription_status",
+                             lambda org_id: billing.SubscriptionStatus(active=True, plan="cabinet"))
+        monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
+        assert billing.is_payg_removal_over_quota("org-1") is False
 
 
 class TestGetAccountStatus:

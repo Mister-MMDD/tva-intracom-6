@@ -632,6 +632,7 @@ cancel_removal_btn = "↩️ Löschung abbrechen"
 remove_siren_btn = "🗑️ Diese SIREN entfernen"
 remove_siren_help = "Die Löschung wird zum Ende des aktuellen Abrechnungszeitraums wirksam."
 remove_success = "✅ SIREN entfernt."
+remove_success_payg_over_quota = "✅ SIREN sofort entfernt — Ihr Pay-as-you-go-Konto (PAYG) ist auf 1 SIREN begrenzt."
 remove_scheduled = "Löschung geplant für den {date}."
 
 # Sidebar - Billing

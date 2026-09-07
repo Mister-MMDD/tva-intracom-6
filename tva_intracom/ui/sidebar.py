@@ -981,6 +981,11 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                      width="stretch"):
                             # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
                             try:
+                                # HORS-QUOTA (2026-09-08) : évalué AVANT l'appel, car ce
+                                # dernier peut déjà avoir invalidé l'état (list_registered_sirens
+                                # .clear()) une fois le retrait effectué -- on capture donc la
+                                # raison du message de succès sur l'état encore actuel.
+                                _payg_over_quota = tva_billing.is_payg_removal_over_quota(_current_user.org_id)
                                 _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, siren_entreprise)
                             except PermissionError as _lock_err:
                                 # Statut "Achat" (2026-09-05) : SIREN verrouillé pour un
@@ -991,7 +996,15 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                 _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
                                 import datetime as _dt
                                 if _eff <= time.time() + 5:
-                                    st.success(_("remove_success"))
+                                    if _payg_over_quota:
+                                        # Dérogation hors-quota (2026-09-08) : ce SIREN aurait dû
+                                        # être verrouillé (compte "Achat" PAYG) mais l'organisation
+                                        # dépassait son quota de 1 SIREN -- message dédié plutôt que
+                                        # le succès générique, pour ne pas laisser croire que le
+                                        # verrou PAYG standard n'existe plus.
+                                        st.success(_("remove_success_payg_over_quota"))
+                                    else:
+                                        st.success(_("remove_success"))
                                 else:
                                     st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
                                 preserve_upload_rerun()

@@ -633,6 +633,7 @@ cancel_removal_btn = "↩️ Annuler le retrait"
 remove_siren_btn = "🗑️ Retirer ce SIREN"
 remove_siren_help = "Le retrait sera effectif à la fin de la période de facturation en cours."
 remove_success = "✅ SIREN retiré."
+remove_success_payg_over_quota = "✅ SIREN retiré immédiatement — votre compte à l'achat unique (PAYG) est limité à 1 SIREN."
 remove_scheduled = "Retrait programmé le {date}."
 
 # Sidebar - Billing

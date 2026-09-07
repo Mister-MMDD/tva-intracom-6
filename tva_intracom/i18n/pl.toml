@@ -632,6 +632,7 @@ cancel_removal_btn = "↩️ Anuluj usunięcie"
 remove_siren_btn = "🗑️ Usuń ten SIREN"
 remove_siren_help = "Usunięcie wejdzie w życie z końcem bieżącego okresu rozliczeniowego."
 remove_success = "✅ SIREN usunięty."
+remove_success_payg_over_quota = "✅ SIREN natychmiast usunięty — Twoje konto typu pay-as-you-go (PAYG) jest ograniczone do 1 numeru SIREN."
 remove_scheduled = "Usunięcie zaplanowane na {date}."
 
 # Sidebar - Billing
