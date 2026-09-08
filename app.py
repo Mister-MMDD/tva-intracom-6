@@ -7,11 +7,16 @@ import asyncio
 
 # Correctif pour [WinError 10022] sur Windows avec asyncio/Streamlit
 if sys.platform == 'win32':
-    try:
-        from asyncio import WindowsSelectorEventLoopPolicy
-        asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
-    except ImportError:
-        pass
+    import warnings
+    with warnings.catch_warnings():
+        # On ignore le DeprecationWarning car ce correctif est nécessaire pour Windows
+        # malgré la future suppression de ces APIs en Python 3.16.
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        try:
+            from asyncio import WindowsSelectorEventLoopPolicy
+            asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+        except ImportError:
+            pass
 
 sys.path.insert(0, str(Path(__file__).parent))
 
