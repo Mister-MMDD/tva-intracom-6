@@ -1253,6 +1253,7 @@ engine_note_b2b_art194 = "Transgraniczna sprzedaz B2B {stock}→{buyer}: krajowy
 engine_note_b2b_no_art194 = "Transgraniczna sprzedaz B2B {stock}→{buyer}: nieprawidlowy numer VAT nabywcy. Sprzedawca pobiera VAT {rate}% w {buyer}."
 engine_note_oss_b2c = "Sprzedaz OSS do {country} wg stawki {rate}%."
 engine_note_b2b_domestic_rc = "Krajowa sprzedaz B2B w {country}: odwrotne obciazenie u nabywcy."
+engine_note_domestic_home_foreign_stock = "Sprzedaz do {country} (kraj siedziby sprzedawcy) wysylana z magazynu {stock}: traktowana jako sprzedaz krajowa {country} (lokalna deklaracja VAT, bez OSS) — VAT {rate}%."
 engine_note_domestic_home = "Sprzedaz krajowa w {country}: VAT {rate}% do zadeklarowania lokalnie."
 engine_note_domestic_local = "Sprzedaz krajowa w {country}: VAT {rate}%. Wymagana lokalna rejestracja VAT w {country}."
 engine_note_ddp_import = "Import > 150 EUR, sprzedawca jest oficjalnym importerem (DDP): traktowany jako dostawa krajowa w {country}. Lokalny VAT {rate}%."

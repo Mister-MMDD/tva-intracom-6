@@ -1252,6 +1252,7 @@ engine_note_b2b_art194 = "Grenzüberschreitender B2B-Verkauf {stock}→{buyer}: 
 engine_note_b2b_no_art194 = "Grenzüberschreitender B2B-Verkauf {stock}→{buyer}: ungültige MwSt-Nummer des Käufers. Verkäufer erhebt {rate}% MwSt in {buyer}."
 engine_note_oss_b2c = "OSS-Verkauf nach {country} zum Satz von {rate}%."
 engine_note_b2b_domestic_rc = "Inländischer B2B-Verkauf in {country}: Reverse Charge durch den steuerpflichtigen Käufer."
+engine_note_domestic_home_foreign_stock = "Verkauf nach {country} (Heimatland des Verkäufers) aus Lager {stock} versandt: als Inlandsverkauf {country} behandelt (lokale MwSt-Erklärung, kein OSS) — {rate}% MwSt."
 engine_note_domestic_home = "Inlandsverkauf in {country}: {rate}% MwSt lokal zu erklären."
 engine_note_domestic_local = "Inlandsverkauf in {country}: {rate}% MwSt. Lokale MwSt-Registrierung in {country} erforderlich."
 engine_note_ddp_import = "Import > 150 EUR, Verkäufer ist offizieller Importeur (DDP): als Inlandslieferung in {country} behandelt. Lokale MwSt {rate}%."

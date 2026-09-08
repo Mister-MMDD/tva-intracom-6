@@ -7334,3 +7334,124 @@ Symétrie i18n vérifiée programmatiquement : 1227 clés × 7 langues.
 Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/ui/sidebar.py`,
 `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`,
 `tests/test_billing_payment_quotas.py`.
+
+## 2026-09-08 (2) — Batch de 8 bugs confirmés (audit externe) : seuil/classification OSS, AIC/Intrastat, cache VIES, format V5, crash VIES, toggle seuil N-1, reset mot de passe concurrent
+
+Audit externe signalant 8 bugs potentiels. Chacun vérifié sur le code réel
+(branche `dev`) avant tout correctif — 8/8 confirmés réels. Traités
+ensemble, un fichier/sujet à la fois, avec tests dédiés.
+
+**1. Seuil OSS incluant les ventes vers le pays du vendeur** (`engine.py`,
+`_oss_eligible()`) : l'art. 59 ter Directive 2006/112/CE ne comptabilise
+dans le cumul des 10 000 € que les ventes à distance expédiées **depuis**
+le pays d'établissement du vendeur. Une vente cross-border (stock étranger)
+dont la destination est le pays d'établissement du vendeur (ex: stock DE →
+acheteur FR pour un vendeur FR) n'est pas une vente à distance au sens de
+cet article et ne doit pas alimenter ce cumul. Ajout de la condition
+`sale.buyer_country != sale.seller_country`.
+
+**2. Classification OSS au lieu de CA3 domestique pour ces mêmes ventes**
+(`engine.py`, `compute_vat()`) : nouveau "Cas 1bis", intercepté avant le
+Cas 1 (OSS_B2C) général, qui bascule ces ventes en `Scenario.DOMESTIC` /
+`Channel.FR_DOMESTIC` (TVA du pays de destination = pays d'établissement du
+vendeur, déclarée en local CA3, hors OSS). Nouvelle clé i18n
+`engine_note_domestic_home_foreign_stock` ajoutée aux 7 langues.
+
+**3. Prix moyen ASIN calculé par ligne au lieu de par unité**
+(`excel_report.py`, `_build_asin_avg_price()`, alimente AIC, Intrastat/EMEBI
+**et** `ca3_report.py`) : le dénominateur était `nombre de lignes` au lieu
+de `sale.quantity` — une ligne de 10 unités faisait apparaître un prix
+unitaire 10× trop élevé. Désormais `total_ht / somme(quantity)`, avec garde
+`quantity <= 0 → 1` (donnée corrompue) pour ne jamais diviser par zéro.
+
+**4. Purge du cache VIES supprimant des TVA FR valides** (`vies_engine.py`,
+`purge_malformed_entries()`) : la clé de contrôle française (2 caractères
+après "FR", pouvant être alphabétiques) coïncide parfois avec un vrai code
+pays UE (ex: `FRDE123456789`, `FRIT123456789` — numéros FR parfaitement
+valides), et la requête SQL "double préfixe" les supprimait à tort. FR est
+désormais exclu comme PREMIER préfixe de cette heuristique ; les vrais
+doublons non-FR (ex: `DEFR...`) restent purgés. **Compromis assumé** :
+un éventuel doublon `FRFR...` ne sera plus auto-purgé (accepté car un tel
+numéro peut être un FR légitime — la clé de contrôle peut valoir "FR").
+
+**5. AIC/Intrastat cassé pour le format Amazon V5** (`excel_report.py`,
+`_parse_fc_transfer()`) : le format V5 utilise les colonnes
+`ship_from_country` / `ship_to_country` / `transaction_id` / `quantity`
+(voir `parsers/amazon/parsers.py`, `AmazonV5Parser`), non couvertes par les
+alias existants (formats 1 à 4) — tous les transferts de stock FC en V5
+étaient donc silencieusement ignorés (dep/arr/tx_id vides), sans erreur
+visible. Alias V5 ajoutés en complément, formats 1-4 non touchés
+(non-régression testée explicitement).
+
+**6. Crash `.strip()` sur `None` venant de l'API VIES** (`vies_engine.py`,
+`check_vat()`) : `res_data.get("name", "")` ne protège que si la clé JSON
+est absente, pas si sa valeur vaut explicitement `null` — observé côté API
+VIES pour certains États membres. `result.name`/`result.address` valaient
+alors `None`, et `_is_empty_response()` (`res.name.strip()`) plantait le
+thread de calcul. Remplacé par `res_data.get("name") or ""` (même
+anti-pattern déjà corrigé dans `classify.py`, BUGFIX 2026-09-06,
+`convert_currency` — appliqué ici par cohérence). `valid` protégé de la
+même façon par prudence (`or False`).
+
+**7. Toggle "seuil OSS dépassé l'année dernière" jamais transmis au moteur**
+(`ui/sidebar.py`, `app.py`, `engine.py`) : `oss_threshold_exceeded_prev_year`
+n'existait que dans `sidebar.py` (widgets) et `billing.py` (stockage DB) ;
+son seul effet réel était de forcer `apply_fr_under_threshold=False` si
+l'utilisateur avait AUSSI coché ce second toggle — inopérant pour qui ne
+l'active pas explicitement (cas par défaut). Chaîne complète refaite :
+- `SidebarResult` (sidebar.py) expose désormais le champ
+  `oss_threshold_exceeded_prev_year` (initialisé dans toutes les branches
+  de rendu : lecture hors-quota, nouveau SIREN, édition SIREN).
+- `app.py` le lit depuis `_sb`, l'ajoute à la clé de cache de calcul
+  (`_compute_cache_key`), et le transmet aux deux appels de
+  `compute_all_with_vies()` (petit fichier / gros fichier en thread).
+- `compute_all_with_vies()` → `_run_oss_loop()` (engine.py) : nouveau
+  paramètre `oss_threshold_exceeded_prev_year`. Quand actif, le cumul OSS
+  (`cumulative_oss_ht`) est pré-chargé au-dessus du seuil (`10000.01`) dès
+  la toute première année civile rencontrée dans le fichier trié
+  chronologiquement — ce qui force l'éligibilité OSS dès la première vente
+  cross-border de l'année, conformément à la règle fiscale (dépassement
+  l'année N-1 ⇒ taxation à destination obligatoire dès le 1er janvier de
+  l'année N, sans repartir d'un cumul à zéro). Le padding reste interne à
+  `OssThresholdSummary.total_oss_ht` (jamais affiché tel quel : les exports
+  OSS/CA3 recalculent leur propre total à partir des lignes réelles).
+
+**8. Reset de mot de passe : "dernier jeton" sans distinction d'utilisateur**
+(`auth.py`, `ui/auth_flow.py`) : `consume_latest_pkce_verifier_by_provider`
+prend systématiquement la ligne PKCE la plus récente en base pour le flux
+"mot de passe oublié" (Supabase tronque le nonce dans l'URL de retour, donc
+aucun filtrage par utilisateur n'est possible côté serveur). Si deux resets
+sont demandés à quelques minutes d'intervalle, le second lien cliqué
+récupère le verifier de l'AUTRE demande devenue "la plus récente" → échange
+PKCE voué à l'échec avec Supabase (PKCE valide cryptographiquement le
+couple `code`/`verifier` : ceci provoque un échec réel, **pas** une fuite
+de compte — Supabase rejette le mismatch). Nouvelle fonction
+`consume_latest_pkce_verifiers_by_provider()` (cascade, jusqu'à 5
+candidats récents non consommés/en grâce, du plus récent au plus ancien) ;
+`ui/auth_flow.py` (Cas B0) essaie chaque candidat jusqu'à ce que l'échange
+Supabase réussisse. Ancienne fonction `consume_latest_pkce_verifier_by_provider`
+conservée (compat, plus appelée par ce flux) mais dépréciée dans sa
+docstring.
+
+**Tests** : script de reproduction dédié par sujet (avant/après), exécutés
+en plus de la suite complète. Points 1-2 : scénario ciblé stock DE→acheteur
+FR (vendeur FR) vs. cross-border réel DE→IT (non-régression OSS). Point 3 :
+10 unités/100 € HT → 10 €/unité (au lieu de 100 € avant fix). Point 4 :
+simulation logique de la clause SQL (FRDE/FRIT non purgés, DEFR toujours
+purgé). Point 5 : ligne V5 synthétique + non-régression formats 3/4. Point
+6 : réponse VIES mockée avec `name`/`address` à `null`. Point 7 : calcul
+complet `compute_all_with_vies()` avec/sans le flag, vérifiant le
+basculement DOMESTIC→OSS_B2C dès la 1ère vente. Point 8 : simulation de la
+cascade avec 3 verifiers candidats et échec du premier (mismatch), succès
+du second.
+
+Suite complète : 260 passed / 3 failed (baseline `SUPABASE_DB_URL`
+inchangée, aucune régression). `py_compile` + `pyflakes` propres sur tous
+les fichiers modifiés (avertissements pyflakes résiduels tous préexistants,
+vérifiés par comparaison avec la version `dev` d'origine). Symétrie i18n
+vérifiée programmatiquement : 1228 clés × 7 langues.
+
+Fichiers modifiés : `tva_intracom/engine.py`, `tva_intracom/excel_report.py`,
+`tva_intracom/vies_engine.py`, `tva_intracom/auth.py`,
+`tva_intracom/ui/auth_flow.py`, `tva_intracom/ui/sidebar.py`, `app.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.

@@ -1310,11 +1310,21 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
     """Extrait les champs normalisés d'une ligne FC transfer (multi-format).
 
     Retourne (tx_id, date_str, asin, designation, dep, arr, qty).
+
+    BUGFIX (voir README - évolution.md) : le format V5 (`ship_from_country` /
+    `ship_to_country` / `transaction_id` / `quantity`, voir
+    `parsers/amazon/parsers.py` et `detect.py`) n'était couvert par aucun des
+    alias ci-dessous — dep/arr/tx_id retombaient systématiquement sur "",
+    et tous les transferts de stock FC des fichiers V5 étaient silencieusement
+    ignorés des rapports AIC et Intrastat/EMEBI (aucune erreur visible, juste
+    des montants et flux manquants). Les alias V5 sont désormais ajoutés en
+    complément des formats existants (1-4), sans rien retirer.
     """
     # Transaction ID
     tx_id = (
             t.get("TRANSACTION_EVENT_ID") or t.get("transaction_event_id") or
-            t.get("ACTIVITY_TRANSACTION_ID") or t.get("activity_transaction_id") or ""
+            t.get("ACTIVITY_TRANSACTION_ID") or t.get("activity_transaction_id") or
+            t.get("TRANSACTION_ID") or t.get("transaction_id") or ""
     )
     # Date
     # BUGFIX : les exports Amazon (transferts FC) fournissent cette date au
@@ -1326,10 +1336,14 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
     # flux Intrastat et un mauvais calcul des dates limites de déclaration
     # (Calendrier Fiscal). `parse_date()` (déjà utilisé par les parsers de
     # ventes pour ce même format) normalise ici vers ISO AVANT tout découpage
-    # en aval.
+    # en aval. V5 : pas de TRANSACTION_COMPLETE_DATE/TAX_CALCULATION_DATE —
+    # on retombe sur SHIPMENT_DATE puis ORDER_DATE (même priorité que
+    # AmazonV5Parser.tx_date).
     date_str = _parse_amz_date(
         t.get("TRANSACTION_COMPLETE_DATE") or t.get("transaction_complete_date") or
-        t.get("TAX_CALCULATION_DATE") or t.get("tax_calculation_date") or ""
+        t.get("TAX_CALCULATION_DATE") or t.get("tax_calculation_date") or
+        t.get("SHIPMENT_DATE") or t.get("shipment_date") or
+        t.get("ORDER_DATE") or t.get("order_date") or ""
     )
     # ASIN
     asin = (t.get("ASIN") or t.get("asin") or "").strip()
@@ -1341,14 +1355,16 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
     # Pays départ / arrivée
     dep = (
             t.get("DEPARTURE_COUNTRY") or t.get("departure_country") or
-            t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or ""
+            t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or
+            t.get("SHIP_FROM_COUNTRY") or t.get("ship_from_country") or ""
     ).strip().upper()
     arr = (
             t.get("ARRIVAL_COUNTRY") or t.get("arrival_country") or
-            t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or ""
+            t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or
+            t.get("SHIP_TO_COUNTRY") or t.get("ship_to_country") or ""
     ).strip().upper()
     # Quantité
-    raw_qty = t.get("QTY") or t.get("qty") or 1
+    raw_qty = t.get("QTY") or t.get("qty") or t.get("QUANTITY") or t.get("quantity") or 1
     try:
         qty = int(float(raw_qty))
     except (ValueError, TypeError):
@@ -1363,26 +1379,48 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
 
 
 def _build_asin_avg_price(results: list) -> dict[str, Decimal]:
-    """Calcule le prix de vente HT moyen par ASIN à partir des VatResult de ventes.
+    """Calcule le prix de vente HT moyen PAR UNITÉ, par ASIN, à partir des
+    VatResult de ventes.
 
-    Utilisé comme approximation de la base imposable AIC (valeur d'achat inconnue).
-    Seules les ventes avec montant > 0 sont prises en compte (exclut remboursements).
+    Utilisé comme approximation de la base imposable AIC/Intrastat (valeur
+    d'achat inconnue) : `base_aic = qty_transfert * avg_price`. Il est donc
+    impératif que `avg_price` soit bien un prix UNITAIRE (HT / quantité
+    d'articles), pas un prix moyen par LIGNE de vente.
 
-    Implémentation en (somme, compteur) plutôt qu'en liste de Decimal par ASIN :
-    évite de conserver un objet Decimal par vente en mémoire (jusqu'à 100k
-    objets superflus sur les gros volumes) juste pour calculer une moyenne.
+    BUGFIX (voir README - évolution.md) : la version précédente divisait
+    la somme des montants HT par le nombre de LIGNES (`prev_count + 1`),
+    pas par le nombre d'ARTICLES vendus (`sale.quantity`). Une ligne
+    contenant 10 unités pour 100 EUR HT (10 EUR/unité) comptait comme "1"
+    au dénominateur au lieu de "10" — le prix moyen calculé pouvait donc
+    être jusqu'à `quantity` fois trop élevé, faussant à la fois l'AIC et
+    l'Intrastat/EMEBI (tous deux réutilisent cette fonction, voir
+    `_write_fba_aic_tab` / `_write_intrastat_tab` / `ca3_report.py`).
+
+    Seules les ventes avec montant > 0 sont prises en compte (exclut
+    remboursements). `quantity` est garanti >= 1 par le loader Amazon
+    (defaut 1 si absent/illisible), mais on se protège quand même contre
+    une valeur <= 0 (donnée corrompue) en la ramenant à 1 pour ne jamais
+    diviser par zéro ni gonfler artificiellement le prix moyen.
+
+    Implémentation en (somme HT, somme quantités) plutôt qu'en liste de
+    Decimal par ASIN : évite de conserver un objet Decimal par vente en
+    mémoire (jusqu'à 100k objets superflus sur les gros volumes) juste
+    pour calculer une moyenne.
     """
     totals: dict[str, tuple[Decimal, int]] = {}
     for r in results:
         asin = getattr(r.sale, "asin", "").strip()
         amt  = r.sale.amount_ht
         if asin and amt > Decimal("0"):
-            prev_sum, prev_count = totals.get(asin, (Decimal("0"), 0))
-            totals[asin] = (prev_sum + amt, prev_count + 1)
+            qty = getattr(r.sale, "quantity", 1) or 1
+            if qty <= 0:
+                qty = 1
+            prev_sum, prev_qty = totals.get(asin, (Decimal("0"), 0))
+            totals[asin] = (prev_sum + amt, prev_qty + qty)
     return {
-        asin: total / Decimal(count)
-        for asin, (total, count) in totals.items()
-        if count
+        asin: total / Decimal(qty_sum)
+        for asin, (total, qty_sum) in totals.items()
+        if qty_sum
     }
 
 

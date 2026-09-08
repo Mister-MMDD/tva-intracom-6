@@ -1253,6 +1253,7 @@ engine_note_b2b_art194 = "Cross-border B2B sale {stock}→{buyer}: national tax 
 engine_note_b2b_no_art194 = "Cross-border B2B sale {stock}→{buyer}: invalid buyer VAT number. Seller collects {rate}% VAT in {buyer}."
 engine_note_oss_b2c = "OSS sale to {country} at a rate of {rate}%."
 engine_note_b2b_domestic_rc = "Domestic B2B sale in {country}: reverse charge applied by the taxable buyer."
+engine_note_domestic_home_foreign_stock = "Sale to {country} (seller's home country) shipped from {stock} stock: treated as a domestic {country} sale (local VAT return, not OSS) — {rate}% VAT."
 engine_note_domestic_home = "Domestic sale in {country}: {rate}% VAT to be declared locally."
 engine_note_domestic_local = "Domestic sale in {country}: {rate}% VAT. Local VAT registration required in {country}."
 engine_note_ddp_import = "Import > EUR 150, seller is the official importer (DDP): treated as a domestic supply in {country}. Local VAT {rate}%."

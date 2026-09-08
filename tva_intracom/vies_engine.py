@@ -1181,6 +1181,19 @@ def purge_malformed_entries(force: bool = False) -> int:
     tout vat_id dont les 4 premiers caractères forment deux codes pays UE
     valides consécutifs est un doublon de préfixe, identiques ou non.
 
+    BUGFIX 2 (faux positifs FR, voir README - évolution.md) : le format
+    français (FR + 2 caractères de clé de contrôle POUVANT être des lettres
+    + 9 chiffres SIREN, 13 caractères au total) autorise des numéros
+    parfaitement valides comme "FRDE123456789" ou "FRIT123456789" — la clé
+    de contrôle française coïncide alors par hasard avec un code pays UE.
+    L'ancienne requête les traitait à tort comme des doublons de préfixe et
+    les supprimait du cache. FR est désormais exclu comme PREMIER préfixe
+    de cette heuristique (mais reste détectable comme second préfixe, ex.
+    un authentique doublon "DEFR..." resterait purgé). Aucun autre pays UE
+    n'utilise de lettres dans ses 2 premiers caractères de corps de numéro
+    (positions 3-4), donc cette exclusion ciblée sur FR ne réintroduit pas
+    de faux négatifs ailleurs.
+
     PERF (voir README - évolution.md) : deux correctifs par rapport à la
     version précédente.
       1. Un seul `DELETE ... WHERE` par table (comparaison d'ensemble via
@@ -1214,6 +1227,7 @@ def purge_malformed_entries(force: bool = False) -> int:
                 DELETE FROM {table}
                 WHERE length(vat_id) >= 4
                   AND upper(left(vat_id, 2)) = ANY(%(cc)s)
+                  AND upper(left(vat_id, 2)) != 'FR'
                   AND upper(substring(vat_id from 3 for 2)) = ANY(%(cc)s)
                 """,
                 {"cc": _EU_CC},
@@ -1504,12 +1518,21 @@ def check_vat(country_code: str, vat_number: str, timeout: int = DEFAULT_TIMEOUT
                     error=", ".join(codes) or "Erreur API inconnue (errorWrappers vide)",
                 )
 
+            # BUGFIX (voir README - évolution.md) : `res_data.get(clé, "")` ne
+            # retombe sur "" QUE si la clé est absente du JSON, jamais si sa
+            # valeur vaut explicitement `null` (`{"name": null, ...}`) — un
+            # cas réellement observé côté API VIES pour certains États
+            # membres. Sans le `or ""`, `result.name`/`result.address`
+            # valaient `None`, et `_is_empty_response()` (`res.name.strip()`)
+            # plantait le thread de calcul (`AttributeError`). Même
+            # anti-pattern déjà corrigé dans classify.py (BUGFIX 2026-09-06,
+            # `convert_currency`) — appliqué ici par cohérence.
             result = ViesResult(
-                valid=res_data.get("valid", res_data.get("isValid", False)),
-                country_code=res_data.get("countryCode", country_code),
-                vat_number=res_data.get("vatNumber", vat_number),
-                name=res_data.get("name", ""),
-                address=res_data.get("address", ""),
+                valid=res_data.get("valid", res_data.get("isValid", False)) or False,
+                country_code=res_data.get("countryCode") or country_code,
+                vat_number=res_data.get("vatNumber") or vat_number,
+                name=res_data.get("name") or "",
+                address=res_data.get("address") or "",
             )
 
             if (not result.valid and not result.name and not result.address

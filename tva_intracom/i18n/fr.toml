@@ -1254,6 +1254,7 @@ engine_note_b2b_art194 = "Vente B2B cross-border {stock}→{buyer} : identifiant
 engine_note_b2b_no_art194 = "Vente B2B cross-border {stock}→{buyer} : numéro TVA acheteur non valide. Vendeur collecte TVA {rate}% en {buyer}."
 engine_note_oss_b2c = "Vente OSS vers {country} au taux de {rate}%."
 engine_note_b2b_domestic_rc = "Vente B2B domestique {country} : autoliquidation nationale par l'acheteur assujetti."
+engine_note_domestic_home_foreign_stock = "Vente vers {country} (pays d'établissement du vendeur) expédiée depuis un stock {stock} : traitée comme vente domestique {country} (CA3, hors OSS) — TVA {rate}%."
 engine_note_domestic_home = "Vente domestique {country} : TVA {rate}% à déclarer en local."
 engine_note_domestic_local = "Vente domestique {country} : TVA {rate}%. Immatriculation TVA locale requise en {country}."
 engine_note_ddp_import = "Import > 150 EUR, vendeur importateur officiel (DDP) : livraison domestique {country}. TVA locale {rate}%."

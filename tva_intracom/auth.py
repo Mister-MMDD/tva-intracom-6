@@ -1075,7 +1075,17 @@ def consume_latest_pkce_verifier_by_provider(provider: str, max_age_seconds: int
     plusieurs reset en parallèle dans la fenêtre de 15 minutes).
 
     Même logique idempotente que `consume_pkce_verifier` (fenêtre de grâce de
-    30s pour tolérer un rerun/retry Streamlit)."""
+    30s pour tolérer un rerun/retry Streamlit).
+
+    BUGFIX (fiabilité, voir README - évolution.md et
+    `consume_latest_pkce_verifiers_by_provider` ci-dessous) : conservée pour
+    compatibilité (compat_shim), mais l'appelant (ui/auth_flow.py) utilise
+    désormais la version "cascade" ci-dessous, seule à même de résister à
+    deux demandes concurrentes (deux utilisateurs demandant un reset dans la
+    même fenêtre de 15 min) — voir docstring de la fonction cascade pour le
+    détail du problème corrigé. Ne PAS supprimer cette fonction historique
+    tant qu'aucun autre appelant n'en dépend, et ne pas réintroduire un appel
+    direct dessus dans un nouveau code "mot de passe oublié"."""
     GRACE_SECONDS = 30
 
     def _fn(conn, cur):
@@ -1113,6 +1123,75 @@ def consume_latest_pkce_verifier_by_provider(provider: str, max_age_seconds: int
             provider, exc_info=True,
         )
         return None
+
+
+def consume_latest_pkce_verifiers_by_provider(
+        provider: str, max_age_seconds: int = 15 * 60, limit: int = 5,
+) -> list[str]:
+    """Variante "cascade" de `consume_latest_pkce_verifier_by_provider` :
+    renvoie jusqu'à `limit` code_verifiers candidats (du plus récent au plus
+    ancien), au lieu d'un seul.
+
+    BUGFIX (fiabilité de l'authentification, voir README - évolution.md) :
+    la fonction "dernier jeton" ci-dessus prend TOUJOURS la ligne la plus
+    récente en base, sans distinction d'utilisateur (impossible, voir
+    docstring ci-dessus — Supabase ne renvoie pas de nonce exploitable sur
+    ce lien). Si deux resets de mot de passe sont demandés à quelques
+    secondes/minutes d'intervalle par deux comptes différents, le second
+    clic sur SON lien récupérait le verifier de l'AUTRE demande (celle
+    devenue "la plus récente" entre-temps) → l'échange PKCE avec Supabase
+    échoue nécessairement (le verifier ne correspond pas au `code` reçu
+    dans l'URL — PKCE est conçu pour rejeter ce mismatch, donc ceci n'est
+    PAS une fuite de compte, seulement un échec réel malgré un lien valide).
+
+    Solution : plutôt que de se fier à un seul candidat, l'appelant
+    (ui/auth_flow.py) essaie l'échange PKCE avec CHAQUE candidat renvoyé
+    ici, du plus récent au plus ancien, jusqu'à ce qu'un échange réussisse.
+    Comme PKCE valide cryptographiquement le couple (code, verifier), au
+    plus un seul candidat peut réellement fonctionner pour un `code` donné
+    — essayer les autres ne présente aucun risque de sécurité, seulement un
+    aller-retour Supabase supplémentaire par candidat en trop (limite fixée
+    à 5 : au-delà, la probabilité de N demandes concurrentes dans la même
+    fenêtre de 15 min est jugée négligeable pour ce volume d'utilisateurs).
+
+    Chaque candidat retourné est marqué `consumed_at=now` (comme avant) —
+    cela ne casse pas le mécanisme de grâce de 30s pour les reruns
+    Streamlit du MÊME utilisateur, qui continuera de récupérer son propre
+    candidat tant qu'il reste dans la fenêtre de grâce."""
+    GRACE_SECONDS = 30
+
+    def _fn(conn, cur):
+        now = time.time()
+        cur.execute(
+            """
+            SELECT nonce, verifier, consumed_at FROM tva_oauth_pkce
+            WHERE provider=%s AND created_at >= %s
+              AND (consumed_at IS NULL OR %s - consumed_at <= %s)
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (provider, now - max_age_seconds, now, GRACE_SECONDS, limit),
+        )
+        rows = cur.fetchall()
+        if not rows:
+            return []
+        nonces = [r[0] for r in rows]
+        verifiers = [r[1] for r in rows]
+        cur.execute(
+            "UPDATE tva_oauth_pkce SET consumed_at=%s WHERE nonce = ANY(%s)",
+            (now, nonces),
+        )
+        conn.commit()
+        return verifiers
+
+    try:
+        return _run(_fn) or []
+    except Exception:
+        logger.warning(
+            "consume_latest_pkce_verifiers_by_provider: erreur DB inattendue (provider=%s)",
+            provider, exc_info=True,
+        )
+        return []
 
 
 def purge_old_pkce_entries(older_than_seconds: int = 15 * 60) -> None:

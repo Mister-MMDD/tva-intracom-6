@@ -309,8 +309,19 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             if _b0_cached and _b0_cached[0] == _sb_code:
                 _b0_access_token = _b0_cached[1]
             else:
-                _verifier = tva_auth.consume_latest_pkce_verifier_by_provider("recovery")
-                if _verifier:
+                # BUGFIX (fiabilité, voir README - évolution.md et docstring
+                # de consume_latest_pkce_verifiers_by_provider dans auth.py) :
+                # on essaie chaque candidat récent (du plus récent au plus
+                # ancien) au lieu d'un seul "dernier jeton" — nécessaire dès
+                # que deux resets de mot de passe se chevauchent dans la
+                # même fenêtre de 15 minutes. PKCE valide cryptographiquement
+                # le couple (code, verifier) côté Supabase : au plus un seul
+                # candidat peut réussir, essayer les autres n'introduit
+                # aucun risque de sécurité (juste des tentatives en trop en
+                # cas de collision).
+                _candidates = tva_auth.consume_latest_pkce_verifiers_by_provider("recovery")
+                _last_err = None
+                for _verifier in _candidates:
                     try:
                         _sb_result = tva_sb_auth.exchange_pkce_code(
                             _sb_code, _verifier, redirect_uri=_app_base_url_login
@@ -320,9 +331,13 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                         # suivants (déclenchés par les widgets ci-dessous)
                         # réutilisent ce jeton sans retourner échanger le code.
                         st.session_state[_b0_cache_key] = (_sb_code, _b0_access_token)
+                        break
                     except Exception as _sb_err:
-                        st.error(_("oauth_login_error", error=str(_sb_err)))
-                        st.query_params.clear()
+                        _last_err = _sb_err
+                        continue
+                if not _b0_access_token and _last_err is not None:
+                    st.error(_("oauth_login_error", error=str(_last_err)))
+                    st.query_params.clear()
 
             if _b0_access_token:
                 st.subheader(_("reset_password_title"))

@@ -234,6 +234,7 @@ asin_to_category = _sb.asin_to_category
 ioss_number = _sb.ioss_number
 seller_is_importer = _sb.seller_is_importer
 apply_fr_under_threshold = _sb.apply_fr_under_threshold
+oss_threshold_exceeded_prev_year = _sb.oss_threshold_exceeded_prev_year
 ioss_own_number_active = _sb.ioss_own_number_active
 countries_with_vat = _sb.countries_with_vat
 nom_entreprise = _sb.nom_entreprise
@@ -526,6 +527,7 @@ if uploaded_files:
             ioss_number, seller_is_importer,
             tuple(sorted(countries_with_vat)),
             apply_fr_under_threshold,
+            oss_threshold_exceeded_prev_year,
             ioss_own_number_active,
             home_country,
             target_currency,
@@ -749,7 +751,8 @@ if uploaded_files:
                 vies_progress_callback=_vies_progress_cb,
                 oss_progress_callback=_oss_progress_cb,
                 lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
-                ioss_own_number_active=ioss_own_number_active)
+                ioss_own_number_active=ioss_own_number_active,
+                oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year)
 
             report(0.97, _("calc_progress_vat", lang=_lang_for_thread))
             _summary = build_report(_results, refund_results=_refund_results or None, lang=_lang_for_thread)
@@ -1150,7 +1153,8 @@ if uploaded_files:
                     vies_progress_callback=_vies_progress_cb,
                     oss_progress_callback=_oss_progress_cb,
                     lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
-                    ioss_own_number_active=ioss_own_number_active)
+                    ioss_own_number_active=ioss_own_number_active,
+                    oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year)
 
                 report(0.9, _("calc_progress_vat", lang=_lang_for_thread))
                 _summary = build_report(_results, refund_results=_refund_results or None, lang=_lang_for_thread)

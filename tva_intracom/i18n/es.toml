@@ -1253,6 +1253,7 @@ engine_note_b2b_art194 = "Venta B2B transfronteriza {stock}→{buyer}: identific
 engine_note_b2b_no_art194 = "Venta B2B transfronteriza {stock}→{buyer}: número de IVA del comprador no válido. El vendedor recauda IVA {rate}% en {buyer}."
 engine_note_oss_b2c = "Venta OSS a {country} al tipo del {rate}%."
 engine_note_b2b_domestic_rc = "Venta B2B doméstica en {country}: inversión del sujeto pasivo por el comprador."
+engine_note_domestic_home_foreign_stock = "Venta a {country} (país de establecimiento del vendedor) enviada desde stock en {stock}: tratada como venta doméstica en {country} (declaración local, sin OSS) — IVA {rate}%."
 engine_note_domestic_home = "Venta doméstica en {country}: IVA {rate}% a declarar localmente."
 engine_note_domestic_local = "Venta doméstica en {country}: IVA {rate}%. Se requiere registro de IVA local en {country}."
 engine_note_ddp_import = "Importación > 150 EUR, el vendedor es el importador oficial (DDP): tratada como entrega doméstica en {country}. IVA local {rate}%."

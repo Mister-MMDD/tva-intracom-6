@@ -87,6 +87,7 @@ class SidebarResult:
     home_country: str = "FR"
     display_currency: str = "DEFAULT"
     ioss_own_number_active: bool = False
+    oss_threshold_exceeded_prev_year: bool = False
 
 
 def _oss_limit_label(home_country: str) -> str:
@@ -640,6 +641,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         ioss_number = ""
         seller_is_importer = False
         apply_fr_under_threshold = False
+        oss_threshold_exceeded_prev_year = False
         ioss_own_number_active = False
         countries_with_vat = ["FR"]
         nom_entreprise = ""
@@ -764,7 +766,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     seller_is_importer = _registered_sirens[0].get("seller_is_importer") or False
                     apply_fr_under_threshold = _registered_sirens[0].get("apply_fr_under_threshold") or False
                     ioss_own_number_active = _registered_sirens[0].get("ioss_own_number_active") or False
-                    if _registered_sirens[0].get("oss_threshold_exceeded_prev_year"):
+                    oss_threshold_exceeded_prev_year = _registered_sirens[0].get("oss_threshold_exceeded_prev_year") or False
+                    if oss_threshold_exceeded_prev_year:
                         apply_fr_under_threshold = False
                     _countries_raw = _registered_sirens[0].get("countries_with_vat") or "FR"
                     countries_with_vat = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
@@ -781,6 +784,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     nom_entreprise, siren_entreprise, tva_fr = "", "", ""
                     ioss_number, seller_is_importer, apply_fr_under_threshold = "", False, False
                     ioss_own_number_active = False
+                    oss_threshold_exceeded_prev_year = False
                     countries_with_vat, local_vat_numbers = ["FR"], {}
 
                     _new_siren_form_fragment(
@@ -1578,6 +1582,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         ioss_number=ioss_number,
         seller_is_importer=seller_is_importer,
         apply_fr_under_threshold=apply_fr_under_threshold,
+        oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
         countries_with_vat=countries_with_vat,
         nom_entreprise=nom_entreprise,
         siren_entreprise=siren_entreprise,

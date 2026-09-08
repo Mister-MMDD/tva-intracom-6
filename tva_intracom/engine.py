@@ -511,6 +511,44 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 )
 
     # ------------------------------------------------------------------
+    # Cas 1bis : vente B2C transfrontalière (stock ≠ acheteur) MAIS dont la
+    # destination est le pays d'ÉTABLISSEMENT du vendeur (sale.seller_country).
+    #
+    # BUGFIX (voir README - évolution.md) : l'art. 59 ter Directive 2006/112/CE
+    # (régime OSS / seuil 10 000 €) ne s'applique qu'aux ventes à distance
+    # EXPÉDIÉES DEPUIS le pays d'établissement du vendeur VERS un autre État
+    # membre. Une vente expédiée depuis un stock étranger (ex: DE) mais reçue
+    # par un acheteur situé dans le pays d'établissement du vendeur (ex: FR
+    # pour un vendeur français) n'entre PAS dans ce champ : la destination
+    # coïncide avec le pays où le vendeur est déjà immatriculé, donc la TVA
+    # locale s'applique directement (déclaration domestique CA3), sans passer
+    # par le guichet OSS. Avant ce correctif, `cross_border` (stock_country
+    # != buyer_country) suffisait à faire tomber ces ventes dans le Cas 1
+    # (OSS_B2C) — same-country arrival was never distinguished from a real
+    # cross-border destination.
+    # ------------------------------------------------------------------
+    if stock_eu and buyer_eu and cross_border and sale.buyer_country == sale.seller_country:
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.DOMESTIC,
+            vat_country=sale.buyer_country,
+            vat_rate=tax_rate,
+            vat_amount=tax_amount,
+            collector=Collector.SELLER,
+            channel=Channel.FR_DOMESTIC,
+            note=_note(
+                f"Vente vers {sale.buyer_country} (pays d'établissement du vendeur) "
+                f"expédiée depuis un stock {sale.stock_country} : la destination "
+                f"coïncidant avec le pays d'origine du vendeur, la vente est traitée "
+                f"comme une vente domestique {sale.buyer_country} (déclaration locale "
+                f"CA3, hors OSS — Art. 59 ter Directive 2006/112/CE ne s'applique "
+                f"qu'aux expéditions depuis le pays d'établissement) — TVA {tax_rate}%.",
+                "engine_note_domestic_home_foreign_stock", lang=lang,
+                country=sale.buyer_country, stock=sale.stock_country, rate=tax_rate,
+            )
+        )
+
+    # ------------------------------------------------------------------
     # Cas 1 : vente B2C intra-UE transfrontaliere (OSS par défaut)
     # ------------------------------------------------------------------
     if stock_eu and buyer_eu and cross_border:
@@ -664,7 +702,16 @@ def _oss_eligible(sale: Sale) -> bool:
         taxée au pays de départ — correctement hors OSS.
       - stock ET acheteur dans l'UE
       - vente cross-border (stock_country ≠ buyer_country)
+      - destination ≠ pays d'établissement du vendeur (voir BUGFIX ci-dessous)
     Les avoirs (amount_ht < 0) sont éligibles et réduisent le cumul.
+
+    BUGFIX (voir README - évolution.md, même correctif que le "Cas 1bis" de
+    compute_vat) : l'art. 59 ter ne comptabilise dans le seuil des 10 000 €
+    que les ventes à distance expédiées depuis le pays d'établissement du
+    vendeur vers un AUTRE État membre. Une vente cross-border dont la
+    destination est le pays d'établissement du vendeur lui-même (stock
+    étranger → acheteur "à la maison") n'est pas une vente à distance au
+    sens de cet article — elle ne doit donc jamais alimenter ce cumul.
     """
     is_b2c_like = (
             sale.buyer_type == BuyerType.B2C
@@ -679,6 +726,7 @@ def _oss_eligible(sale: Sale) -> bool:
             and is_eu(sale.stock_country)
             and is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None)
             and sale.stock_country != sale.buyer_country
+            and sale.buyer_country != sale.seller_country
     )
 
 
@@ -896,8 +944,27 @@ def _run_oss_loop(
         ioss_own_number_active: bool = False,
         oss_period: str = "",
         progress_callback=None,
+        oss_threshold_exceeded_prev_year: bool = False,
 ) -> tuple[list[VatResult], list[VatResult], OssThresholdSummary]:
     """Boucle chronologique OSS.
+
+    oss_threshold_exceeded_prev_year : déclaratif utilisateur (réglage
+    barre latérale, voir sidebar.py / billing.py) — indique que le seuil
+    OSS de 10 000 € a déjà été dépassé l'année civile précédente.
+
+    BUGFIX (voir README - évolution.md) : ce réglage était stocké en base
+    (tva_siren_registrations) et lu côté UI, mais n'était JAMAIS transmis
+    au moteur de calcul — il ne servait qu'à désactiver le toggle
+    `apply_fr_under_threshold` dans la barre latérale si les deux étaient
+    cochés simultanément, ce qui ne change rien pour un utilisateur restant
+    sur la valeur par défaut (apply_fr_under_threshold=False). Or,
+    fiscalement, un dépassement l'année précédente impose la taxation à
+    destination (OSS) dès la 1ère vente de l'année en cours, sans attendre
+    un nouveau franchissement du cumul cette année — ce que l'ancien code
+    ne faisait jamais respecter. Le paramètre est maintenant utilisé pour
+    "pré-charger" le cumul de la toute première année rencontrée dans le
+    fichier (au-dessus du seuil), forçant l'éligibilité OSS dès la
+    première vente cross-border de cette année.
 
     Traite ventes ET avoirs en une seule passe (voir compute_all_with_vies).
 
@@ -984,6 +1051,11 @@ def _run_oss_loop(
     # fichier de plusieurs dizaines de milliers de lignes.
     _OSS_PROGRESS_TICK_EVERY = 500
 
+    # Ne s'applique qu'à la toute première année civile rencontrée dans le
+    # fichier trié chronologiquement (voir docstring ci-dessus) — les
+    # années suivantes repartent normalement de leur propre cumul.
+    _prev_year_flag_applied = False
+
     for _idx, sale in enumerate(sorted_items, start=1):
         is_from_refunds = _sale_key(sale) in refund_keys
         product_asin = getattr(sale, "asin", "")
@@ -998,6 +1070,9 @@ def _run_oss_loop(
                 oss_ht_by_year[current_year] = cumulative_oss_ht
             current_year = year
             cumulative_oss_ht = oss_ht_by_year.get(year, Decimal("0.00"))
+            if oss_threshold_exceeded_prev_year and not _prev_year_flag_applied:
+                cumulative_oss_ht = max(cumulative_oss_ht, Decimal("10000.01"))
+                _prev_year_flag_applied = True
 
         effective_sale = (
             effective_sale_fn(sale, product_category)
@@ -1092,6 +1167,7 @@ def compute_all_with_vies(
         symbol: str = "€",
         ioss_own_number_active: bool = False,
         oss_period: str = "",
+        oss_threshold_exceeded_prev_year: bool = False,
 ) -> tuple[list[VatResult], list[VatResult], ViesValidationSummary, OssThresholdSummary]:
     """Calcule la TVA avec validation VIES en gérant le seuil de 10 000 € OSS.
 
@@ -1466,6 +1542,7 @@ def compute_all_with_vies(
         ioss_own_number_active=ioss_own_number_active,
         oss_period=oss_period,
         progress_callback=oss_progress_callback,
+        oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
     )
 
     # Mise à jour des montants TVA évités dans les reclassifications
