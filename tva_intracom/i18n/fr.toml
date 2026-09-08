@@ -1188,6 +1188,7 @@ vies_manual_class_title = "🔎 Classifier manuellement les numéros non vérifi
 vies_manual_class_caption = "Indiquez Valide (B2B exonéré) ou Invalide (B2C, TVA due) pour chaque numéro non vérifié."
 vies_manual_class_not_classified = "⏳ Non classifié"
 vies_manual_class_status = "Statut"
+vies_manual_class_never_verified = "Jamais vérifié par le serveur"
 vies_manual_class_nums_classified = "**{count} / {total}** numéros classifiés manuellement."
 vies_manual_class_apply_btn = "💾 Appliquer les classifications et recalculer"
 vies_manual_class_success = "Classification appliquée — recalcul en cours…"

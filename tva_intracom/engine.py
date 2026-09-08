@@ -1225,8 +1225,18 @@ def compute_all_with_vies(
 
     def _is_uncertain(vr) -> bool:
         """Un résultat VIES est \"incertain\" (à traiter comme B2C par sécurité,
-        avec motif affiché) s'il s'agit d'une erreur transitoire explicite."""
-        return _vies_is_unreliable(vr)
+        avec motif affiché) s'il s'agit d'une erreur transitoire explicite,
+        OU d'un repli sur cache périmé (stale_fallback) suite à un downgrade
+        suspect détecté côté vies_engine (numéro précédemment VALIDE devenu
+        impossible à reconfirmer depuis l'expiration du TTL — voir
+        check_vat_raw / validate_vat_numbers_parallel, _is_downgrade).
+        BUGFIX (2026-09-08) : `stale_fallback` n'était vérifié nulle part
+        avant ce correctif, alors que le champ existe précisément pour ça
+        (voir sa docstring dans vies_engine.py) — un tel numéro restait donc
+        traité comme VALIDE indéfiniment (`getattr(vr, "valid", False)`
+        primait dans tous les appelants), sans jamais remonter en \"non
+        vérifié\" ni permettre de classification manuelle."""
+        return _vies_is_unreliable(vr) or getattr(vr, "stale_fallback", False)
 
     vies_summary = ViesValidationSummary()
 
@@ -1412,6 +1422,28 @@ def compute_all_with_vies(
                 vies_summary.manual_valid_count += 1
             else:
                 vies_summary.manual_invalid_count += 1
+        elif getattr(vr, "stale_fallback", False):
+            # BUGFIX (2026-09-08) : ce cas DOIT être testé avant `vr.valid`
+            # (ci-dessous) — un résultat stale_fallback conserve `valid=True`
+            # (dernier statut automatique connu, affiché à l'utilisateur)
+            # mais ne doit PLUS être compté/traité comme une vérification
+            # automatique fiable : voir docstring de ViesResult.stale_fallback
+            # et de _is_uncertain ci-dessus. `stale_fallback_count` existe
+            # déjà sur ViesValidationSummary (models.py) mais n'était jamais
+            # incrémenté nulle part avant ce correctif.
+            vies_summary.stale_fallback_count += 1
+            vies_summary.inconclusive_vats.append(fv)
+            vies_summary.inconclusive_vat_details.append({
+                "vat": fv,
+                "country": fv[:2] if len(fv) >= 2 and fv[:2].isalpha() else "",
+                "sale_ids": vat_to_sale_ids.get(fv, []),
+                "reason": "stale_fallback",
+                # Dernier statut automatique connu et sa date, pour aider
+                # l'utilisateur à décider d'une classification manuelle
+                # (voir render_manual_vies_classification, colonne dédiée).
+                "last_auto_status": bool(getattr(vr, "valid", False)),
+                "last_checked_at": getattr(vr, "checked_at", "") or "",
+            })
         elif getattr(vr, "valid", False):
             vies_summary.valid_count += 1
         elif _vies_is_unreliable(vr):
@@ -1422,6 +1454,8 @@ def compute_all_with_vies(
                 "country": fv[:2] if len(fv) >= 2 and fv[:2].isalpha() else "",
                 "sale_ids": vat_to_sale_ids.get(fv, []),
                 "reason": "inconclusive",
+                "last_auto_status": None,
+                "last_checked_at": "",
             })
         else:
             vies_summary.invalid_count += 1
@@ -1491,11 +1525,17 @@ def compute_all_with_vies(
         full_vat = sale_vat_index.get((sale.sale_id, sale.buyer_vat_number), "")
         vies_res = checked_vats.get(full_vat) if full_vat else None
 
-        # Un résultat VIES n'est valide que si valid=True.
-        is_valid = bool(getattr(vies_res, "valid", False)) if vies_res else False
+        # Un résultat VIES n'est valide que si valid=True ET qu'il ne s'agit
+        # pas d'un repli sur cache périmé (stale_fallback) — voir BUGFIX
+        # 2026-09-08 : un stale_fallback conserve vr.valid=True (dernier
+        # statut automatique connu, à but informatif uniquement) mais ne doit
+        # plus déclencher l'autoliquidation B2B tant qu'il n'a pas été
+        # reconfirmé par VIES ou classifié manuellement.
+        _is_stale = bool(getattr(vies_res, "stale_fallback", False)) if vies_res else False
+        is_valid = bool(getattr(vies_res, "valid", False)) and not _is_stale if vies_res else False
         is_inconclusive = (
                 vies_res is not None and not is_valid
-                and _vies_is_unreliable(vies_res)
+                and (_vies_is_unreliable(vies_res) or _is_stale)
         )
 
         if is_valid:
@@ -1506,7 +1546,9 @@ def compute_all_with_vies(
             # On l'ajoute à la liste des anomalies VIES pour affichage dans l'onglet VIES,
             # même si on ne change pas forcément le type en B2C.
             reason = "Numéro invalide ou introuvable"
-            if is_inconclusive:
+            if _is_stale:
+                reason = "Revalidation VIES impossible depuis expiration du TTL (à classifier manuellement)"
+            elif is_inconclusive:
                 reason = "Service VIES indisponible (incertain)"
 
             if not is_refund:

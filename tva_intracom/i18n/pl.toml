@@ -1187,6 +1187,7 @@ vies_manual_class_title = "🔎 Ręczna klasyfikacja niezweryfikowanych numerów
 vies_manual_class_caption = "Wskaż czy numer jest Ważny (zwolnienie B2B) czy Nieważny (sprzedaż B2C, VAT należny) dla każdego niezweryfikowanego numeru."
 vies_manual_class_not_classified = "⏳ Niesklasyfikowane"
 vies_manual_class_status = "Status"
+vies_manual_class_never_verified = "Nigdy nie zweryfikowane przez serwer"
 vies_manual_class_nums_classified = "Ręcznie sklasyfikowano **{count} / {total}** numerów."
 vies_manual_class_apply_btn = "💾 Zastosuj klasyfikacje i przelicz ponownie"
 vies_manual_class_success = "Klasyfikacja zastosowana — ponowne obliczanie..."

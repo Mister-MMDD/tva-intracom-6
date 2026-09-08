@@ -57,23 +57,43 @@ def test_build_fec_rows_balanced_full_refund_bucket():
     assert debit_total == credit_total
 
 
-def test_build_fec_rows_no_vat_line_when_individual_vat_amount_negative():
-    """Un VatResult avec vat_amount <= 0 (cas dégénéré, ne devrait pas
-    survenir avec un vrai moteur puisque vat_amount = round(amount_ht *
-    rate/100) et amount_ht > 0 pour une vente) n'obtient aucun compte de
-    TVA (_vat_account_for retourne "") : il est donc filtré de la ligne
-    TVA plutôt que de risquer de fausser le signe agrégé du bucket. Le
-    montant HT associé n'en est pas moins comptabilisé et l'écriture reste
-    équilibrée (via le compte client uniquement pour cette ligne)."""
+def test_build_fec_rows_vat_line_present_when_individual_vat_amount_negative():
+    """BUGFIX (2026-09-08) : un avoir isolé (vat_amount < 0, ex: remboursement
+    d'une vente d'une période antérieure) doit obtenir le MÊME compte de TVA
+    qu'une vente équivalente (_vat_account_for ne doit exclure que le montant
+    exactement nul, pas tout montant <= 0). La ligne de TVA (4457100) doit
+    donc apparaître, au débit puisque net_vat est négatif, pour permettre la
+    récupération de TVA sur ce retour."""
     results = [
-        _make_result("S1", Decimal("50.00"), Decimal("-0.01")),
+        _make_result("R1", Decimal("-50.00"), Decimal("-10.00")),
     ]
     rows = build_fec_rows(results, period="2026-Q2", ecriture_date="20260630")
     debit_total, credit_total = _debit_credit_totals(rows)
     assert debit_total == credit_total
-    assert not any(r[4] == "4457100" for r in rows)  # aucune ligne TVA générée
+    vat_line = next(r for r in rows if r[4] == "4457100")  # doit exister
+    assert Decimal(vat_line[11]) == Decimal("10.00") and Decimal(vat_line[12]) == Decimal("0.00")
     sale_line = next(r for r in rows if r[4] == "7071000")
-    assert Decimal(sale_line[12]) == Decimal("50.00") and Decimal(sale_line[11]) == Decimal("0.00")
+    assert Decimal(sale_line[11]) == Decimal("50.00") and Decimal(sale_line[12]) == Decimal("0.00")
+
+
+def test_build_fec_rows_refund_nets_with_sale_in_same_bucket():
+    """Une vente et un avoir du même groupe (période/scénario/pays/taux)
+    doivent désormais tomber dans le MÊME bucket _AggKey (même
+    channel_account) et se compenser dans une seule ligne de TVA nette,
+    plutôt que l'avoir étant silencieusement exclu de toute ligne TVA."""
+    results = [
+        _make_result("S1", Decimal("100.00"), Decimal("20.00")),
+        _make_result("R1", Decimal("-50.00"), Decimal("-10.00")),
+    ]
+    rows = build_fec_rows(results, period="2026-Q2", ecriture_date="20260630")
+    debit_total, credit_total = _debit_credit_totals(rows)
+    assert debit_total == credit_total
+    # Une seule écriture (un seul bucket) puisque vente + avoir partagent
+    # désormais le même channel_account.
+    assert {r[2] for r in rows} == {"1"}
+    vat_line = next(r for r in rows if r[4] == "4457100")
+    # Net TVA = 20.00 - 10.00 = 10.00, côté crédit (net positif).
+    assert Decimal(vat_line[12]) == Decimal("10.00") and Decimal(vat_line[11]) == Decimal("0.00")
 
 
 def test_assert_balanced_raises_on_mismatch():

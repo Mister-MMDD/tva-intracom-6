@@ -1187,6 +1187,7 @@ vies_manual_class_title = "🔎 Classificar manualmente números não verificado
 vies_manual_class_caption = "Indique Válido (B2B isento) ou Inválido (B2C, IVA devido) para cada número não verificado."
 vies_manual_class_not_classified = "⏳ Não classificado"
 vies_manual_class_status = "Estado"
+vies_manual_class_never_verified = "Nunca verificado pelo servidor"
 vies_manual_class_nums_classified = "**{count} / {total}** números classificados manualmente."
 vies_manual_class_apply_btn = "💾 Aplicar classificações e recalcular"
 vies_manual_class_success = "Classificação aplicada — a recalcular..."

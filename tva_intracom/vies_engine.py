@@ -70,7 +70,7 @@ from functools import lru_cache
 # on ajoute juste un acquire/release autour de l'appel réseau lui-même.
 _VIES_GLOBAL_CONCURRENCY_LIMIT = 25
 _vies_global_semaphore = threading.BoundedSemaphore(_VIES_GLOBAL_CONCURRENCY_LIMIT)
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -1642,9 +1642,22 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
         if cached is not None and _is_downgrade(cached, res):
             logger.warning(
                 "VIES : %s précédemment VALIDE reçoit une réponse vide — "
-                "résultat ignoré, ancienne valeur conservée.", norm,
+                "reclassé en non-vérifié (stale_fallback), dernière validation "
+                "automatique connue conservée pour information.", norm,
             )
-            return cached
+            # BUGFIX (2026-09-08) : on ne renvoie plus `cached` tel quel — cela
+            # faisait perdurer indéfiniment un statut VALIDE dans les calculs
+            # (autoliquidation B2B) alors que le numéro n'a plus pu être
+            # reconfirmé depuis l'expiration du TTL, SANS jamais remonter
+            # dans la liste "non vérifiés" ni permettre de classification
+            # manuelle. On renvoie une copie marquée `stale_fallback=True` :
+            # engine.py la traite alors comme un inconclusif classique (B2C
+            # par défaut / autoliquidation suspendue), elle apparaît dans
+            # `inconclusive_vats`, ET conserve `valid`/`checked_at` d'origine
+            # pour informer l'utilisateur du dernier statut automatique connu
+            # et de sa date, afin de faciliter sa décision de classification
+            # manuelle (voir render_manual_vies_classification).
+            return replace(cached, stale_fallback=True)
 
         # Vérification automatique fiable → mutualisée dans le cache global
         # ET dans le cache privé du scope (jamais l'inverse pour les overrides
@@ -1801,9 +1814,12 @@ def validate_vat_numbers_parallel(
             if prev is not None and _is_downgrade(prev, result):
                 logger.warning(
                     "VIES : %s précédemment VALIDE reçoit une réponse vide — "
-                    "résultat ignoré, ancienne valeur conservée.", norm_id,
+                    "reclassé en non-vérifié (stale_fallback), dernière validation "
+                    "automatique connue conservée pour information.", norm_id,
                 )
-                results[orig_id] = prev
+                # BUGFIX (2026-09-08) : voir commentaire équivalent dans
+                # check_vat_raw — même correctif ici pour la voie batch.
+                results[orig_id] = replace(prev, stale_fallback=True)
                 continue
 
             to_write_global.append((norm_id, result))

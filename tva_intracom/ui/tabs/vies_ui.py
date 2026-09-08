@@ -42,9 +42,12 @@ def render_manual_vies_classification() -> None:
     _details = getattr(vies_summary, "inconclusive_vat_details", None)
     if _details:
         _inc_entries = [{"vat": d["vat"], "country": d.get("country", d["vat"][:2]),
-            "sale_ids": (d.get("display_ids") or d.get("sale_ids", []))} for d in _details]
+            "sale_ids": (d.get("display_ids") or d.get("sale_ids", [])),
+            "last_auto_status": d.get("last_auto_status"),
+            "last_checked_at": d.get("last_checked_at", "")} for d in _details]
     else:
-        _inc_entries = [{"vat": v, "country": v[:2], "sale_ids": []}
+        _inc_entries = [{"vat": v, "country": v[:2], "sale_ids": [],
+            "last_auto_status": None, "last_checked_at": ""}
             for v in vies_summary.inconclusive_vats]
     _overrides: dict = st.session_state.get("_vies_manual_overrides", {})
 
@@ -58,8 +61,24 @@ def render_manual_vies_classification() -> None:
                 _label += f" — vente(s) : {', '.join(_sale_ids[:3])}"
                 if len(_sale_ids) > 3: _label += f" +{len(_sale_ids)-3}"
             _current = _overrides.get(_vat, _("vies_manual_class_not_classified"))
-            _col_label, _col_sel, _col_badge = st.columns([3, 2, 1])
+
+            # Dernier statut de vérification AUTOMATIQUE connu (avant que le
+            # numéro ne devienne un stale_fallback/repli sur TTL expiré) +
+            # sa date, pour aider au choix de classification manuelle.
+            # "N/A"/"jamais vérifié" pour un numéro qui n'a jamais eu de
+            # vérification automatique réussie (inconclusive classique).
+            _last_status = _entry.get("last_auto_status")
+            _last_checked = (_entry.get("last_checked_at") or "")[:10]
+            if _last_status is None:
+                _last_status_lbl = _("vies_manual_class_never_verified")
+            else:
+                _last_status_lbl = _("manual_valid") if _last_status else _("manual_invalid")
+                if _last_checked:
+                    _last_status_lbl += f" ({_last_checked})"
+
+            _col_label, _col_last, _col_sel, _col_badge = st.columns([3, 2, 2, 1])
             _col_label.markdown(_label)
+            _col_last.caption(_last_status_lbl)
             _choice = _col_sel.selectbox(_("vies_manual_class_status"),
                 options=[_("vies_manual_class_not_classified"), _("manual_valid"), _("manual_invalid")],
                 index=[_("vies_manual_class_not_classified"), _("manual_valid"), _("manual_invalid")].index(_current),

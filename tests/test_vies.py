@@ -9,7 +9,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tva_intracom import BuyerType, Sale, Scenario, compute_all_with_vies
-from tva_intracom.vies_engine import ViesResult, _clean_vat_number, check_vat, check_vat_raw
+from tva_intracom.vies_engine import (
+    ViesResult, _clean_vat_number, check_vat, check_vat_raw, _is_downgrade,
+)
 
 
 def test_clean_vat_number_standard():
@@ -80,6 +82,67 @@ def test_check_vat_raw_valid(mock_urlopen_func):
     mock_urlopen_func.return_value = _mock_urlopen(valid=True)
     result = check_vat_raw("test", "DE123456789")
     assert result.valid is True
+
+
+def test_is_downgrade_detects_valid_to_empty():
+    """Numero precedemment VALIDE qui revient vide sans erreur -> downgrade
+    suspect (potentielle panne VIES, voir incident du 31/07/2026)."""
+    previous = ViesResult(valid=True, country_code="DE", vat_number="123456789", name="Firma GmbH")
+    new_empty = ViesResult(valid=False, country_code="DE", vat_number="123456789")
+    assert _is_downgrade(previous, new_empty) is True
+
+
+def test_is_downgrade_false_when_new_result_has_error():
+    """Une vraie erreur (transitoire) n'est pas un downgrade silencieux :
+    elle est deja geree par _is_unreliable / le mecanisme de retry."""
+    previous = ViesResult(valid=True, country_code="DE", vat_number="123456789", name="Firma GmbH")
+    new_error = ViesResult(valid=False, country_code="DE", vat_number="123456789", error="timeout")
+    assert _is_downgrade(previous, new_error) is False
+
+
+def test_is_downgrade_false_when_previous_was_invalid():
+    """Un numero deja invalide qui reste vide n'est pas un downgrade."""
+    previous = ViesResult(valid=False, country_code="DE", vat_number="123456789")
+    new_empty = ViesResult(valid=False, country_code="DE", vat_number="123456789")
+    assert _is_downgrade(previous, new_empty) is False
+
+
+@patch("tva_intracom.vies_engine.check_vat_raw")
+def test_compute_all_with_vies_stale_fallback_not_treated_as_valid(mock_check):
+    """BUGFIX (2026-09-08) : un ViesResult stale_fallback=True (repli suite a
+    un downgrade detecte cote vies_engine, TTL expire + reponse vide) NE DOIT
+    PLUS declencher l'autoliquidation B2B, meme si son champ `valid` (dernier
+    statut automatique connu) vaut True. Il doit etre traite comme un
+    inconclusif : pas de reclassification en B2C, mais TVA au depart (pas
+    d'OSS), et remonter dans stale_fallback_count / inconclusive_vats pour
+    apparaitre dans la liste de classification manuelle."""
+    mock_check.return_value = ViesResult(
+        valid=True, country_code="DE", vat_number="123456789",
+        name="Firma GmbH", checked_at="2026-08-20T10:00:00+00:00",
+        stale_fallback=True,
+    )
+    sales = [
+        Sale(
+            sale_id="T3",
+            amount_ht=Decimal("200"),
+            buyer_type=BuyerType.B2B,
+            stock_country="FR",
+            buyer_country="DE",
+            buyer_vat_number="DE123456789",
+            buyer_vat_valid=True,
+        ),
+    ]
+    results, _refund_results, vies_summary, _ = compute_all_with_vies(sales, scope_id="test")
+    assert len(results) == 1
+    r = results[0]
+    # Pas d'autoliquidation tant que non reconfirme / non classifie manuellement.
+    assert r.scenario != Scenario.B2B_REVERSE_CHARGE
+    assert vies_summary.stale_fallback_count == 1
+    assert "DE123456789" in vies_summary.inconclusive_vats
+    _detail = next(d for d in vies_summary.inconclusive_vat_details if d["vat"] == "DE123456789")
+    assert _detail["reason"] == "stale_fallback"
+    assert _detail["last_auto_status"] is True
+    assert _detail["last_checked_at"] == "2026-08-20T10:00:00+00:00"
 
 
 @patch("tva_intracom.vies_engine.check_vat_raw")

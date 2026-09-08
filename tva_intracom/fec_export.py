@@ -100,7 +100,17 @@ def _vat_account_for(result: VatResult) -> str:
     """
     if result.collector != Collector.SELLER:
         return ""
-    if result.vat_amount <= Decimal("0.00"):
+    # BUGFIX (2026-09-08) : `<= 0` confondait à tort les avoirs (montants
+    # négatifs, TVA bien due mais à recréditer) avec les cas où le vendeur
+    # ne doit réellement collecter aucune TVA (exonération, taux 0%), pour
+    # lesquels vat_amount vaut exactement 0. Un avoir isolé (vat_amount < 0)
+    # se voyait attribuer channel_account="" et atterrissait donc dans un
+    # bucket _AggKey différent de la vente correspondante (même période,
+    # scénario, pays, taux) au lieu de s'y compenser — sa ligne de TVA FEC
+    # (4457xxx) était alors purement omise (has_vat_line=False), rendant
+    # l'écriture déséquilibrée et empêchant la récupération de TVA sur les
+    # retours. Seul le montant exactement nul doit être exclu.
+    if result.vat_amount == Decimal("0.00"):
         return ""
     if result.scenario == Scenario.IOSS_DIRECT:
         return ACCOUNTS["TVA_COLLECTEE_IOSS"]
