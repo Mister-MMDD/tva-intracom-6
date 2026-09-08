@@ -3,6 +3,15 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import asyncio
+
+# Correctif pour [WinError 10022] sur Windows avec asyncio/Streamlit
+if sys.platform == 'win32':
+    try:
+        from asyncio import WindowsSelectorEventLoopPolicy
+        asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+    except ImportError:
+        pass
 
 sys.path.insert(0, str(Path(__file__).parent))
 
