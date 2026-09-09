@@ -281,8 +281,8 @@ def render_vies(ctx: TabContext) -> None:
             delta=f"{vies_summary.total_not_auto_verified}" if vies_summary.total_not_auto_verified else None, delta_color="off")
         v5.metric(_("vies_kpi_recovered_vat"), f"{float(vies_summary.fraud_avoided_amount):,.2f} €")
 
-        if vies_summary.total_inconclusive > 0:
-            st.warning(_("vies_unverified_warning", count=vies_summary.total_inconclusive))
+        if vies_summary.inconclusive_vats:
+            st.warning(_("vies_unverified_warning", count=len(vies_summary.inconclusive_vats)))
 
             # ── Ré-essai VIES automatique en arrière-plan ────────────────
             # Déclenché UNIQUEMENT ici (juste après un calcul qui laisse des

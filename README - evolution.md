@@ -7593,3 +7593,73 @@ Fichiers modifiés : `tva_intracom/engine.py`, `app.py`,
 `tva_intracom/billing.py`, `tva_intracom/ca3_report.py`,
 `tva_intracom/local_vat_report.py`, `tva_intracom/ui/auth_flow.py`,
 `tests/test_bugfixes_2026_09_09.py`, `tests/test_oss_rate_prefetch.py`.
+
+## 2026-09-10
+
+**1. VIES : "jamais vérifié" affiché à tort pour un numéro ayant un
+historique de vérification** (`vies_engine.py`, `check_vat_raw`) : quand le
+cache d'un numéro est expiré (TTL dépassé) ET que l'appel VIES de
+revalidation échoue (service indisponible/timeout), le code renvoyait le
+résultat brut non fiable (`res`) sans se soucier du cache expiré
+(`cached`) — perdant totalement le dernier statut automatique connu. Le
+numéro apparaissait comme "jamais vérifié par le serveur" dans la zone de
+classification manuelle alors qu'un historique de vérification existe bien
+en base (visible dans le certificat VIES téléchargeable). Corrigé en
+appliquant le même traitement que le cas "downgrade" déjà existant : si
+`cached` existe, renvoi de `replace(cached, stale_fallback=True)` au lieu
+du résultat brut — conserve `valid`/`checked_at` d'origine pour l'affichage
+du dernier statut connu, sans jamais faire perdurer un statut VALIDE dans
+les calculs (toujours traité comme B2C par défaut / autoliquidation
+suspendue par `engine.py`). La politique de sécurité d'origine ("pas de
+repli sur cache périmé pour les calculs") reste intacte ; seule
+l'information affichée à l'utilisateur est restaurée. Si aucun cache
+n'existe (numéro réellement jamais vérifié), comportement inchangé.
+
+**2. VIES : la zone de classification manuelle des numéros non vérifiés
+disparaissait après un changement de SIREN** (`ui/tabs/vies_ui.py`) : la
+condition d'affichage de cette zone testait `total_inconclusive` seul
+(compteur des inconclusifs classiques), qui n'inclut PAS les replis
+`stale_fallback` (cache périmé + VIES indisponible) — contrairement au KPI
+juste au-dessus qui utilise déjà `total_not_auto_verified` pour cette même
+raison (voir commentaire existant). Conséquence observée : upload sur un
+compte cabinet avec le mauvais SIREN → zone visible (vrais inconclusifs,
+scope neuf sans historique) ; clic sur le changement de SIREN proposé vers
+le bon compte (qui a un historique VIES réel, donc `stale_fallback` plutôt
+qu'inconclusif classique) → zone masquée à tort, alors même que le KPI
+juste au-dessus indiquait un compte non nul. Corrigé en alignant la
+condition d'affichage (et le compteur du message d'avertissement) sur le
+contenu effectif de `vies_summary.inconclusive_vats`, qui est alimenté par
+les deux cas (inconclusif classique + stale_fallback, voir `engine.py`),
+plutôt que sur le seul compteur `inconclusive_count`.
+
+**3. Taux de change ECB — investigation (aucune correction de code)** :
+deux points signalés, tous deux non-bugs après analyse du code réel.
+- `CERTIFICATE_VERIFY_FAILED` : erreur SSL locale uniquement (poste de dev,
+  magasin de certificats système obsolète/absent, éventuel proxy
+  d'entreprise). `ecb_rates.py` fait un `urlopen` standard sans contexte
+  SSL explicite (dépend du store système) — confirmé absent des logs
+  Streamlit Cloud (image avec `ca-certificates` à jour). Aucune action
+  requise côté code ; pas de risque en production.
+- Rappel apparent de l'API alors que "le taux était déjà connu" :
+  ce n'est pas une redondance mais deux caches légitimement distincts et
+  volontairement séparés depuis le correctif du 2026-09-09 (non-conformité
+  art. 5 bis) : `prefetch_rates()`/`get_rate()` (recherche EN ARRIÈRE,
+  cache mémoire + DB persistée, utilisé à l'import par les parsers) et
+  `prefetch_closing_rates()`/`get_closing_rate()` (recherche EN AVANT,
+  cache mémoire seul, utilisé à l'export OSS/IOSS pour la date de clôture
+  légale). Une même paire (devise, date) peut légitimement donner deux
+  valeurs différentes selon le sens de recherche — mutualiser les deux
+  caches serait donc incorrect au regard de l'art. 5 bis, pas une
+  optimisation valide. Le "déjà vu dans les logs" correspond au cache
+  arrière (import), le nouvel appel API au cache avant (export), sans
+  rapport de cause à effet entre les deux. Aucun changement de code
+  proposé ; documenté ici pour éviter une ré-investigation future.
+
+**Tests** : suite complète relancée après les points 1 et 2 : 275 passed /
+4 failed — même 4 échecs `SUPABASE_DB_URL` que sur un clone vierge de `dev`
+(comparaison faite dans ce sandbox), aucune régression. `py_compile` +
+`pyflakes` propres sur les deux fichiers modifiés. Symétrie i18n vérifiée
+programmatiquement : 1229 clés × 7 langues, inchangée (aucune nouvelle clé).
+
+Fichiers modifiés : `tva_intracom/vies_engine.py`,
+`tva_intracom/ui/tabs/vies_ui.py`.

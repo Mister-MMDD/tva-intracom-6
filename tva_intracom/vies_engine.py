@@ -1659,8 +1659,32 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
         res = check_vat_with_retry(cc, num, timeout=timeout)
 
         if _is_unreliable(res):
-            # On ne fait plus de repli sur le cache périmé même si VIES est
-            # indisponible (décision : sécurité B2C par défaut).
+            if cached is not None:
+                # BUGFIX (2026-09-09) : auparavant on renvoyait `res` (résultat
+                # brut non fiable) sans se soucier de `cached`, ce qui perdait
+                # le dernier statut automatique connu — le numéro apparaissait
+                # comme "jamais vérifié" dans render_manual_vies_classification
+                # alors qu'un historique de vérification existe bien en base
+                # (visible dans le certificat VIES téléchargeable). On applique
+                # ici exactement le même traitement que le cas "downgrade"
+                # ci-dessous : `stale_fallback=True` conserve `valid`/
+                # `checked_at` d'origine pour l'affichage, SANS jamais faire
+                # perdurer un statut VALIDE dans les calculs (engine.py traite
+                # stale_fallback comme un inconclusif classique — B2C par
+                # défaut / autoliquidation suspendue). La politique de
+                # sécurité "pas de repli sur cache périmé pour les calculs"
+                # (décision d'origine) reste donc intacte ; seule l'info
+                # affichée à l'utilisateur est restaurée.
+                logger.warning(
+                    "VIES : %s expiré (TTL dépassé) et service VIES "
+                    "indisponible — reclassé en non-vérifié (stale_fallback), "
+                    "dernière validation automatique connue conservée pour "
+                    "information.", norm,
+                )
+                return replace(cached, stale_fallback=True)
+            # Pas de cache du tout (numéro jamais vérifié) : on ne peut rien
+            # proposer de mieux que le résultat brut non fiable (sécurité B2C
+            # par défaut, comportement inchangé).
             return res
 
         if cached is not None and _is_downgrade(cached, res):
