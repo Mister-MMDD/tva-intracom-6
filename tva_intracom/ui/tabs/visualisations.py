@@ -372,7 +372,9 @@ def render_visualisations() -> None:
     with ch1:
         st.subheader(_("viz_repartition_you_market_subheader", platform=platform_name))
         fig_pie = _build_fig_pie(
-            float(summary.total_you_owe), float(summary.amazon_vat), float(summary.import_vat),
+            float(summary.total_you_owe),
+            float(summary.amazon_vat + summary.refund_amazon_vat),
+            float(summary.import_vat + summary.refund_import_vat),
             _rate, _currency_symbol, platform_name, _lang, ctx.calc_key,
         )
         if fig_pie is not None:

@@ -152,11 +152,12 @@ if st.query_params.get("export_ok") == "1":
     # st.cache_data global de get_subscription_status. Mais billing_gate.py
     # relit ce même statut via `_cached_db_read("sub_status_{org_id}", ...)`
     # (ui/sidebar.py), qui mémoïse SA PROPRE copie en session_state pendant
-    # jusqu'à _DB_CACHE_TTL_SECONDS (20s) — un utilisateur PAYG revenant de
-    # Stripe pouvait donc rester bloqué sur l'écran de paiement jusqu'à
-    # expiration de ce second cache, non affecté par le clear() ci-dessus.
-    # On invalide explicitement cette clé de cache également.
-    _invalidate_db_cache(f"sub_status_{_current_user.org_id}")
+    # jusqu'à _DB_CACHE_TTL_SECONDS (20s). On invalide explicitement toutes
+    # les clés de cache session_state liées aux droits et quotas pour une
+    # réactivité immédiate après paiement.
+    _oid = _current_user.org_id
+    for _key in [f"sub_status_{_oid}", f"siren_quota_{_oid}", f"sirens_{_oid}", f"credits_{_oid}", f"account_status_{_oid}"]:
+        _invalidate_db_cache(_key)
     st.query_params.pop("export_ok", None)
 
 # NOTE : le mécanisme applicatif de "veille" (détection d'inactivité côté

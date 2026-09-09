@@ -138,12 +138,15 @@ def _asin_avg_price_and_category(results: List[VatResult]) -> tuple[Dict[str, De
             category[asin] = getattr(r.sale, "product_category", "") or "STANDARD"
         amt = r.sale.amount_ht
         if amt > Decimal("0"):
-            prev_sum, prev_count = totals.get(asin, (Decimal("0"), 0))
-            totals[asin] = (prev_sum + amt, prev_count + 1)
+            qty = getattr(r.sale, "quantity", 1) or 1
+            if qty <= 0:
+                qty = 1
+            prev_sum, prev_qty = totals.get(asin, (Decimal("0"), 0))
+            totals[asin] = (prev_sum + amt, prev_qty + qty)
     avg_price = {
-        asin: total / Decimal(count)
-        for asin, (total, count) in totals.items()
-        if count
+        asin: total / Decimal(qty)
+        for asin, (total, qty) in totals.items()
+        if qty
     }
     return avg_price, category
 
