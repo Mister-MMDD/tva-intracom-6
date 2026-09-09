@@ -809,7 +809,8 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                     currency: str = "EUR", symbol: str = "€",
                     oss_period: str = "", tx_date: _date | None = None,
                     rate_cache: dict | None = None,
-                    is_refund: bool = False) -> VatResult:
+                    is_refund: bool = False,
+                    already_crossed: bool = False) -> VatResult:
     """Applique la logique du seuil OSS à un VatResult déjà calculé.
 
     `oss_period` : période de déclaration (ex. "2024-Q1", ou "__auto__"/vide
@@ -839,6 +840,25 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     passage du seuil) ne s'applique quant à elle qu'aux ventes — un avoir ne
     "franchit" jamais le seuil, il ne fait qu'annuler une vente déjà
     classée.
+
+    `already_crossed` : BUGFIX (2026-09-10, seuil OSS définitivement
+    franchi) — le cumul `cumulative` transmis ici est NET (ventes+avoirs,
+    voir `_run_oss_loop`). Un gros avoir peut donc faire redescendre ce
+    cumul net sous 10 000 € en cours d'année. Le seuil de l'art. 59 ter
+    Dir. 2006/112/CE (transposé art. 259 D CGI), une fois franchi, reste
+    acquis pour le RESTE DE L'ANNÉE CIVILE — un avoir ne permet jamais de
+    "redescendre" fiscalement sous le seuil. Sans ce paramètre, une vente
+    suivant un avoir ayant fait repasser le cumul net sous 10 000 € était
+    reclassée à tort en régime DOMESTIC (TVA du pays vendeur) au lieu du
+    régime OSS (TVA du pays de destination) — risque de redressement
+    fiscal majeur. `already_crossed` est calculé par l'appelant
+    (`_run_oss_loop`) via un high-water mark annuel (jamais réinitialisé
+    par un avoir, seulement au changement d'année civile) et, quand vrai,
+    empêche à la fois la branche "sous le seuil" et la branche
+    "franchissement" ci-dessous : la vente conserve alors le régime OSS
+    déjà calculé par `compute_vat` (retour `res` inchangé en fin de
+    fonction), cohérent avec le fait que le seuil a déjà été franchi plus
+    tôt dans l'année.
     """
     if lang is None:
         lang = _resolve_lang()
@@ -848,7 +868,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     prev_cumul = cumulative - sale.amount_ht
     _threshold_test_value = prev_cumul if is_refund else cumulative
 
-    if _threshold_test_value <= Decimal("10000.00"):
+    if not already_crossed and _threshold_test_value <= Decimal("10000.00"):
         origin_country = sale.seller_country
         _oss_tx_date = tx_date
         if _oss_tx_date is None and sale.transaction_date:
@@ -875,7 +895,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
                 cumulative=_cumul_disp, limit=_limit_disp, currency=_sym_disp,
             ),
         )
-    elif not is_refund and prev_cumul <= Decimal("10000.00"):
+    elif not is_refund and not already_crossed and prev_cumul <= Decimal("10000.00"):
         # Cette vente est celle qui franchit le seuil : alerte. Jamais pour
         # un avoir (voir docstring ci-dessus, BUGFIX point #3) — il retombe
         # alors dans le `return res` final, conservant le régime OSS déjà
@@ -1071,6 +1091,15 @@ def _run_oss_loop(
     # années suivantes repartent normalement de leur propre cumul.
     _prev_year_flag_applied = False
 
+    # BUGFIX (2026-09-10, seuil OSS définitivement franchi, voir docstring
+    # de `_build_oss_note` / `already_crossed`) : drapeau monotone par
+    # année civile, jamais remis à False par un avoir (contrairement au
+    # cumul net `cumulative_oss_ht` lui-même) — seulement au changement
+    # d'année. Repart forcément à True dès la 1ère ligne d'une année si
+    # `oss_threshold_exceeded_prev_year` a préchargé le cumul au-dessus du
+    # seuil (voir bloc de changement d'année ci-dessous).
+    _oss_threshold_crossed_this_year = False
+
     for _idx, sale in enumerate(sorted_items, start=1):
         is_from_refunds = _sale_key(sale) in refund_keys
         product_asin = getattr(sale, "asin", "")
@@ -1085,9 +1114,11 @@ def _run_oss_loop(
                 oss_ht_by_year[current_year] = cumulative_oss_ht
             current_year = year
             cumulative_oss_ht = oss_ht_by_year.get(year, Decimal("0.00"))
+            _oss_threshold_crossed_this_year = cumulative_oss_ht > Decimal("10000.00")
             if oss_threshold_exceeded_prev_year and not _prev_year_flag_applied:
                 cumulative_oss_ht = max(cumulative_oss_ht, Decimal("10000.01"))
                 _prev_year_flag_applied = True
+                _oss_threshold_crossed_this_year = True
 
         effective_sale = (
             effective_sale_fn(sale, product_category)
@@ -1122,6 +1153,7 @@ def _run_oss_loop(
             # seuil net, et un avoir est désormais classé selon CE MÊME
             # cumul (voir BUGFIX dans la docstring de la fonction) au lieu
             # d'un cumul dédié qui restait toujours sous le seuil.
+            _already_crossed_before = _oss_threshold_crossed_this_year
             cumulative_oss_ht += effective_sale.amount_ht
             res = _build_oss_note(
                 res, cumulative_oss_ht, Decimal("10000.00"),
@@ -1129,7 +1161,13 @@ def _run_oss_loop(
                 lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
                 tx_date=_sale_tx_date, rate_cache=_oss_rate_cache,
                 is_refund=is_from_refunds,
+                already_crossed=_already_crossed_before,
             )
+            # Drapeau monotone (voir docstring _build_oss_note) : ne fait
+            # que passer à True, jamais l'inverse — un avoir qui fait
+            # redescendre cumulative_oss_ht ne le réinitialise pas.
+            if cumulative_oss_ht > Decimal("10000.00"):
+                _oss_threshold_crossed_this_year = True
 
         if not is_from_refunds:
             results.append(res)

@@ -1090,6 +1090,68 @@ def _next_working_day(d: _date) -> _date:
     return d
 
 
+def _easter_sunday(year: int) -> _date:
+    """Dimanche de Pâques (algorithme de Meeus/Jones/Butcher, calendrier
+    grégorien) — nécessaire pour dériver les jours fériés mobiles français
+    (lundi de Pâques, Ascension, lundi de Pentecôte). Voir `_french_public_holidays`."""
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return _date(year, month, day)
+
+
+_FRENCH_HOLIDAYS_CACHE: dict[int, set] = {}
+
+
+def _french_public_holidays(year: int) -> set:
+    """Jours fériés légaux français (métropole) pour une année civile donnée.
+
+    BUGFIX (2026-09-10, délai EMEBI) : le calcul du 10e jour ouvré du mois
+    suivant (`_deadline_intrastat` ci-dessous) ne retirait auparavant que
+    les samedis/dimanches (`weekday() < 5`), jamais les jours fériés. Un
+    jour férié en semaine (1er mai, 8 mai, 14 juillet en semaine, etc.)
+    décale la vraie échéance légale (art. 7 Règl. UE 2019/2152 — la douane
+    ne compte que les jours OUVRÉS, fériés exclus) sans que le calendrier
+    généré ne s'en aperçoive, exposant l'utilisateur à une pénalité de
+    dépôt tardif s'il s'y fie aveuglément. Résultat mis en cache par année
+    (appelé potentiellement plusieurs fois par mois de flux Intrastat)."""
+    if year in _FRENCH_HOLIDAYS_CACHE:
+        return _FRENCH_HOLIDAYS_CACHE[year]
+    easter = _easter_sunday(year)
+    holidays = {
+        _date(year, 1, 1),                        # Jour de l'an
+        easter + timedelta(days=1),                # Lundi de Pâques
+        _date(year, 5, 1),                         # Fête du Travail
+        _date(year, 5, 8),                         # Victoire 1945
+        easter + timedelta(days=39),                # Ascension
+        easter + timedelta(days=50),                # Lundi de Pentecôte
+        _date(year, 7, 14),                        # Fête nationale
+        _date(year, 8, 15),                        # Assomption
+        _date(year, 11, 1),                        # Toussaint
+        _date(year, 11, 11),                       # Armistice 1918
+        _date(year, 12, 25),                       # Noël
+    }
+    _FRENCH_HOLIDAYS_CACHE[year] = holidays
+    return holidays
+
+
+def _is_french_working_day(d: _date) -> bool:
+    """Jour ouvré français : ni week-end, ni jour férié légal (voir
+    `_french_public_holidays`)."""
+    return d.weekday() < 5 and d not in _french_public_holidays(d.year)
+
+
 def _deadline_oss(ref_date: _date) -> _date:
     """Délai OSS : fin du mois suivant la fin du trimestre."""
     q_end_month = ((ref_date.month - 1) // 3 * 3) + 3  # dernier mois du trimestre courant
@@ -1257,12 +1319,13 @@ def _write_calendar_tab(
     for yr, mo in sorted(intrastat_months):
         next_mo = mo + 1 if mo < 12 else 1
         next_yr = yr if mo < 12 else yr + 1
-        # 10e jour ouvré du mois suivant
+        # 10e jour ouvré du mois suivant (BUGFIX 2026-09-10 : jours fériés
+        # français désormais exclus du décompte, voir _is_french_working_day)
         d_start  = _date(next_yr, next_mo, 1)
         ouvre    = 0
         d_limit  = d_start
         while ouvre < 10:
-            if d_limit.weekday() < 5:
+            if _is_french_working_day(d_limit):
                 ouvre += 1
             if ouvre < 10:
                 d_limit += timedelta(days=1)

@@ -200,6 +200,14 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
     if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
         st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
         apply_fr_under_threshold = False
+        # BUGFIX (2026-09-10, désync toggle) : la variable Python locale
+        # était forcée à False ci-dessus, mais le widget st.toggle reste
+        # lié à st.session_state["oss_thr_new"] — sans mise à jour de cette
+        # clé, le bouton restait affiché "ON" au rerun suivant alors que le
+        # calcul utilisait bien apply_fr_under_threshold=False. On
+        # resynchronise explicitement l'état affiché avec l'état réellement
+        # appliqué.
+        st.session_state["oss_thr_new"] = False
 
     if st.button(_("save_siren_btn"), key="btn_register_siren", disabled=(current_user.role == "reader")):
         if not siren_entreprise.strip():
@@ -947,6 +955,11 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
                     st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
                     apply_fr_under_threshold = False
+                    # BUGFIX (2026-09-10, désync toggle) : même correctif
+                    # que le bloc "new SIREN" plus haut, adapté à la clé
+                    # scopée par SIREN de ce bloc (voir BUGFIX 2026-08-26
+                    # juste au-dessus sur le scoping par _siren_choice).
+                    st.session_state[f"oss_thr_view_{_siren_choice}"] = False
 
                 _edit_siren_form_fragment(
                     current_user=_current_user, home_country=home_country,

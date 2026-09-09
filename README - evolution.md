@@ -7663,3 +7663,99 @@ programmatiquement : 1229 clés × 7 langues, inchangée (aucune nouvelle clé).
 
 Fichiers modifiés : `tva_intracom/vies_engine.py`,
 `tva_intracom/ui/tabs/vies_ui.py`.
+
+## 2026-09-10 (2) — Batch de 5 points signalés (audit externe) : seuil OSS/avoirs, double comptage DDP, délai EMEBI, AIC Monaco, désync toggle seuil N-1
+
+Confirmation préalable : les 2 points listés "en attente" de la session
+précédente (XSS `local_vat_report.py`, jeton Stripe dans `auth_flow.py`,
+voir entrée du 2026-09-09) sont bien déjà corrigés dans le code réel —
+vérifiés sur GitHub `dev` avant toute analyse, aucune action supplémentaire.
+
+**1. Loophole critique du seuil OSS — un avoir pouvait faire "redescendre"
+fiscalement sous 10 000 €** (`engine.py`, `_run_oss_loop` / `_build_oss_note`) :
+le cumul `cumulative_oss_ht` est net (ventes + avoirs, voir BUGFIX
+2026-09-08 dans ce même fichier). Le test de seuil pour une **vente**
+comparait ce cumul net à 10 000 € sans mémoire du fait que le seuil avait
+déjà été franchi plus tôt dans l'année — un gros avoir faisant repasser le
+cumul net sous 10 000 € reclassait alors à tort les ventes suivantes de la
+même année civile en régime DOMESTIC (TVA du pays vendeur) au lieu d'OSS
+(TVA du pays de destination), en contradiction avec l'art. 59 quater Dir.
+2006/112/CE (le seuil, une fois franchi, reste acquis pour le reste de
+l'année civile — un avoir ne permet jamais de revenir en arrière
+fiscalement). Reproduit avant correctif (script de repro dédié : 4 lignes
+V1/V2/A1/V3, V3 retombait en DOMESTIC après l'avoir A1 malgré le
+franchissement du seuil par V2). Corrigé par l'ajout d'un drapeau monotone
+par année civile (`_oss_threshold_crossed_this_year`, high-water mark —
+ne passe qu'à `True`, jamais réinitialisé par un avoir, seulement au
+changement d'année), capturé AVANT prise en compte de chaque vente et
+transmis à `_build_oss_note` via un nouveau paramètre `already_crossed` :
+quand vrai, ni la branche "sous le seuil" ni la branche "franchissement"
+ne s'appliquent, la vente conserve le régime OSS déjà calculé par
+`compute_vat`. Repro relancé après correctif : V3 reste bien en OSS/DE.
+Risque évité : redressement fiscal pour application erronée de la TVA
+d'origine au lieu de la TVA de destination.
+
+**2. Double comptage du CA HT (DDP vers pays d'origine) — déjà corrigé**
+(`ui/tabs/declarations.py`) : le BUGFIX du 2026-09-09 (exclusion des ventes
+DDP requalifiées `r.vat_country == r.sale.seller_country` de l'agrégat DDP,
+déjà comptées via `Channel.FR_DOMESTIC`) est bien présent dans le code —
+aucune action requise.
+
+**3. Délai légal EMEBI/Intrastat erroné (jours fériés ignorés)**
+(`excel_report.py`) : le calcul du 10e jour ouvré du mois suivant ne
+retirait que les samedis/dimanches (`weekday() < 5`), jamais les jours
+fériés légaux français — un jour férié en semaine (1er mai, 8 mai,
+Ascension...) faussait la date limite calculée, avec risque de pénalité
+de dépôt tardif pour l'utilisateur s'y fiant aveuglément. Reproduit :
+pour mai 2026, l'ancien calcul plaçait l'échéance le 14 mai — qui est
+précisément le jeudi de l'Ascension cette année-là, donc férié. Corrigé
+par l'ajout de `_easter_sunday` (algorithme de Meeus/Jones/Butcher),
+`_french_public_holidays` (jours fixes + mobiles : lundi de Pâques,
+Ascension, lundi de Pentecôte, calculés ; mis en cache par année) et
+`_is_french_working_day`, utilisés à la place du simple test week-end.
+Nouveau calcul pour mai 2026 : 19 mai (au lieu du 14 mai, férié).
+
+**4. AIC Monaco ignorée dans la CA3** (`ca3_report.py`,
+`_compute_aic_from_fc_transfers`) : la comparaison de pays pour filtrer les
+transferts FC entrants utilisait les codes bruts (`arr != seller_country`)
+au lieu de `fiscal_equivalent_country`, déjà utilisé plus bas dans le même
+fichier pour ce même cas Monaco (convention fiscale franco-monégasque du
+18 mai 1963). Un transfert de stock FBA arrivant physiquement à Monaco
+(`arr="MC"`) était donc ignoré (`"MC" != "FR"`), sous-évaluant la base AIC
+(case B2) et la TVA auto-liquidée (Ligne 17) pour les vendeurs stockant à
+Monaco. Corrigé en normalisant uniquement le pays d'arrivée pour la
+comparaison au pays vendeur (`fiscal_equivalent_country(arr)`) — **en
+gardant le filtre "pas de mouvement réel" (`dep == arr`) sur les codes
+bruts non normalisés** : un premier essai normalisant aussi `dep` a été
+détecté comme incorrect en test (un transfert FR→Monaco se serait vu
+neutralisé à tort en "même pays" une fois FR et MC tous deux ramenés à
+"FR fiscal"), corrigé avant validation finale. Trois cas testés par script
+de repro : FR→MC (compté, base=500/qty 5 × prix moyen 100, avant correctif :
+0), MC→MC (toujours ignoré à raison, aucun mouvement réel), DE→FR
+(comportement déjà correct, non affecté).
+
+**5. Désynchronisation des toggles fiscaux (seuil N-1)** (`ui/sidebar.py`,
+2 blocs concernés : SIREN "new" et "view" scopé par SIREN) : quand
+`oss_threshold_exceeded_prev_year` force `apply_fr_under_threshold = False`
+côté calcul, la variable Python locale était bien mise à jour mais pas
+`st.session_state` de la clé liée au widget (`oss_thr_new` /
+`oss_thr_view_{siren}`) — le bouton restait donc affiché "ON" au rerun
+suivant alors que le calcul traitait déjà la valeur comme "OFF", sans
+aucun moyen pour l'utilisateur de s'en rendre compte à l'écran. Corrigé en
+ajoutant `st.session_state[clé] = False` juste après la désactivation
+forcée, dans les deux blocs, pour resynchroniser l'affichage avec l'état
+réellement appliqué.
+
+**Tests** : suite complète relancée après chaque correctif (1, 4, 3 puis 5) :
+275 passed / 4 failed à chaque étape — mêmes 4 échecs `SUPABASE_DB_URL`
+que sur un clone vierge de `dev` (comparaison faite dans ce sandbox),
+aucune régression introduite. `py_compile` + `pyflakes` propres sur les 4
+fichiers modifiés (warnings pyflakes résiduels sur `excel_report.py` et
+`ui/sidebar.py` confirmés préexistants par comparaison avec le clone
+vierge). Symétrie i18n vérifiée programmatiquement : 1229 clés × 7
+langues, inchangée (aucune nouvelle clé — ces correctifs ne touchent pas
+de texte affiché à l'utilisateur, hors le libellé déjà existant du
+franchissement de seuil).
+
+Fichiers modifiés : `tva_intracom/engine.py`, `tva_intracom/ca3_report.py`,
+`tva_intracom/excel_report.py`, `tva_intracom/ui/sidebar.py`.

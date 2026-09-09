@@ -196,7 +196,21 @@ def _compute_aic_from_fc_transfers(
                t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or "").strip().upper()
         arr = (t.get("ARRIVAL_COUNTRY") or t.get("arrival_country") or
                t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or "").strip().upper()
-        if arr != seller_country.upper() or dep == arr:
+        # BUGFIX (2026-09-10, AIC Monaco) : comparaison brute sur les codes
+        # pays bruts — un transfert de stock FBA arrivant physiquement à
+        # Monaco (arr="MC") était ignoré ici car "MC" != seller_country
+        # ("FR"), alors que Monaco est fiscalement assimilé à la France
+        # (convention du 18 mai 1963, voir fiscal_equivalent_country).
+        # Sous-évaluait la base AIC (case B2) et la TVA auto-liquidée
+        # (Ligne 17) pour les vendeurs stockant à Monaco. La normalisation
+        # ne s'applique QU'à la comparaison avec seller_country (pays
+        # fiscal d'arrivée) : le filtre "pas de mouvement réel" (dep == arr)
+        # reste sur les codes bruts, sans quoi un transfert FR -> Monaco
+        # (dep="FR", arr="MC") serait à tort neutralisé en "même pays" une
+        # fois les deux normalisés en "FR" — deux emplacements physiques
+        # distincts malgré une équivalence fiscale commune.
+        arr_fiscal = fiscal_equivalent_country(arr)
+        if arr_fiscal != seller_country.upper() or dep == arr:
             continue
         asin = (t.get("ASIN") or t.get("asin") or "").strip()
         raw_qty = t.get("QTY") or t.get("qty") or 1
