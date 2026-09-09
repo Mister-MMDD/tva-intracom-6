@@ -62,6 +62,7 @@ Non implémenté dans cette version — voir README, section Roadmap.
 
 from __future__ import annotations
 
+import html
 import logging
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Optional
@@ -428,6 +429,14 @@ def generate_ca3_html_report_v2(
         company_name: str,
         siren: str,
         period_label: str,
+        # BUGFIX (2026-09-09, XSS) : company_name est une saisie utilisateur
+        # (formulaire d'enregistrement SIREN, voir billing.register_siren)
+        # injectée sans protection dans ce rapport HTML — un nom
+        # d'entreprise contenant <script>...</script> s'exécutait à
+        # l'ouverture du rapport. Échappement HTML immédiat, avant toute
+        # utilisation dans les f-strings ci-dessous. siren échappé par la
+        # même occasion, par défense en profondeur (normalement numérique
+        # uniquement, mais non revalidé ici).
         refund_results: Optional[List[VatResult]] = None,
         all_fc_transfers: Optional[list] = None,
         tva_deductible_immos:      Decimal = Decimal("0.00"),
@@ -436,6 +445,8 @@ def generate_ca3_html_report_v2(
         seller_country: str = "FR",
 ) -> str:
     """Génère le rapport HTML de contrôle CA3 — version 3 (multi-taux + AIC + déductions)."""
+    company_name = html.escape(company_name or "")
+    siren = html.escape(siren or "")
 
     lines = compute_ca3_lines_v2(
         results, refund_results,

@@ -749,9 +749,14 @@ def assign_siren_to_legacy_credit(org_id: str, period_label: str, siren: str) ->
 #   - Cabinet ("cabinet"): jusqu'à `siren_quantity` (quantité Stripe achetée).
 
 
-def _purge_expired_siren_removals(org_id: str) -> None:
+def _purge_expired_siren_removals(org_id: str) -> int:
     """Supprime définitivement les SIREN dont le retrait différé est arrivé à
-    échéance (lazy deletion : exécuté à chaque lecture, pas de tâche de fond)."""
+    échéance (lazy deletion : exécuté à chaque lecture, pas de tâche de fond).
+
+    Retourne le nombre de lignes effectivement supprimées (0 si aucune) —
+    utilisé par can_register_new_siren()/register_siren() pour savoir s'il
+    faut invalider le cache `list_registered_sirens` avant de statuer sur le
+    quota (voir BUGFIX 2026-09-09 plus bas)."""
     def _fn(conn, cur):
         cur.execute(
             """
@@ -760,9 +765,11 @@ def _purge_expired_siren_removals(org_id: str) -> None:
             """,
             (org_id, time.time()),
         )
+        deleted = cur.rowcount
         conn.commit()
+        return deleted
 
-    _run(_fn)
+    return _run(_fn) or 0
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -867,6 +874,29 @@ def can_register_new_siren(org_id: str) -> tuple[bool, str]:
     ajoutant chacun un SIREN au même instant) est le verrou avisé
     (`pg_advisory_xact_lock`) + recomptage pris DANS register_siren() -- voir
     BUGFIX point #4, README - évolution.md."""
+    # BUGFIX (2026-09-09, quota piégé) : list_registered_sirens() est
+    # @st.cache_data(ttl=60) et exécute la purge des retraits expirés
+    # *à l'intérieur* de son propre corps mis en cache — tant que ce cache
+    # n'a pas expiré (jusqu'à 60s), la purge ne s'exécute pas et un SIREN
+    # dont le retrait différé vient d'échoir continue de compter dans le
+    # quota, bloquant l'ajout d'un nouveau SIREN. On force ici une purge
+    # NON mise en cache avant de statuer sur le quota ; si elle a
+    # effectivement supprimé une ligne, on invalide list_registered_sirens
+    # pour ne pas resservir un décompte périmé dans le même appel.
+    # try/except défensif : cette purge n'est qu'une optimisation de
+    # fraîcheur — une erreur DB ici (pool indisponible, etc.) ne doit
+    # jamais empêcher la vérification de quota elle-même de s'exécuter
+    # (elle retombe alors sur l'état, éventuellement légèrement périmé, du
+    # cache existant).
+    try:
+        if _purge_expired_siren_removals(org_id) > 0:
+            list_registered_sirens.clear()
+    except Exception:
+        logger.warning(
+            "Purge des retraits SIREN expirés impossible avant vérification "
+            "du quota (org_id=%s) — quota basé sur l'état actuellement en cache.",
+            org_id, exc_info=True,
+        )
     status = get_siren_quota_status(org_id)
     if status.registered_count >= status.quota:
         return False, (
@@ -978,6 +1008,23 @@ def register_siren(
         )
         is_new_siren = cur.fetchone() is None
         if is_new_siren:
+            # BUGFIX (2026-09-09, quota piégé) : purge, DANS la même
+            # transaction verrouillée, les retraits expirés avant de
+            # compter — sans cela, un SIREN dont le retrait différé vient
+            # d'échoir mais n'a pas encore été supprimé (lazy deletion,
+            # normalement déclenchée par list_registered_sirens()) restait
+            # compté ici, bloquant à tort l'ajout d'un nouveau SIREN. Cette
+            # vérification est la garde-fou serveur définitif (voir
+            # can_register_new_siren, qui n'est qu'un pré-contrôle
+            # "best-effort" côté UI) — elle doit donc être exacte, pas
+            # dépendante du TTL de list_registered_sirens (@st.cache_data).
+            cur.execute(
+                """
+                DELETE FROM tva_siren_registrations
+                WHERE org_id=%s AND pending_removal_at IS NOT NULL AND pending_removal_at <= %s
+                """,
+                (org_id, time.time()),
+            )
             cur.execute(
                 "SELECT COUNT(*) FROM tva_siren_registrations WHERE org_id=%s",
                 (org_id,),

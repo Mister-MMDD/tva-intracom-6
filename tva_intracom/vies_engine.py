@@ -47,6 +47,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 
@@ -97,14 +98,34 @@ DEFAULT_TIMEOUT = 10
 # global mutualisé (vies_global_cache), lui, n'est jamais scopé et utilise
 # toujours DEFAULT_CACHE_TTL_DAYS, non modifiable depuis l'UI.
 DEFAULT_CACHE_TTL_DAYS: int = 7
-_SCOPE_TTL_DAYS: dict[str, int] = {}
+
+# BUGFIX (2026-09-09, fuite mémoire) : _SCOPE_TTL_DAYS grossissait
+# indéfiniment (une entrée par scope_id/compte, jamais purgée) pendant toute
+# la durée de vie du process — sur Streamlit Cloud (process partagé entre
+# tous les comptes), ceci pouvait à terme saturer la RAM. Chaque entrée est
+# minuscule (str -> int), donc l'impact réel est lent, mais le principe
+# "aucune structure en mémoire ne doit croître sans borne" doit être
+# respecté. Borné à _SCOPE_TTL_MAX_ENTRIES via une éviction FIFO simple
+# (OrderedDict) : un TTL personnalisé évincé est simplement rechargé depuis
+# `vies_scope_settings` (source de vérité, voir _load_ttl_from_db) au
+# prochain appel — coût negligeable (une lecture DB occasionnelle) contre
+# une mémoire non bornée.
+_SCOPE_TTL_MAX_ENTRIES = 2000
+_SCOPE_TTL_DAYS: "OrderedDict[str, int]" = OrderedDict()
 
 # PERF (voir README - évolution.md) : compilée une seule fois au chargement
 # du module plutôt qu'à chaque appel de _clean_vat_number (potentiellement
 # des dizaines de milliers d'appels sur un gros fichier). re.compile() est
 # techniquement déjà mise en cache par le module `re` (jusqu'à 512 patterns),
 # mais un objet Pattern dédié évite ce lookup de cache et documente l'usage.
-_VAT_CLEAN_RE = re.compile(r"[\s.\-]")
+#
+# BUGFIX (2026-09-09) : les parenthèses n'étaient pas nettoyées. Un numéro
+# saisi "(FR)123456789" ne matchait que les espaces/points/tirets, laissant
+# "(FR)123456789" intact -> cleaned[:2] valait "(F" au lieu de "FR",
+# corrompant le préfixe pays et faisant échouer systématiquement la
+# validation VIES pour ce type de saisie. Ajout de `()` au jeu de
+# caractères supprimés.
+_VAT_CLEAN_RE = re.compile(r"[\s.\-()]")
 
 
 def _get_ttl_days(scope_id: Optional[str] = None) -> int:
@@ -124,9 +145,12 @@ def _get_ttl_days(scope_id: Optional[str] = None) -> int:
     if scope_id is None:
         return DEFAULT_CACHE_TTL_DAYS
     if scope_id in _SCOPE_TTL_DAYS:
+        _SCOPE_TTL_DAYS.move_to_end(scope_id)
         return _SCOPE_TTL_DAYS[scope_id]
     _db_ttl = _load_ttl_from_db(scope_id)
     _SCOPE_TTL_DAYS[scope_id] = _db_ttl if _db_ttl is not None else DEFAULT_CACHE_TTL_DAYS
+    if len(_SCOPE_TTL_DAYS) > _SCOPE_TTL_MAX_ENTRIES:
+        _SCOPE_TTL_DAYS.popitem(last=False)  # évince l'entrée la moins récemment utilisée
     return _SCOPE_TTL_DAYS[scope_id]
 
 

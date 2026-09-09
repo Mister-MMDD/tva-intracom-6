@@ -598,6 +598,21 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 or (sale.buyer_type == BuyerType.B2C and bool(sale.buyer_vat_number))
         )
         if is_b2b_domestic and not is_fr and sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
+            # BUGFIX (2026-09-09) : channel=EXONERATION rendait ces ventes
+            # totalement invisibles des rapports locaux (local_vat_report.py
+            # ne filtre que sur LOCAL/FR_DOMESTIC) alors qu'elles sont
+            # obligatoires pour les déclarations et états récapitulatifs
+            # (ESL) locaux du pays de stockage — seule la TVA n'est pas due
+            # par le vendeur (autoliquidation), pas la vente elle-même.
+            # collector reste BUYER (le vendeur ne collecte toujours pas la
+            # TVA — ceci ne change pas la position fiscale validée par le
+            # cabinet comptable) ; seul le canal de reporting change, pour
+            # que ces lignes remontent dans le rapport TVA local (base à 0
+            # de TVA mais base HT et nombre de lignes présents). Le bucket
+            # dashboard dédié (report.py, "bucket_reverse_charge_nat") reste
+            # inchangé : il teste scenario==DOMESTIC et collector==BUYER
+            # AVANT de tester le channel, donc l'affichage distinct de ces
+            # ventes en autoliquidation nationale n'est pas affecté.
             return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.DOMESTIC,
@@ -605,7 +620,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 vat_rate=Decimal("0"),
                 vat_amount=Decimal("0.00"),
                 collector=Collector.BUYER,
-                channel=Channel.EXONERATION,
+                channel=Channel.LOCAL_REGISTRATION,
                 note=_note(
                     f"Vente B2B domestique {sale.stock_country} : autoliquidation nationale. "
                     f"L'acheteur assujetti (n° {'TVA: ' + sale.buyer_vat_number if sale.buyer_vat_number else 'inconnu'}) "

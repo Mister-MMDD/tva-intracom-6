@@ -316,6 +316,129 @@ def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
         return None
 
 
+# BUGFIX (2026-09-09, non-conformité art. 5 bis Règl. UE 2020/194) :
+# _fetch_ecb_rate() ci-dessus ne cherche qu'EN ARRIÈRE (fenêtre
+# [target_date-7j, target_date]) — adapté à "quel était le taux en vigueur
+# à telle date" pour un usage général, mais À TORT utilisé aussi pour la
+# date de CLÔTURE OSS : le règlement impose, quand le dernier jour de la
+# période n'est pas un jour de publication BCE (week-end/férié), d'utiliser
+# le taux du PROCHAIN jour de publication (ex. le lundi suivant pour une
+# clôture tombant un dimanche) — jamais le jour ouvré précédent (vendredi).
+# _fetch_ecb_rate_forward() cherche donc EN AVANT à partir de target_date.
+_forward_rate_cache: dict[tuple[str, date], Decimal] = {}
+
+
+def _fetch_ecb_rate_forward(currency: str, target_date: date) -> Optional[Decimal]:
+    """Comme _fetch_ecb_rate, mais retourne le PREMIER taux publié à partir
+    de target_date (inclus), et non le dernier publié avant cette date.
+    Réservée à la résolution de la date de clôture OSS/IOSS — voir
+    get_closing_rate()."""
+    currency = currency.upper()
+    if currency == "EUR":
+        return Decimal("1")
+
+    start = target_date
+    end = target_date + timedelta(days=7)
+    key = f"D.{currency}.EUR.SP00.A"
+    url = (
+        f"{ECB_BASE_URL}/{key}"
+        f"?startPeriod={start.isoformat()}"
+        f"&endPeriod={end.isoformat()}"
+        f"&detail=dataonly"
+        f"&format=jsondata"
+    )
+
+    data = _request_ecb(url, f"{currency} au {target_date} (clôture, recherche avant)")
+    if data is None:
+        return None
+
+    try:
+        observations = data["dataSets"][0]["series"]["0:0:0:0:0"]["observations"]
+        first_key = min(observations.keys(), key=int)
+        return Decimal(str(observations[first_key][0]))
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        logger.warning("Structure ECB inattendue (clôture) pour %s : %s", currency, exc)
+        return None
+
+
+def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
+    """Précharge en lot les taux de CLÔTURE de période (recherche EN AVANT,
+    art. 5 bis Règl. UE 2020/194) pour une liste de paires (devise, date de
+    clôture).
+
+    Équivalent "recherche en avant" de prefetch_rates() : une seule requête
+    ECB par devise distincte (fenêtre couvrant toutes les dates de clôture
+    demandées pour cette devise), plutôt qu'un appel individuel par ligne de
+    vente — même optimisation que prefetch_rates (voir son docstring, ~2.9s
+    cumulés mesurés pour 5 devises sans pré-batch). Remplace prefetch_rates
+    dans oss_export.py depuis l'introduction de get_closing_rate (BUGFIX
+    2026-09-09) : les deux caches (recherche avant / arrière) sont
+    distincts, prefetch_rates() n'alimentait plus le bon cache."""
+    requested: list[tuple[str, date]] = []
+    seen: set[tuple[str, date]] = set()
+    for currency, d in pairs:
+        currency = currency.upper()
+        if currency == "EUR":
+            continue
+        key = (currency, d)
+        with _cache_lock:
+            _cached = key in _forward_rate_cache
+        if not _cached and key not in seen:
+            requested.append(key)
+            seen.add(key)
+
+    if not requested:
+        return
+
+    by_currency: dict[str, list[date]] = {}
+    for ccy, d in requested:
+        by_currency.setdefault(ccy, []).append(d)
+
+    for ccy, dates in by_currency.items():
+        start = min(dates)
+        end = max(dates) + timedelta(days=7)  # marge pour trouver le prochain jour publié après la dernière clôture demandée
+        try:
+            batch = _fetch_ecb_batch([ccy], start, end).get(ccy, {})
+        except Exception:
+            logger.warning("Échec du prefetch en lot des taux de clôture pour %s", ccy, exc_info=True)
+            continue
+        if not batch:
+            continue
+        available_dates = sorted(batch.keys())
+        for d in dates:
+            candidates = [ad for ad in available_dates if ad >= d]
+            if candidates:
+                with _cache_lock:
+                    _forward_rate_cache[(ccy, d)] = batch[candidates[0]]
+
+
+def get_closing_rate(currency: str, closing_date: date) -> Optional[Decimal]:
+    """Taux BCE applicable à une date de CLÔTURE de période OSS/IOSS
+    (Règl. UE 2020/194, art. 5 bis) : recherche EN AVANT à partir de
+    closing_date, contrairement à get_rate() qui recherche EN ARRIÈRE
+    (adapté à un usage général "taux en vigueur à telle date").
+
+    Cache mémoire (L1) uniquement, propre à ce process — délibérément PAS
+    de cache Postgres L2 partagé : réutiliser la table/clé (devise, date)
+    de get_rate() collisionnerait avec sa sémantique inverse sous la même
+    clé (même (devise, date), valeur potentiellement différente). Le volume
+    d'appels reste faible (une poignée de devises par période déclarée),
+    donc l'absence de L2 n'a pas d'impact mesurable — voir README - évolution.md.
+    """
+    currency = currency.upper()
+    if currency == "EUR":
+        return Decimal("1")
+    key = (currency, closing_date)
+    with _cache_lock:
+        if key in _forward_rate_cache:
+            return _forward_rate_cache[key]
+    rate = _fetch_ecb_rate_forward(currency, closing_date)
+    if rate is not None:
+        with _cache_lock:
+            _forward_rate_cache[key] = rate
+    return rate
+
+
 def _fetch_ecb_batch(
     currencies: list[str], start_date: date, end_date: date
 ) -> dict[str, dict[date, Decimal]]:
@@ -551,8 +674,18 @@ def convert_to_eur(
     currency: str,
     target_date: date,
     fallback_rate: Optional[Decimal] = None,
+    rate_fn=None,
 ) -> tuple[Decimal, Decimal, str]:
-    """Convertit un montant en devise vers EUR au taux BCE du jour."""
+    """Convertit un montant en devise vers EUR au taux BCE du jour.
+
+    rate_fn : fonction (devise, date) -> Optional[Decimal] à utiliser pour
+        résoudre le taux ; par défaut get_rate() (recherche en arrière).
+        Permet à convert_to_currency_for_oss() de réutiliser cette logique
+        avec get_closing_rate() (recherche en avant, conforme art. 5 bis
+        Règl. UE 2020/194 pour une date de clôture) sans dupliquer le code
+        ni affecter les autres appelants (comportement par défaut inchangé).
+    """
+    _rate_fn = rate_fn or get_rate
     currency = currency.upper()
     if currency == "EUR":
         return amount, Decimal("1"), "eur"
@@ -565,7 +698,7 @@ def convert_to_eur(
         logger.debug("HRK converti au taux fixe UE : 1 EUR = 7,53450 HRK")
         return eur_amount, _HRK_FIXED, "fixed_eur_hrk"
 
-    rate = get_rate(currency, target_date)
+    rate = _rate_fn(currency, target_date)
     if rate is not None:
         eur_amount = (amount / rate).quantize(_CENT, rounding=ROUND_HALF_UP)
         return eur_amount, rate, "ecb"
@@ -586,22 +719,26 @@ def convert_to_currency(
     target_currency: str,
     target_date: date,
     fallback_rate: Optional[Decimal] = None,
+    rate_fn=None,
 ) -> tuple[Decimal, Decimal, str]:
     """Convertit un montant d'une devise source vers une devise cible via EUR.
     
     Retourne (montant_cible, taux_source_vers_cible, source_info).
+
+    rate_fn : voir convert_to_eur — propagé à la conversion EUR->cible.
     """
+    _rate_fn = rate_fn or get_rate
     source_currency = source_currency.upper()
     target_currency = target_currency.upper()
     
     # 1. Conversion source -> EUR
-    eur_amount, rate_source, source_info = convert_to_eur(amount, source_currency, target_date, fallback_rate)
+    eur_amount, rate_source, source_info = convert_to_eur(amount, source_currency, target_date, fallback_rate, rate_fn=_rate_fn)
     
     if target_currency == "EUR":
         return eur_amount, rate_source, source_info
     
     # 2. Conversion EUR -> cible
-    rate_target = get_rate(target_currency, target_date)
+    rate_target = _rate_fn(target_currency, target_date)
     if rate_target is None:
         # Fallback : si on ne peut pas avoir le taux cible, on reste en EUR et on avertit
         logger.warning("Taux pour devise cible %s indisponible au %s. Reste en EUR.", target_currency, target_date)
@@ -669,6 +806,53 @@ def get_oss_rate_date(period: str, transaction_date: date) -> date:
     return rate_date
 
 
+def month_end_date(period: str) -> Optional[date]:
+    """Calcule la date de clôture d'une période IOSS MENSUELLE (art. 369l-x
+    dir. 2006/112/CE — déclaration mensuelle, contrairement à l'OSS
+    trimestriel).
+
+    Accepte : "2026-03" ou "2026-M03" -> 31/03/2026.
+
+    Returns:
+        La date de clôture du mois, ou None si non reconnu.
+    """
+    if not period:
+        return None
+    p = period.strip().upper().replace("M", "")
+    m = re.fullmatch(r"(\d{4})-(\d{1,2})", p)
+    if not m:
+        return None
+    year, month = int(m.group(1)), int(m.group(2))
+    if not (1 <= month <= 12):
+        return None
+    if month == 12:
+        return date(year, 12, 31)
+    return date(year, month + 1, 1) - timedelta(days=1)
+
+
+def get_ioss_rate_date(period: str, transaction_date: date) -> date:
+    """Détermine la date du taux BCE à utiliser pour une transaction IOSS.
+
+    BUGFIX (2026-09-09) : les déclarations IOSS sont MENSUELLES (contrairement
+    à l'OSS, trimestriel). Cette fonction utilisait auparavant
+    get_oss_rate_date(), qui ne sait parser qu'un format trimestriel
+    ("2026-Q1") : pour une période IOSS mensuelle ("2026-03"), non reconnue,
+    elle retombait à tort sur la fin du TRIMESTRE de la transaction au lieu
+    de la fin du MOIS — non-conforme à l'art. 5 bis Règl. UE 2020/194 pour
+    ce régime.
+    """
+    rate_date = month_end_date(period)
+    if not rate_date:
+        # Fallback : fin du mois de la transaction (période non reconnue,
+        # ex. plage multi-mois).
+        year, month = transaction_date.year, transaction_date.month
+        if month == 12:
+            rate_date = date(year, 12, 31)
+        else:
+            rate_date = date(year, month + 1, 1) - timedelta(days=1)
+    return rate_date
+
+
 def convert_to_currency_for_oss(
     original_amount: Decimal,
     source_currency: str,
@@ -676,12 +860,24 @@ def convert_to_currency_for_oss(
     period: str,
     transaction_date: date,
     fallback_rate: Optional[Decimal] = None,
+    rate_date_fn=None,
 ) -> tuple[Decimal, Decimal, str]:
-    """Convertit un montant vers la devise cible avec le taux BCE de clôture de période OSS.
+    """Convertit un montant vers la devise cible avec le taux BCE de clôture de période OSS/IOSS.
 
     Si `period` n'est pas reconnu (plage multi-trimestres/années) ou incomplet
     (mois unique), on utilise le taux de clôture du trimestre contenant la
     `transaction_date` (Règl. UE 2020/194, art. 5 bis).
+
+    rate_date_fn : fonction (period, transaction_date) -> date de clôture,
+        par défaut get_oss_rate_date (trimestriel). L'appelant IOSS
+        (mensuel) doit passer get_ioss_rate_date — voir oss_export.py.
+
+    BUGFIX (2026-09-09) : utilise désormais get_closing_rate() (recherche
+    EN AVANT à partir de la date de clôture) au lieu de get_rate()
+    (recherche en arrière) — l'art. 5 bis Règl. UE 2020/194 impose le taux
+    du PROCHAIN jour de publication BCE quand la date de clôture elle-même
+    n'est pas un jour de publication (week-end/férié), jamais le jour
+    ouvré précédent.
 
     PRÉCISION (audit du 2026-08-19) : si ce taux de clôture (potentiellement
     une date future, trimestre en cours) n'est pas encore publié par la BCE,
@@ -704,8 +900,12 @@ def convert_to_currency_for_oss(
     if source_currency == target_currency:
         return original_amount, Decimal("1"), target_currency.lower()
 
-    rate_date = get_oss_rate_date(period, transaction_date)
-    return convert_to_currency(original_amount, source_currency, target_currency, rate_date, fallback_rate=fallback_rate)
+    _rate_date_fn = rate_date_fn or get_oss_rate_date
+    rate_date = _rate_date_fn(period, transaction_date)
+    return convert_to_currency(
+        original_amount, source_currency, target_currency, rate_date,
+        fallback_rate=fallback_rate, rate_fn=get_closing_rate,
+    )
 
 
 def clear_cache(persistent: bool = True) -> None:

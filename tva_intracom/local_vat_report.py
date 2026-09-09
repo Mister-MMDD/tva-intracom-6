@@ -31,6 +31,7 @@ Ce module ne calcule ni ne connaît :
 
 from __future__ import annotations
 
+import html
 import logging
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Optional
@@ -121,6 +122,12 @@ def generate_local_vat_html_report(
     """Génère le rapport HTML générique de contrôle TVA locale pour un pays
     non-FR. Même charte visuelle que le CA3 (`ca3_report.py`), structure
     volontairement plus simple (pas de cases numérotées officielles)."""
+
+    # BUGFIX (2026-09-09, XSS) : company_name est une saisie utilisateur
+    # (formulaire d'enregistrement SIREN) injectée sans protection dans ce
+    # rapport HTML — voir même correctif dans ca3_report.py.
+    company_name = html.escape(company_name or "")
+    siren = html.escape(siren or "")
 
     vat_country = vat_country.upper()
     lines = compute_local_vat_lines(results, refund_results, vat_country)

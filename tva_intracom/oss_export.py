@@ -30,7 +30,7 @@ from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.cell_range import CellRange
 
-from .ecb_rates import convert_to_currency_for_oss, get_oss_rate_date, prefetch_rates
+from .ecb_rates import convert_to_currency_for_oss, get_oss_rate_date, get_ioss_rate_date, prefetch_closing_rates
 from .i18n import _, country_label
 from .models import Scenario, VatResult
 from .rates import fiscal_equivalent_country
@@ -55,7 +55,13 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
     """
     ht  = res.sale.amount_ht
     tva = res.vat_amount
-    
+
+    # BUGFIX (2026-09-09) : l'IOSS est déclaré MENSUELLEMENT (art. 369l-x
+    # dir. 2006/112/CE), l'OSS TRIMESTRIELLEMENT — chacun doit résoudre sa
+    # propre date de clôture (get_ioss_rate_date / get_oss_rate_date), voir
+    # ecb_rates.py.
+    _rate_date_fn = get_ioss_rate_date if res.scenario == Scenario.IOSS_DIRECT else get_oss_rate_date
+
     # BUGFIX CRITIQUE : la déclaration OSS est légalement due en EUR (Règl. UE
     # 2020/194, art. 5 bis) — cette fonction alimente aussi bien le XML OSS
     # officiel (oss_xml.py) que l'export Excel/CSV URSSAF. Utiliser la devise
@@ -79,6 +85,7 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
                 period,
                 tx_date,
                 fallback_rate=res.sale.exchange_rate or None,
+                rate_date_fn=_rate_date_fn,
             )
             ht = sign * new_ht_abs
             tva = (ht * (res.vat_rate / Decimal("100"))).quantize(_CENT, rounding=ROUND_HALF_UP)
@@ -188,6 +195,17 @@ def _aggregate_by_scenario(
     # pure (aucun accès DB) — sûre à appeler ici pour construire l'ensemble
     # des paires à précharger, sans dupliquer la logique de conversion.
     if period:
+        # BUGFIX (2026-09-09) : l'IOSS (mensuel) doit résoudre sa date de
+        # clôture via get_ioss_rate_date, pas get_oss_rate_date (trimestriel)
+        # — voir convert_ht_tva_for_oss_period, même correctif.
+        #
+        # BUGFIX (2026-09-09, non-conformité art. 5 bis) : ce pré-batch
+        # appelait auparavant prefetch_rates(), qui alimente le cache "en
+        # arrière" de get_rate(). La conversion de clôture OSS/IOSS utilise
+        # désormais get_closing_rate() (recherche EN AVANT — voir
+        # ecb_rates.py) avec son propre cache mémoire, d'où
+        # prefetch_closing_rates() à la place.
+        _rate_date_fn = get_ioss_rate_date if scenarios == (Scenario.IOSS_DIRECT,) else get_oss_rate_date
         _needed_pairs: set[tuple[str, _date]] = set()
         for _res in results:
             if _res.scenario not in scenarios:
@@ -199,9 +217,9 @@ def _aggregate_by_scenario(
                 _tx_date = _date.fromisoformat((_res.sale.transaction_date or "")[:10])
             except ValueError:
                 _tx_date = _date.today()
-            _needed_pairs.add((_src_ccy, get_oss_rate_date(period, _tx_date)))
+            _needed_pairs.add((_src_ccy, _rate_date_fn(period, _tx_date)))
         if _needed_pairs:
-            prefetch_rates(sorted(_needed_pairs))
+            prefetch_closing_rates(sorted(_needed_pairs))
 
     for res in results:
         if res.scenario not in scenarios:

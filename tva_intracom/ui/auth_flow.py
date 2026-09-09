@@ -75,17 +75,24 @@ class AuthContext:
     vies_scope_id: str
 
     def stripe_success_url(self, extra_qs: str = "") -> str:
-        """URL de retour post-paiement Stripe, avec le jeton de session courant
-        pour éviter une déconnexion."""
-        _tok = st.query_params.get("session_token", "")
-        _qs = f"session_token={_tok}" if _tok else ""
-        if extra_qs:
-            _qs = f"{_qs}&{extra_qs}" if _qs else extra_qs
-        return f"{self.app_base_url}/?{_qs}" if _qs else f"{self.app_base_url}/"
+        """URL de retour post-paiement Stripe.
+
+        BUGFIX (2026-09-09, sécurité) : embarquait auparavant le jeton de
+        session (`session_token`) en clair dans l'URL. Ce jeton transite
+        alors par le domaine Stripe (checkout.stripe.com), se retrouve dans
+        l'historique du navigateur et peut fuiter via les en-têtes Referer
+        ou les logs de journalisation tiers — exactement l'équivalent d'un
+        vol de session s'il est intercepté. Il est inutile : le cookie
+        `tva_session_token` (déjà posé, 30 jours, voir run_auth_flow) est
+        renvoyé automatiquement par le navigateur au retour sur ce domaine
+        et restaure la session (voir st.context.cookies, contrôlé EN
+        PREMIER avant tout repli sur un éventuel paramètre d'URL)."""
+        return f"{self.app_base_url}/?{extra_qs}" if extra_qs else f"{self.app_base_url}/"
 
     def stripe_cancel_url(self) -> str:
-        _tok = st.query_params.get("session_token", "")
-        return f"{self.app_base_url}/?session_token={_tok}" if _tok else f"{self.app_base_url}/"
+        """Voir stripe_success_url : même correctif (retrait du jeton de
+        session de l'URL, inutile grâce au cookie persistant)."""
+        return f"{self.app_base_url}/"
 
 
 _TRUSTED_HOST_SUFFIXES = (

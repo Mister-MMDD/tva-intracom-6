@@ -7455,3 +7455,141 @@ Fichiers modifiés : `tva_intracom/engine.py`, `tva_intracom/excel_report.py`,
 `tva_intracom/vies_engine.py`, `tva_intracom/auth.py`,
 `tva_intracom/ui/auth_flow.py`, `tva_intracom/ui/sidebar.py`, `app.py`,
 `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+## 2026-09-09 — Batch de 8 bugs confirmés (audit externe) : B2B locaux invisibles, cache post-paiement, TVA parenthésée, fuite mémoire VIES, double comptage DDP, taux de change OSS/IOSS, quota SIREN piégé, XSS + jeton Stripe
+
+Audit externe signalant 8 bugs potentiels. Chacun vérifié sur le code réel
+(branche `dev`) avant tout correctif — 8/8 confirmés réels. Traités
+ensemble, un fichier/sujet à la fois, avec tests dédiés.
+
+**1. Ventes B2B locales "invisibles" des rapports locaux** (`engine.py`,
+`compute_vat()`) : le cas B2B domestique hors-FR avec autoliquidation
+nationale (ex. stock IT → client B2B italien, `DOMESTIC_REVERSE_CHARGE_COUNTRIES`)
+recevait `channel=Channel.EXONERATION`, totalement hors du périmètre de
+`local_vat_report.py` (qui ne filtre que sur `LOCAL_REGISTRATION`/`FR_DOMESTIC`)
+— alors que ces ventes sont obligatoires pour les déclarations et ESL locaux
+du pays de stockage, seule la TVA elle-même n'étant pas due par le vendeur.
+`channel` changé en `Channel.LOCAL_REGISTRATION` ; `collector=BUYER` conservé
+à l'identique (position fiscale du cabinet inchangée : le vendeur ne
+collecte toujours pas la TVA). Le bucket dashboard dédié
+(`report.py`, `bucket_reverse_charge_nat`) reste correct, son test
+`scenario==DOMESTIC and collector==BUYER` précédant le test de `channel`.
+
+**2. Cache post-paiement partiel bloquant les comptes PAYG** (`app.py`) :
+le handler `export_ok=1` ne vidait que le cache `st.cache_data` global de
+`get_subscription_status`, mais `billing_gate.py` relit ce même statut via
+`_cached_db_read("sub_status_{org_id}", ...)` (`ui/sidebar.py`), un second
+cache session_state indépendant (TTL 20s) que ce handler n'invalidait pas —
+un utilisateur PAYG revenant de Stripe pouvait rester bloqué sur l'écran de
+paiement jusqu'à expiration de ce second cache. Ajout de
+`_invalidate_db_cache(f"sub_status_{org_id}")` dans le même handler.
+
+**3. Numéros de TVA avec parenthèses non nettoyés** (`vies_engine.py`,
+`_clean_vat_number()`) : la regex `_VAT_CLEAN_RE` ne supprimait que
+espaces/points/tirets, pas les parenthèses. `(FR)123456789` devenait
+`cleaned[:2]="(F"` au lieu de `"FR"`, corrompant le préfixe pays et faisant
+échouer systématiquement la validation VIES pour ce type de saisie. Ajout
+de `()` au jeu de caractères supprimés.
+
+**4. Fuite mémoire dans le moteur VIES** (`vies_engine.py`) :
+`_SCOPE_TTL_DAYS`, dict module-level associant un TTL personnalisé à chaque
+`scope_id` (compte), grossissait indéfiniment pendant toute la durée de vie
+du process Streamlit Cloud (partagé entre tous les comptes), sans jamais
+purger d'entrée. Converti en `OrderedDict` borné à 2000 entrées avec
+éviction FIFO (`popitem(last=False)`) ; une entrée évincée est simplement
+rechargée depuis `vies_scope_settings` (source de vérité) au prochain appel
+— coût négligeable.
+
+**5. Double comptage des ventes DDP vers le pays d'origine sur le dashboard**
+(`ui/tabs/declarations.py`, `_aggregate_declarations_raw()`) : une vente DDP
+(vendeur importateur officiel) requalifiée vers son propre pays d'origine
+reçoit `channel=FR_DOMESTIC` côté moteur (comme prévu, voir `ca3_report.py`)
+et est donc déjà comptée dans `home_ht_brut`. `_ddp_results`/`_ddp_refund_results`
+(alimentant `ddp_agg`, affiché séparément) filtraient uniquement sur
+`scenario==IMPORT_SELLER_AS_IMPORTER`, sans exclure le cas où la
+destination est le pays d'origine — ces ventes étaient donc comptées une
+seconde fois, surévaluant le CA affiché. Ajout du filtre
+`r.vat_country != r.sale.seller_country`. Les ventes DDP vers un pays tiers
+(`channel=LOCAL_REGISTRATION`, jamais dans `home_ht_brut`) ne sont pas
+concernées.
+
+**6. Taux de change non conformes à l'art. 5 bis Règl. UE 2020/194**
+(`ecb_rates.py`, `oss_export.py`) :
+- **OSS** : `get_rate()`/`_fetch_ecb_rate()` ne cherchent qu'EN ARRIÈRE
+  (fenêtre `[date-7j, date]`) — pour une clôture tombant un dimanche, ceci
+  retombe sur le taux du vendredi précédent, alors que le règlement impose
+  le taux du **prochain** jour de publication BCE (le lundi suivant).
+  Nouvelle fonction `get_closing_rate()` (recherche en avant,
+  `_fetch_ecb_rate_forward()`), utilisée uniquement pour la date de clôture
+  OSS/IOSS via un nouveau paramètre `rate_fn` sur `convert_to_eur()` et
+  `convert_to_currency()` (défaut `get_rate()` inchangé pour tous les
+  autres appelants). Cache mémoire dédié (`_forward_rate_cache`), délibérément
+  sans persistance Postgres L2 partagée (collision de clé avec la
+  sémantique inverse de `get_rate()` sinon) — volume d'appels trop faible
+  pour que ce soit mesurable.
+- **IOSS** : `get_oss_rate_date()` ne sait parser qu'un format trimestriel
+  (`quarter_end_date()`) ; pour une période IOSS mensuelle ("2026-03"), non
+  reconnue, elle retombait à tort sur la fin du **trimestre** de la
+  transaction au lieu de la fin du **mois**. Nouvelles fonctions
+  `month_end_date()` et `get_ioss_rate_date()`, sélectionnées dans
+  `oss_export.py` via `res.scenario == Scenario.IOSS_DIRECT`
+  (`convert_ht_tva_for_oss_period`) et `scenarios == (Scenario.IOSS_DIRECT,)`
+  (préchargement par lot).
+- Le préchargement par lot (`_aggregate_by_scenario`) appelait
+  `prefetch_rates()`, qui alimente le cache "en arrière" — devenu inutile
+  puisque la conversion utilise désormais `get_closing_rate()`. Remplacé
+  par `prefetch_closing_rates()` (même principe : une requête ECB par
+  devise distincte plutôt qu'une par ligne de vente, perf inchangée —
+  `tests/test_oss_rate_prefetch.py` adapté en conséquence).
+
+**7. Quota SIREN piégé par le cache** (`billing.py`) : `list_registered_sirens()`
+(`@st.cache_data(ttl=60)`) exécute la purge des retraits SIREN expirés
+(`_purge_expired_siren_removals()`) **à l'intérieur** de son propre corps
+mis en cache — tant que ce cache n'a pas expiré (jusqu'à 60s), la purge ne
+s'exécute pas, et un SIREN dont le retrait différé vient d'échoir continue
+de compter dans le quota, bloquant l'ajout d'un nouveau SIREN.
+`_purge_expired_siren_removals()` retourne désormais le nombre de lignes
+supprimées ; `can_register_new_siren()` l'appelle en direct (non mis en
+cache, try/except défensif pour ne jamais bloquer la vérification de quota
+en cas d'erreur DB) et invalide `list_registered_sirens` si une purge a eu
+lieu. Garde-fou serveur définitif ajouté en plus : la transaction verrouillée
+de `register_siren()` (recomptage `COUNT(*)` avant insertion) purge
+désormais les retraits expirés dans la même transaction, avant de compter.
+
+**8. XSS + fuite du jeton de session Stripe** :
+- **XSS** (`ca3_report.py`, `local_vat_report.py`) : `company_name` (saisie
+  utilisateur du formulaire d'enregistrement SIREN) était injecté sans
+  protection dans les rapports HTML — un nom d'entreprise contenant
+  `<script>...</script>` s'exécutait à l'ouverture du rapport. `html.escape()`
+  ajouté sur `company_name` et `siren` (défense en profondeur) dans les deux
+  générateurs.
+- **Jeton Stripe en clair dans l'URL** (`ui/auth_flow.py`,
+  `AuthContext.stripe_success_url`/`stripe_cancel_url`) : le jeton de
+  session courant (`session_token`) était systématiquement réinjecté dans
+  l'URL de retour Stripe — ce jeton transite alors par le domaine
+  `checkout.stripe.com`, se retrouve dans l'historique du navigateur et peut
+  fuiter via les en-têtes Referer ou des logs de journalisation tiers.
+  Totalement superflu : le cookie `tva_session_token` (déjà posé, 30 jours)
+  est renvoyé automatiquement par le navigateur et restaure la session
+  (`st.context.cookies`, contrôlé en premier avant tout repli sur un
+  paramètre d'URL). Le jeton retiré des deux URLs ; `extra_qs`
+  (`export_ok=1`) conservé.
+
+**Tests** : nouveau fichier `tests/test_bugfixes_2026_09_09.py` (11 tests,
+un par bug testable unitairement — 1, 3, 5, 6, 7, 8), en plus de la suite
+complète. Points 2 et 8 (jeton Stripe) non couverts par un test automatisé
+(dépendances Streamlit/cookies difficiles à isoler sans un vrai run) —
+vérifiés manuellement sur le code.
+
+Suite complète : 275 passed / 4 failed (baseline `SUPABASE_DB_URL`
+inchangée, confirmée par comparaison avec un clone vierge de `dev` —
+aucune régression). `py_compile` + `pyflakes` propres sur tous les fichiers
+modifiés. Symétrie i18n vérifiée programmatiquement : 1229 clés × 7 langues,
+inchangée (aucune nouvelle clé nécessaire pour ce batch).
+
+Fichiers modifiés : `tva_intracom/engine.py`, `app.py`,
+`tva_intracom/vies_engine.py`, `tva_intracom/ui/tabs/declarations.py`,
+`tva_intracom/ecb_rates.py`, `tva_intracom/oss_export.py`,
+`tva_intracom/billing.py`, `tva_intracom/ca3_report.py`,
+`tva_intracom/local_vat_report.py`, `tva_intracom/ui/auth_flow.py`,
+`tests/test_bugfixes_2026_09_09.py`, `tests/test_oss_rate_prefetch.py`.

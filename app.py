@@ -53,7 +53,7 @@ from tva_intracom import billing as _tva_billing
 from tva_intracom import vies_engine as _tva_vies_engine
 from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
-from tva_intracom.ui.sidebar import render_sidebar
+from tva_intracom.ui.sidebar import render_sidebar, _invalidate_db_cache
 from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig
 from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.display_mode import ensure_display_mode, is_detailed, render_mode_toggle
@@ -148,6 +148,15 @@ _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 # que render_sidebar() (juste en dessous) ne lise le statut d'abonnement.
 if st.query_params.get("export_ok") == "1":
     _tva_billing.get_subscription_status.clear()
+    # BUGFIX (2026-09-09) : le clear() ci-dessus ne vide QUE le cache
+    # st.cache_data global de get_subscription_status. Mais billing_gate.py
+    # relit ce même statut via `_cached_db_read("sub_status_{org_id}", ...)`
+    # (ui/sidebar.py), qui mémoïse SA PROPRE copie en session_state pendant
+    # jusqu'à _DB_CACHE_TTL_SECONDS (20s) — un utilisateur PAYG revenant de
+    # Stripe pouvait donc rester bloqué sur l'écran de paiement jusqu'à
+    # expiration de ce second cache, non affecté par le clear() ci-dessus.
+    # On invalide explicitement cette clé de cache également.
+    _invalidate_db_cache(f"sub_status_{_current_user.org_id}")
     st.query_params.pop("export_ok", None)
 
 # NOTE : le mécanisme applicatif de "veille" (détection d'inactivité côté

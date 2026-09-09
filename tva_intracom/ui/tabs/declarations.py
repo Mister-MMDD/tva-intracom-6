@@ -61,8 +61,24 @@ def _aggregate_declarations_raw(_results: list, _refund_results: list, calc_key)
             "tva_remb": sum((r.vat_amount for r in _ioss_refund_results), _ZERO),
         }
 
-    _ddp_results = [r for r in _results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
-    _ddp_refund_results = [r for r in _refund_results if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER"]
+    # BUGFIX (2026-09-09, double comptage) : une vente DDP requalifiée vers
+    # le pays d'ORIGINE (r.vat_country == r.sale.seller_country) reçoit déjà
+    # channel=FR_DOMESTIC côté moteur (engine.py) et est donc DÉJÀ comptée
+    # dans home_ht_brut ci-dessus (filtre sur Channel.FR_DOMESTIC, qui
+    # inclut sciemment ces ventes DDP-vers-origine — voir ca3_report.py).
+    # Sans cette exclusion, elle était comptée UNE SECONDE FOIS ici (ligne
+    # "TVA DDP {home_country}" du récapitulatif), doublant à tort le CA
+    # affiché. Les ventes DDP vers un pays tiers (pas l'origine) ne sont
+    # pas concernées : channel=LOCAL_REGISTRATION pour elles, jamais compté
+    # dans home_ht_brut.
+    _ddp_results = [
+        r for r in _results
+        if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER" and r.vat_country != r.sale.seller_country
+    ]
+    _ddp_refund_results = [
+        r for r in _refund_results
+        if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER" and r.vat_country != r.sale.seller_country
+    ]
     ddp_agg: dict = {}
     for r in _ddp_results:
         _acc = ddp_agg.setdefault(r.vat_country, {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO})

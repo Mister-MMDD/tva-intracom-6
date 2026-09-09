@@ -3,20 +3,26 @@ aggregate_oss_results (voir oss_export.py).
 
 Contexte : convert_ht_tva_for_oss_period (appelée par aggregate_oss_results
 pour chaque VatResult OSS_B2C/IOSS_DIRECT) convertit vers EUR au taux BCE de
-clôture de période via ecb_rates.get_rate. Sans pré-batch, chaque devise
-distincte rencontrée dans `results` déclenche sa propre requête DB
-individuelle (mesuré en prod : 5 devises distinctes ~2.9s cumulés). Ce test
-vérifie qu'un seul appel `prefetch_rates` groupé est fait en amont, avec
-exactement les paires (devise, date de clôture) nécessaires — pas une par
-ligne de `results`.
+clôture de période. Sans pré-batch, chaque devise distincte rencontrée dans
+`results` déclenche sa propre requête DB individuelle (mesuré en prod :
+5 devises distinctes ~2.9s cumulés). Ce test vérifie qu'un seul appel
+groupé est fait en amont, avec exactement les paires (devise, date de
+clôture) nécessaires — pas une par ligne de `results`.
+
+MAJ (2026-09-09) : le taux de clôture OSS/IOSS est désormais résolu par
+ecb_rates.get_closing_rate() (recherche EN AVANT à partir de la date de
+clôture, conforme art. 5 bis Règl. UE 2020/194 — BUGFIX du même jour :
+l'ancien get_rate() cherchait EN ARRIÈRE, ce qui donnait à tort le taux du
+vendredi pour une clôture tombant un dimanche au lieu du lundi suivant).
+Le pré-batch correspondant est donc désormais prefetch_closing_rates(),
+et non plus prefetch_rates() (qui alimente un cache distinct, "en arrière",
+inutilisé par ce chemin de conversion depuis ce correctif).
 """
 from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
-
-import pytest
 
 from tva_intracom import BuyerType, Sale, compute_all_with_vies
 from tva_intracom import oss_export
@@ -33,8 +39,8 @@ def _make_sale(sale_id: str, currency: str, tx_date: str, amount: str) -> Sale:
 
 def test_aggregate_oss_results_prefetches_rates_in_one_batch_call():
     # 3 devises distinctes (dont EUR, à ignorer), 6 lignes au total : sans
-    # pré-batch, ce serait jusqu'à 5 appels get_rate individuels (une fois
-    # par devise non-EUR rencontrée pour la première fois).
+    # pré-batch, ce serait jusqu'à 5 appels get_closing_rate individuels
+    # (une fois par devise non-EUR rencontrée pour la première fois).
     sales = [
         _make_sale("s1", "GBP", "2026-01-15", "100"),
         _make_sale("s2", "GBP", "2026-02-20", "150"),  # même trimestre -> même rate_date que s1
@@ -50,13 +56,13 @@ def test_aggregate_oss_results_prefetches_rates_in_one_batch_call():
     def _fake_prefetch(pairs, **kwargs):
         prefetch_calls.append(list(pairs))
 
-    with patch.object(oss_export, "prefetch_rates", side_effect=_fake_prefetch) as mock_prefetch, \
+    with patch.object(oss_export, "prefetch_closing_rates", side_effect=_fake_prefetch) as mock_prefetch, \
          patch.object(oss_export, "convert_to_currency_for_oss",
                       return_value=(Decimal("100"), Decimal("1"), "cache")):
         oss_export.aggregate_oss_results(results, period="2026-Q1")
 
     assert mock_prefetch.call_count == 1, (
-        f"Un seul appel prefetch_rates groupé attendu, obtenu {mock_prefetch.call_count} "
+        f"Un seul appel prefetch_closing_rates groupé attendu, obtenu {mock_prefetch.call_count} "
         f"(voir commentaire dans aggregate_oss_results)"
     )
     pairs = set(prefetch_calls[0])
@@ -71,7 +77,7 @@ def test_aggregate_oss_results_skips_prefetch_when_no_period():
     (comportement historique conservé) : aucun prefetch ne doit être tenté."""
     results = compute_all_with_vies([_make_sale("s1", "GBP", "2026-01-15", "100")], scope_id="test-oss-prefetch")[0]
 
-    with patch.object(oss_export, "prefetch_rates") as mock_prefetch, \
+    with patch.object(oss_export, "prefetch_closing_rates") as mock_prefetch, \
          patch.object(oss_export, "convert_to_currency_for_oss") as mock_convert:
         oss_export.aggregate_oss_results(results, period="")
 
