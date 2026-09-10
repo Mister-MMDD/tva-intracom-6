@@ -1177,7 +1177,7 @@ account_link_switch_btn = "🔀 Switch to {other_label}"
 # VIES Tab
 vies_tab_enable_info = "ℹ️ Enable VIES validation in the sidebar to access this tab."
 vies_tab_no_b2b_info = "ℹ️ No B2B numbers detected in this file."
-vies_kpi_verified_nums = "Verified numbers"
+vies_kpi_verified_nums = "VIES detected"
 vies_kpi_valid = "✅ Valid"
 vies_kpi_invalid = "❌ Invalid"
 vies_kpi_unverified = "⚠️ Not verified (service error)"

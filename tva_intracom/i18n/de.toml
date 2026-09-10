@@ -1176,7 +1176,7 @@ account_link_switch_btn = "🔀 Zu {other_label} wechseln"
 # VIES Tab
 vies_tab_enable_info = "ℹ️ Aktivieren Sie die MIAS-Validierung in der Seitenleiste, um auf diesen Reiter zuzugreifen."
 vies_tab_no_b2b_info = "ℹ️ Keine B2B-Nummern in dieser Datei erkannt."
-vies_kpi_verified_nums = "Überprüfte Nummern"
+vies_kpi_verified_nums = "VIES erkannt"
 vies_kpi_valid = "✅ Gültig"
 vies_kpi_invalid = "❌ Ungültig"
 vies_kpi_unverified = "⚠️ Nicht überprüft (Dienstfehler)"

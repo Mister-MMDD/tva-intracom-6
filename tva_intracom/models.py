@@ -371,7 +371,7 @@ class ViesValidationSummary:
     def total_national_id(self) -> int: return self.national_id_count
     @property
     def total_verified(self) -> int:
-        """'Numéros vérifiés' : Valides + Invalides uniquement (décision
+        """'VIES détectés' : Valides + Invalides uniquement (décision
         automatique OU manuelle, peu importe — les deux sont définitives).
         Exclut explicitement les non-vérifiés (inconclusive_count, aucune
         réponse exploitable du serveur) et les NIF/identifiants nationaux
