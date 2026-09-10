@@ -726,29 +726,70 @@ def convert_to_currency(
     Retourne (montant_cible, taux_source_vers_cible, source_info).
 
     rate_fn : voir convert_to_eur — propagé à la conversion EUR->cible.
+
+    BUGFIX (2026-09-10, dérive d'arrondi conversions croisées, voir
+    README - évolution.md) : la conversion source -> cible passait
+    auparavant par `convert_to_eur()`, qui quantize le montant EUR
+    intermédiaire à 2 décimales AVANT la seconde conversion (EUR -> cible).
+    Ce double arrondi pouvait faire dériver le résultat final de plusieurs
+    centimes sur la devise cible (ex. GBP -> EUR -> PLN), l'écart intermédiaire
+    en EUR étant amplifié par le taux cible. On calcule désormais le montant
+    EUR intermédiaire en pleine précision (sans quantize) pour toute
+    conversion croisée, et on ne quantize QUE le résultat final — comme
+    recommandé pour tout calcul financier multi-étapes. Le cas
+    target_currency == "EUR" continue de passer par `convert_to_eur()`
+    (résultat final déjà EUR, quantize correct dès cette étape).
     """
     _rate_fn = rate_fn or get_rate
     source_currency = source_currency.upper()
     target_currency = target_currency.upper()
-    
-    # 1. Conversion source -> EUR
-    eur_amount, rate_source, source_info = convert_to_eur(amount, source_currency, target_date, fallback_rate, rate_fn=_rate_fn)
-    
+
     if target_currency == "EUR":
-        return eur_amount, rate_source, source_info
-    
-    # 2. Conversion EUR -> cible
+        # Résultat final directement en EUR : convert_to_eur() quantize au
+        # bon moment (c'est la dernière étape), pas de double arrondi ici.
+        return convert_to_eur(amount, source_currency, target_date, fallback_rate, rate_fn=_rate_fn)
+
+    # 1. Conversion source -> EUR EN PLEINE PRÉCISION (pas de quantize
+    #    intermédiaire — voir BUGFIX ci-dessus).
+    if source_currency == "EUR":
+        eur_amount_precise = amount
+        rate_source = Decimal("1")
+        source_info = "eur"
+    elif source_currency == "HRK":
+        _HRK_FIXED = Decimal("7.53450")
+        eur_amount_precise = amount / _HRK_FIXED
+        rate_source = _HRK_FIXED
+        source_info = "fixed_eur_hrk"
+    else:
+        rate_source = _rate_fn(source_currency, target_date)
+        if rate_source is None:
+            if fallback_rate is None:
+                raise ValueError(
+                    f"Impossible d'obtenir le taux EUR/{source_currency} au {target_date}. "
+                    "Vérifiez la connexion Internet ou fournissez un taux de secours."
+                )
+            rate_source = fallback_rate
+            source_info = "fallback"
+        else:
+            source_info = "ecb"
+        eur_amount_precise = amount / rate_source
+
+    # 2. Conversion EUR -> cible, toujours en pleine précision jusqu'ici
     rate_target = _rate_fn(target_currency, target_date)
     if rate_target is None:
-        # Fallback : si on ne peut pas avoir le taux cible, on reste en EUR et on avertit
+        # Fallback : si on ne peut pas avoir le taux cible, on reste en EUR
+        # et on avertit — SEUL moment où l'on quantize le montant EUR,
+        # puisque c'est alors le résultat final retourné.
         logger.warning("Taux pour devise cible %s indisponible au %s. Reste en EUR.", target_currency, target_date)
+        eur_amount = eur_amount_precise.quantize(_CENT, rounding=ROUND_HALF_UP)
         return eur_amount, rate_source, source_info
-    
-    target_amount = (eur_amount * rate_target).quantize(_CENT, rounding=ROUND_HALF_UP)
-    
+
+    # 3. Quantize uniquement le résultat final, en pleine précision jusque-là.
+    target_amount = (eur_amount_precise * rate_target).quantize(_CENT, rounding=ROUND_HALF_UP)
+
     # Taux combiné (pour info)
     combined_rate = (rate_target / rate_source) if rate_source else rate_target
-    
+
     return target_amount, combined_rate, f"{source_info}_to_{target_currency.lower()}"
 
 

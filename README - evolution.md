@@ -7664,6 +7664,76 @@ programmatiquement : 1229 clés × 7 langues, inchangée (aucune nouvelle clé).
 Fichiers modifiés : `tva_intracom/vies_engine.py`,
 `tva_intracom/ui/tabs/vies_ui.py`.
 
+## 2026-09-10 (3) — Batch de 7 points signalés (audit externe) : seuil OSS annuel, AIC Monaco (stock hors origine), IOSS net, arrondi conversions croisées, purge VIES incomplète, Format 3 Amazon (documenté, non corrigé)
+
+Confirmation préalable : sur les 7 points soumis, 3 (propagation annuelle
+du seuil OSS, éligibilité OSS Monaco, éligibilité OSS stock hors pays
+d'origine) correspondent à des bugs déjà corrigés dans le code réel lors
+de sessions précédentes (voir `_run_oss_loop`/`_oss_eligible` dans
+`engine.py`, `is_fiscal_eu` dans `rates.py`) — vérifiés sur GitHub `dev`
+avant toute analyse, aucune action supplémentaire nécessaire. Les 4
+points restants ont été confirmés puis corrigés ; le 7e (Format 3 Amazon)
+est un cas structurel sans donnée disponible, documenté sans correction.
+
+**1. TVA IOSS nette erronée dans `total_you_owe`** (`report.py`) : la
+propriété sommait `net_fr_domestic_vat + net_oss_total + net_local_total
++ self.ioss_vat`, ce dernier terme étant le montant IOSS BRUT — il
+ignorait `refund_ioss_vat` (négatif), pourtant déjà accumulé séparément
+dans `_aggregate_result`. Le total de TVA nette à reverser affiché au
+tableau de bord et dans les rapports était donc sur-évalué dès qu'il
+existait des remboursements sur des ventes IOSS. Corrigé par l'ajout
+d'une propriété `net_ioss_vat` (`ioss_vat + refund_ioss_vat`), utilisée
+à la fois dans `total_you_owe` et dans la ligne texte du rapport
+(qui affichait le même montant brut), avec sous-détail des
+remboursements ajouté pour cohérence avec les autres lignes (domestique,
+OSS). Risque évité : l'utilisateur payait plus de TVA que réellement dû
+en se fiant à ce total.
+
+**2. Double arrondi lors des conversions de devises croisées**
+(`ecb_rates.py`, `convert_to_currency`) : la conversion source → cible
+passait par `convert_to_eur()`, qui quantize le montant EUR intermédiaire
+à 2 décimales AVANT la seconde conversion (EUR → cible). Ce double
+arrondi pouvait faire dériver le résultat final de plusieurs centimes sur
+la devise cible (ex. GBP → EUR → PLN, l'écart intermédiaire en EUR étant
+amplifié par le taux cible). Corrigé : le montant EUR intermédiaire est
+désormais calculé en pleine précision (sans `quantize`) pour toute
+conversion croisée ; seul le résultat final est quantizé à 2 décimales.
+Le cas `target_currency == "EUR"` continue de passer par
+`convert_to_eur()` (résultat final déjà en EUR, un seul arrondi
+nécessaire). Le repli "taux cible indisponible, on reste en EUR" est
+l'unique autre point de quantize intermédiaire, puisqu'il s'agit alors du
+résultat final retourné.
+
+**3. Purge VIES incomplète — piste d'audit oubliée**
+(`vies_engine.py`, `purge_malformed_entries`) : la fonction ne nettoyait
+que `vies_global_cache` et `vies_scope_cache` des entrées à double préfixe
+pays (bug historique, ex. "DEIT123..."), jamais `vies_check_history`
+(rétention 365 jours). Les entrées malformées pouvaient donc réapparaître
+dans un certificat PDF ou un export Excel d'historique alors que les
+caches étaient déjà nettoyés — source de confusion en cas de contrôle
+fiscal. Corrigé en ajoutant `vies_check_history` à la boucle de purge
+(même colonne `vat_id`, même critère de double préfixe).
+
+**4. Format Amazon 3 — quantité forcée à 1, biais de la base AIC**
+(`parsers/amazon/parsers.py`, `_Format3Parser.qty` ; `ca3_report.py`,
+`_asin_avg_price_and_category`) : confirmé techniquement — si une ligne
+Format 3 représente en réalité plusieurs unités groupées, le prix moyen
+HT/unité calculé par ASIN est artificiellement gonflé (division par 1 au
+lieu de la quantité réelle), ce qui sur-évalue ensuite la base AIC
+(ligne 08 CA3) via `_compute_aic_from_fc_transfers`. **Non corrigé** : le
+Format 3 ne contient structurellement aucune colonne quantité exploitable
+— il n'y a rien à déduire sans invention de donnée absente du fichier
+source. Documenté dans `optimisations_en_attente.md` (point 7bis) avec
+piste possible (avertir l'utilisateur de migrer vers Format 4/5, qui
+contiennent une colonne QTY) plutôt qu'une estimation côté code.
+
+Points 1 à 3 : `py_compile` + `pyflakes` propres sur les 3 fichiers
+modifiés. Suite `pytest` : 275 passed / 4 failed — les 4 échecs sont
+intégralement liés à `SUPABASE_DB_URL` non définie dans le sandbox
+(confirmé pré-existant en rejouant le test sur le code non modifié, avant
+toute correction) ; aucune régression introduite. Symétrie i18n vérifiée
+(1229 clés dans les 7 langues, aucune clé touchée).
+
 ## 2026-09-10 (2) — Batch de 5 points signalés (audit externe) : seuil OSS/avoirs, double comptage DDP, délai EMEBI, AIC Monaco, désync toggle seuil N-1
 
 Confirmation préalable : les 2 points listés "en attente" de la session

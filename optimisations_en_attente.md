@@ -42,6 +42,12 @@ Ce fichier liste les propositions d'améliorations techniques notées pour le sy
 *   **Statut** : Décision en attente de confirmation par le cabinet fiscal.
 *   **Lieu concerné** : `tva_intracom/rates.py`
 
+### 7bis. Format Amazon 3 — quantité forcée à 1 (biais base AIC)
+*   **Description** : `_Format3Parser.qty()` (`tva_intracom/parsers/amazon/parsers.py`) retourne toujours `1` car ce format Amazon n'expose aucune colonne quantité exploitable. Or `_asin_avg_price_and_category` (`ca3_report.py`) calcule le prix moyen HT/unité par ASIN en divisant `amount_ht` par la somme des `quantity` connues : si une ligne Format 3 représente en réalité plusieurs unités groupées, ce prix moyen est artificiellement gonflé, ce qui sur-évalue ensuite la base AIC (ligne 08 CA3) calculée par `_compute_aic_from_fc_transfers`.
+*   **Objectif** : Ne pas générer un montant AIC faussé pour les utilisateurs encore sur le Format 3 avec des ventes groupées.
+*   **Statut** : Non corrigeable en l'état — le Format 3 ne contient structurellement aucune donnée de quantité, il n'y a rien à déduire sans risque d'invention de données. Décision : documenté ici, laissé tel quel. Piste possible si le besoin se confirme : détecter ce cas et avertir l'utilisateur qu'il devrait migrer vers un export Format 4/5 (qui contiennent une colonne QTY) plutôt que de tenter une estimation supplémentaire côté code.
+*   **Lieu concerné** : `tva_intracom/parsers/amazon/parsers.py` (`_Format3Parser.qty`), `tva_intracom/ca3_report.py` (`_asin_avg_price_and_category`)
+
 ### 7. Extension du FEC aux achats
 *   **Description** : Étendre le module d'export FEC (Fichier des Écritures Comptables) pour inclure les factures d'achats.
 *   **Objectif** : Fournir un journal d'achats complet pour la comptabilité.

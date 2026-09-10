@@ -1196,8 +1196,16 @@ def purge_malformed_entries(force: bool = False) -> int:
     """Purge administrative (appelée depuis app.py une fois par session) :
     supprime les entrées vat_id mal préfixées par un bug historique (double
     préfixe pays, ex. "DEIT123..." ou "FRFR123..." en cas de répétition du
-    même préfixe). Opère sur les DEUX tables (scope + global) car le bug
-    était antérieur à la scopisation.
+    même préfixe). Opère sur les TROIS tables (scope + global + historique
+    d'audit) car le bug était antérieur à la scopisation.
+
+    BUGFIX (2026-09-10, piste d'audit oubliée, voir README - évolution.md) :
+    la purge ne touchait auparavant que `vies_global_cache` et
+    `vies_scope_cache`, jamais `vies_check_history`. Les entrées malformées
+    y survivaient donc indéfiniment (rétention 365 jours) et pouvaient
+    réapparaître dans un certificat PDF ou un export Excel d'historique,
+    en contradiction avec l'état pourtant nettoyé des caches — source de
+    confusion potentielle lors d'un contrôle fiscal.
 
     BUGFIX (voir README - évolution.md) : la clause excluait auparavant le
     cas où les deux préfixes détectés étaient identiques (ex. "FRFR..."),
@@ -1245,7 +1253,7 @@ def purge_malformed_entries(force: bool = False) -> int:
             if row and row[0] and (_now_utc() - row[0]) < timedelta(days=_MALFORMED_PURGE_MIN_INTERVAL_DAYS):
                 return 0
 
-        for table in ("vies_global_cache", "vies_scope_cache"):
+        for table in ("vies_global_cache", "vies_scope_cache", "vies_check_history"):
             cur.execute(
                 f"""
                 DELETE FROM {table}
