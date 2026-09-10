@@ -419,6 +419,7 @@ def render_telechargements() -> None:
                     results=results, refund_results=refund_results, vat_country=home_country,
                     company_name=nom_entreprise, siren=siren_entreprise,
                     period_label=period_label, seller_country=home_country,
+                    all_fc_transfers=all_fc_transfers,
                 ).encode("utf-8")
             _home_html_bytes = _lazy_artifact("home_html", _build_home_html, label="dl_generate_home_html_btn", country=country_label(home_country))
             _home_filename = _("dl_local_html_filename", country=home_country, company=nom_entreprise, period=period_label)
@@ -570,6 +571,7 @@ def render_telechargements() -> None:
                                 results=results, refund_results=refund_results, vat_country=export_country,
                                 company_name=nom_entreprise, siren=siren_entreprise,
                                 period_label=period_label, seller_country=home_country,
+                                all_fc_transfers=all_fc_transfers,
                             ).encode("utf-8")
                     
                         html_bytes = _lazy_artifact(f"local_html_{export_country}", _build_local_html, label="dl_generate_local_html_btn", country=country_label(export_country))

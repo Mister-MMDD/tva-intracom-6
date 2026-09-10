@@ -51,6 +51,7 @@ def compute_local_vat_lines(
     results: List[VatResult],
     refund_results: Optional[List[VatResult]],
     vat_country: str,
+    all_fc_transfers: Optional[list] = None,
 ) -> Dict:
     """Agrège les ventes/avoirs d'un pays donné (canal LOCAL_REGISTRATION),
     par taux de TVA réellement présent dans les données.
@@ -58,9 +59,33 @@ def compute_local_vat_lines(
     Ne filtre PAS sur `seller_country` : ce module sert uniquement aux
     immatriculations locales hors pays d'établissement — la France utilise
     `ca3_report.py`, pas ce module.
+
+    BUGFIX (2026-09-10, AIC FBA manquantes) : ce module ignorait totalement
+    les transferts de stock FBA. Un vendeur immatriculé en Allemagne ne
+    voyait donc jamais ses Acquisitions Intra-Communautaires (AIC)
+    allemandes (stock transféré depuis un autre État membre vers un entrepôt
+    Amazon en Allemagne) dans son rapport local, malgré l'obligation
+    d'autoliquidation qui en découle — risque de sous-déclaration.
+    `all_fc_transfers` (optionnel, rétro-compatible : None = comportement
+    inchangé) réutilise `ca3_report._compute_aic_from_fc_transfers`, déjà
+    validé pour la CA3 française, en lui passant `vat_country` (au lieu du
+    pays d'établissement) comme pays d'arrivée à considérer — cette fonction
+    est déjà générique sur ce paramètre (elle calcule les flux ENTRANTS vers
+    le pays passé en argument, quel qu'il soit).
     """
     vat_country = vat_country.upper()
     refund_results = refund_results or []
+
+    aic_base_ht = Decimal("0.00")
+    aic_vat = Decimal("0.00")
+    if all_fc_transfers:
+        # Import différé : évite tout risque de cycle d'import (ca3_report
+        # n'importe pas local_vat_report), et garde ce module utilisable
+        # sans all_fc_transfers si l'appelant ne les fournit pas.
+        from tva_intracom.ca3_report import _compute_aic_from_fc_transfers
+        aic_base_ht, aic_vat = _compute_aic_from_fc_transfers(
+            all_fc_transfers, results, seller_country=vat_country,
+        )
 
     # Filtre élargi : channel LOCAL_REGISTRATION (immatriculation hors pays
     # d'origine) OU FR_DOMESTIC. Ce dernier n'est émis par engine.py QUE
@@ -98,6 +123,12 @@ def compute_local_vat_lines(
 
     total_base_net = _round(sum((b["base_net"] for b in by_rate.values()), Decimal("0")))
     total_tva_net = _round(sum((b["tva_net"] for b in by_rate.values()), Decimal("0")))
+    # AIC ajoutées au total net à autoliquider pour ce pays (voir BUGFIX
+    # ci-dessus) — affichées séparément (base_ht estimée + TVA due) pour ne
+    # pas mélanger la TVA collectée sur ventes et la TVA autoliquidée sur
+    # introductions de stock, tout en les incluant dans le total déclaré.
+    total_base_net_avec_aic = _round(total_base_net + aic_base_ht)
+    total_tva_net_avec_aic = _round(total_tva_net + aic_vat)
     total_nb = sum(b["nb_vente"] + b["nb_remb"] for b in by_rate.values())
 
     return {
@@ -105,8 +136,12 @@ def compute_local_vat_lines(
         "by_rate": dict(sorted(by_rate.items(), key=lambda kv: -float(kv[0]) if kv[0].replace(".", "", 1).isdigit() else 0)),
         "total_base_net": total_base_net,
         "total_tva_net": total_tva_net,
+        "aic_base_ht": aic_base_ht,
+        "aic_vat": aic_vat,
+        "total_base_net_avec_aic": total_base_net_avec_aic,
+        "total_tva_net_avec_aic": total_tva_net_avec_aic,
         "total_nb": total_nb,
-        "has_data": total_nb > 0,
+        "has_data": total_nb > 0 or aic_base_ht != Decimal("0.00"),
     }
 
 
@@ -118,10 +153,14 @@ def generate_local_vat_html_report(
     siren: str,
     period_label: str,
     seller_country: str = "FR",
+    all_fc_transfers: Optional[list] = None,
 ) -> str:
     """Génère le rapport HTML générique de contrôle TVA locale pour un pays
     non-FR. Même charte visuelle que le CA3 (`ca3_report.py`), structure
-    volontairement plus simple (pas de cases numérotées officielles)."""
+    volontairement plus simple (pas de cases numérotées officielles).
+
+    `all_fc_transfers` (BUGFIX 2026-09-10, AIC manquantes) : voir docstring
+    de `compute_local_vat_lines`. Optionnel/rétro-compatible."""
 
     # BUGFIX (2026-09-09, XSS) : company_name est une saisie utilisateur
     # (formulaire d'enregistrement SIREN) injectée sans protection dans ce
@@ -130,7 +169,7 @@ def generate_local_vat_html_report(
     siren = html.escape(siren or "")
 
     vat_country = vat_country.upper()
-    lines = compute_local_vat_lines(results, refund_results, vat_country)
+    lines = compute_local_vat_lines(results, refund_results, vat_country, all_fc_transfers=all_fc_transfers)
 
     c_label = country_label(vat_country)
     
@@ -185,6 +224,34 @@ def generate_local_vat_html_report(
         if has_box_codes else
         f'<p class="notice" style="margin-top:6px;">{_("local_vat_no_box_codes_note")}</p>'
     )
+
+    # BUGFIX (2026-09-10, AIC FBA manquantes) : section AIC affichée
+    # uniquement si des transferts de stock entrants ont été détectés pour
+    # ce pays (all_fc_transfers fourni ET base AIC non nulle) — sinon la
+    # section est omise pour ne pas alourdir le rapport des pays sans FBA.
+    aic_section_html = ""
+    if lines.get("aic_base_ht", Decimal("0.00")) != Decimal("0.00") or lines.get("aic_vat", Decimal("0.00")) != Decimal("0.00"):
+        aic_section_html = f"""
+    <h2>{_("local_vat_aic_sec_title")}</h2>
+    <table class="t">
+        <tr>
+            <th>{lbl_base} / {lbl_tax}</th>
+            <th>{lbl_base}</th>
+            <th>{lbl_tax}</th>
+        </tr>
+        <tr>
+            <td>{_("local_vat_aic_row")}</td>
+            <td class="tr">{_fmt(lines['aic_base_ht'])}</td>
+            <td class="tr">{_fmt(lines['aic_vat'])}</td>
+        </tr>
+        <tr class="tot">
+            <td>{_("local_vat_total_row")}</td>
+            <td class="tr">{_fmt(lines['total_base_net_avec_aic'])}</td>
+            <td class="tr">{_fmt(lines['total_tva_net_avec_aic'])}</td>
+        </tr>
+    </table>
+    <p class="notice" style="margin-top:6px;">{_("local_vat_aic_note")}</p>
+"""
 
     CSS = """
         @page { size: A4; margin: 20mm 15mm; }
@@ -267,6 +334,8 @@ def generate_local_vat_html_report(
         </tr>
     </table>
     {box_col_note}
+
+    {aic_section_html}
 
     <p class="notice">
         {_("local_vat_footer_notice", country=c_label)}

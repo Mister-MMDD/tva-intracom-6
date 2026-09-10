@@ -384,7 +384,7 @@ def suggest_negative_bucket_corrections(
             continue
         if res.sale.amount_ht > 0:
             positive_by_sale_id.setdefault(
-                (res.sale.sale_id, res.sale.stock_country, res.vat_country, res.vat_rate), []
+                (res.sale.sale_id, res.sale.stock_country, res.vat_country), []
             ).append(res)
         elif res.sale.amount_ht < 0:
             refunds_by_bucket.setdefault(key, []).append(res)
@@ -398,8 +398,21 @@ def suggest_negative_bucket_corrections(
         unmatched_count = 0
 
         for refund in refunds_by_bucket.get(key, []):
+            # BUGFIX (2026-09-10, changement de taux entre vente et avoir) :
+            # la clé de recherche incluait auparavant `vat_rate`, hérité du
+            # rattachement par bucket négatif ci-dessus. Or le TAUX de
+            # `refund` peut différer de celui de la vente d'origine (Amazon
+            # applique le taux en vigueur au moment de l'avoir, pas celui de
+            # la vente initiale — voir aussi le BUGFIX taux historique dans
+            # compute_vat) : un avoir à taux changé ne retrouvait alors
+            # jamais sa vente, bloquant systématiquement la génération XML
+            # par sécurité. `sale_id` (même commande) + pays de stock/TVA
+            # suffisent à identifier la vente d'origine sans risque de faux
+            # positif — le taux n'apporte ici aucune garantie supplémentaire
+            # puisqu'un même sale_id/pays ne peut correspondre qu'à UNE
+            # vente d'origine.
             candidates = positive_by_sale_id.get(
-                (refund.sale.sale_id, refund.sale.stock_country, refund.vat_country, refund.vat_rate)
+                (refund.sale.sale_id, refund.sale.stock_country, refund.vat_country)
             )
             # BUGFIX (audit du 2026-08-19) : `candidates[0]` prenait la
             # première vente rencontrée dans l'ORDRE D'ITÉRATION de

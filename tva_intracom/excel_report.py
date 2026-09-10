@@ -1290,13 +1290,41 @@ def _write_calendar_tab(
     if period:
         p = period.strip().upper().replace("T", "Q")
         m = _re.fullmatch(r"(\d{4})-Q([1-4])", p)
+        m_range = _re.fullmatch(r"(\d{4})-Q([1-4])_Q([1-4])", p)
+        m_sem = _re.fullmatch(r"(\d{4})-S([12])", p)
+        m_month = _re.fullmatch(r"(\d{4})-(\d{2})", p)
+        m_yr_range = _re.fullmatch(r"(\d{4})-(\d{4})", p)
+        yr_m = _re.fullmatch(r"(\d{4})", p)
+        # BUGFIX (2026-09-10, périodes multi-trimestres/semestres/mois/
+        # multi-années ignorées) : seuls les formats "AAAA-QN" (trimestre
+        # unique) et "AAAA" (année pleine) étaient reconnus. Or
+        # `billing_gate.detect_period_label()` génère aussi "AAAA-QN_QM"
+        # (plage de trimestres), "AAAA-S1"/"AAAA-S2" (semestre), "AAAA-MM"
+        # (mois unique) et "AAAA1-AAAA2" (plage d'années) — tous tombaient
+        # dans le filet de secours (reconstruction depuis les dates de
+        # vente RÉELLES), qui masque le problème SAUF si un trimestre de la
+        # plage n'a aucune vente OSS_B2C (auquel cas son échéance — y
+        # compris une NIL obligatoire — disparaissait silencieusement du
+        # calendrier). Reconnaissance explicite de tous ces formats.
         if m:
             oss_quarters = [(int(m.group(1)), int(m.group(2)))]
-        else:
-            # Multi-trimestres / annuel → générer tous les trimestres
-            yr_m = _re.fullmatch(r"(\d{4})", p)
-            if yr_m:
-                oss_quarters = [(int(yr_m.group(1)), q) for q in range(1, 5)]
+        elif m_range:
+            yr = int(m_range.group(1))
+            q_min, q_max = int(m_range.group(2)), int(m_range.group(3))
+            oss_quarters = [(yr, q) for q in range(q_min, q_max + 1)]
+        elif m_sem:
+            yr = int(m_sem.group(1))
+            q_start = 1 if m_sem.group(2) == "1" else 3
+            oss_quarters = [(yr, q_start), (yr, q_start + 1)]
+        elif m_month:
+            yr, mo = int(m_month.group(1)), int(m_month.group(2))
+            oss_quarters = [(yr, (mo - 1) // 3 + 1)] if 1 <= mo <= 12 else []
+        elif m_yr_range:
+            y1, y2 = int(m_yr_range.group(1)), int(m_yr_range.group(2))
+            if y1 <= y2:
+                oss_quarters = [(yr, q) for yr in range(y1, y2 + 1) for q in range(1, 5)]
+        elif yr_m:
+            oss_quarters = [(int(yr_m.group(1)), q) for q in range(1, 5)]
 
     # Compléter depuis les dates de ventes OSS si période non reconnue
     if not oss_quarters:
@@ -1955,9 +1983,19 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
 
 
 
-def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None, seller_country: str = "FR", display_currency: str = "EUR") -> None:
+def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None, seller_country: str = "FR", display_currency: str = "EUR",
+                      results: list | None = None, all_fc_transfers: list | None = None) -> None:
     """Onglet TVA locale par pays (immatriculation locale hors OSS) : mois par
-    mois (net) puis Brut / Remboursements / Net (total période) et statut."""
+    mois (net) puis Brut / Remboursements / Net (total période) et statut.
+
+    BUGFIX (2026-09-10, AIC FBA manquantes) : `results`/`all_fc_transfers`
+    (optionnels, rétro-compatibles) permettent d'ajouter deux colonnes AIC
+    (base estimée + TVA due) en FIN de tableau, calculées par pays via
+    `ca3_report._compute_aic_from_fc_transfers`. Ajout volontairement en
+    APPEND (nouvelles colonnes après "Statut", jamais insérées entre les
+    colonnes existantes) pour ne prendre aucun risque sur les formules
+    Excel de ce tableau, déjà documentées comme fragiles aux décalages de
+    colonnes/lignes (voir le BUGFIX #VALEUR! juste en-dessous)."""
     ws.title = i18n_("xl_tab_local")
     countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
     # Le pays d'origine est toujours considéré comme immatriculé
@@ -1989,6 +2027,19 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     all_countries = sorted(set(local) | set(refund_local))
     unregistered = [c for c in all_countries if c not in countries_with_vat]
+
+    # BUGFIX (2026-09-10, AIC FBA manquantes) : AIC entrante estimée par
+    # pays, calculée une seule fois ici pour toutes les lignes (voir
+    # docstring de la fonction). Silencieux et à 0 si results/all_fc_transfers
+    # non fournis (rétro-compatibilité totale des appels existants).
+    _aic_by_country: dict[str, tuple[Decimal, Decimal]] = {}
+    if all_fc_transfers and results is not None:
+        from .ca3_report import _compute_aic_from_fc_transfers
+        for _c in set(all_countries) | countries_with_vat:
+            _aic_by_country[_c] = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country=_c)
+    _has_any_aic = any(b != _z or t != _z for b, t in _aic_by_country.values())
+    if _has_any_aic:
+        all_countries = sorted(set(all_countries) | {c for c, (b, t) in _aic_by_country.items() if b != _z or t != _z})
 
     by_country_month = dict(getattr(summary, "local_by_country_month", {}) or {})
     # Injecter les données mensuelles du pays d'origine
@@ -2032,6 +2083,8 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     headers = [i18n_("xl_local_col_country"), i18n_("xl_local_col_code")]
     headers += [_month_label(m) for m in months]
     headers += [i18n_("xl_local_col_vat_due"), i18n_("xl_local_col_vat_refunds"), i18n_("xl_local_col_vat_net"), i18n_("xl_local_col_status")]
+    if _has_any_aic:
+        headers += [i18n_("xl_local_col_aic_base"), i18n_("xl_local_col_aic_vat")]
     ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL,
                       alignment=Alignment(horizontal="center", vertical="center"))
                for t in headers])
@@ -2066,6 +2119,10 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
                                  font=_ALERT_FONT if not is_registered else None,
                                  fill=_ALERT_FILL if not is_registered else None))
         _vals += [_conv(brut), _conv(refund), _status_val]
+        if _has_any_aic:
+            _aic_base, _aic_vat = _aic_by_country.get(country, (_z, _z))
+            _row_cells.append(_wcell(ws, _conv(_aic_base), number_format=_fmt_curr))
+            _row_cells.append(_wcell(ws, _conv(_aic_vat), number_format=_fmt_curr))
 
         ws.append(_row_cells)
         ws.row_dimensions[row].height = 18
@@ -2092,6 +2149,11 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     ]:
         _total_cells.append(_wcell(ws, formula, number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
     _total_cells.append(_wcell(ws, None))  # colonne Statut, vide sur la ligne de total
+    if _has_any_aic:
+        _total_aic_base = sum((b for b, _t in _aic_by_country.values()), _z)
+        _total_aic_vat = sum((t for _b, t in _aic_by_country.values()), _z)
+        _total_cells.append(_wcell(ws, _conv(_total_aic_base), number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
+        _total_cells.append(_wcell(ws, _conv(_total_aic_vat), number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_ORANGE_HEADER_FILL))
     ws.append(_total_cells)
     ws.row_dimensions[row].height = 20
 
@@ -2320,7 +2382,8 @@ def export_xlsx(
     if (summary.local_by_country or getattr(summary, "refund_local_by_country", None) or
             summary.fr_domestic_vat or summary.refund_fr_domestic_vat):
         ws_local = _SequentialSheetWriter(wb.create_sheet())
-        _write_local_tab(ws_local, summary, countries_with_vat, seller_country=seller_country, display_currency=_currency)
+        _write_local_tab(ws_local, summary, countries_with_vat, seller_country=seller_country, display_currency=_currency,
+                         results=results, all_fc_transfers=all_fc_transfers)
         ws_local.finalize()
 
     # 8. Onglet Audit Ecarts Amazon

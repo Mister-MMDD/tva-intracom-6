@@ -219,7 +219,13 @@ def _compute_aic_from_fc_transfers(
         # peut donner lieu à une AIC entrante.
         arr_fiscal = fiscal_equivalent_country(arr)
         dep_fiscal = fiscal_equivalent_country(dep)
-        if arr_fiscal != seller_country.upper() or dep_fiscal == arr_fiscal:
+        # BUGFIX 3 (2026-09-10, symétrique du BUGFIX ci-dessus) : seul
+        # arr_fiscal était normalisé, pas seller_country. Pour un vendeur
+        # établi À Monaco (seller_country="MC") avec une arrivée physique
+        # en France (arr="FR"), la comparaison "FR" != "MC" écartait à tort
+        # ce transfert AIC alors que les deux territoires sont fiscalement
+        # équivalents.
+        if arr_fiscal != fiscal_equivalent_country(seller_country.upper()) or dep_fiscal == arr_fiscal:
             continue
         asin = (t.get("ASIN") or t.get("asin") or "").strip()
         raw_qty = t.get("QTY") or t.get("qty") or 1
@@ -351,7 +357,19 @@ def compute_ca3_lines_v2(
         # France (Monaco = France fiscale, convention du 18 mai 1963) — sans
         # cette normalisation, "MC" != seller_country="FR" faisait échouer
         # à tort ce test. Corrigé le 2026-08-26 (angle mort confirmé).
-        stock_from_seller = fiscal_equivalent_country(res.sale.stock_country) == seller_country.upper()
+        #
+        # BUGFIX (2026-09-10, cas symétrique non couvert par le correctif
+        # ci-dessus) : seul stock_country était normalisé, pas
+        # seller_country. Pour un vendeur établi À Monaco (seller_country=
+        # "MC") avec un stock en France ("FR"), le test comparait
+        # fiscal_equivalent_country("FR")="FR" à seller_country.upper()="MC"
+        # → toujours faux, alors que ce stock est bien "chez le vendeur"
+        # (France fiscale des deux côtés). Normalisation des DEUX membres de
+        # la comparaison.
+        stock_from_seller = (
+            fiscal_equivalent_country(res.sale.stock_country)
+            == fiscal_equivalent_country(seller_country.upper())
+        )
         suffix = "remb" if is_refund else "vente"
 
         if res.channel == Channel.FR_DOMESTIC:
@@ -503,13 +521,16 @@ def generate_ca3_html_report_v2(
     # fiscal_equivalent_country : idem ci-dessus — un stock à Monaco compte
     # comme stock "national" pour le seuil OSS si le vendeur est établi en
     # France. Corrigé le 2026-08-26 (angle mort confirmé).
+    # BUGFIX (2026-09-10, symétrique) : seller_country normalisé lui aussi
+    # (cas d'un vendeur établi à Monaco avec stock en France).
+    _seller_fiscal = fiscal_equivalent_country(seller_country.upper())
     oss_base = sum(
         r.sale.amount_ht for r in results
-        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == seller_country.upper()
+        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal
     )
     oss_tva = sum(
         r.vat_amount for r in results
-        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == seller_country.upper()
+        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal
     )
 
     has_aic  = lines["B2_base_ht"] > 0

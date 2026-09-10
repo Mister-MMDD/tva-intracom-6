@@ -229,7 +229,15 @@ def test_oss_returns_different_years():
     
     # En 2023, le seuil a été dépassé (12000 > 10000)
     assert summary.oss_ht_by_year["2023"] == Decimal("12000.00")
-    # En 2024, le cumul commence à -5000 (ou 0 si on considère que les avoirs ne peuvent pas rendre le cumul négatif ? 
-    # Le moteur actuel fait juste l'addition algébrique)
-    assert summary.oss_ht_by_year["2024"] == Decimal("-5000.00")
+    # En 2024 : le seuil a déjà été franchi en 2023 (même run) — BUGFIX
+    # (2026-09-10, point 3 de l'audit, voir _run_oss_loop) : la 2ème année
+    # doit démarrer directement au-dessus du seuil (10000.01, comme le fait
+    # déjà `oss_threshold_exceeded_prev_year` pour la toute première année
+    # d'un batch) pour matérialiser l'obligation OSS "dès le 1er euro" de
+    # l'art. 59 ter §2 — avant ce correctif, le cumul 2024 repartait à tort
+    # de 0 (comme une nouvelle année civile testée contre le seuil), ce que
+    # ce test vérifiait par erreur (-5000.00, cumul jamais pinné). L'avoir
+    # de 5000€ s'applique ensuite normalement sur ce cumul pinné : 10000.01
+    # - 5000.00 = 5000.01.
+    assert summary.oss_ht_by_year["2024"] == Decimal("5000.01")
     assert summary.is_threshold_exceeded is True # Car 2023 a dépassé

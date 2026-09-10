@@ -32,7 +32,7 @@ from .models import (
     ViesReclassification,
     ViesValidationSummary,
 )
-from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate
+from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate, fiscal_equivalent_country
 from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES, oss_threshold_in_currency, OSS_THRESHOLD_FIXED_EQUIVALENTS
 from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
@@ -202,12 +202,27 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # Date de transaction (déplacée ici, avant le cas Monaco ET le cas export,
     # pour que les deux puissent appliquer un taux historique correct — ex:
     # changement de taux FR au fil du temps).
+    #
+    # BUGFIX (2026-09-10, taux historique erroné sur avoir à cheval sur 2
+    # années) : pour un avoir/remboursement (amount_ht < 0), `transaction_date`
+    # porte la date de LA LIGNE D'AVOIR elle-même (ex: 2026), pas celle de la
+    # vente d'origine qu'il rembourse (ex: 2025). Si le taux du pays a changé
+    # entre les deux, le taux 2026 était appliqué à tort à un avoir 2025. Le
+    # loader Amazon (`parsers/amazon/loader.py`) remplit `order_date` avec la
+    # date de la commande d'origine UNIQUEMENT quand elle diffère de
+    # `transaction_date` (voir son commentaire) — c'est donc le signal fiable
+    # qu'on est sur un avoir différé. On préfère `order_date` à
+    # `transaction_date` dans ce cas précis pour résoudre le taux historique.
     _tx_date: _date | None = tx_date
-    if _tx_date is None and sale.transaction_date:
-        try:
-            _tx_date = _date.fromisoformat(sale.transaction_date[:10])
-        except ValueError:
-            pass  # date malformée → taux courant (pas de correctif historique)
+    if _tx_date is None:
+        _date_str = sale.transaction_date
+        if sale.amount_ht < 0 and sale.order_date:
+            _date_str = sale.order_date
+        if _date_str:
+            try:
+                _tx_date = _date.fromisoformat(_date_str[:10])
+            except ValueError:
+                pass  # date malformée → taux courant (pas de correctif historique)
 
     # ------------------------------------------------------------------
     # Monaco (MC) : assimilé au territoire français pour la TVA (convention
@@ -716,7 +731,10 @@ def _oss_eligible(sale: Sale) -> bool:
         DOMESTIC_REVERSE_CHARGE_COUNTRIES) : celle-ci reste Scenario.DOMESTIC,
         taxée au pays de départ — correctement hors OSS.
       - stock ET acheteur dans l'UE
-      - vente cross-border (stock_country ≠ buyer_country)
+      - vente cross-border (stock_country ≠ buyer_country, comparaison sur
+        les pays fiscalement équivalents — voir BUGFIX Monaco ci-dessous)
+      - expédiée depuis le pays d'établissement (fiscal) du vendeur (voir
+        BUGFIX "origine du stock" ci-dessous)
       - destination ≠ pays d'établissement du vendeur (voir BUGFIX ci-dessous)
     Les avoirs (amount_ht < 0) sont éligibles et réduisent le cumul.
 
@@ -727,6 +745,27 @@ def _oss_eligible(sale: Sale) -> bool:
     destination est le pays d'établissement du vendeur lui-même (stock
     étranger → acheteur "à la maison") n'est pas une vente à distance au
     sens de cet article — elle ne doit donc jamais alimenter ce cumul.
+
+    BUGFIX (2026-09-10, origine du stock, art. 59 ter (1.b) dir.
+    2006/112/CE) : le seuil des 10 000 € ne s'applique QU'aux ventes à
+    distance expédiées depuis l'État membre d'ÉTABLISSEMENT du vendeur.
+    Une vente cross-border dont le stock part d'un AUTRE État membre que
+    celui d'établissement (ex: vendeur établi en FR, stock en DE, vente
+    DE→IT) n'est pas couverte par ce seuil : elle est taxée au pays de
+    destination dès le premier euro et ne doit jamais alimenter le cumul
+    de l'État d'établissement. Avant ce correctif, seule la destination
+    était exclue (BUGFIX précédent), pas l'origine — une vente DE→IT pour
+    un vendeur FR gonflait à tort le cumul FR.
+
+    BUGFIX (2026-09-10, Monaco) : les comparaisons ci-dessus utilisaient
+    des codes pays bruts. Une vente FR → MC ("FR" != "MC") était donc
+    comptée comme une vente à distance éligible OSS, alors que Monaco est
+    fiscalement la France (convention fiscale franco-monégasque du 18 mai
+    1963) et ne doit jamais alimenter le seuil OSS d'un vendeur établi en
+    France (ni son symétrique : vendeur établi à Monaco). Utilisation de
+    `fiscal_equivalent_country()` (voir rates.py, déjà utilisé pour ce
+    même cas dans ca3_report.py et oss_export.py) pour normaliser
+    stock_country, buyer_country ET seller_country avant comparaison.
     """
     is_b2c_like = (
             sale.buyer_type == BuyerType.B2C
@@ -736,12 +775,16 @@ def _oss_eligible(sale: Sale) -> bool:
                     and sale.buyer_country not in DOMESTIC_REVERSE_CHARGE_COUNTRIES
             )
     )
+    _fiscal_stock = fiscal_equivalent_country(sale.stock_country)
+    _fiscal_buyer = fiscal_equivalent_country(sale.buyer_country)
+    _fiscal_seller = fiscal_equivalent_country(sale.seller_country)
     return (
             is_b2c_like
             and is_eu(sale.stock_country)
             and is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None)
-            and sale.stock_country != sale.buyer_country
-            and sale.buyer_country != sale.seller_country
+            and _fiscal_stock != _fiscal_buyer
+            and _fiscal_buyer != _fiscal_seller
+            and _fiscal_stock == _fiscal_seller
     )
 
 
@@ -1086,11 +1129,6 @@ def _run_oss_loop(
     # fichier de plusieurs dizaines de milliers de lignes.
     _OSS_PROGRESS_TICK_EVERY = 500
 
-    # Ne s'applique qu'à la toute première année civile rencontrée dans le
-    # fichier trié chronologiquement (voir docstring ci-dessus) — les
-    # années suivantes repartent normalement de leur propre cumul.
-    _prev_year_flag_applied = False
-
     # BUGFIX (2026-09-10, seuil OSS définitivement franchi, voir docstring
     # de `_build_oss_note` / `already_crossed`) : drapeau monotone par
     # année civile, jamais remis à False par un avoir (contrairement au
@@ -1099,6 +1137,22 @@ def _run_oss_loop(
     # `oss_threshold_exceeded_prev_year` a préchargé le cumul au-dessus du
     # seuil (voir bloc de changement d'année ci-dessous).
     _oss_threshold_crossed_this_year = False
+
+    # BUGFIX (2026-09-10, propagation du franchissement entre années DANS
+    # UN MÊME traitement multi-années) : `oss_threshold_exceeded_prev_year`
+    # (paramètre externe, précharge le tout premier changement d'année
+    # rencontré dans le fichier) ne couvrait que la frontière avant/premier
+    # exercice du fichier. Si le fichier trié couvre plusieurs années
+    # civiles et que le seuil est franchi en cours de route (ex. franchi en
+    # 2025 dans CE MÊME batch), l'ancienne logique remettait à zéro le
+    # cumul ET le drapeau au passage à 2026 (`oss_ht_by_year.get(2026, 0)`
+    # = 0 par défaut), alors que l'art. 59 ter §2 impose l'OSS dès le 1er
+    # euro pour TOUTE année suivant un franchissement, sans nouveau test de
+    # seuil. `_oss_ever_crossed_in_run` mémorise — une fois pour toutes,
+    # sans jamais redescendre — qu'un franchissement a eu lieu (import
+    # externe OU constaté en interne), et est réappliqué à CHAQUE
+    # changement d'année du batch, pas seulement au premier.
+    _oss_ever_crossed_in_run = bool(oss_threshold_exceeded_prev_year)
 
     for _idx, sale in enumerate(sorted_items, start=1):
         is_from_refunds = _sale_key(sale) in refund_keys
@@ -1115,9 +1169,8 @@ def _run_oss_loop(
             current_year = year
             cumulative_oss_ht = oss_ht_by_year.get(year, Decimal("0.00"))
             _oss_threshold_crossed_this_year = cumulative_oss_ht > Decimal("10000.00")
-            if oss_threshold_exceeded_prev_year and not _prev_year_flag_applied:
+            if _oss_ever_crossed_in_run:
                 cumulative_oss_ht = max(cumulative_oss_ht, Decimal("10000.01"))
-                _prev_year_flag_applied = True
                 _oss_threshold_crossed_this_year = True
 
         effective_sale = (
@@ -1145,8 +1198,25 @@ def _run_oss_loop(
                 _last_tx_date_raw = _raw_tx_date
                 _last_tx_date_parsed = _sale_tx_date
 
+        # BUGFIX (2026-09-10, taux historique erroné sur avoir à cheval sur
+        # 2 années — voir docstring de compute_vat) : `_sale_tx_date`
+        # ci-dessus reste la date de LA LIGNE (transaction_date), utilisée
+        # telle quelle pour `_build_oss_note` (le seuil OSS et la période de
+        # déclaration se basent bien sur la date réelle de l'avoir, pas sur
+        # la vente d'origine). Pour la résolution du TAUX de TVA en
+        # revanche, un avoir doit utiliser la date de la vente d'origine
+        # quand elle diffère (order_date, rempli par le loader Amazon
+        # uniquement dans ce cas) — calcul séparé, sans impacter
+        # `_sale_tx_date` partagé avec `_build_oss_note`.
+        _vat_rate_tx_date = _sale_tx_date
+        if effective_sale.amount_ht < 0 and effective_sale.order_date:
+            try:
+                _vat_rate_tx_date = _date.fromisoformat(effective_sale.order_date[:10])
+            except ValueError:
+                _vat_rate_tx_date = _sale_tx_date
+
         res = compute_vat(effective_sale, marketplace_name, product_category=product_category, lang=_lang,
-                          ioss_own_number_active=ioss_own_number_active, tx_date=_sale_tx_date)
+                          ioss_own_number_active=ioss_own_number_active, tx_date=_vat_rate_tx_date)
 
         if _oss_eligible(effective_sale):
             # Cumul net partagé (ventes+avoirs) : un avoir réduit bien le
@@ -1168,6 +1238,7 @@ def _run_oss_loop(
             # redescendre cumulative_oss_ht ne le réinitialise pas.
             if cumulative_oss_ht > Decimal("10000.00"):
                 _oss_threshold_crossed_this_year = True
+                _oss_ever_crossed_in_run = True
 
         if not is_from_refunds:
             results.append(res)
