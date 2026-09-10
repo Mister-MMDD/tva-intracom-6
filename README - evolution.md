@@ -7969,3 +7969,22 @@ Fichiers modifiés : `tva_intracom/engine.py`, `tva_intracom/ca3_report.py`,
 `tva_intracom/oss_export.py`, `tva_intracom/ui/tabs/telechargements.py`,
 `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`,
 `tests/test_scenarios_fiscaux.py`.
+
+## 2026-09-11 (2) — Régression VIES stale_fallback (voie batch jamais corrigée) + clarification UI de la colonne "dernier statut"
+
+**Bug signalé** : un numéro VIES avec cache expiré (TTL dépassé) réapparaissait comme "Jamais vérifié par le serveur" dans la classification manuelle (`render_manual_vies_classification`), alors que ce même symptôme avait déjà été corrigé (BUGFIX 2026-09-09, voir entrée du 09-09 ci-dessus).
+
+**Cause confirmée contre le code réel (`vies_engine.py`)** : le correctif du 2026-09-09 n'avait été appliqué qu'à `check_vat_raw` (voie de validation UNITAIRE) — la branche `_is_unreliable(res)` y applique bien un repli `stale_fallback=True` sur l'entrée de cache expirée (`cached`) quand VIES est indisponible, conservant `valid`/`checked_at` d'origine pour l'affichage. La voie BATCH/PARALLÈLE (`validate_vat_numbers_parallel`), qui est la voie réellement utilisée en priorité en production (`compute_all_with_vies` ne bascule sur la voie séquentielle que si celle-ci échoue entièrement — voir logs), n'avait JAMAIS reçu ce même correctif : sa branche `_is_unreliable(result)` écrasait systématiquement l'entrée de `fallback_cache` (cache expiré, potentiellement déjà vérifié avec succès par le passé) par un `ViesResult` vierge sans `checked_at` ni `valid` d'origine — d'où la régression apparente pour tout run passant par la voie batch (l'écrasante majorité).
+
+**Correctif** : même traitement que `check_vat_raw` appliqué dans `validate_vat_numbers_parallel` — repli sur `fallback_cache.get(norm_id)` (scope expiré, sinon global) avec `stale_fallback=True` si une entrée existe, résultat brut non fiable inchangé sinon (numéro réellement jamais vérifié).
+
+**Amélioration UI demandée en complément** : la colonne "dernier statut" de `render_manual_vies_classification` (`vies_ui.py`) n'affichait qu'un état + une date (ex. "Valide (2026-08-30)"), sans indiquer ce qu'elle représente — pas clair que c'est la dernière vérification RÉUSSIE auprès du serveur VIES avant expiration du cache. Ajout d'une ligne d'en-tête explicite au-dessus de cette colonne et de la colonne "Statut" (classification manuelle), visible uniquement si la liste des numéros non vérifiés n'est pas vide.
+
+Validation : `py_compile` + `pyflakes` propres sur `vies_engine.py` et
+`ui/tabs/vies_ui.py` (aucun nouveau warning). Suite `pytest` : 275 passed
+/ 4 failed — même baseline `SUPABASE_DB_URL`, aucune régression. i18n :
+1 nouvelle clé ajoutée dans les 7 langues (1234 → 1235 par fichier).
+
+Fichiers modifiés : `tva_intracom/vies_engine.py`,
+`tva_intracom/ui/tabs/vies_ui.py`,
+`tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.

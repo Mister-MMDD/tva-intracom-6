@@ -1875,13 +1875,45 @@ def validate_vat_numbers_parallel(
             orig_id = to_fetch[norm_id]
 
             if _is_unreliable(result):
-                # On ne fait plus de repli sur le cache périmé même si VIES est
-                # indisponible (décision : sécurité B2C par défaut).
-                results[orig_id] = ViesResult(
-                    valid=False, country_code=result.country_code,
-                    vat_number=result.vat_number,
-                    error=result.error or "Réponse VIES non concluante (à revérifier)",
-                )
+                # BUGFIX (2026-09-11, régression du correctif 2026-09-09) :
+                # `check_vat_raw` (voie unitaire) applique bien un repli
+                # `stale_fallback=True` sur le cache périmé (`cached`) quand
+                # VIES est indisponible après expiration du TTL — voir son
+                # commentaire "BUGFIX (2026-09-09)". Cette voie BATCH/
+                # PARALLÈLE (utilisée en priorité en production, voir
+                # `compute_all_with_vies` qui bascule sur la voie séquentielle
+                # uniquement si celle-ci échoue entièrement) ne l'a jamais
+                # reçu : elle écrasait systématiquement `fallback_cache`
+                # (l'entrée expirée, potentiellement déjà vérifiée avec
+                # succès par le passé) par un résultat vierge sans
+                # `checked_at` ni `valid` d'origine. Un numéro pourtant déjà
+                # vérifié (TTL simplement dépassé, service VIES indisponible
+                # au moment de la revalidation) réapparaissait donc comme
+                # "Jamais vérifié par le serveur" dans
+                # render_manual_vies_classification — exactement le
+                # symptôme corrigé pour la voie unitaire, jamais pour la
+                # voie batch. Même traitement ici : repli sur `fallback_cache`
+                # (scope expiré, sinon global) avec `stale_fallback=True` si
+                # une entrée existe, résultat brut non fiable sinon (numéro
+                # jamais vérifié, comportement inchangé dans ce cas précis).
+                prev_unreliable = fallback_cache.get(norm_id)
+                if prev_unreliable is not None:
+                    logger.warning(
+                        "VIES : %s expiré (TTL dépassé) et service VIES "
+                        "indisponible — reclassé en non-vérifié (stale_fallback), "
+                        "dernière validation automatique connue conservée pour "
+                        "information.", norm_id,
+                    )
+                    results[orig_id] = replace(prev_unreliable, stale_fallback=True)
+                else:
+                    # Pas de cache du tout (numéro jamais vérifié) : rien de
+                    # mieux à proposer que le résultat brut non fiable
+                    # (sécurité B2C par défaut, comportement inchangé).
+                    results[orig_id] = ViesResult(
+                        valid=False, country_code=result.country_code,
+                        vat_number=result.vat_number,
+                        error=result.error or "Réponse VIES non concluante (à revérifier)",
+                    )
                 continue
 
             prev = fallback_cache.get(norm_id)

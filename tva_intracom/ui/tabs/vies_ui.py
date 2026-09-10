@@ -54,6 +54,17 @@ def render_manual_vies_classification() -> None:
     with st.expander(_("vies_manual_class_title"), expanded=True):
         st.caption(_("vies_manual_class_caption"))
         _changed = False
+        if _inc_entries:
+            # Ajout (2026-09-11, demande utilisateur) : la colonne "dernier
+            # statut" n'affichait qu'une date + un état (ex. "Valide
+            # (2026-08-30)"), sans indiquer ce que représente cette date —
+            # pas clair pour l'utilisateur que c'est la dernière vérification
+            # RÉUSSIE auprès du serveur VIES (avant expiration du cache),
+            # pas la date du jour ni une nouvelle vérification. En-tête
+            # explicite ajouté au-dessus de cette colonne.
+            _h_label, _h_last, _h_sel, _h_badge = st.columns([3, 2, 2, 1])
+            _h_last.caption(_("vies_manual_class_col_last_header"))
+            _h_sel.caption(_("vies_manual_class_status"))
         for _entry in _inc_entries:
             _vat = _entry["vat"]; _country = _entry["country"]; _sale_ids = _entry["sale_ids"]
             _label = f"**{_vat}** ({_country})"
