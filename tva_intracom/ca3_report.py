@@ -196,21 +196,30 @@ def _compute_aic_from_fc_transfers(
                t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or "").strip().upper()
         arr = (t.get("ARRIVAL_COUNTRY") or t.get("arrival_country") or
                t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or "").strip().upper()
-        # BUGFIX (2026-09-10, AIC Monaco) : comparaison brute sur les codes
-        # pays bruts — un transfert de stock FBA arrivant physiquement à
-        # Monaco (arr="MC") était ignoré ici car "MC" != seller_country
-        # ("FR"), alors que Monaco est fiscalement assimilé à la France
-        # (convention du 18 mai 1963, voir fiscal_equivalent_country).
-        # Sous-évaluait la base AIC (case B2) et la TVA auto-liquidée
-        # (Ligne 17) pour les vendeurs stockant à Monaco. La normalisation
-        # ne s'applique QU'à la comparaison avec seller_country (pays
-        # fiscal d'arrivée) : le filtre "pas de mouvement réel" (dep == arr)
-        # reste sur les codes bruts, sans quoi un transfert FR -> Monaco
-        # (dep="FR", arr="MC") serait à tort neutralisé en "même pays" une
-        # fois les deux normalisés en "FR" — deux emplacements physiques
-        # distincts malgré une équivalence fiscale commune.
+        # BUGFIX (2026-09-10, AIC Monaco) : un transfert de stock FBA
+        # arrivant physiquement à Monaco (arr="MC") était ignoré ici car
+        # "MC" != seller_country ("FR"), alors que Monaco est fiscalement
+        # assimilé à la France (convention du 18 mai 1963, voir
+        # fiscal_equivalent_country). Sous-évaluait la base AIC (case B2)
+        # et la TVA auto-liquidée (Ligne 17) pour les vendeurs stockant à
+        # Monaco.
+        #
+        # BUGFIX 2 (2026-09-10, faux positif FR <-> Monaco) : le filtre
+        # "pas de mouvement réel" comparait ensuite dep/arr en codes BRUTS
+        # ("FR" == "MC" ? non), ce qui laissait passer comme AIC un
+        # transfert purement domestique entre la France et Monaco
+        # (ex. dep="FR", arr="MC", ou l'inverse) — alors que ces deux
+        # territoires forment un seul et même territoire fiscal TVA pour
+        # les marchandises : un tel mouvement ne constitue jamais une
+        # acquisition intracommunautaire, qu'il s'agisse d'un déplacement
+        # France -> France, France -> Monaco ou Monaco -> France. On
+        # normalise donc désormais AUSSI le pays de départ via
+        # fiscal_equivalent_country() pour ce filtre : seul un départ
+        # réellement extérieur au territoire fiscal du vendeur (FR/MC)
+        # peut donner lieu à une AIC entrante.
         arr_fiscal = fiscal_equivalent_country(arr)
-        if arr_fiscal != seller_country.upper() or dep == arr:
+        dep_fiscal = fiscal_equivalent_country(dep)
+        if arr_fiscal != seller_country.upper() or dep_fiscal == arr_fiscal:
             continue
         asin = (t.get("ASIN") or t.get("asin") or "").strip()
         raw_qty = t.get("QTY") or t.get("qty") or 1

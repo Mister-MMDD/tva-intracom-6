@@ -1403,12 +1403,30 @@ def _is_unreliable(res: ViesResult) -> bool:
 
 
 def _is_downgrade(previous: ViesResult, new_result: ViesResult) -> bool:
-    """Détecte un downgrade suspect : numéro précédemment VALIDE qui revient
-    soudainement vide sans erreur (dégradation serveur VIES sous charge)."""
+    """Détecte un downgrade SUSPECT : numéro précédemment VALIDE qui revient
+    soudainement VIDE sans erreur (dégradation serveur VIES sous charge) —
+    à distinguer d'une VRAIE invalidation, où VIES répond explicitement
+    `valid=False` accompagné du nom/adresse de l'entreprise (réponse
+    positive du serveur, juste avec un statut de validité négatif).
+
+    BUGFIX (voir README - évolution.md) : la condition précédente
+    (`previous.valid and not new_result.valid and not new_result.error`)
+    classait comme "suspect" TOUT passage valide -> invalide sans erreur
+    réseau, y compris une VRAIE désinscription/invalidation du numéro TVA
+    (VIES renvoie alors `valid=False` avec `name`/`address` renseignés,
+    preuve que le serveur a bien traité la requête). Une telle réponse ne
+    doit jamais être neutralisée en `stale_fallback` — c'est une
+    information fiscale réelle et exploitable, pas un artefact serveur.
+    Seule une réponse réellement VIDE (`valid=False` ET `name`/`address`
+    tous deux absents) — signature typique d'une dégradation VIES sous
+    charge (voir docstring ci-dessus) — doit être traitée comme suspecte.
+    """
     return (
             previous.valid
             and not new_result.valid
             and not new_result.error
+            and not (new_result.name or "").strip()
+            and not (new_result.address or "").strip()
     )
 
 

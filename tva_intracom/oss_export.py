@@ -418,11 +418,22 @@ def suggest_negative_bucket_corrections(
             # période courante (sinon ce n'est pas un avoir "à cheval",
             # juste un solde négatif normal intra-période — pas notre sujet).
             if origin_quarter and origin_quarter != period:
+                # BUGFIX (voir README - évolution.md) : `refund.sale.amount_ht`
+                # / `refund.vat_amount` sont figés au taux BCE du JOUR DE
+                # L'AVOIR (spot, appliqué au moment du calcul fiscal initial).
+                # Or une correction rattachée à une période D'ORIGINE
+                # antérieure (`origin_quarter`) doit être valorisée au taux
+                # de CLÔTURE de CETTE période d'origine (Règl. UE 2020/194,
+                # art. 5 bis), pas au taux du jour où l'avoir a été émis.
+                # On réutilise `convert_ht_tva_for_oss_period` (même
+                # fonction que pour les lignes normales) en lui passant
+                # `origin_quarter` plutôt que `period` (période courante).
+                _corr_ht, _corr_vat = convert_ht_tva_for_oss_period(refund, origin_quarter)
                 matched.append(MatchedRefundCorrection(
                     sale_id=refund.sale.sale_id,
                     origin_period=origin_quarter,
-                    base_ht=refund.sale.amount_ht,
-                    vat_amount=refund.vat_amount,
+                    base_ht=_corr_ht,
+                    vat_amount=_corr_vat,
                     refund_result=refund,
                 ))
             else:

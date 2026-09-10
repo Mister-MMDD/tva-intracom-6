@@ -155,33 +155,43 @@ def _db_get_rates_batch(currency_dates: list[tuple[str, date]]) -> dict[tuple[st
     """Récupère plusieurs taux depuis la base de données en une seule requête.
     
     Optimisé pour prefetch_rates() afin d'éviter N requêtes SQL individuelles.
+
+    BUGFIX (performance, voir README - évolution.md) : la version précédente
+    filtrait par `rate_date >= min_date AND rate_date <= max_date` (plage
+    globale sur l'ensemble des paires demandées). Un fichier contenant des
+    ventes très espacées dans le temps (ex. une vente en 2024 et une autre
+    en 2026) rapatriait donc TOUTES les lignes de la plage — potentiellement
+    des milliers de taux quotidiens intermédiaires jamais demandés — en RAM,
+    pour n'en garder qu'une poignée. On matche désormais exactement les
+    paires (devise, date) réellement demandées via `= ANY(VALUES ...)`
+    (psycopg2.extras.execute_values), au lieu d'une plage + filtre Python
+    a posteriori — même pattern déjà utilisé par `_db_upsert_batch` un peu
+    plus bas dans ce fichier.
     """
     if not currency_dates:
         return {}
     pool = _get_pool()
     if pool is None:
         return {}
-    
-    # On filtre par devises et par plage de dates globale pour rester simple et performant
-    currencies = list(set(c.upper() for c, d in currency_dates))
-    min_date = min(d for c, d in currency_dates)
-    max_date = max(d for c, d in currency_dates)
-    
+
+    pairs = list({(c.upper(), d) for c, d in currency_dates})
+
     conn = pool.getconn()
     try:
         results = {}
         with conn, conn.cursor() as cur:
-            # On utilise ANY pour les devises
-            cur.execute(
+            rows = psycopg2.extras.execute_values(
+                cur,
                 """
-                SELECT currency, rate_date, rate 
-                FROM ecb_rate_cache 
-                WHERE currency = ANY(%s) AND rate_date >= %s AND rate_date <= %s
+                SELECT c.currency, c.rate_date, r.rate
+                FROM ecb_rate_cache r
+                JOIN (VALUES %s) AS c(currency, rate_date)
+                    ON r.currency = c.currency AND r.rate_date = c.rate_date
                 """,
-                (currencies, min_date, max_date),
+                pairs,
+                fetch=True,
             )
-            for ccy, d, rate in cur.fetchall():
-                # On ne garde que ce qui a été demandé (la requête par plage peut ramener plus)
+            for ccy, d, rate in rows:
                 results[(ccy.upper(), d)] = Decimal(str(rate))
         return results
     except Exception as exc:

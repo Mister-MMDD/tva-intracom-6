@@ -18,7 +18,7 @@ from openpyxl.utils import get_column_letter
 from . import ecb_rates
 from .i18n import _ as i18n_, country_label
 from .models import VatResult
-from .oss_export import aggregate_oss_results
+from .oss_export import aggregate_oss_results, aggregate_ioss_results
 from .parsers.amazon.detect import parse_date as _parse_amz_date
 from .rates import COUNTRY_CURRENCIES
 from .report import ReportSummary, build_report
@@ -349,6 +349,46 @@ def _oss_period_totals(
     return ht_brut, ht_remb, vat_brut, vat_remb
 
 
+def _ioss_period_totals(
+        results: list, refund_results: list | None, period: str,
+        ioss_agg: dict | None = None,
+) -> tuple[Decimal, Decimal, Decimal, Decimal]:
+    """Pendant de `_oss_period_totals()` pour le régime IOSS : totaux
+    agrégés (HT brut, HT remb, TVA brut, TVA remb), recalculés au taux BCE
+    de clôture de la période IOSS (mensuelle — art. 5 bis Règl. UE
+    2020/194) plutôt qu'au taux du jour de vente figé sur
+    `summary.ioss_ht` / `summary.ioss_vat`.
+
+    BUGFIX (voir README - évolution.md) : la page de synthèse recalculait
+    déjà l'OSS au taux de clôture via `_oss_period_totals`/
+    `aggregate_oss_results`, mais utilisait directement `summary.ioss_ht`/
+    `summary.refund_ioss_ht`/`summary.ioss_vat`/`summary.refund_ioss_vat`
+    pour l'IOSS — des montants figés au taux BCE du jour de la vente
+    (`ReportSummary`), en violation de l'art. 5 bis (taux de clôture
+    obligatoire pour l'IOSS comme pour l'OSS). Utilise désormais
+    `aggregate_ioss_results()`, déjà utilisée par le XML IOSS et l'export
+    Excel/CSV IOSS dédié (`oss_export.py`), pour que les trois sorties
+    (dashboard, récap Excel, XML/CSV IOSS) restent cohérentes entre elles.
+
+    `ioss_agg` : agrégat déjà produit par `aggregate_ioss_results()`, à
+    passer quand l'appelant (`export_xlsx`) l'a déjà calculé une fois pour
+    tout l'export (même rationnel que `oss_agg` dans `_oss_period_totals`).
+    """
+    _z = Decimal("0.00")
+    ht_brut = ht_remb = vat_brut = vat_remb = _z
+    agg = ioss_agg if ioss_agg is not None else aggregate_ioss_results(
+        list(results) + list(refund_results or []), period=period
+    )
+    for _departure, _by_arrival in agg.items():
+        for _arrival, _by_rate in _by_arrival.items():
+            for _bucket in _by_rate.values():
+                ht_brut += _bucket["ht_vente"]
+                ht_remb += _bucket["ht_remb"]
+                vat_brut += _bucket["tva_vente"]
+                vat_remb += _bucket["tva_remb"]
+    return ht_brut, ht_remb, vat_brut, vat_remb
+
+
 def _write_recap(
         ws,
         summary: ReportSummary,
@@ -359,6 +399,7 @@ def _write_recap(
         refund_results: list | None = None,
         period: str = "",
         oss_agg: dict | None = None,
+        ioss_agg: dict | None = None,
 ) -> None:
     ws.title = i18n_("xl_tab_recap")
 
@@ -413,6 +454,18 @@ def _write_recap(
         oss_ht_brut, oss_ht_remb, oss_vat_brut, oss_vat_remb = _oss_period_totals(
             results, refund_results, period, oss_agg=oss_agg
         )
+        # BUGFIX (voir README - évolution.md) : IOSS recalculé au taux BCE
+        # de clôture au même titre que l'OSS ci-dessus (art. 5 bis Règl.
+        # UE 2020/194), au lieu de `summary.ioss_ht`/`summary.ioss_vat`
+        # figés au taux du jour de vente (voir docstring
+        # `_ioss_period_totals`). Le format de `period` (quarterly, ex.
+        # "2026-Q1") n'est pas reconnu par `get_ioss_rate_date` (mensuel) :
+        # celui-ci retombe alors, ligne à ligne, sur la fin du MOIS de
+        # chaque transaction — toujours conforme à l'art. 5 bis, faute de
+        # période IOSS mensuelle explicite disponible à cet écran.
+        ioss_ht_brut, ioss_ht_remb, ioss_vat_brut, ioss_vat_remb = _ioss_period_totals(
+            results, refund_results, "", ioss_agg=ioss_agg
+        )
     else:
         # Comportement historique (fallback CLI / appels sans results) :
         # taux du jour de vente, figé sur summary.oss_*_by_country.
@@ -420,6 +473,10 @@ def _write_recap(
         oss_ht_remb = sum(summary.refund_oss_ht_by_country.values(), _z)
         oss_vat_brut = sum(summary.oss_by_country.values(), _z)
         oss_vat_remb = sum(summary.refund_oss_by_country.values(), _z)
+        ioss_ht_brut = summary.ioss_ht
+        ioss_ht_remb = summary.refund_ioss_ht
+        ioss_vat_brut = summary.ioss_vat
+        ioss_vat_remb = summary.refund_ioss_vat
 
     local_ht_brut = sum(summary.local_ht_by_country.values(), _z)
     local_ht_remb = sum(summary.refund_local_ht_by_country.values(), _z)
@@ -437,7 +494,7 @@ def _write_recap(
         (i18n_("xl_indicator_ca_ht"),          summary.total_ht,          summary.refund_total_ht,   _z,                       _z),
         (_home_label,                      summary.fr_domestic_ht,    summary.refund_fr_domestic_ht, summary.fr_domestic_vat, summary.refund_fr_domestic_vat),
         (i18n_("xl_indicator_vat_oss"),        oss_ht_brut,               oss_ht_remb,               oss_vat_brut,             oss_vat_remb),
-        (i18n_("xl_indicator_vat_ioss"),       summary.ioss_ht,           summary.refund_ioss_ht,    summary.ioss_vat,         summary.refund_ioss_vat),
+        (i18n_("xl_indicator_vat_ioss"),       ioss_ht_brut,              ioss_ht_remb,              ioss_vat_brut,            ioss_vat_remb),
         (i18n_("xl_indicator_vat_amazon"),     summary.amazon_ht,         summary.refund_amazon_ht,  summary.amazon_vat,       summary.refund_amazon_vat),
         (i18n_("xl_indicator_vat_local"),      local_ht_brut,             local_ht_remb,             local_vat_brut,           local_vat_remb),
         (i18n_("xl_indicator_vat_import"),     summary.import_ht,         summary.refund_import_ht,  summary.import_vat,       summary.refund_import_vat),
@@ -2185,6 +2242,14 @@ def export_xlsx(
     if results is not None:
         _oss_agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
 
+    # Pendant IOSS de _oss_agg ci-dessus (voir BUGFIX _ioss_period_totals) :
+    # `period=""` volontairement — le `period` ici est trimestriel (OSS),
+    # non reconnu par `get_ioss_rate_date` (mensuel), qui retombe alors sur
+    # la fin de mois par transaction (toujours conforme art. 5 bis).
+    _ioss_agg = None
+    if results is not None:
+        _ioss_agg = aggregate_ioss_results(list(results) + list(refund_results or []), period="")
+
     # Prix moyen HT par ASIN calculé UNE SEULE fois pour tout l'export et
     # partagé entre l'onglet Analyse AIC FBA et l'onglet Intrastat (EMEBI),
     # qui en avaient chacun besoin séparément (même parcours complet de
@@ -2200,7 +2265,7 @@ def export_xlsx(
     ws_recap = _SequentialSheetWriter(wb.create_sheet())
     _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=seller_country,
                  display_currency=display_currency, results=results, refund_results=refund_results,
-                 period=period, oss_agg=_oss_agg)
+                 period=period, oss_agg=_oss_agg, ioss_agg=_ioss_agg)
     ws_recap.finalize()
 
     # 2. Séparation ventes / remboursements

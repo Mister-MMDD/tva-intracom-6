@@ -19,7 +19,7 @@ import streamlit as st
 from tva_intracom.i18n import _, country_label
 from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.models import Channel
-from tva_intracom.oss_export import aggregate_oss_results
+from tva_intracom.oss_export import aggregate_oss_results, aggregate_ioss_results
 from tva_intracom.ui.formatting import _gated_preview_table, _money_col, \
     _smart_money_df, _fmt
 from tva_intracom.ui.tabs.context import TabContext
@@ -50,16 +50,11 @@ def _aggregate_declarations_raw(_results: list, _refund_results: list, calc_key)
     home_ht_brut = sum((r.sale.amount_ht for r in _results if r.channel == Channel.FR_DOMESTIC), _ZERO)
     home_ht_remb = sum((r.sale.amount_ht for r in _refund_results if r.channel == Channel.FR_DOMESTIC), _ZERO)
 
-    _ioss_results = [r for r in _results if r.scenario.value == "IOSS_DIRECT"]
-    _ioss_refund_results = [r for r in _refund_results if r.scenario.value == "IOSS_DIRECT"]
-    ioss = None
-    if _ioss_results or _ioss_refund_results:
-        ioss = {
-            "ht_brut": sum((r.sale.amount_ht for r in _ioss_results), _ZERO),
-            "ht_remb": sum((r.sale.amount_ht for r in _ioss_refund_results), _ZERO),
-            "tva_brute": sum((r.vat_amount for r in _ioss_results), _ZERO),
-            "tva_remb": sum((r.vat_amount for r in _ioss_refund_results), _ZERO),
-        }
+    # NOTE : l'agrégat IOSS (HT/TVA) n'est PLUS calculé ici en taux du jour
+    # de vente — voir le bloc dédié dans render_declarations() (même
+    # rationnel que le bloc OSS juste au-dessus, avec aggregate_ioss_results
+    # + reconversion BCE de clôture, art. 5 bis Règl. UE 2020/194). Un
+    # calcul spot ici referait doublon avec une source non conforme.
 
     # BUGFIX (2026-09-09, double comptage) : une vente DDP requalifiée vers
     # le pays d'ORIGINE (r.vat_country == r.sale.seller_country) reçoit déjà
@@ -101,7 +96,6 @@ def _aggregate_declarations_raw(_results: list, _refund_results: list, calc_key)
     return {
         "home_ht_brut": home_ht_brut,
         "home_ht_remb": home_ht_remb,
-        "ioss": ioss,
         "ddp_agg": ddp_agg,
         "local_ht_brut_by_country": local_ht_brut_by_country,
         "local_ht_remb_by_country": local_ht_remb_by_country,
@@ -163,7 +157,42 @@ def render_declarations(ctx: TabContext) -> None:
     _oss_ht_remb_total   = sum((v["ht_remb"]   for v in _oss_country_totals.values()), _ZERO)
     _oss_ht_net_total    = sum((v["ht_net"]    for v in _oss_country_totals.values()), _ZERO)
 
-    # Agrégats CA3/IOSS/DDP/Local mis en cache par calc_key (voir
+    # IOSS : même principe que le bloc OSS ci-dessus, avec
+    # aggregate_ioss_results() (pendant IOSS de aggregate_oss_results,
+    # même reconversion BCE de clôture art. 5 bis Règl. UE 2020/194).
+    #
+    # BUGFIX (voir README - évolution.md) : ce total utilisait auparavant
+    # une simple somme de r.sale.amount_ht / r.vat_amount (voir l'ancien
+    # bloc "ioss" de _aggregate_declarations_raw), c'est-à-dire les
+    # montants figés au taux BCE du JOUR DE LA VENTE — alors que l'OSS,
+    # juste au-dessus, est déjà recalculé au taux de CLÔTURE de période.
+    # Même non-conformité et même correctif que pour l'export Excel
+    # (voir excel_report.py::_ioss_period_totals).
+    #
+    # `period=""` volontairement : `period_label` ici est trimestriel
+    # (format OSS), non reconnu par get_ioss_rate_date (mensuel), qui
+    # retombe alors ligne à ligne sur la fin du MOIS de la transaction —
+    # toujours conforme art. 5 bis, faute de période IOSS mensuelle
+    # explicite disponible à cet écran.
+    _ioss_cache_key = (ctx.calc_key, period_label)
+    if ctx.calc_key is not None and st.session_state.get("_ioss_decl_cache_key") == _ioss_cache_key:
+        _ioss_totals = st.session_state["_ioss_decl_cache_val"]
+    else:
+        _ioss_period_agg = aggregate_ioss_results(results + (refund_results or []), period="")
+        _ioss_totals = {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO}
+        for _dep, _dests in _ioss_period_agg.items():
+            for _arr, _rates in _dests.items():
+                for _rate, _amt in _rates.items():
+                    _ioss_totals["ht_brut"] += _amt["ht_vente"]
+                    _ioss_totals["ht_remb"] += _amt["ht_remb"]
+                    _ioss_totals["tva_brute"] += _amt["tva_vente"]
+                    _ioss_totals["tva_remb"] += _amt["tva_remb"]
+        if ctx.calc_key is not None:
+            st.session_state["_ioss_decl_cache_key"] = _ioss_cache_key
+            st.session_state["_ioss_decl_cache_val"] = _ioss_totals
+    _ioss = _ioss_totals if (_ioss_totals["ht_brut"] or _ioss_totals["ht_remb"]) else None
+
+    # Agrégats CA3/DDP/Local mis en cache par calc_key (voir
     # _aggregate_declarations_raw plus haut) : un seul passage O(n) sur
     # results/refund_results, refait uniquement quand les résultats sous-
     # jacents changent réellement, pas à chaque rerun Streamlit.
@@ -211,7 +240,6 @@ def render_declarations(ctx: TabContext) -> None:
             _("col_tva_nette"): float(_c["tva_net"])
         })
 
-    _ioss = _decl_agg["ioss"]
     if _ioss is not None:
         _ioss_tva_brute = _ioss["tva_brute"]
         _ioss_tva_remb = _ioss["tva_remb"]

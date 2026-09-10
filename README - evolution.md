@@ -7829,3 +7829,103 @@ franchissement de seuil).
 
 Fichiers modifiés : `tva_intracom/engine.py`, `tva_intracom/ca3_report.py`,
 `tva_intracom/excel_report.py`, `tva_intracom/ui/sidebar.py`.
+
+## 2026-09-10 (4) — Batch de 6 points signalés (audit externe) : AIC Monaco (mouvement domestique résiduel), taux OSS/IOSS, corrections OSS a posteriori, downgrade VIES, performance BCE, Format 3 Amazon (noté)
+
+Confirmation préalable : sur les 6 points soumis, 2 (propagation
+annuelle du seuil OSS, purge historique VIES) correspondaient à des
+correctifs déjà livrés le jour même dans une session précédente
+(`_run_oss_loop`/`_oss_eligible` dans `engine.py`, `purge_malformed_entries`
+dans `vies_engine.py`) — vérifiés sur GitHub `dev` avant toute analyse,
+aucune action supplémentaire nécessaire. Le point Format 3 Amazon
+(quantité forcée à 1) était déjà documenté dans
+`optimisations_en_attente.md` (point 7bis, session précédente) : rien
+ajouté. Les 4 points restants ont été confirmés puis corrigés.
+
+**1. AIC Monaco — mouvement domestique résiduel non filtré**
+(`ca3_report.py`, `_compute_aic_from_fc_transfers`) : le correctif
+précédent (normalisation `fiscal_equivalent_country()` côté arrivée)
+laissait subsister un cas : le filtre "pas de mouvement réel" comparait
+toujours `dep == arr` en codes BRUTS. Un transfert de stock purement
+domestique entre la France et Monaco (ex. dep="FR", arr="MC") n'était
+donc jamais exclu — il était compté à tort comme une AIC entrante en
+France, alors que ces deux territoires forment un seul et même
+territoire fiscal TVA pour les marchandises. Corrigé en normalisant
+également le pays de départ (`fiscal_equivalent_country(dep)`) pour ce
+filtre : seul un départ réellement extérieur au territoire fiscal du
+vendeur (FR/MC) peut désormais donner lieu à une AIC entrante.
+
+**2. Taux de change OSS vs IOSS incohérents** (`excel_report.py`,
+`tva_intracom/ui/tabs/declarations.py`) : le récapitulatif Excel et le
+tableau de bord recalculaient déjà l'OSS au taux BCE de CLÔTURE de
+période (art. 5 bis Règl. UE 2020/194), mais utilisaient pour l'IOSS des
+montants figés au taux du JOUR DE LA VENTE (`summary.ioss_ht`/
+`summary.ioss_vat` côté Excel, simple somme `r.sale.amount_ht`/
+`r.vat_amount` côté dashboard) — nonconforme au même règlement, qui
+impose le taux de clôture pour les deux régimes. Corrigé en réutilisant
+`aggregate_ioss_results()` (déjà utilisée par le XML/Excel/CSV IOSS
+dédié) : ajout de `_ioss_period_totals()` dans `excel_report.py`
+(pendant de `_oss_period_totals`) et d'un bloc de calcul équivalent (avec
+cache par `calc_key`, même pattern que le bloc OSS existant) dans
+`declarations.py`. `period=""` est passé volontairement à
+`aggregate_ioss_results` à ces deux endroits : la période disponible à
+ces écrans est trimestrielle (format OSS), non reconnue par
+`get_ioss_rate_date` (mensuel), qui retombe alors ligne à ligne sur la
+fin de mois de la transaction — toujours conforme art. 5 bis, faute de
+période IOSS mensuelle explicite disponible à ces deux endroits.
+
+**3. Corrections OSS a posteriori au taux du jour de l'avoir, pas de la
+période d'origine** (`oss_export.py`,
+`suggest_negative_bucket_corrections`) : un avoir rattaché à une vente
+d'une période antérieure était reporté dans le bloc
+`CorrectionsOfVatReturns` du XML avec son montant HT/TVA tel que déjà
+figé sur le `VatResult` de l'avoir (taux BCE du jour où l'avoir a été
+émis), au lieu du taux de clôture de la période D'ORIGINE de la vente
+corrigée — non-conforme au même art. 5 bis. Corrigé en réutilisant
+`convert_ht_tva_for_oss_period(refund, origin_quarter)` (même fonction
+que pour les lignes normales) à la place des montants bruts de l'avoir.
+
+**4. Downgrade VIES trop large — vraies invalidations classées
+"suspectes"** (`vies_engine.py`, `_is_downgrade`) : la fonction marquait
+comme suspect (donc neutralisé en `stale_fallback`, inutilisable pour
+l'exonération B2B) tout passage valide → invalide sans erreur réseau, y
+compris une VRAIE désinscription/invalidation du numéro TVA (VIES
+répond alors `valid=False` avec `name`/`address` renseignés — preuve que
+le serveur a bien traité la requête). Corrigé en n'traitant comme
+suspecte qu'une réponse réellement VIDE (`valid=False` ET `name`/
+`address` tous deux absents), signature d'une dégradation serveur VIES
+sous charge — seul cas visé initialement par cette détection.
+
+**5. Performance requête batch BCE** (`ecb_rates.py`,
+`_db_get_rates_batch`) : la requête filtrait par
+`rate_date >= min_date AND rate_date <= max_date` sur l'ensemble des
+paires demandées — un fichier contenant des ventes très espacées dans le
+temps (ex. 2024 et 2026) rapatriait donc en RAM toutes les lignes de
+taux quotidiens intermédiaires de la plage, jamais demandées, pour n'en
+garder qu'une poignée après filtrage Python. Corrigé en matchant
+exactement les paires (devise, date) réellement demandées via un `JOIN`
+sur `VALUES` (`psycopg2.extras.execute_values`, même pattern déjà
+utilisé par `_db_upsert_batch` dans le même fichier) au lieu d'une plage
+de dates.
+
+**6. Format Amazon 3 — quantité forcée à 1** : déjà documenté dans
+`optimisations_en_attente.md` (point 7bis, session du 2026-09-10 (3)).
+Aucune action supplémentaire — en attente d'un extrait de fichier réel
+pour confirmer l'absence structurelle d'une colonne quantité avant toute
+tentative de correction.
+
+Points 1, 2, 3, 4, 5 : `py_compile` + `pyflakes` propres sur les 6
+fichiers modifiés (`ca3_report.py`, `excel_report.py`,
+`ui/tabs/declarations.py`, `oss_export.py`, `vies_engine.py`,
+`ecb_rates.py`) — aucun nouveau warning (les 3 warnings pyflakes
+pré-existants dans `excel_report.py`, sans rapport avec les zones
+modifiées, restent inchangés). Suite `pytest` : 275 passed / 4 failed —
+les 4 échecs sont intégralement liés à `SUPABASE_DB_URL` non définie
+dans le sandbox, confirmé pré-existant en rejouant la suite complète sur
+le code non modifié avant toute correction (mêmes 4 tests, même
+comportement) ; aucune régression introduite. Aucune clé i18n touchée.
+
+Fichiers modifiés : `tva_intracom/ca3_report.py`,
+`tva_intracom/excel_report.py`, `tva_intracom/ui/tabs/declarations.py`,
+`tva_intracom/oss_export.py`, `tva_intracom/vies_engine.py`,
+`tva_intracom/ecb_rates.py`.
