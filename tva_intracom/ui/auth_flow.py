@@ -293,7 +293,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 st.query_params.clear()
                 st.rerun()
             except Exception as _e:
-                st.error(f"Erreur access_token: {str(_e)}")
+                st.error(_("oauth_access_token_error", error=str(_e)))
                 st.query_params.clear()
 
         # Cas B0 : Code présent mais SANS sb_provider/sb_nonce — Supabase a
@@ -432,7 +432,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 if _sb_nonce:
                     _diag_suffix = f" — diagnostic: {_pkce_diag}" if _pkce_diag else ""
                     st.error(f"{_('oauth_state_lost_error')} (prov={_sb_provider}, nonce={_sb_nonce[:8]}...){_diag_suffix}")
-                    if st.button("Réessayer"):
+                    if st.button(_("retry_btn")):
                         st.query_params.clear()
                         st.rerun()
                     st.stop()
@@ -442,7 +442,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
         if _sb_error_code == "provider_email_needs_verification":
             st.warning(_("oauth_email_verification_required"))
         else:
-            st.error(f"Erreur OAuth ({_sb_error_code}): {_sb_error_desc or 'inconnue'}")
+            st.error(_("oauth_generic_error", code=_sb_error_code, desc=_sb_error_desc or _("unknown_error_desc")))
         
         if st.button(_("cancel_btn"), key="clear_oauth_error"):
             st.query_params.clear()

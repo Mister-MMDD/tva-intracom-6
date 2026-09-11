@@ -497,7 +497,7 @@ def render_vies(ctx: TabContext) -> None:
                             st.success(_("vies_manual_class_exp_del_success", vat=_ov_vat2))
                             st.rerun()
                         except Exception as _del_err2:
-                            st.error(f"Erreur : {_del_err2}")
+                            st.error(_("generic_error_prefix", error=str(_del_err2)))
 
         # Reclassifications VIES
         if vies_summary.reclassifications:

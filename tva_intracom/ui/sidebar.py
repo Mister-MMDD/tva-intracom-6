@@ -498,7 +498,7 @@ def _render_account_dialog(_current_user) -> None:
                 mime="application/json",
             )
         except Exception as _exp_err:
-            st.error(f"Erreur lors de l'export : {_exp_err}")
+            st.error(_("export_error", error=str(_exp_err)))
 
     st.divider()
     st.markdown(f"**{_('delete_account_title')}**")
@@ -538,7 +538,7 @@ def _render_account_dialog(_current_user) -> None:
             except PermissionError as _perm_err:
                 st.error(str(_perm_err))
             except Exception as _del_err:
-                st.error(f"Erreur lors de la suppression : {_del_err}")
+                st.error(_("account_deletion_error", error=str(_del_err)))
 
 
 def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResult:
@@ -1348,7 +1348,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                     st.link_button(_("continue_to_payment_btn"), st.session_state[_payg_cache_key])
                                 except Exception as _payg_err:
                                     st.session_state.pop(_payg_cache_key, None)
-                                    st.error(f"Erreur : {_payg_err}")
+                                    st.error(_("generic_error_prefix", error=str(_payg_err)))
 
                         _sub_interval = st.radio(_("billing_interval_label"), [_("billing_monthly_choice"), _("billing_yearly_choice")],
                                                  horizontal=True, key="sub_interval_choice")
@@ -1366,7 +1366,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                 )
                                 st.link_button(_("continue_to_payment_btn"), _url)
                             except Exception as _biz_err:
-                                st.error(f"Erreur : {_biz_err}")
+                                st.error(_("generic_error_prefix", error=str(_biz_err)))
 
                         st.markdown(f"**{_('plan_cabinet')}** — {_('plan_cabinet_desc')}")
                         _cabinet_qty = st.number_input(_("managed_sirens_qty_label"), min_value=3, max_value=500,
@@ -1385,7 +1385,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                 )
                                 st.link_button(_("continue_to_payment_btn"), _url)
                             except Exception as _cab_err:
-                                st.error(f"Erreur : {_cab_err}")
+                                st.error(_("generic_error_prefix", error=str(_cab_err)))
 
         # ── Catalogue Produits ────────────────────────────────────────────────────
         # Fonctionnalité avancée (taux réduits par ASIN) — masquée en mode

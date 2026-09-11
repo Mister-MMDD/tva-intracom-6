@@ -8017,3 +8017,25 @@ Fichiers modifiés : `tva_intracom/ecb_rates.py`.
 Validation : `py_compile` propre sur `vies_engine.py`. Suite `pytest` : 275 passed / 4 failed — même baseline `SUPABASE_DB_URL`, aucune régression.
 
 Fichiers modifiés : `tva_intracom/vies_engine.py`.
+
+## 2026-09-11 (5) — Audit i18n complet (7 langues) : messages d'erreur codés en dur, clés mortes
+
+**Demande** : vérification exhaustive de l'i18n (symétrie des 7 langues, texte oublié dans une langue, mots en dur, bugs de changement de langue).
+
+**Constats confirmés contre le code réel** :
+- **Symétrie TOML** : les 7 fichiers (`fr/en/de/es/it/pl/pt.toml`) contenaient bien 1235 clés identiques chacun avant correctif — aucune clé manquante.
+- **10 messages codés en dur en français**, affichés dans cette langue quelle que soit la langue sélectionnée par l'utilisateur : `auth_flow.py` (erreur access_token, bouton "Réessayer", erreur OAuth générique + fallback "inconnue"), `app.py` (erreur de traitement de fichier import), `sidebar.py` (erreur export JSON, erreur suppression de compte, 3× erreur création session Stripe PAYG/Business/Cabinet), `tabs/vies_ui.py` (erreur suppression classification manuelle VIES).
+- **2 clés TOML vides dans les 7 langues** (`local_declarations_caption`, `local_vat_html_caption`) et jamais référencées dans le code.
+- **70 autres clés TOML orphelines** : jamais appelées ni statiquement (`_("...")`) ni dynamiquement (aucune occurrence du nom de clé, même comme littéral, ailleurs dans le code) — reliquats de fonctionnalités jamais branchées ou abandonnées (`wake_up_app`/`app_is_sleeping` : UI de réveil scale-to-zero jamais implémentée ; `zero_state_card_*` : onboarding jamais implémenté ; `amazon_*` connexion OAuth Amazon jamais branchée ; `xl_tab_vies`/`xl_vies_status_*` : onglet Excel jamais généré ; `oss_gauge_*`, `fiscal_period_*`, `edit_ids_checkbox`, etc.).
+- **Pas de bug de changement de langue** : `calc_key`/`parse_key` du moteur fiscal ne dépendent jamais de la langue (seule la couche graphique Plotly inclut `lang` dans sa propre clé de cache, comportement voulu). Le changement de langue passe par `preserve_upload_rerun()` : pas de perte de fichiers uploadés au switch.
+
+**Correctifs appliqués** :
+- Ajout de 8 nouvelles clés i18n (traduites dans les 7 langues) : `retry_btn`, `oauth_access_token_error`, `oauth_generic_error`, `unknown_error_desc`, `file_processing_error`, `export_error`, `account_deletion_error`, `generic_error_prefix` (cette dernière mutualisée pour les 4 messages `"Erreur : {error}"` identiques de `sidebar.py`/`vies_ui.py`).
+- Remplacement des 10 f-strings en dur par des appels `_(...)` dans `auth_flow.py`, `app.py`, `sidebar.py`, `tabs/vies_ui.py`.
+- Suppression des 72 clés mortes (2 captions vides + 70 orphelines) dans les 7 fichiers TOML.
+
+Bilan i18n : 1235 → 1171 clés par langue (symétrie vérifiée programmatiquement via `toml.load()` après modification, comptage identique sur les 7 fichiers).
+
+Validation : `py_compile` propre sur les 4 fichiers modifiés. `pyflakes` : aucun nouveau warning (1 warning pré-existant sans rapport, `sidebar.py:1134`, variable de boucle `_dt`). Suite `pytest` : 275 passed / 4 failed — même baseline `SUPABASE_DB_URL`, aucune régression.
+
+Fichiers modifiés : `tva_intracom/i18n/fr.toml`, `en.toml`, `de.toml`, `es.toml`, `it.toml`, `pl.toml`, `pt.toml`, `tva_intracom/ui/auth_flow.py`, `tva_intracom/ui/sidebar.py`, `tva_intracom/ui/tabs/vies_ui.py`, `app.py`.

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="3ea23b86-cfc1-469e-831c-85c826d1ddb0" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/optimisations_en_attente.md" beforeDir="false" afterPath="$PROJECT_DIR$/optimisations_en_attente.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/arbre-decision.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/arbre-decision.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/confidentialite.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/confidentialite.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/documentation.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/documentation.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/faq.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/faq.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/glossaire.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/glossaire.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/interface.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/interface.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/mentions.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/mentions.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/regimes.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/regimes.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/securite.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/securite.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/src/pages/faq.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/src/pages/faq.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/src/pages/regimes.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/src/pages/regimes.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/src/pages/securite.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/src/pages/securite.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/tarifs.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/tarifs.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/tutoriels.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/tutoriels.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/tabs/vies_ui.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/tabs/vies_ui.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "dev"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <servers />
+  </component>
+</project>

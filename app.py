@@ -965,7 +965,7 @@ if uploaded_files:
                         _("col_rows_read"): parse_result.total_rows, _("col_ignored"): parse_result.skipped_rows
                     })
             except Exception as e:
-                st.error(f"Erreur sur **{uploaded_file.name}** : {e}")
+                st.error(_("file_processing_error", filename=uploaded_file.name, error=str(e)))
                 for p in tmp_paths: p.unlink(missing_ok=True)
                 st.stop()
 
