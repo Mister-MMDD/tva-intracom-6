@@ -7988,3 +7988,20 @@ Validation : `py_compile` + `pyflakes` propres sur `vies_engine.py` et
 Fichiers modifiés : `tva_intracom/vies_engine.py`,
 `tva_intracom/ui/tabs/vies_ui.py`,
 `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`.
+
+## 2026-09-11 (3) — Tests locaux extrêmement lents (ECB API) : erreur SSL retentée en boucle + absence de cache négatif sur échec
+
+**Bug signalé** : en local (sans `SUPABASE_DB_URL`, sans chaîne de certificats CA à jour), toute conversion de devise via `ecb_rates.py` provoquait un très grand nombre de tentatives identiques et un affichage interminable, y compris quand tous les taux nécessaires étaient déjà présents dans le cache Postgres du serveur (donc sans rapport avec ce cache-là — le problème se situe uniquement côté requêtes réseau directes à l'API BCE, faites en local faute de connexion DB).
+
+**Cause confirmée contre le code réel (`ecb_rates.py`)** : deux angles morts combinés.
+1. `_request_ecb` traitait `SSLCertVerificationError` (erreur de vérification de certificat) comme une erreur transitoire, avec 3 tentatives + backoff (~7s) à chaque appel — alors que cette erreur est permanente pour la durée du process (le magasin de certificats ne change pas entre deux tentatives séparées de quelques secondes).
+2. Ni `get_rate()` ni `get_closing_rate()` ne mémorisaient les ÉCHECS (seuls les succès étaient mis en cache). Pour un fichier avec plusieurs ventes dans la même devise sur la même période, chaque ligne relançait tout le cycle de tentatives pour une paire (devise, date) déjà connue comme injoignable — d'où la multiplication observée dans les logs.
+
+**Correctif** :
+- Détection explicite de `ssl.SSLCertVerificationError` (y compris enveloppée dans `URLError.reason`, cas réel observé) dans `_request_ecb` : échec immédiat sans retry, log dédié invitant à vérifier la chaîne de certificats CA locale.
+- Ajout d'un cache négatif en mémoire (`_failed_pairs`, TTL 5 min, propre au process) consulté par `get_rate()` et `get_closing_rate()` avant tout appel réseau, et alimenté par `prefetch_rates()` / `prefetch_closing_rates()` quand le batch ne résout pas une paire demandée.
+- Confort de performance locale uniquement : aucun impact sur le cache Postgres L2, aucun thread ni connexion persistant créé (dict en mémoire vidé au redémarrage du process) — scale-to-zero non affecté.
+
+Validation : `py_compile` + `pyflakes` propres sur `ecb_rates.py` (aucun nouveau warning). Suite `pytest` : 275 passed / 4 failed — même baseline `SUPABASE_DB_URL`, aucune régression. Test manuel de simulation (erreur SSL mockée) : 1er appel résolu immédiatement (< 1ms, sans retry) au lieu de ~7s ; appels suivants sur la même paire quasi instantanés (< 0.01ms) au lieu de relancer le cycle complet.
+
+Fichiers modifiés : `tva_intracom/ecb_rates.py`.

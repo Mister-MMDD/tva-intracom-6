@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import ssl
 import threading
 import time
 import urllib.error
@@ -262,18 +263,98 @@ def _db_upsert_batch(entries: list[tuple[str, date, Decimal]]) -> None:
 # Backoff exponentiel sur erreurs réseau/HTTP transitoires (dont HTTP 429).
 # Ne couvre PAS les réponses malformées (JSON invalide, structure inattendue) :
 # une réponse mal formée n'est pas transitoire, la retenter ne change rien.
+# Ne couvre PAS non plus les erreurs SSL de vérification de certificat
+# (ssl.SSLCertVerificationError) : voir _is_permanent_ssl_error ci-dessous.
 _FETCH_MAX_ATTEMPTS = 3
 _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
 
+# BUGFIX (2026-09-11, tests locaux extrêmement lents) : deux angles morts
+# combinés rendaient les tests en local (sans SUPABASE_DB_URL, sans chaîne
+# de certificats CA à jour) quasi inutilisables :
+#
+#   1. Une erreur SSL de certificat (ssl.SSLCertVerificationError) est
+#      PERMANENTE pour la durée du process (le magasin de certificats ne va
+#      pas changer entre deux tentatives séparées de quelques secondes) —
+#      pourtant elle était traitée comme transitoire : 3 tentatives + backoff
+#      (~7s) à chaque appel, pour rien.
+#   2. get_closing_rate() ne mémorise que les SUCCÈS dans _forward_rate_cache.
+#      Un échec n'est jamais mis en cache : pour un fichier contenant N ventes
+#      SEK sur le même trimestre (même date de clôture), chaque ligne
+#      redéclenchait tout le cycle de tentatives pour la MÊME paire
+#      (devise, date) déjà connue comme injoignable.
+#
+# _failed_pairs mémorise, par process, les paires (devise, date) ayant déjà
+# échoué (quelle qu'en soit la cause), avec un TTL court : passé ce délai, on
+# retente (au cas où une panne BCE transitoire se serait résolue). Ce cache
+# est un pur confort de performance locale — aucun impact sur le cache
+# Postgres L2 ni sur le scale-to-zero (dict en mémoire, vidé au redémarrage
+# du process, aucun thread/connexion persistant créé).
+_FAILED_PAIR_TTL_SECONDS = 300  # 5 minutes
+_failed_pairs: dict[tuple[str, str, date], float] = {}  # (kind, ccy, date) -> timestamp échec
+
+
+def _is_permanently_failed(kind: str, currency: str, target_date: date) -> bool:
+    ts = _failed_pairs.get((kind, currency, target_date))
+    if ts is None:
+        return False
+    if (time.monotonic() - ts) >= _FAILED_PAIR_TTL_SECONDS:
+        del _failed_pairs[(kind, currency, target_date)]
+        return False
+    return True
+
+
+def _mark_failed(kind: str, currency: str, target_date: date) -> None:
+    _failed_pairs[(kind, currency, target_date)] = time.monotonic()
+
+
+def _is_permanent_ssl_error(exc: BaseException) -> bool:
+    """Une erreur de vérification de certificat ne se résoudra pas en
+    retentant quelques secondes plus tard : c'est un problème de
+    configuration (magasin CA local absent/périmé), pas un aléa réseau.
+
+    urllib.request.urlopen n'expose pas toujours l'exception SSL
+    directement : selon le chemin de code, elle peut arriver telle quelle,
+    enveloppée dans URLError.reason (cas le plus courant), ou chaînée via
+    __cause__/__context__. On vérifie les trois pour ne pas manquer le cas
+    réel observé en local."""
+    seen: set[int] = set()
+    to_check: list[Optional[BaseException]] = [
+        exc,
+        getattr(exc, "reason", None),
+        exc.__cause__,
+        exc.__context__,
+    ]
+    for candidate in to_check:
+        if candidate is None or id(candidate) in seen:
+            continue
+        seen.add(id(candidate))
+        if isinstance(candidate, ssl.SSLCertVerificationError):
+            return True
+    return False
+
 
 def _request_ecb(url: str, description: str) -> Optional[dict]:
-    """Effectue une requête à l'API BCE avec gestion des retries."""
+    """Effectue une requête à l'API BCE avec gestion des retries.
+
+    N'effectue PAS de retry sur les erreurs de certificat SSL
+    (permanentes, voir _is_permanent_ssl_error) : échoue immédiatement,
+    comme pour une réponse JSON malformée.
+    """
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            if _is_permanent_ssl_error(exc):
+                logger.warning(
+                    "ECB API : certificat SSL non vérifiable (%s) — "
+                    "vérifiez la chaîne de certificats CA locale "
+                    "(certifi/OS) ; aucune nouvelle tentative pour cette "
+                    "requête : %s",
+                    description, exc,
+                )
+                return None
             is_last_attempt = attempt >= _FETCH_MAX_ATTEMPTS
             if is_last_attempt:
                 logger.warning(
@@ -411,8 +492,15 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
             batch = _fetch_ecb_batch([ccy], start, end).get(ccy, {})
         except Exception:
             logger.warning("Échec du prefetch en lot des taux de clôture pour %s", ccy, exc_info=True)
+            # BUGFIX 2026-09-11 : sans ce marquage, chaque ligne de vente de
+            # cette devise retentait individuellement via get_closing_rate()
+            # -> cycle complet de tentatives + backoff répété N fois.
+            for d in dates:
+                _mark_failed("closing", ccy, d)
             continue
         if not batch:
+            for d in dates:
+                _mark_failed("closing", ccy, d)
             continue
         available_dates = sorted(batch.keys())
         for d in dates:
@@ -420,6 +508,8 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
             if candidates:
                 with _cache_lock:
                     _forward_rate_cache[(ccy, d)] = batch[candidates[0]]
+            else:
+                _mark_failed("closing", ccy, d)
 
 
 def get_closing_rate(currency: str, closing_date: date) -> Optional[Decimal]:
@@ -442,10 +532,14 @@ def get_closing_rate(currency: str, closing_date: date) -> Optional[Decimal]:
     with _cache_lock:
         if key in _forward_rate_cache:
             return _forward_rate_cache[key]
+    if _is_permanently_failed("closing", currency, closing_date):
+        return None
     rate = _fetch_ecb_rate_forward(currency, closing_date)
     if rate is not None:
         with _cache_lock:
             _forward_rate_cache[key] = rate
+    else:
+        _mark_failed("closing", currency, closing_date)
     return rate
 
 
@@ -542,6 +636,9 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
             _rate_cache[key] = db_rate
         return db_rate
 
+    if _is_permanently_failed("rate", currency, target_date):
+        return None
+
     # Requête HTTP hors du lock pour ne pas bloquer les autres threads.
     rate = _fetch_ecb_rate(currency, target_date)
 
@@ -549,6 +646,8 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
         with _cache_lock:
             _rate_cache[key] = rate
         _db_upsert_rate(currency, target_date, rate)
+    else:
+        _mark_failed("rate", currency, target_date)
 
     return rate
 
@@ -662,7 +761,12 @@ def prefetch_rates(
                 _rate_cache[key] = rate
             to_persist.append((ccy, target_date, rate))
             loaded += 1
-        
+        else:
+            # BUGFIX 2026-09-11 : sans ce marquage, un appel individuel
+            # ultérieur à get_rate() pour cette même paire relance tout le
+            # cycle de tentatives + backoff (voir _is_permanently_failed).
+            _mark_failed("rate", ccy, target_date)
+
         # Optimisation : on ne rapporte le progrès que périodiquement pour éviter de saturer l'UI
         if progress_callback and (i % 200 == 0 or i == total):
             try:
