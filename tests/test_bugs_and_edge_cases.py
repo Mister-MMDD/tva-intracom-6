@@ -95,10 +95,21 @@ def test_historical_rate_estonia_2025():
 # --- 3. MONACO ---
 
 def test_monaco_cross_border():
-    """Vérifie qu'une vente DE -> MC est traitée en OSS vers la France."""
+    """Vérifie qu'une vente DE -> MC, vendeur établi en FR, est traitée en
+    DOMESTIQUE (et non OSS) vers la France.
+
+    BUGFIX (2026-09-11) : ce test encodait l'ancien comportement buggé —
+    la destination Monaco (= France fiscalement, convention franco-
+    monégasque du 18 mai 1963) coïncide ici avec le pays d'établissement du
+    vendeur (seller_country="FR" par défaut dans make_sale) : selon l'Art.
+    59 ter Directive 2006/112/CE, l'OSS ne s'applique pas dans ce cas — la
+    vente doit être domestique (CA3), symétriquement au traitement déjà en
+    place pour les autres pays UE ("Cas 1bis", engine.py ~L545). Avant ce
+    correctif, le bloc Monaco (engine.py::compute_vat) court-circuitait ce
+    "Cas 1bis" et renvoyait à tort OSS_B2C."""
     sale = make_sale(stock_country="DE", buyer_country="MC")
     res = compute_vat(sale)
-    assert res.scenario == Scenario.OSS_B2C
+    assert res.scenario == Scenario.DOMESTIC
     assert res.vat_country == "FR"
     assert res.vat_rate == Decimal("20")
 
@@ -109,6 +120,30 @@ def test_monaco_from_fr():
     assert res.scenario == Scenario.DOMESTIC
     assert res.vat_country == "FR"
     assert res.channel == Channel.FR_DOMESTIC
+
+def test_monaco_to_monaco_is_domestic():
+    """BUGFIX (2026-09-11) — bug d'isolation Stock/Acheteur à Monaco : une
+    vente stock=MC / buyer=MC est fiscalement FR->FR (Monaco assimilé à la
+    France), donc DOMESTIQUE. Avant ce correctif, le premier bloc
+    `if sale.buyer_country == "MC"` interceptait la vente puis, comme
+    stock_country ("MC") != "FR" littéralement, tombait dans le else et
+    renvoyait à tort Scenario.OSS_B2C — une non-conformité fiscale majeure
+    (une vente domestique n'a pas sa place dans une déclaration OSS)."""
+    sale = make_sale(stock_country="MC", buyer_country="MC")
+    res = compute_vat(sale)
+    assert res.scenario == Scenario.DOMESTIC
+    assert res.vat_country == "FR"
+    assert res.vat_rate == Decimal("20")
+
+def test_monaco_cross_border_seller_not_fr_stays_oss():
+    """Contre-exemple du bug 1bis-Monaco : si le vendeur N'EST PAS établi en
+    France (ni à Monaco), une vente stock=ES -> buyer=MC reste bien de
+    l'OSS vers la France — seule la coïncidence destination/établissement
+    du vendeur bascule en domestique, pas Monaco en tant que tel."""
+    sale = make_sale(stock_country="ES", buyer_country="MC", seller_country="DE")
+    res = compute_vat(sale)
+    assert res.scenario == Scenario.OSS_B2C
+    assert res.vat_country == "FR"
 
 # --- 4. IOSS (SEUIL ET DEVISES) ---
 

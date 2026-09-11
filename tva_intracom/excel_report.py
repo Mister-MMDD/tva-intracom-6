@@ -1905,6 +1905,133 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
 
 
 
+def _write_ioss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
+                    results: list | None = None, refund_results: list | None = None,
+                    period: str = "", ioss_agg: dict | None = None) -> None:
+    """Onglet IOSS détaillé : mois par mois (net, taux du jour de vente,
+    pour information) puis Brut / Remboursements / Net (total période, taux
+    BCE de clôture — art. 5 bis Règl. UE 2020/194) par pays de destination.
+
+    Ajouté le 2026-09-11 (bug confirmé : `_ioss_agg` était calculé dans
+    export_xlsx() mais aucune feuille ne l'exploitait — l'onglet annoncé
+    par le README ("Ventes IOSS avec détail mensuel net") était absent du
+    fichier généré). Contrairement à _write_oss_tab(), il n'existe pas de
+    `summary.ioss_by_country_month` pré-calculé dans report.py (seuls des
+    totaux agrégés `ioss_vat`/`refund_ioss_vat` existent) : le détail
+    mensuel par pays est donc reconstruit ici directement depuis `results`
+    (mêmes filtres scénario/mois que report.py::build_report), sans toucher
+    au moteur fiscal ni à ReportSummary."""
+    ws.title = i18n_("xl_tab_ioss")
+
+    ws.append([_wcell(ws, i18n_("xl_ioss_title"), font=_TITLE_FONT)])
+    ws.row_dimensions[1].height = 25
+
+    _fmt_curr = _currency_format(display_currency)
+    _conv_date = _date.today()
+    def _conv(amount: Decimal) -> float:
+        return float(_to_home_currency(amount, display_currency, _conv_date))
+
+    if display_currency != "EUR":
+        ws.append([_wcell(ws, i18n_("xl_recap_currency_note", currency=display_currency, date=_conv_date.isoformat()),
+                          font=Font(italic=True, size=9, color="7f7f7f"))])
+        ws.row_dimensions[2].height = 16
+    else:
+        ws.append([])
+
+    _z = Decimal("0.00")
+
+    # Détail mensuel par pays d'arrivée (taux du jour de vente, pour
+    # information — voir docstring : pas de source pré-agrégée existante).
+    from .models import Scenario as _Scen
+    by_country_month: Dict[str, Dict[str, Decimal]] = {}
+    for r in chain(results or [], refund_results or []):
+        if r.scenario != _Scen.IOSS_DIRECT:
+            continue
+        month = (r.sale.transaction_date or "")[:7]
+        if not month:
+            continue
+        by_month = by_country_month.setdefault(r.vat_country, {})
+        by_month[month] = by_month.get(month, _z) + r.vat_amount
+    months = sorted({m for per_country in by_country_month.values() for m in per_country})
+
+    # Totaux Brut/Remb par pays d'arrivée au taux BCE de clôture de période
+    # (art. 5 bis), via `_ioss_agg` déjà calculé une fois par export_xlsx()
+    # et partagé avec _write_recap(), pour éviter de reparcourir `results`
+    # une seconde fois ici.
+    _period_tva_vente: Dict[str, Decimal] = {}
+    _period_tva_remb: Dict[str, Decimal] = {}
+    if results is not None:
+        _agg = ioss_agg if ioss_agg is not None else aggregate_ioss_results(
+            list(results) + list(refund_results or []), period=period
+        )
+        for _departure, _by_arrival in _agg.items():
+            for _arrival, _by_rate in _by_arrival.items():
+                for _bucket in _by_rate.values():
+                    _period_tva_vente[_arrival] = _period_tva_vente.get(_arrival, _z) + _bucket["tva_vente"]
+                    _period_tva_remb[_arrival] = _period_tva_remb.get(_arrival, _z) + _bucket["tva_remb"]
+
+    all_countries = sorted(set(_period_tva_vente) | set(_period_tva_remb) | set(by_country_month))
+
+    month_start_col = 3
+    total_start_col = month_start_col + len(months)
+
+    header_row = 4
+    _group_cells = _write_section_group_row(ws, month_start_col, len(months), total_start_col, 3, fill=_BLUE_HEADER_FILL)
+    ws.append(_group_cells)
+    ws.row_dimensions[3].height = 18
+
+    headers = [i18n_("xl_ioss_col_country"), i18n_("xl_ioss_col_code")]
+    headers += [_month_label(m) for m in months]
+    headers += [i18n_("xl_ioss_col_vat_gross"), i18n_("xl_ioss_col_vat_refunds"), i18n_("xl_ioss_col_vat_net")]
+    ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
+                      alignment=Alignment(horizontal="center", vertical="center"))
+               for t in headers])
+    ws.row_dimensions[header_row].height = 22
+
+    row = header_row + 1
+    for country in all_countries:
+        brut = _period_tva_vente.get(country, _z)
+        refund = _period_tva_remb.get(country, _z)
+
+        month_values = by_country_month.get(country, {})
+        col_brut, col_ref = total_start_col, total_start_col + 1
+        letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
+
+        _row_cells = [_wcell(ws, _get_country_name(country)), _wcell(ws, country)]
+        for m in months:
+            v = _conv(month_values.get(m, _z))
+            _row_cells.append(_wcell(ws, v, number_format=_fmt_curr))
+
+        _row_cells.append(_wcell(ws, _conv(brut), number_format=_fmt_curr))
+        _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
+        _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
+                                 number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
+
+        ws.append(_row_cells)
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    col_brut, col_ref = total_start_col, total_start_col + 1
+    letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
+    ws.append([])
+    row += 1
+    _total_row_cells = [_wcell(ws, i18n_("xl_ioss_total"), font=_BOLD_FONT)]
+    _total_row_cells.append(_wcell(ws, None))
+    for i in range(len(months)):
+        col = month_start_col + i
+        letter = get_column_letter(col)
+        _total_row_cells.append(_wcell(ws, f"=SUM({letter}{header_row+1}:{letter}{row-2})",
+                                       number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
+    for formula in [
+        f"=SUM({letter_brut}{header_row+1}:{letter_brut}{row-2})",
+        f"=SUM({letter_ref}{header_row+1}:{letter_ref}{row-2})",
+        f"={get_column_letter(col_brut)}{row}+{get_column_letter(col_ref)}{row}",
+    ]:
+        _total_row_cells.append(_wcell(ws, formula, number_format=_fmt_curr, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL))
+    ws.append(_total_row_cells)
+    ws.row_dimensions[row].height = 20
+
+
 def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None = None, seller_country: str = "FR", display_currency: str = "EUR",
                       results: list | None = None, all_fc_transfers: list | None = None) -> None:
     """Onglet TVA locale par pays (immatriculation locale hors OSS) : mois par
@@ -2299,6 +2426,15 @@ def export_xlsx(
                        results=results, refund_results=refund_results, period=period,
                        oss_agg=_oss_agg)
         ws_oss.finalize()
+
+    # 6bis. Onglet IOSS détaillé par pays (ajouté 2026-09-11 : _ioss_agg
+    # était déjà calculé ci-dessus mais jamais consommé — onglet absent).
+    if summary.ioss_vat or summary.refund_ioss_vat:
+        ws_ioss = _SequentialSheetWriter(wb.create_sheet())
+        _write_ioss_tab(ws_ioss, summary, display_currency=_currency,
+                        results=results, refund_results=refund_results, period=period,
+                        ioss_agg=_ioss_agg)
+        ws_ioss.finalize()
 
     # 7. Onglet TVA locale par pays
     if (summary.local_by_country or getattr(summary, "refund_local_by_country", None) or

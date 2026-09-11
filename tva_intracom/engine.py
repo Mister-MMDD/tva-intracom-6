@@ -235,11 +235,25 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
         mc_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
         mc_amount = _vat_amount(sale.amount_ht, mc_rate)
 
-        if sale.stock_country == "FR":
-            # Si le vendeur est établi en France, c'est du domestique FR_DOMESTIC
-            # Sinon, c'est du LOCAL_REGISTRATION en France.
-            is_home = sale.stock_country == sale.seller_country
-            channel = Channel.FR_DOMESTIC if is_home else Channel.LOCAL_REGISTRATION
+        # Correctif 2026-09-11 (bug d'isolation Stock/Acheteur à Monaco) :
+        # on utilise fiscal_equivalent_country() plutôt que la comparaison
+        # littérale "== FR", pour couvrir deux angles morts :
+        #   - stock_country == "MC" (vente MC -> MC) : fiscalement FR -> FR,
+        #     donc domestique, et non OSS vers la France comme avant.
+        #   - stock_country ailleurs en UE mais seller_country == "FR" (ou
+        #     "MC") : la destination (Monaco = France) coïncide avec le pays
+        #     d'établissement du vendeur, donc domestique (Art. 59 ter
+        #     Directive 2006/112/CE — l'OSS ne s'applique pas quand la
+        #     destination est le pays d'établissement), symétrique du
+        #     traitement du "Cas 1bis" plus bas pour les autres pays UE.
+        stock_is_fr_equiv = fiscal_equivalent_country(sale.stock_country) == "FR"
+        seller_is_fr_equiv = fiscal_equivalent_country(sale.seller_country) == "FR"
+
+        if stock_is_fr_equiv or seller_is_fr_equiv:
+            # Si le vendeur est établi en France (ou à Monaco), c'est du
+            # domestique FR_DOMESTIC. Sinon (stock FR/MC mais vendeur non
+            # établi en France), c'est du LOCAL_REGISTRATION en France.
+            channel = Channel.FR_DOMESTIC if seller_is_fr_equiv else Channel.LOCAL_REGISTRATION
 
             return VatResult._new_unchecked(
                 sale=sale,
@@ -250,7 +264,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 collector=Collector.SELLER,
                 channel=channel,
                 note=_note(
-                    "Vente vers Monaco depuis un stock français : assimilée à une "
+                    f"Vente vers Monaco depuis un stock {sale.stock_country} : assimilée à une "
                     "vente domestique française (convention fiscale franco-monégasque "
                     "du 18 mai 1963 — https://bit.ly/Conv-FR-MC) — TVA FR "
                     f"{mc_rate}% collectée.",
@@ -258,8 +272,8 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 ),
             )
         else:
-            # Cas stock_country != "FR" (ex: ES -> MC)
-            # Monaco étant fiscalement la France, c'est une vente OSS vers la France.
+            # Stock hors FR/MC ET vendeur non établi en France : Monaco
+            # étant fiscalement la France, c'est une vente OSS vers la France.
             return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.OSS_B2C,

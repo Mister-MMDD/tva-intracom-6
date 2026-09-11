@@ -46,10 +46,15 @@ def test_monaco_assimilated_to_fr():
     assert res.vat_rate == Decimal("20")
     assert "Monaco" in res.note
 
-    # Cas cross-border : DE -> MC. Monaco = France fiscale -> OSS vers FR.
+    # Cas cross-border : DE -> MC, vendeur établi en FR (défaut make_sale).
+    # BUGFIX (2026-09-11) : la destination Monaco = France fiscalement
+    # coïncide avec le pays d'établissement du vendeur -> domestique (Art.
+    # 59 ter Directive 2006/112/CE), et non OSS comme avant ce correctif
+    # (voir aussi test_monaco_cross_border, tests/test_bugs_and_edge_cases.py,
+    # pour le détail du raisonnement).
     sale_de = make_sale(stock_country="DE", buyer_country="MC")
     res_de = compute_vat(sale_de)
-    assert res_de.scenario == Scenario.OSS_B2C
+    assert res_de.scenario == Scenario.DOMESTIC
     assert res_de.vat_country == "FR"
 
 

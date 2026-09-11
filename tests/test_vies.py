@@ -107,7 +107,7 @@ def test_is_downgrade_false_when_previous_was_invalid():
     assert _is_downgrade(previous, new_empty) is False
 
 
-@patch("tva_intracom.vies_engine.check_vat_raw")
+@patch("tva_intracom.vies_engine.validate_vat_numbers_parallel")
 def test_compute_all_with_vies_stale_fallback_not_treated_as_valid(mock_check):
     """BUGFIX (2026-09-08) : un ViesResult stale_fallback=True (repli suite a
     un downgrade detecte cote vies_engine, TTL expire + reponse vide) NE DOIT
@@ -115,12 +115,22 @@ def test_compute_all_with_vies_stale_fallback_not_treated_as_valid(mock_check):
     statut automatique connu) vaut True. Il doit etre traite comme un
     inconclusif : pas de reclassification en B2C, mais TVA au depart (pas
     d'OSS), et remonter dans stale_fallback_count / inconclusive_vats pour
-    apparaitre dans la liste de classification manuelle."""
-    mock_check.return_value = ViesResult(
-        valid=True, country_code="DE", vat_number="123456789",
-        name="Firma GmbH", checked_at="2026-08-20T10:00:00+00:00",
-        stale_fallback=True,
-    )
+    apparaitre dans la liste de classification manuelle.
+
+    BUGFIX (2026-09-11) : compute_all_with_vies() appelle désormais
+    validate_vat_numbers_parallel() (traitement en lot), plus check_vat_raw()
+    (appel unitaire) — mocker check_vat_raw ici était sans effet, le test
+    frappait la vraie base VIES/DB au lieu d'utiliser le mock (confirmé par
+    les logs `checked_at` observés en échec). On mocke désormais la bonne
+    fonction, avec un dict keyed par numéro de TVA (format retourné par
+    validate_vat_numbers_parallel)."""
+    mock_check.return_value = {
+        "DE123456789": ViesResult(
+            valid=True, country_code="DE", vat_number="123456789",
+            name="Firma GmbH", checked_at="2026-08-20T10:00:00+00:00",
+            stale_fallback=True,
+        )
+    }
     sales = [
         Sale(
             sale_id="T3",
@@ -145,13 +155,18 @@ def test_compute_all_with_vies_stale_fallback_not_treated_as_valid(mock_check):
     assert _detail["last_checked_at"] == "2026-08-20T10:00:00+00:00"
 
 
-@patch("tva_intracom.vies_engine.check_vat_raw")
+@patch("tva_intracom.vies_engine.validate_vat_numbers_parallel")
 def test_compute_all_with_vies_reclassifies_invalid(mock_check):
-    """B2B avec numero invalide est reclassifie en B2C -> TVA facturee."""
-    mock_check.return_value = ViesResult(
-        valid=False, country_code="DE", vat_number="000000000",
-        error="numero invalide"
-    )
+    """B2B avec numero invalide est reclassifie en B2C -> TVA facturee.
+
+    BUGFIX (2026-09-11) : mock déplacé de check_vat_raw à
+    validate_vat_numbers_parallel (voir docstring du test précédent)."""
+    mock_check.return_value = {
+        "DE000000000": ViesResult(
+            valid=False, country_code="DE", vat_number="000000000",
+            error="numero invalide"
+        )
+    }
     sales = [
         Sale(
             sale_id="T1",
@@ -184,13 +199,18 @@ def test_compute_all_with_vies_reclassifies_invalid(mock_check):
     assert vies_summary.reclassifications[0].buyer_vat_number == "DE000000000"
 
 
-@patch("tva_intracom.vies_engine.check_vat_raw")
+@patch("tva_intracom.vies_engine.validate_vat_numbers_parallel")
 def test_compute_all_with_vies_valid_number(mock_check):
-    """B2B avec numero valide -> autoliquidation."""
-    mock_check.return_value = ViesResult(
-        valid=True, country_code="DE", vat_number="123456789",
-        name="Firma GmbH"
-    )
+    """B2B avec numero valide -> autoliquidation.
+
+    BUGFIX (2026-09-11) : mock déplacé de check_vat_raw à
+    validate_vat_numbers_parallel (voir docstring plus haut dans ce fichier)."""
+    mock_check.return_value = {
+        "DE123456789": ViesResult(
+            valid=True, country_code="DE", vat_number="123456789",
+            name="Firma GmbH"
+        )
+    }
     sales = [
         Sale(
             sale_id="T2",
@@ -216,17 +236,22 @@ def test_compute_all_with_vies_valid_number(mock_check):
     assert vies_summary.fraud_avoided_amount == Decimal("0.00")
 
 
-@patch("tva_intracom.vies_engine.check_vat_raw")
+@patch("tva_intracom.vies_engine.validate_vat_numbers_parallel")
 def test_compute_all_with_vies_refund_reclassified_like_sale(mock_check):
     """Un avoir dont le n° TVA est invalide selon VIES doit etre reclassifie
     B2C/OSS comme la vente qu'il annule (et non rester en Reverse Charge),
     sans dupliquer d'entree dans vies_summary.reclassifications (deja
     renseignee via la vente d'origine) — voir engine.py::_effective_sale_with_vies.
+
+    BUGFIX (2026-09-11) : mock déplacé de check_vat_raw à
+    validate_vat_numbers_parallel (voir docstring plus haut dans ce fichier).
     """
-    mock_check.return_value = ViesResult(
-        valid=False, country_code="DE", vat_number="000000000",
-        error="numero invalide"
-    )
+    mock_check.return_value = {
+        "DE000000000": ViesResult(
+            valid=False, country_code="DE", vat_number="000000000",
+            error="numero invalide"
+        )
+    }
     sale = Sale(
         sale_id="T3",
         amount_ht=Decimal("200"),
@@ -269,7 +294,7 @@ def test_compute_all_with_vies_refund_reclassified_like_sale(mock_check):
     assert vies_summary.reclassifications[0].vat_avoided == Decimal("38.00")
 
 
-@patch("tva_intracom.vies_engine.check_vat_raw")
+@patch("tva_intracom.vies_engine.validate_vat_numbers_parallel")
 def test_reclassification_post_processing_fields(mock_check):
     """Vérifie explicitement les 5 champs mis à jour en post-traitement
     dans compute_all_with_vies (engine.py, ~L1498) : vat_avoided, vat_delta,
@@ -278,11 +303,16 @@ def test_reclassification_post_processing_fields(mock_check):
     ViesReclassification existant (au lieu d'une reconstruction Pydantic) —
     ce test garantit que les 5 champs sont toujours correctement renseignés
     après la bascule.
+
+    BUGFIX (2026-09-11) : mock déplacé de check_vat_raw à
+    validate_vat_numbers_parallel (voir docstring plus haut dans ce fichier).
     """
-    mock_check.return_value = ViesResult(
-        valid=False, country_code="DE", vat_number="000000000",
-        error="numero invalide"
-    )
+    mock_check.return_value = {
+        "DE000000000": ViesResult(
+            valid=False, country_code="DE", vat_number="000000000",
+            error="numero invalide"
+        )
+    }
     sale = Sale(
         sale_id="T4",
         amount_ht=Decimal("200"),

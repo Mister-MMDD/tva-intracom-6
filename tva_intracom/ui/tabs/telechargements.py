@@ -226,6 +226,10 @@ def render_telechargements() -> None:
         # ── ZONE TÉLÉCHARGEMENTS ──────────────────────────────────────
         st.divider()
 
+        # Alerte VIES (non-vérifiés) si nécessaire
+        if vies_summary and vies_summary.total_not_auto_verified > 0:
+            st.warning(_("dl_vies_unverified_warning_box"))
+
         # 1. Rapport principal — pleine largeur, style secondaire (sombre,
         # cohérent avec tous les autres boutons de téléchargement)
         st.markdown(_("dl_audit_header"))

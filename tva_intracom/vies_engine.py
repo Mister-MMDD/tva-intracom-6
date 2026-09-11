@@ -615,13 +615,24 @@ def _row_to_result(row) -> ViesResult:
 
 
 def _db_get_scope(scope_id: str, vat_id: str) -> tuple[Optional[ViesResult], bool]:
-    with _conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT valid, country_code, vat_number, name, address, error, checked_at "
-            "FROM vies_scope_cache WHERE scope_id=%s AND vat_id=%s",
-            (scope_id, vat_id),
-        )
-        row = cur.fetchone()
+    # BUGFIX (2026-09-11) : contrairement à ecb_rates.py (dégradation propre
+    # en mode mémoire si SUPABASE_DB_URL absent), _get_pool() ici lève une
+    # RuntimeError, qui n'était pas capturée par les appelants (check_vat_raw,
+    # validate_vat_numbers_parallel) — plantage complet du thread au premier
+    # appel de cache au lieu d'un repli sur le mode "sans cache". On capture
+    # ici et on dégrade vers (None, False), comme un simple cache-miss :
+    # l'appelant retombe alors normalement sur l'appel API VIES direct.
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT valid, country_code, vat_number, name, address, error, checked_at "
+                "FROM vies_scope_cache WHERE scope_id=%s AND vat_id=%s",
+                (scope_id, vat_id),
+            )
+            row = cur.fetchone()
+    except RuntimeError as exc:
+        logger.warning("Cache VIES (scope) indisponible, mode sans cache : %s", exc)
+        return None, False
     if row is None:
         return None, False
     result = _row_to_result(row[:7])
@@ -629,13 +640,17 @@ def _db_get_scope(scope_id: str, vat_id: str) -> tuple[Optional[ViesResult], boo
 
 
 def _db_get_global(vat_id: str) -> tuple[Optional[ViesResult], bool]:
-    with _conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT valid, country_code, vat_number, name, address, error, checked_at "
-            "FROM vies_global_cache WHERE vat_id=%s",
-            (vat_id,),
-        )
-        row = cur.fetchone()
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT valid, country_code, vat_number, name, address, error, checked_at "
+                "FROM vies_global_cache WHERE vat_id=%s",
+                (vat_id,),
+            )
+            row = cur.fetchone()
+    except RuntimeError as exc:
+        logger.warning("Cache VIES (global) indisponible, mode sans cache : %s", exc)
+        return None, False
     if row is None:
         return None, False
     result = _row_to_result(row[:7])
@@ -662,26 +677,31 @@ def _db_set_scope(scope_id: str, vat_id: str, result: ViesResult, log_history: b
     que la vérification réelle contre VIES datait du 6 août.
     """
     checked_at = checked_at or _now_utc()
-    with _conn() as conn, conn.cursor() as cur:
-        cur.execute("""
-            INSERT INTO vies_scope_cache
-                (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (scope_id, vat_id) DO UPDATE SET
-                valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
-                vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
-                address=EXCLUDED.address, error=EXCLUDED.error,
-                checked_at=EXCLUDED.checked_at
-        """, (scope_id, vat_id, result.valid, result.country_code, result.vat_number,
-              _enc(result.name), _enc(result.address), result.error, checked_at))
-        if log_history:
+    try:
+        with _conn() as conn, conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO vies_check_history
+                INSERT INTO vies_scope_cache
                     (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (scope_id, vat_id) DO UPDATE SET
+                    valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
+                    vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
+                    address=EXCLUDED.address, error=EXCLUDED.error,
+                    checked_at=EXCLUDED.checked_at
             """, (scope_id, vat_id, result.valid, result.country_code, result.vat_number,
                   _enc(result.name), _enc(result.address), result.error, checked_at))
-        conn.commit()
+            if log_history:
+                cur.execute("""
+                    INSERT INTO vies_check_history
+                        (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (scope_id, vat_id, result.valid, result.country_code, result.vat_number,
+                      _enc(result.name), _enc(result.address), result.error, checked_at))
+            conn.commit()
+    except RuntimeError as exc:
+        # Pas de persistance possible sans DB : le résultat reste utilisable
+        # pour ce run (retourné à l'appelant), simplement pas mis en cache.
+        logger.warning("Cache VIES (scope) indisponible, écriture ignorée : %s", exc)
 
 
 def _db_set_global(vat_id: str, result: ViesResult) -> None:
@@ -689,19 +709,22 @@ def _db_set_global(vat_id: str, result: ViesResult) -> None:
     la suite d'une vérification AUTOMATIQUE réussie contre l'API VIES —
     jamais depuis set_manual_override()."""
     checked_at = _now_utc()
-    with _conn() as conn, conn.cursor() as cur:
-        cur.execute("""
-            INSERT INTO vies_global_cache
-                (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (vat_id) DO UPDATE SET
-                valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
-                vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
-                address=EXCLUDED.address, error=EXCLUDED.error,
-                checked_at=EXCLUDED.checked_at
-        """, (vat_id, result.valid, result.country_code, result.vat_number,
-              _enc(result.name), _enc(result.address), result.error, checked_at))
-        conn.commit()
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO vies_global_cache
+                    (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (vat_id) DO UPDATE SET
+                    valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
+                    vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
+                    address=EXCLUDED.address, error=EXCLUDED.error,
+                    checked_at=EXCLUDED.checked_at
+            """, (vat_id, result.valid, result.country_code, result.vat_number,
+                  _enc(result.name), _enc(result.address), result.error, checked_at))
+            conn.commit()
+    except RuntimeError as exc:
+        logger.warning("Cache VIES (global) indisponible, écriture ignorée : %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -716,13 +739,17 @@ def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[Vi
     """Une seule requête pour tous les vat_ids d'un coup."""
     if not vat_ids:
         return {}
-    with _conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT vat_id, valid, country_code, vat_number, name, address, error, checked_at "
-            "FROM vies_scope_cache WHERE scope_id=%s AND vat_id = ANY(%s)",
-            (scope_id, list(vat_ids)),
-        )
-        rows = cur.fetchall()
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT vat_id, valid, country_code, vat_number, name, address, error, checked_at "
+                "FROM vies_scope_cache WHERE scope_id=%s AND vat_id = ANY(%s)",
+                (scope_id, list(vat_ids)),
+            )
+            rows = cur.fetchall()
+    except RuntimeError as exc:
+        logger.warning("Cache VIES (scope, batch) indisponible, mode sans cache : %s", exc)
+        return {}
     out: dict[str, tuple[ViesResult, bool]] = {}
     # PERF : TTL identique pour toutes les lignes de ce batch (même scope) —
     # calculé une seule fois plutôt que dans chaque appel à _is_expired.
@@ -737,13 +764,17 @@ def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool
     """Une seule requête pour tous les vat_ids d'un coup."""
     if not vat_ids:
         return {}
-    with _conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT vat_id, valid, country_code, vat_number, name, address, error, checked_at "
-            "FROM vies_global_cache WHERE vat_id = ANY(%s)",
-            (list(vat_ids),),
-        )
-        rows = cur.fetchall()
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT vat_id, valid, country_code, vat_number, name, address, error, checked_at "
+                "FROM vies_global_cache WHERE vat_id = ANY(%s)",
+                (list(vat_ids),),
+            )
+            rows = cur.fetchall()
+    except RuntimeError as exc:
+        logger.warning("Cache VIES (global, batch) indisponible, mode sans cache : %s", exc)
+        return {}
     out: dict[str, tuple[ViesResult, bool]] = {}
     # PERF : cache global = toujours DEFAULT_CACHE_TTL_DAYS (non scopé), un
     # seul appel suffit pour tout le batch (voir _is_expired / _get_ttl_days).
@@ -782,24 +813,27 @@ def _db_set_scope_batch(scope_id: str, items: list[tuple[str, ViesResult]], log_
          _row_checked_at(r))
         for vat_id, r in items
     ]
-    with _conn() as conn, conn.cursor() as cur:
-        execute_values(cur, """
-            INSERT INTO vies_scope_cache
-                (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
-            VALUES %s
-            ON CONFLICT (scope_id, vat_id) DO UPDATE SET
-                valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
-                vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
-                address=EXCLUDED.address, error=EXCLUDED.error,
-                checked_at=EXCLUDED.checked_at
-        """, scope_rows)
-        if log_history:
+    try:
+        with _conn() as conn, conn.cursor() as cur:
             execute_values(cur, """
-                INSERT INTO vies_check_history
+                INSERT INTO vies_scope_cache
                     (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
                 VALUES %s
+                ON CONFLICT (scope_id, vat_id) DO UPDATE SET
+                    valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
+                    vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
+                    address=EXCLUDED.address, error=EXCLUDED.error,
+                    checked_at=EXCLUDED.checked_at
             """, scope_rows)
-        conn.commit()
+            if log_history:
+                execute_values(cur, """
+                    INSERT INTO vies_check_history
+                        (scope_id, vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+                    VALUES %s
+                """, scope_rows)
+            conn.commit()
+    except RuntimeError as exc:
+        logger.warning("Cache VIES (scope, batch) indisponible, écriture ignorée : %s", exc)
 
 
 def _db_set_global_batch(items: list[tuple[str, ViesResult]]) -> None:
@@ -812,18 +846,21 @@ def _db_set_global_batch(items: list[tuple[str, ViesResult]]) -> None:
         (vat_id, r.valid, r.country_code, r.vat_number, _enc(r.name), _enc(r.address), r.error, checked_at)
         for vat_id, r in items
     ]
-    with _conn() as conn, conn.cursor() as cur:
-        execute_values(cur, """
-            INSERT INTO vies_global_cache
-                (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
-            VALUES %s
-            ON CONFLICT (vat_id) DO UPDATE SET
-                valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
-                vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
-                address=EXCLUDED.address, error=EXCLUDED.error,
-                checked_at=EXCLUDED.checked_at
-        """, rows)
-        conn.commit()
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            execute_values(cur, """
+                INSERT INTO vies_global_cache
+                    (vat_id, valid, country_code, vat_number, name, address, error, checked_at)
+                VALUES %s
+                ON CONFLICT (vat_id) DO UPDATE SET
+                    valid=EXCLUDED.valid, country_code=EXCLUDED.country_code,
+                    vat_number=EXCLUDED.vat_number, name=EXCLUDED.name,
+                    address=EXCLUDED.address, error=EXCLUDED.error,
+                    checked_at=EXCLUDED.checked_at
+            """, rows)
+            conn.commit()
+    except RuntimeError as exc:
+        logger.warning("Cache VIES (global, batch) indisponible, écriture ignorée : %s", exc)
 
 
 def get_vies_history(scope_id: str, full_vat: str) -> list[dict]:

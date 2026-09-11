@@ -537,6 +537,11 @@ if uploaded_files:
     # fusionné parsing+calcul ci-dessous (voir README - évolution.md,
     # correctif "un seul slot de file pour parsing+calcul").
     def _compute_cache_key() -> tuple:
+        # BUGFIX (2026-09-11) : réutilise `_asin_catalog_sig` (déjà calculé
+        # ci-dessus, hash O(n) sur frozenset) au lieu de refaire
+        # `tuple(sorted(asin_to_category.items()))` ici — ce tri O(n log n)
+        # était exécuté à CHAQUE rerun Streamlit (clic, filtre, etc.) et
+        # devenait très coûteux sur un gros catalogue ASIN (20k+ entrées).
         return (
             # SÉCURITÉ (voir README - évolution.md) : `current_user.id` inclus
             # explicitement en tête de clé. Sans cela, deux comptes distincts
@@ -547,7 +552,7 @@ if uploaded_files:
             _current_user.id,
             tuple(_upload_sig(f) for f in uploaded_files),
             enable_vies, convert_fx, file_format,
-            tuple(sorted(asin_to_category.items())),
+            _asin_catalog_sig,
             ioss_number, seller_is_importer,
             tuple(sorted(countries_with_vat)),
             apply_fr_under_threshold,
