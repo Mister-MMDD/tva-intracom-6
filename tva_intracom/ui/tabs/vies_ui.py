@@ -20,16 +20,41 @@ from tva_intracom.ui.tabs.context import TabContext
 from tva_intracom.ui.calc_cache import CalcCacheState
 
 
-@st.dialog(title=_("vies_retry_done_title"))
 def _render_vies_retry_done_dialog(count: int, jid: str, nonce: int) -> None:
-    """Affiche une modale informant du succès du ré-essai VIES en arrière-plan."""
-    st.success(_("vies_retry_done_info", count=count))
-    if st.button(_("vies_retry_update_btn"), type="primary", use_container_width=True):
-        from tva_intracom.ui.background_calc import clear_job
-        if jid:
-            clear_job(jid)
-        CalcCacheState.save_vies_retry_nonce(nonce + 1)
-        st.rerun()
+    """Affiche une modale informant du succès du ré-essai VIES en arrière-plan.
+
+    BUGFIX (2026-09-11) : `@st.dialog(title=_("vies_retry_done_title"))`
+    évaluait `_(...)` UNE SEULE FOIS, à l'import du module — Python ne
+    ré-exécute jamais le corps d'un module déjà présent dans `sys.modules`,
+    et un décorateur est appliqué à la définition de la fonction, donc à
+    l'import. Sur Streamlit Cloud, plusieurs comptes/langues partagent le
+    même process (voir docstring de `resolve_scope_id` sur ce même
+    partage) : le titre de cette modale restait donc figé dans la langue
+    active lors du tout premier import de ce module dans le process
+    (typiquement la langue du tout premier visiteur après un redémarrage),
+    quelle que soit la langue réellement choisie ensuite par CHAQUE
+    utilisateur affichant cette modale — contrairement à tout le reste de
+    l'UI, où `_(...)` est appelé à chaque rendu et suit donc
+    `st.session_state["language"]` de la session courante.
+    Corrigé en construisant le dialog dynamiquement à chaque appel, avec le
+    titre résolu à cet instant précis (donc dans la langue de la session en
+    cours) — coût négligeable (une fonction interne recréée par appel,
+    st.dialog() lui-même conçu pour être utilisé ainsi via un appel
+    différé). Même bug latent, non corrigé ici (hors périmètre VIES),
+    repéré dans `ui/sidebar.py::_render_account_dialog` et
+    `ui/admin.py::render_admin_dialog` — voir `optimisations_en_attente.md`.
+    """
+    @st.dialog(title=_("vies_retry_done_title"))
+    def _dialog() -> None:
+        st.success(_("vies_retry_done_info", count=count))
+        if st.button(_("vies_retry_update_btn"), type="primary", use_container_width=True):
+            from tva_intracom.ui.background_calc import clear_job
+            if jid:
+                clear_job(jid)
+            CalcCacheState.save_vies_retry_nonce(nonce + 1)
+            st.rerun()
+
+    _dialog()
 
 
 @st.fragment
