@@ -889,84 +889,6 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
 
 
 
-def _write_vies_history_tab(ws, results, scope_id: str) -> None:
-    """Onglet Historique VIES : piste d'audit de chaque vérification effectuée.
-
-    `results` : itérable de VatResult (list ou itertools.chain — un seul
-    passage `for r in results` est fait ci-dessous, donc un itérateur
-    à usage unique convient)."""
-    from .vies_engine import get_vies_history_bulk, normalize_full_vat
-
-    ws.title = i18n_("xl_tab_vies")
-    _headers = [
-        i18n_("xl_vies_col_vat"), i18n_("xl_vies_col_checked_at"), i18n_("xl_vies_col_status"),
-        i18n_("xl_vies_col_country"), i18n_("xl_vies_col_name"), i18n_("col_scenario"), i18n_("xl_vies_col_error")
-    ]
-    ws.append([_wcell(ws, t, font=_HEADER_FONT_WHITE, fill=_BLUE_HEADER_FILL,
-                      alignment=Alignment(horizontal="center", vertical="center"))
-               for t in _headers])
-    ws.row_dimensions[1].height = 22
-
-    # IMPORTANT (fix onglet vide/incomplet) : vies_check_history.vat_id stocke
-    # le numéro NORMALISE (préfixe pays ajouté si absent, cf. normalize_full_vat
-    # — la même fonction canonique utilisée par engine.py avant l'appel VIES).
-    # buyer_vat_number, lui, est la valeur BRUTE saisie par l'acheteur (ex:
-    # "B71547129" sans "ES" pour un NIF espagnol). Interroger l'historique
-    # avec la valeur brute ne matche donc que les numéros où l'acheteur avait
-    # déjà tapé le préfixe pays complet — tous les autres étaient absents de
-    # cet onglet alors qu'ils étaient bel et bien en cache/historique.
-    seen_vats: set[str] = set()
-    display_by_full_vat: dict[str, str] = {}
-    scenario_by_full_vat: dict[str, str] = {}
-    # Cache (vat_brut, pays_acheteur) -> full_vat normalisé : normalize_full_vat
-    # a déjà été appelée par le moteur pour chaque vente lors du calcul VIES
-    # initial ; ici on ne fait que reconstruire la même valeur pour l'affichage
-    # de l'historique. Sur un fichier avec beaucoup d'acheteurs récurrents
-    # (même numéro de TVA sur plusieurs ventes), ce cache évite de refaire
-    # la normalisation pour chaque ligne partageant le même (vat, pays).
-    _norm_cache: dict[tuple[str, str], str] = {}
-    for r in results:
-        vat = getattr(r.sale, "buyer_vat_number", "")
-        if not vat:
-            continue
-        buyer_country = getattr(r.sale, "buyer_country", "")
-        _cache_key = (vat, buyer_country)
-        full_vat = _norm_cache.get(_cache_key)
-        if full_vat is None:
-            full_vat = normalize_full_vat(vat, buyer_country) or ""
-            _norm_cache[_cache_key] = full_vat
-        if not full_vat:
-            continue
-        seen_vats.add(full_vat)
-        # On garde le numéro tel que saisi pour l'affichage (plus lisible /
-        # cohérent avec les autres onglets), la clé de recherche reste full_vat.
-        display_by_full_vat.setdefault(full_vat, vat)
-        # On capture le scénario fiscal associé à ce numéro
-        if hasattr(r, "scenario"):
-            scenario_by_full_vat.setdefault(full_vat, str(r.scenario.value))
-
-    history_by_vat = get_vies_history_bulk(scope_id, sorted(seen_vats))
-
-    row = 2
-    for full_vat in sorted(seen_vats):
-        history = history_by_vat.get(full_vat, [])
-        if not history:
-            continue
-        _display_vat = display_by_full_vat.get(full_vat, full_vat)
-        _scenario = scenario_by_full_vat.get(full_vat, "")
-        for entry in history:
-            _status = i18n_("xl_vies_status_valid") if entry["valid"] else i18n_("xl_vies_status_invalid")
-            # _display_vat = numéro TVA BRUT saisi par l'acheteur (voir note plus
-            # haut) et entry["name"]/entry["error"] proviennent de la réponse VIES
-            # (nom officiel de l'entreprise) : toutes deux non fiables -> _safe().
-            _vals = [_safe(_display_vat), entry["checked_at"], _status, entry["country_code"],
-                     _safe(entry["name"]), _scenario, _safe(entry["error"])]
-            ws.append([_wcell(ws, v) for v in _vals])
-            ws.row_dimensions[row].height = 16
-            row += 1
-
-    if row == 2:
-        ws.append([_wcell(ws, i18n_("xl_vies_no_history"))])
 
 
 def _write_intrastat_tab(
@@ -2392,10 +2314,6 @@ def export_xlsx(
                      display_currency=_currency, refund_results=refund_results)
     ws_audit.finalize()
 
-    # 8bis. Onglet Historique VIES (piste d'audit — preuve de bonne foi)
-    ws_vies_hist = _SequentialSheetWriter(wb.create_sheet("Historique VIES"))
-    _write_vies_history_tab(ws_vies_hist, chain(results, refund_results or []), scope_id)
-    ws_vies_hist.finalize()
 
     # 9. Onglet Analyse AIC FBA (synthèse fiscale des transferts)
     ws_aic = _SequentialSheetWriter(wb.create_sheet("Analyse AIC FBA"))
