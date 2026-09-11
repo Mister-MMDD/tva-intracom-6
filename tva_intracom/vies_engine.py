@@ -2006,8 +2006,22 @@ def is_inconclusive_result(res: ViesResult) -> bool:
     retry_vats_batch() SANS redéfinir son propre critère (voir incident
     Allemagne du 31/07/2026 documenté sur _is_empty_response : un critère
     dupliqué et divergent ferait regresser silencieusement ce filet de
-    sécurité)."""
-    return _is_unreliable(res) or _is_empty_response(res)
+    sécurité).
+
+    BUGFIX (2026-09-11) : manquait la vérification de `stale_fallback`,
+    déjà présente dans engine.py::_is_uncertain (voir docstring de
+    ViesResult.stale_fallback). Un repli sur cache périmé pendant une panne
+    VIES (validate_vat_numbers_parallel renvoie alors
+    `replace(prev_unreliable, stale_fallback=True)`, qui hérite de
+    l'ancien valid/name/address) échouait aussi bien à _is_unreliable
+    (pas d'erreur transitoire dans le résultat renvoyé) qu'à
+    _is_empty_response (valid/name/address hérités, donc pas \"vide\") :
+    le numéro était donc compté comme \"résolu\" par
+    start_vies_retry_loop alors qu'aucune vérification fraîche n'avait eu
+    lieu, déclenchant à tort la modale/le message vies_retry_done_info
+    (observé en pratique avec les numéros FR pendant une indisponibilité
+    du service national)."""
+    return _is_unreliable(res) or _is_empty_response(res) or getattr(res, "stale_fallback", False)
 
 
 def retry_vats_batch(scope_id: str, vat_ids: list[str]) -> dict[str, ViesResult]:

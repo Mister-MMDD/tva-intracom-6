@@ -8005,3 +8005,15 @@ Fichiers modifiés : `tva_intracom/vies_engine.py`,
 Validation : `py_compile` + `pyflakes` propres sur `ecb_rates.py` (aucun nouveau warning). Suite `pytest` : 275 passed / 4 failed — même baseline `SUPABASE_DB_URL`, aucune régression. Test manuel de simulation (erreur SSL mockée) : 1er appel résolu immédiatement (< 1ms, sans retry) au lieu de ~7s ; appels suivants sur la même paire quasi instantanés (< 0.01ms) au lieu de relancer le cycle complet.
 
 Fichiers modifiés : `tva_intracom/ecb_rates.py`.
+
+## 2026-09-11 (4) — Message "ré-essai VIES réussi" affiché à tort quand rien n'a été récupéré (repli stale_fallback compté comme résolu)
+
+**Bug signalé** : la boucle de ré-essai automatique VIES en arrière-plan affichait le message `vies_retry_done_info` ("N numéro(s) récupéré(s)") alors qu'aucun numéro n'avait réellement été revérifié avec succès — observé en particulier pendant une période où le service VIES français ne répondait pas.
+
+**Cause confirmée contre le code réel (`vies_engine.py`)** : `is_inconclusive_result()` — utilisée par `background_calc.start_vies_retry_loop` pour décider si un numéro sort de `remaining` (donc compte comme "résolu") — ne vérifiait que `_is_unreliable(res)` et `_is_empty_response(res)`. Or quand VIES est indisponible pendant le retry, `validate_vat_numbers_parallel` retombe sur le cache expiré et renvoie `replace(prev_unreliable, stale_fallback=True)`, un résultat qui HÉRITE de l'ancien `valid`/`name`/`address`. Un tel résultat n'est ni "unreliable" (pas d'erreur transitoire dans le résultat renvoyé) ni "vide" (`valid`/`name` hérités, donc pas vide) selon ces deux critères — il sortait donc à tort de `remaining`, gonflant `resolved`, et déclenchait le message/la modale de succès sans qu'aucune vérification fraîche n'ait eu lieu. `engine.py::_is_uncertain` avait déjà ce garde-fou (`getattr(vr, "stale_fallback", False)`, voir BUGFIX 2026-09-08) mais il n'avait jamais été répercuté sur `is_inconclusive_result()` de `vies_engine.py`, seule fonction utilisée par la boucle de retry (un seul point d'appel : `background_calc.py`).
+
+**Correctif** : ajout de `getattr(res, "stale_fallback", False)` dans la condition de `is_inconclusive_result()`, alignée sur `engine.py::_is_uncertain`. Un numéro replié sur cache périmé pendant une panne VIES reste donc classé "non résolu" par la boucle de retry, quel que soit le contenu hérité (`valid`, `name`, `address`).
+
+Validation : `py_compile` propre sur `vies_engine.py`. Suite `pytest` : 275 passed / 4 failed — même baseline `SUPABASE_DB_URL`, aucune régression.
+
+Fichiers modifiés : `tva_intracom/vies_engine.py`.
