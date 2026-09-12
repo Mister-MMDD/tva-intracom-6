@@ -59,6 +59,8 @@ import psycopg2.extras
 from .config import get_secret
 from .database import NonPoolingConnectionPool, get_shared_pool, close_idle_connections as _database_close_idle
 from .rates import vat_rate_at_date as _static_vat_rate_at_date
+from .rates import STANDARD_VAT_RATES as _STATIC_STANDARD_RATES
+from .rates import REDUCED_VAT_RATES as _STATIC_REDUCED_RATES
 
 logger = logging.getLogger(__name__)
 
@@ -144,10 +146,40 @@ def close_idle_connections() -> None:
     _database_close_idle()
 
 
+_EXPECTED_COLUMNS = {"country_code", "rate_type", "situation_date", "rate", "fetched_at"}
+
+
 def _init_schema(pool: NonPoolingConnectionPool) -> None:
+    """Crée vat_rate_cache si absente, et la RECRÉE si une table du même nom
+    existe déjà avec un schéma différent.
+
+    Contexte (incident du 2026-09-12) : une table vat_rate_cache
+    préexistait en production avec un schéma différent (issu d'une
+    version antérieure et jamais réellement fonctionnelle du fichier —
+    celle-ci plantait à l'import). `CREATE TABLE IF NOT EXISTS` ne
+    modifie jamais une table existante : toutes les lectures/écritures
+    échouaient silencieusement (colonne "situation_date" inexistante),
+    dégradant TOUTE requête vers TEDB à chaque appel (aucun cache L2
+    possible) sans jamais faire planter le run. Sans danger de recréer :
+    cette table n'est qu'un cache (perte = un re-fetch TEDB, pas une perte
+    de donnée fiscale)."""
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                 WHERE table_name = 'vat_rate_cache'
+            """)
+            existing_columns = {row[0] for row in cur.fetchall()}
+            if existing_columns and existing_columns != _EXPECTED_COLUMNS:
+                logger.warning(
+                    "Cache TVA dynamique : table vat_rate_cache existante avec un "
+                    "schéma incompatible (colonnes trouvées : %s, attendues : %s) — "
+                    "recréation (perte de cache uniquement, aucune donnée fiscale "
+                    "source n'est stockée dans cette table).",
+                    sorted(existing_columns), sorted(_EXPECTED_COLUMNS),
+                )
+                cur.execute("DROP TABLE IF EXISTS vat_rate_cache")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS vat_rate_cache (
                     country_code   VARCHAR(2) NOT NULL,
@@ -292,7 +324,7 @@ def _build_soap_request(tedb_iso: str, target_date: date) -> bytes:
     return xml_body.encode("utf-8")
 
 
-def _request_tedb(tedb_iso: str, target_date: date) -> Optional[ET.Element]:
+def _request_tedb(tedb_iso: str, target_date: date) -> Optional[tuple[ET.Element, bytes]]:
     description = f"{tedb_iso} au {target_date}"
     body = _build_soap_request(tedb_iso, target_date)
     req = urllib.request.Request(
@@ -308,7 +340,7 @@ def _request_tedb(tedb_iso: str, target_date: date) -> Optional[ET.Element]:
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 raw = resp.read()
-            return ET.fromstring(raw)
+            return ET.fromstring(raw), raw
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
             if _is_permanent_ssl_error(exc):
                 logger.warning(
@@ -388,15 +420,54 @@ def _parse_tedb_response(root: ET.Element) -> dict[str, Decimal]:
     return result
 
 
-def _fetch_tedb_rates(country: str, target_date: date) -> Optional[dict[str, Decimal]]:
+def _fetch_tedb_rates(country: str, target_date: date) -> Optional[tuple[dict[str, Decimal], bytes]]:
     tedb_iso = _ISO_TO_TEDB.get(country, country)
-    root = _request_tedb(tedb_iso, target_date)
-    if root is None:
+    result = _request_tedb(tedb_iso, target_date)
+    if result is None:
         return None
-    return _parse_tedb_response(root)
+    root, raw = result
+    return _parse_tedb_response(root), raw
+
+
+# ------------------------------------------------------------------
+# Coupe-circuit (2026-09-12, suite incident) : un taux ES/STANDARD erroné
+# (~7% au lieu de 21%) a été observé en production. Tant que la cause
+# exacte n'est pas confirmée sur une réponse XML réelle, la voie dynamique
+# est DÉSACTIVÉE PAR DÉFAUT (repli 100% statique rates.py, comportement
+# identique à avant le 12/09). Réactivation explicite via la variable
+# d'environnement/secret VAT_DYNAMIC_TEDB_ENABLED=true.
+# ------------------------------------------------------------------
+def _dynamic_tedb_enabled() -> bool:
+    val = str(get_secret("VAT_DYNAMIC_TEDB_ENABLED") or "").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
+# Écart maximal toléré (en points de %) entre un taux STANDARD renvoyé par
+# TEDB et le taux statique connu (rates.py) avant de considérer la réponse
+# TEDB comme suspecte et de la rejeter au profit du statique. Les taux
+# standards de l'UE ne varient jamais de plus de quelques points d'une
+# année sur l'autre ; un écart plus important trahit presque à coup sûr un
+# bug de parsing plutôt qu'un vrai changement légal.
+_PLAUSIBILITY_MAX_DEVIATION = Decimal("3")
+
+
+def _is_plausible(country: str, rate_type: str, value: Decimal) -> bool:
+    """Compare une valeur TEDB à la référence statique connue. Retourne True
+    si aucune référence statique n'existe (rien à comparer, pas de doute
+    élevé) ou si l'écart est dans la tolérance."""
+    if rate_type == "STANDARD":
+        reference = _STATIC_STANDARD_RATES.get(country)
+    else:
+        reference = _STATIC_REDUCED_RATES.get(country, {}).get(rate_type)
+    if reference is None:
+        return True
+    return abs(value - reference) <= _PLAUSIBILITY_MAX_DEVIATION
+
 
 
 def _is_tedb_eligible(country: str, rate_type: str) -> bool:
+    if not _dynamic_tedb_enabled():
+        return False
     tedb_iso = _ISO_TO_TEDB.get(country, country)
     if tedb_iso not in _TEDB_SUPPORTED:
         return False
@@ -438,18 +509,36 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         return cached
 
     if not _is_permanently_failed(country, target_date):
-        fetched = _fetch_tedb_rates(country, target_date)
-        if fetched:
-            entries = [(country, rt, target_date, val) for rt, val in fetched.items()]
-            _db_upsert_batch(entries)
-            with _cache_lock:
-                for rt, val in fetched.items():
-                    _vat_memory_cache[_cache_key(country, rt, target_date)] = val
+        result = _fetch_tedb_rates(country, target_date)
+        if result:
+            raw_fetched, raw_xml = result
+            fetched: dict[str, Decimal] = {}
+            for rt, val in raw_fetched.items():
+                if _is_plausible(country, rt, val):
+                    fetched[rt] = val
+                else:
+                    reference = (
+                        _STATIC_STANDARD_RATES.get(country) if rt == "STANDARD"
+                        else _STATIC_REDUCED_RATES.get(country, {}).get(rt)
+                    )
+                    logger.warning(
+                        "TEDB : taux %s/%s au %s = %s%% rejeté (écart > %s points vs "
+                        "référence statique %s%%) — repli statique. Réponse XML brute "
+                        "ci-dessous pour diagnostic :\n%s",
+                        country, rt, target_date, val, _PLAUSIBILITY_MAX_DEVIATION,
+                        reference, raw_xml.decode("utf-8", errors="replace"),
+                    )
+            if fetched:
+                entries = [(country, rt, target_date, val) for rt, val in fetched.items()]
+                _db_upsert_batch(entries)
+                with _cache_lock:
+                    for rt, val in fetched.items():
+                        _vat_memory_cache[_cache_key(country, rt, target_date)] = val
             if rate_type in fetched:
                 return fetched[rate_type]
             logger.debug(
-                "TEDB : réponse reçue pour %s au %s mais catégorie '%s' absente "
-                "(pays sans taux réduit de ce type) — repli statique.",
+                "TEDB : réponse reçue pour %s au %s mais catégorie '%s' absente ou "
+                "rejetée (pays sans taux réduit de ce type, ou anomalie) — repli statique.",
                 country, target_date, rate_type,
             )
         else:

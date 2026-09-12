@@ -8084,3 +8084,23 @@ Validation : `py_compile` + `pyflakes` propres sur les 6 fichiers modifiés (auc
 **Non testé en conditions réelles** : l'appel réseau SOAP vers `ec.europa.eu` n'a pas pu être exercé en conditions réelles depuis le bac à sable de développement (domaine hors liste blanche du sandbox) — à vérifier par Matthieu en environnement réel (Streamlit Cloud) avant mise en production.
 
 Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tva_intracom/engine.py`, `tva_intracom/ca3_report.py`, `tva_intracom/excel_report.py`, `tva_intracom/oss_xml.py`, `tva_intracom/__init__.py`, `optimisations_en_attente.md`.
+
+## 2026-09-12 (2) — Incident production TVA dynamique TEDB : coupe-circuit + garde-fou + fix schéma cache
+
+**Constat (retour terrain Matthieu, test local + Streamlit Cloud)** :
+- Taux ES/STANDARD renvoyé à ~7% au lieu de 21% sur une vente domestique ES→ES (`PRODUCT_TAX_CODE=A_GEN_STANDARD`, catégorie confirmée `STANDARD` côté `engine.py`) — donnée fiscale erronée en sortie.
+- Logs répétés `column "situation_date" does not exist` : une table `vat_rate_cache` préexistait en prod avec un schéma différent (issue d'une tentative antérieure) ; `CREATE TABLE IF NOT EXISTS` ne modifie jamais une table existante — cache L2 Postgres inopérant à 100%, chaque lookup retombait sur un appel TEDB réseau.
+- Lenteur ~1 ligne/s : confirmé lié à l'appel SOAP par ligne (un par jour distinct de vente non encore vu) combiné à `_OSS_PROGRESS_TICK_EVERY=500` (`engine.py`) — donnant l'illusion d'un blocage sur "VIES : 201/201 vérifiés" pendant de longues minutes avant le premier palier de progression.
+
+**Cause du taux erroné** : non confirmée — reproduction de l'appel SOAP réel impossible depuis le bac à sable de développement (domaine `ec.europa.eu` hors liste blanche réseau). Pas de correctif du parsing "à l'aveugle" (principe du projet : ne jamais deviner).
+
+**Mitigations livrées (protection immédiate, sans attendre le diagnostic)** :
+- Coupe-circuit `VAT_DYNAMIC_TEDB_ENABLED` (variable d'environnement/secret) : **désactivé par défaut**. Tant qu'il n'est pas explicitement mis à `true`, `vat_rate()` se comporte exactement comme avant le 2026-09-12 (100% statique `rates.py`), aucun appel réseau.
+- Garde-fou de plausibilité : même une fois réactivé, tout taux TEDB s'écartant de plus de 3 points de la référence statique connue est rejeté (repli statique + log de la réponse XML brute complète pour diagnostic).
+- `_init_schema` rendu auto-réparateur : détecte un schéma de table `vat_rate_cache` incompatible (colonnes différentes) et la recrée (perte de cache uniquement, aucune donnée fiscale source n'y est stockée).
+
+**Non fait dans cette session (en attente)** : parallélisation du préchargement (pattern `ThreadPoolExecutor` façon VIES) pour la performance ; correction du parsing SOAP sur preuve (XML réel à obtenir). Voir `optimisations_en_attente.md` point 10.
+
+Validation : `py_compile` + `pyflakes` propres. Suite `pytest` : **281 passed / 0 failed**, aucune régression.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `optimisations_en_attente.md`.
