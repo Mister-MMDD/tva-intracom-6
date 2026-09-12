@@ -32,8 +32,13 @@ from .models import (
     ViesReclassification,
     ViesValidationSummary,
 )
-from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, vat_rate, fiscal_equivalent_country
+from .rates import is_eu, is_fiscal_eu, is_non_fiscal_eu, fiscal_equivalent_country
 from .rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES, oss_threshold_in_currency, OSS_THRESHOLD_FIXED_EQUIVALENTS
+# BASCULE TVA DYNAMIQUE (2026-09-12) : vat_rate() vient désormais de
+# vat_rates_db (source TEDB avec repli statique rates.py), et non plus
+# directement de rates.py. Signature strictement identique — aucun autre
+# changement requis dans ce fichier.
+from .vat_rates_db import vat_rate
 from datetime import date as _date
 from .vies_engine import normalize_full_vat as _normalize_full_vat_canonical
 

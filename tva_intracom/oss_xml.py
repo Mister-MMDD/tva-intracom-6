@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import re
 import xml.etree.ElementTree as ET
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import List
@@ -82,6 +83,13 @@ def validate_oss_xml(xml_bytes: bytes, xsd_path: str | Path | None = None) -> tu
 from tva_intracom.models import VatResult
 from tva_intracom.i18n import _, country_label
 from tva_intracom.rates import STANDARD_VAT_RATES, is_eu
+# BASCULE TVA DYNAMIQUE (2026-09-12) : le taux standard servant à qualifier
+# STANDARD vs REDUCED vient désormais de vat_rates_db (TEDB + repli
+# statique), évalué à la date de clôture de la période OSS (même
+# convention que le taux de change BCE, voir ecb_rates.get_oss_rate_date) —
+# plus précis qu'un taux "courant" fixe pour une déclaration passée.
+from tva_intracom.vat_rates_db import vat_rate as _dyn_vat_rate
+from tva_intracom.ecb_rates import quarter_end_date as _quarter_end_date
 from tva_intracom.oss_export import (
     aggregate_oss_results, find_oss_negative_buckets,
     suggest_negative_bucket_corrections, NegativeBucketSuggestion,
@@ -167,6 +175,12 @@ def generate_oss_xml(
         year, month = m_match.groups()
         q = (int(month) - 1) // 3 + 1
         period = f"{year}-Q{q}"
+
+    # BASCULE TVA DYNAMIQUE : date de référence pour vat_rate() dynamique
+    # (clôture de la période OSS, une fois normalisée ; repli sur
+    # aujourd'hui si le format n'est pas trimestriel reconnu — même
+    # logique que get_oss_rate_date côté taux de change BCE).
+    _period_end_date = _quarter_end_date(period) or date.today()
 
     # Formats valides :
     #   YYYY-QN          : trimestriel standard OSS
@@ -322,7 +336,10 @@ def generate_oss_xml(
                 # Le seuil fixe >= 15 était fragile : un taux intermédiaire élevé
                 # (ex: PT 13%) ou un taux standard inhabituellement bas pouvait
                 # être mal classifié.
-                std_rate = STANDARD_VAT_RATES.get(arrival_country, Decimal("20"))
+                if arrival_country in STANDARD_VAT_RATES:
+                    std_rate = _dyn_vat_rate(arrival_country, "STANDARD", tx_date=_period_end_date)
+                else:
+                    std_rate = Decimal("20")
                 rate_type = "STANDARD" if rate >= std_rate else "REDUCED"
                 ET.SubElement(goods, "VatRate", type=rate_type).text = f"{rate:.2f}"
                 ET.SubElement(goods, "TaxableAmount").text   = f"{amounts['ht']:.2f}"

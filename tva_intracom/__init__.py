@@ -20,7 +20,10 @@ from .models import (
     ViesReclassification,
     ViesValidationSummary,
 )
-from .rates import EU_COUNTRIES, STANDARD_VAT_RATES, is_eu, vat_rate
+from .rates import EU_COUNTRIES, STANDARD_VAT_RATES, is_eu
+# BASCULE TVA DYNAMIQUE (2026-09-12) : vat_rate exposé au niveau package
+# vient désormais de vat_rates_db (TEDB + repli statique rates.py).
+from .vat_rates_db import vat_rate
 from .report import ReportSummary, build_report, render_report
 
 __all__ = [

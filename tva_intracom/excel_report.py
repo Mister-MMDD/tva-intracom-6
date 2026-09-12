@@ -1543,7 +1543,11 @@ def _write_fba_aic_tab(
     Les flux sans immatriculation dans l'un des deux pays sont listés en
     section "Flux non concernés" pour mémoire.
     """
-    from .rates import vat_rate as _vat_rate, STANDARD_VAT_RATES
+    # BASCULE TVA DYNAMIQUE (2026-09-12) : voir vat_rates_db.py (TEDB +
+    # repli statique). STANDARD_VAT_RATES reste utilisé tel quel pour la
+    # vérification "pays connu ?" ci-dessous.
+    from .vat_rates_db import vat_rate as _vat_rate
+    from .rates import STANDARD_VAT_RATES
 
     ws.title = i18n_("xl_tab_aic")
     countries_with_vat = [c.upper() for c in (countries_with_vat or [])]

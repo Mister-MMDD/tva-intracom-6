@@ -36,13 +36,7 @@ Ce fichier liste les propositions d'améliorations techniques notées pour le sy
 *   **Statut** : Travaux en cours / Sur l'horizon.
 *   **Lieu concerné** : `tva_intracom/oss_export.py` et `tva_intracom/ui/tabs/telechargements.py`
 
-### 6. Taux TVA AIC par catégorie produit (Généralisation)
-*   **Description** : Généraliser l'application des taux réels (Standard/Réduit) via `vat_rate(pays, catégorie)` pour les transferts de stock (AIC).
-*   **Objectif** : Précision accrue sur le rapport CA3.
-*   **Statut** : Décision en attente de confirmation par le cabinet fiscal.
-*   **Lieu concerné** : `tva_intracom/rates.py`
-
-### 7bis. Format Amazon 3 — quantité forcée à 1 (biais base AIC)
+### 6. Format Amazon 3 — quantité forcée à 1 (biais base AIC)
 *   **Description** : `_Format3Parser.qty()` (`tva_intracom/parsers/amazon/parsers.py`) retourne toujours `1` car ce format Amazon n'expose aucune colonne quantité exploitable. Or `_asin_avg_price_and_category` (`ca3_report.py`) calcule le prix moyen HT/unité par ASIN en divisant `amount_ht` par la somme des `quantity` connues : si une ligne Format 3 représente en réalité plusieurs unités groupées, ce prix moyen est artificiellement gonflé, ce qui sur-évalue ensuite la base AIC (ligne 08 CA3) calculée par `_compute_aic_from_fc_transfers`.
 *   **Objectif** : Ne pas générer un montant AIC faussé pour les utilisateurs encore sur le Format 3 avec des ventes groupées.
 *   **Statut** : Non corrigeable en l'état — le Format 3 ne contient structurellement aucune donnée de quantité, il n'y a rien à déduire sans risque d'invention de données. Décision : documenté ici, laissé tel quel. Piste possible si le besoin se confirme : détecter ce cas et avertir l'utilisateur qu'il devrait migrer vers un export Format 4/5 (qui contiennent une colonne QTY) plutôt que de tenter une estimation supplémentaire côté code.
@@ -65,6 +59,16 @@ Ce fichier liste les propositions d'améliorations techniques notées pour le sy
 *   **Statut** : Confirmé dans le code (2026-09-11). Correction proprement dite reportée : nécessite de restructurer `_aggregate_by_scenario` (`oss_export.py`) pour ajouter une dimension mensuelle avec conversion au taux de clôture par mois, ce qui dépasse le périmètre d'un correctif ponctuel. Soumis au cabinet comptable avant toute implémentation (l'écart actuel est mineur et documenté, pas un risque de non-conformité immédiat).
 *   **Lieu concerné** : `tva_intracom/excel_report.py` (`_write_oss_tab`, `_write_ioss_tab`), `tva_intracom/oss_export.py` (`_aggregate_by_scenario`), `tva_intracom/report.py` (`oss_by_country_month`)
 *   **Lieu concerné** : `tva_intracom/ui/sidebar.py` (`_render_account_dialog`), `tva_intracom/ui/admin.py` (`render_admin_dialog`)
+
+### 10. Taux TVA dynamique (TEDB) — catégories non mappables & choix MEDICINES à valider
+*   **Description** : Depuis la bascule TVA dynamique du 2026-09-12 (`vat_rates_db.py`, API TEDB de la Commission européenne), 3 des 6 catégories internes n'ont **aucune** catégorie TEDB équivalente et restent donc en repli statique permanent (`rates.py`), sans aucun appel réseau tenté :
+    - `BOOKS` : TEDB n'a pas de catégorie générale "livres" (seule `LOAN_LIBRARIES` = prêt en bibliothèque existe, hors sujet ; `NEWSPAPERS`/`PERIODICALS` ne couvrent pas les livres).
+    - `CLOTHING` : TEDB n'a pas de catégorie générale "habillement" (seule `CLOTHING_REPAIR` = réparation existe, hors sujet).
+    - `SUPER_REDUCED` : notion de palier de taux propre à ce projet, pas une catégorie TEDB (qui catégorise par nature de bien/service).
+    Par ailleurs, `MEDICINES` est mappé vers la catégorie TEDB `PHARMACEUTICAL_PRODUCTS` (produits pharmaceutiques vendus) plutôt que `MEDICAL_CARE` (prestations de soins médicaux/dentaires) — choix jugé le plus pertinent pour un catalogue Amazon, mais non encore confirmé.
+*   **Objectif** : Cabinet comptable à valider explicitement (1) que le choix `MEDICINES` → `PHARMACEUTICAL_PRODUCTS` est correct, et (2) qu'un repli statique permanent est acceptable pour BOOKS/CLOTHING/SUPER_REDUCED (alternative technique existante mais non implémentée : requête TEDB par code CN/CPA au lieu de catégorie, écartée pour l'instant faute de code CN/CPA fiable par pays sans risque d'erreur fiscale).
+*   **Statut** : Implémenté avec repli documenté ; décision de confirmation en attente du cabinet.
+*   **Lieu concerné** : `tva_intracom/vat_rates_db.py` (`_CATEGORY_TO_TEDB`)
 
 ## Internationalisation (i18n)
 

@@ -8061,3 +8061,26 @@ Fichiers modifiés : `tva_intracom/i18n/fr.toml`, `en.toml`, `de.toml`, `es.toml
 Validation : `py_compile` propre sur les 5 fichiers modifiés (`engine.py`, `excel_report.py`, `vies_engine.py`, `app.py`, `tests/test_vies.py`). `pyflakes` : aucun nouveau warning (3 warnings pré-existants sans rapport avec cette session, `excel_report.py` shadowing `i18n_`/variable `net` inutilisée, `tests/test_bugs_and_edge_cases.py` imports inutilisés). Suite `pytest` complète : **281 passed / 0 failed** — nouveau baseline (contre 275 passed / 4 failed précédemment ; les 4 échecs liés à `SUPABASE_DB_URL` n'apparaissent qu'en environnement réel avec base configurée, absents de ce sandbox).
 
 Fichiers modifiés : `tva_intracom/engine.py`, `tva_intracom/excel_report.py`, `tva_intracom/vies_engine.py`, `app.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`, `tests/test_vies.py`, `tests/test_bugs_and_edge_cases.py`, `tests/test_scenarios_fiscaux.py`, `optimisations_en_attente.md`.
+
+## 2026-09-12 — Taux de TVA dynamique via l'API TEDB (Commission européenne), en remplacement de `rates.py` (statique)
+
+**Demande** : rendre la récupération des taux de TVA dynamique (comme le taux de change BCE dans `ecb_rates.py`), via le fichier `vat_rates_db.py` déjà créé par Matthieu, censé remplacer `rates.py` (conservé comme repli).
+
+**Constats confirmés contre le code réel avant toute modification** :
+- `vat_rates_db.py` importait `VAT_RATES` depuis `rates.py` — **ce nom n'existe pas** (seuls `STANDARD_VAT_RATES` et `REDUCED_VAT_RATES` existent) : `ImportError` au chargement, le fichier n'avait donc jamais pu tourner tel quel.
+- Le fichier n'appelait **aucune API externe** : c'était une pure couche de cache (RAM + table Postgres `vat_rate_cache`) supposant une table déjà peuplée par un processus tiers inexistant.
+- `prefetch_vat_rates()` chargeait le cache RAM sous des clés (`f"RAW|{pays}|{type}|{début}|{fin}"`) totalement différentes de celles lues par `get_vat_rate()` (`f"{pays}|{type}|{date}"`) — le préchargement n'était donc jamais utilisé, bug mort.
+- Fallback statique dangereux : `LOCAL_VAT_FALLBACK.get(pays, {}).get(type, Decimal("0.20"))` — `Decimal("0.20")` vaut 0,20 **%**, pas 20 % ; en cas d'échec total (BDD + réseau), le taux appliqué aurait été 100× trop faible, silencieusement.
+- Vérification officielle (documentation SOAP de la Commission) : **TEDB n'expose pas d'API REST/JSON**, seulement un service **SOAP** (`RetrieveVatRates`, endpoint `https://ec.europa.eu/taxation_customs/tedb/ws/VatRetrievalService`). La Grèce y est codée `"EL"` (comme VIES), pas `"GR"`. Les catégories TEDB (~45 identifiants fixes : `FOODSTUFFS`, `PHARMACEUTICAL_PRODUCTS`, `PARKING`...) catégorisent par nature de bien/service, sans correspondance générale pour 3 des 6 catégories internes du projet (`BOOKS`, `CLOTHING`, `SUPER_REDUCED`) — voir `optimisations_en_attente.md` point 10.
+
+**Correctifs / implémentation** :
+- Réécriture complète de `vat_rates_db.py` : client SOAP TEDB (enveloppe XML, retry/backoff exponentiel, détection SSL permanente — même pattern que `ecb_rates.py`), cache L1 mémoire + L2 Postgres (`vat_rate_cache`, schéma corrigé : clé `(pays, type_taux, date)`), repli statique systématique et **sans appel réseau** pour les combinaisons non couvertes par TEDB (pays hors UE, ou catégorie non mappable). Un seul appel SOAP par (pays, date) rapatrie toutes les catégories mappées d'un coup (amortit le coût réseau).
+- Mapping catégories : `FOOD`→`FOODSTUFFS`, `PARKING`→`PARKING`, `MEDICINES`→`PHARMACEUTICAL_PRODUCTS` (à valider cabinet). `BOOKS`/`CLOTHING`/`SUPER_REDUCED` : repli statique permanent, documenté (aucune catégorie TEDB équivalente).
+- Nouvelle fonction `vat_rate(country, product_category="STANDARD", tx_date=None)` en remplacement direct de `rates.vat_rate` (signature identique) — bascule dans `engine.py`, `ca3_report.py`, `excel_report.py`, `__init__.py`. `oss_xml.py` (qui lisait `STANDARD_VAT_RATES` en dur pour qualifier STANDARD/REDUCED dans le XML OSS) bascule sur un appel dynamique évalué à la date de clôture de la période déclarée (même convention que `get_oss_rate_date` côté taux de change BCE).
+- `rates.py` inchangé (reste la source de repli, jamais supprimée).
+
+Validation : `py_compile` + `pyflakes` propres sur les 6 fichiers modifiés (aucun nouveau warning ; 3 warnings pré-existants sans rapport, déjà connus dans `excel_report.py`). Suite `pytest` : **281 passed / 0 failed** — même baseline que la session précédente, aucune régression.
+
+**Non testé en conditions réelles** : l'appel réseau SOAP vers `ec.europa.eu` n'a pas pu être exercé en conditions réelles depuis le bac à sable de développement (domaine hors liste blanche du sandbox) — à vérifier par Matthieu en environnement réel (Streamlit Cloud) avant mise en production.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tva_intracom/engine.py`, `tva_intracom/ca3_report.py`, `tva_intracom/excel_report.py`, `tva_intracom/oss_xml.py`, `tva_intracom/__init__.py`, `optimisations_en_attente.md`.

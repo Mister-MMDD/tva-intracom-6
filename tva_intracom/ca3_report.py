@@ -175,7 +175,13 @@ def _compute_aic_from_fc_transfers(
     réellement applicable, avec repli sur STANDARD si l'ASIN n'apparaît dans
     aucune vente connue (comportement précédent conservé dans ce cas précis).
     """
-    from tva_intracom.rates import vat_rate as _vat_rate, STANDARD_VAT_RATES
+    # BASCULE TVA DYNAMIQUE (2026-09-12) : le taux appliqué à l'AIC vient
+    # désormais de vat_rates_db (TEDB + repli statique), STANDARD_VAT_RATES
+    # reste utilisé tel quel juste pour la vérification "pays connu ?"
+    # ci-dessous (couverture identique, TEDB ne couvrant jamais plus de
+    # pays que ce dict statique).
+    from tva_intracom.vat_rates_db import vat_rate as _vat_rate
+    from tva_intracom.rates import STANDARD_VAT_RATES
 
     # PERF (voir README - évolution.md) : un seul parcours de `results` au
     # lieu de deux (_asin_avg_price_from_results + _asin_category_map
