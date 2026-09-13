@@ -48,13 +48,7 @@ Ce fichier liste les propositions d'améliorations techniques notées pour le sy
 *   **Statut** : En attente d'une extension future.
 *   **Lieu concerné** : `tva_intracom/fec_export.py`
 
-### 8. Titre figé sur `ui/sidebar.py::_render_account_dialog` et `ui/admin.py::render_admin_dialog`
-*   **Description** : Ces deux `@st.dialog(title=_("..."))` souffrent du même bug identifié et corrigé le 2026-09-11 sur `vies_ui.py::_render_vies_retry_done_dialog` — l'argument `title` du décorateur n'est évalué qu'UNE SEULE FOIS, à l'import du module (Python ne réexécute jamais le corps d'un module déjà dans `sys.modules`). Sur Streamlit Cloud, plusieurs comptes/langues partagent le même process : le titre de ces deux modales reste donc figé dans la langue active lors du tout premier import du module concerné dans ce process, quelle que soit la langue choisie ensuite par chaque utilisateur qui l'ouvre.
-*   **Objectif** : Même correctif que `vies_ui.py` — construire le dialog dynamiquement à l'intérieur de la fonction appelante (titre résolu à l'instant de l'appel, donc dans la langue de la session en cours) au lieu de décorer une fonction module-level.
-*   **Statut** : Non corrigé (repéré lors de l'audit VIES du 2026-09-11, hors périmètre de cette session). À traiter dans une session dédiée UI/i18n.
-*   **Lieu concerné** : `tva_intracom/ui/sidebar.py` (`_render_account_dialog`), `tva_intracom/ui/admin.py` (`render_admin_dialog`)
-
-### 9. Taux TVA dynamique (TEDB) — catégories non mappables & choix MEDICINES à valider
+### 8. Taux TVA dynamique (TEDB) — catégories non mappables & choix MEDICINES à valider
 *   **Description** : Depuis la bascule TVA dynamique du 2026-09-12 (`vat_rates_db.py`, API TEDB de la Commission européenne), 3 des 6 catégories internes n'ont **aucune** catégorie TEDB équivalente et restent donc en repli statique permanent (`rates.py`), sans aucun appel réseau tenté :
     - `BOOKS` : TEDB n'a pas de catégorie générale "livres" (seule `LOAN_LIBRARIES` = prêt en bibliothèque existe, hors sujet ; `NEWSPAPERS`/`PERIODICALS` ne couvrent pas les livres).
     - `CLOTHING` : TEDB n'a pas de catégorie générale "habillement" (seule `CLOTHING_REPAIR` = réparation existe, hors sujet).

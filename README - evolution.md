@@ -8126,3 +8126,18 @@ Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `optimisations_en_attente.m
 Validation : `py_compile` + `pyflakes` propres sur les fichiers modifiés (3 warnings pré-existants sans rapport, déjà connus). Suite `pytest` : **281 passed / 0 failed**, aucune régression (le test mis à jour ci-dessus reflète un changement de comportement intentionnel, pas une régression). Symétrie i18n vérifiée (1180 clés × 7 langues, inchangée — aucune chaîne ajoutée).
 
 Fichiers modifiés : `tva_intracom/oss_export.py`, `tva_intracom/excel_report.py`, `tests/test_oss_rate_prefetch.py`, `optimisations_en_attente.md`.
+
+## 2026-09-13 (2) — Point 8 traité : titre figé sur `sidebar.py::_render_account_dialog` et `admin.py::render_admin_dialog`
+
+**Demande** : traiter le point 8 de `optimisations_en_attente.md` — même bug que celui corrigé le 2026-09-11 sur `vies_ui.py::_render_vies_retry_done_dialog`, repéré à l'époque mais non corrigé sur ces deux modales (hors périmètre de la session VIES).
+
+**Diagnostic confirmé contre le code réel** : `@st.dialog(title=_("..."))` posé directement sur une fonction module-level n'évalue `_(...)` qu'UNE SEULE FOIS, à l'import du module — le décorateur s'applique à la définition de la fonction, donc à l'import, et Python ne réexécute jamais le corps d'un module déjà présent dans `sys.modules`. Sur Streamlit Cloud, plusieurs comptes/langues partagent le même process : le titre de ces deux modales restait figé dans la langue active lors du tout premier import du module dans le process, quelle que soit la langue choisie ensuite par chaque utilisateur qui les ouvre.
+
+**Correctifs livrés** (même pattern que le fix `vies_ui.py` du 2026-09-11) :
+- `tva_intracom/ui/admin.py` : `render_admin_dialog` n'est plus décorée directement. Elle construit désormais un dialog interne (`_dialog`, décoré à l'intérieur de la fonction) puis l'appelle immédiatement — le titre est donc résolu à chaque appel, dans la langue de la session en cours. Le corps original de la fonction est déplacé tel quel dans une nouvelle fonction interne `_render_admin_dialog_body`.
+- `tva_intracom/ui/sidebar.py` : même traitement pour `_render_account_dialog`, avec le corps original déplacé dans `_render_account_dialog_body`.
+- Aucun changement de signature ni de comportement visible pour l'appelant (`sidebar.py` continue d'appeler `_render_account_dialog(...)` et `render_admin_dialog(...)` exactement comme avant).
+
+Validation : `py_compile` + `pyflakes` propres sur les deux fichiers modifiés (1 warning pré-existant sans rapport dans `sidebar.py` — variable de boucle `_dt` réutilisée en import, ligne ~1156, hors périmètre). Suite `pytest` : **281 passed / 0 failed**, aucune régression (pas de test dédié à ces modules UI Streamlit). Aucun impact scale-to-zero (aucune connexion/thread persistant introduit).
+
+Fichiers modifiés : `tva_intracom/ui/admin.py`, `tva_intracom/ui/sidebar.py`, `optimisations_en_attente.md`.

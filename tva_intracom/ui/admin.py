@@ -34,8 +34,32 @@ import logging
 _logger = logging.getLogger("tva_intracom.ui.admin")
 
 
-@st.dialog(title=_("admin_module_header"))
 def render_admin_dialog(current_user: "tva_auth.User") -> None:
+    """Affiche la modale d'administration (rôles & whitelist d'e-mails).
+
+    BUGFIX (2026-09-1x) : même bug que `vies_ui.py::_render_vies_retry_done_dialog`
+    (corrigé le 2026-09-11) et documenté dans `optimisations_en_attente.md`
+    point 8 — `@st.dialog(title=_("admin_module_header"))` posé directement
+    sur une fonction module-level n'évalue `_(...)` qu'UNE SEULE FOIS, à
+    l'import du module (le décorateur s'applique à la définition de la
+    fonction, donc à l'import ; Python ne réexécute jamais le corps d'un
+    module déjà dans `sys.modules`). Sur Streamlit Cloud, plusieurs
+    comptes/langues partagent le même process : le titre de cette modale
+    restait donc figé dans la langue active lors du tout premier import de
+    ce module dans le process, quelle que soit la langue choisie ensuite
+    par l'admin qui l'ouvre.
+    Corrigé en construisant le dialog dynamiquement à l'intérieur de cette
+    fonction, avec le titre résolu à l'instant de l'appel (donc dans la
+    langue de la session en cours).
+    """
+    @st.dialog(title=_("admin_module_header"))
+    def _dialog() -> None:
+        _render_admin_dialog_body(current_user)
+
+    _dialog()
+
+
+def _render_admin_dialog_body(current_user: "tva_auth.User") -> None:
     org_id = current_user.org_id
     locked = tva_auth.is_org_locked(org_id)
     _logger.info(

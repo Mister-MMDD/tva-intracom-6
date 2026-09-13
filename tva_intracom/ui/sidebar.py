@@ -432,13 +432,35 @@ def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
     return {}
 
 
-@st.dialog(title=_("account_privacy_header"))
 def _render_account_dialog(_current_user) -> None:
     """Compte & Confidentialité, dans une modale plutôt que dans le corps de
     la sidebar (voir appel dans render_sidebar). Contenu strictement
     inchangé (mot de passe / export RGPD / suppression de compte), seul
     l'emplacement change.
+
+    BUGFIX (2026-09-1x) : même bug que `vies_ui.py::_render_vies_retry_done_dialog`
+    (corrigé le 2026-09-11) et documenté dans `optimisations_en_attente.md`
+    point 8 — `@st.dialog(title=_("account_privacy_header"))` posé
+    directement sur une fonction module-level n'évalue `_(...)` qu'UNE
+    SEULE FOIS, à l'import du module (le décorateur s'applique à la
+    définition de la fonction, donc à l'import ; Python ne réexécute jamais
+    le corps d'un module déjà dans `sys.modules`). Sur Streamlit Cloud,
+    plusieurs comptes/langues partagent le même process : le titre de cette
+    modale restait donc figé dans la langue active lors du tout premier
+    import de ce module dans le process, quelle que soit la langue choisie
+    ensuite par CHAQUE utilisateur qui l'ouvre.
+    Corrigé en construisant le dialog dynamiquement à l'intérieur de cette
+    fonction, avec le titre résolu à l'instant de l'appel (donc dans la
+    langue de la session en cours).
     """
+    @st.dialog(title=_("account_privacy_header"))
+    def _dialog() -> None:
+        _render_account_dialog_body(_current_user)
+
+    _dialog()
+
+
+def _render_account_dialog_body(_current_user) -> None:
     st.markdown(f"**{_('onboarding_restart_title')}**")
     st.caption(_("onboarding_restart_help"))
     if st.button(_("onboarding_restart_btn"), key="btn_restart_onboarding"):
