@@ -528,6 +528,20 @@ if uploaded_files:
         _asin_catalog_sig,
     )
 
+    # RELANCE AUTO VIES — une seule fois par fichier/analyse (voir échange
+    # utilisateur du 2026-09-13) : `_parse_cache_key` ne dépend que du/des
+    # fichier(s) et des options de parsing, JAMAIS de `vies_retry_nonce`
+    # (contrairement à `_cache_key`/`_compute_cache_key()` plus bas) — il
+    # ne change donc PAS quand l'utilisateur clique sur "Mettre à jour"
+    # après une relance VIES, mais change bien dès qu'un nouveau fichier
+    # est déposé (ou que les options d'import changent). On s'en sert ici
+    # pour détecter une nouvelle analyse et n'autoriser qu'alors une
+    # nouvelle relance automatique du ré-essai VIES en arrière-plan (voir
+    # garde correspondante dans ui/tabs/vies_ui.py::render_vies).
+    if st.session_state.get("_vies_auto_retry_parse_sig") != _parse_cache_key:
+        st.session_state["_vies_auto_retry_parse_sig"] = _parse_cache_key
+        st.session_state.pop(f"_vies_auto_retry_launched_{_vies_scope_id}", None)
+
     # Clé de cache du CALCUL, extraite en fonction (voir usage ci-dessous ET
     # plus bas à son emplacement d'origine) : elle ne dépend QUE de signatures
     # de fichiers et de réglages déjà résolus à ce stade du script (aucune
@@ -1275,8 +1289,24 @@ if uploaded_files:
             vies_summary   = _calc_cache.vies_summary
             oss_summary    = _calc_cache.oss_summary
 
-        if vies_summary and vies_summary.total_inconclusive > 0:
-            st.error(_("vies_inconclusive_error", count=vies_summary.total_inconclusive))
+        # BUGFIX (2026-09-13) : `vies_summary.total_inconclusive` (=
+        # `inconclusive_count`) NE COMPTE QUE les numéros sans aucun
+        # résultat exploitable (ni cache frais, ni override) — il exclut
+        # `stale_fallback_count` (repli sur un cache déjà expiré faute de
+        # réponse VIES), alors que CES DEUX catégories sont traitées à
+        # l'identique en aval (B2C par sécurité) et alimentent TOUTES LES
+        # DEUX `inconclusive_vats` (voir engine.py, ~L1568-L1600). Résultat
+        # observé : ce bandeau annonçait "1 numéro(s) non concluants" alors
+        # que l'onglet VIES (qui utilise déjà `len(inconclusive_vats)`)
+        # affichait à raison "17 numéro(s) non vérifiés" — et sur un compte
+        # où TOUS les non-vérifiés étaient des replis sur cache expiré
+        # (aucun `inconclusive_count`), ce bandeau n'apparaissait même pas
+        # du tout. On aligne donc sur `len(inconclusive_vats)`, la même
+        # source que l'onglet VIES et que la relance automatique — jamais
+        # sur `total_inconclusive` seul.
+        _vies_total_unverified = len(vies_summary.inconclusive_vats) if vies_summary else 0
+        if vies_summary and _vies_total_unverified > 0:
+            st.error(_("vies_inconclusive_error", count=_vies_total_unverified))
             if st.button(_("vies_reverify_btn"), key="retry_vies_error_banner"):
                 CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
                 preserve_upload_rerun()
@@ -1590,6 +1620,7 @@ if uploaded_files:
             home_country=home_country,
             target_currency=target_currency,
             calc_key=_cache_key,
+            parse_signature=_parse_cache_key,
         )
 
         # Stocké dans session_state (et non plus seulement passé en argument)

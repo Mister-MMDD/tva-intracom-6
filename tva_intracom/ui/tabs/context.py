@@ -86,6 +86,15 @@ class TabContext:
     # confirmation OSS, sélecteur de pays local...).
     calc_key: Any = None
 
+    # Signature stable du fichier/des options de parsing (voir app.py
+    # `_parse_cache_key`) — NE dépend PAS de `vies_retry_nonce`, contrairement
+    # à `calc_key`. Utilisée par render_vies() pour savoir si l'analyse en
+    # cours est "la même" que la précédente (un simple clic sur "Mettre à
+    # jour"/"Réessayer" ne la change pas) ou s'il s'agit réellement d'un
+    # nouveau dépôt de fichier (elle change alors) — voir garde anti-relance
+    # automatique dans ui/tabs/vies_ui.py.
+    parse_signature: Any = None
+
     # Statut Stripe brut ("incomplete" = virement/prélèvement SEPA en cours
     # de traitement, distinct d'un compte réellement non payant) — voir
     # billing_gate.BillingGate.sub_status. Utilisé pour ne jamais afficher

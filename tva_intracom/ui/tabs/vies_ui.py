@@ -340,8 +340,32 @@ def render_vies(ctx: TabContext) -> None:
                 if _vies_retry_vat_ids else None
             )
 
-            if _vies_retry_jid and get_job_state(_vies_retry_jid) is None:
+            # GARDE ANTI-RELANCE AUTOMATIQUE (2026-09-13) : sans ce drapeau,
+            # chaque clic sur "Mettre à jour" (après un ré-essai automatique
+            # qui a résolu une partie des numéros, voir plus bas) fait
+            # baisser `inconclusive_vats` -> nouveau job_id (déterministe
+            # sur l'ensemble des numéros restants, voir vies_retry_job_id)
+            # -> `get_job_state(...) is None` redevient vrai -> une NOUVELLE
+            # boucle auto repart toute seule, et ainsi de suite jusqu'à
+            # épuisement des numéros. Le drapeau ci-dessous, clé sur
+            # `ctx.parse_signature` (jamais modifiée par un clic "Mettre à
+            # jour"/"Réessayer", contrairement à `vies_retry_nonce" — voir
+            # app.py), garantit UNE SEULE relance automatique par analyse
+            # (fichier déposé). Le bouton "Réessayer" manuel plus bas reste
+            # lui pleinement fonctionnel : c'est une action explicite de
+            # l'utilisateur, pas une relance automatique.
+            _vies_auto_retry_flag_key = f"_vies_auto_retry_launched_{_vies_scope_id}"
+            _vies_auto_retry_already_launched = st.session_state.get(
+                _vies_auto_retry_flag_key, False
+            )
+
+            if (
+                _vies_retry_jid
+                and get_job_state(_vies_retry_jid) is None
+                and not _vies_auto_retry_already_launched
+            ):
                 start_vies_retry_loop(_vies_scope_id, _vies_retry_vat_ids)
+                st.session_state[_vies_auto_retry_flag_key] = True
 
             _vies_retry_running = (
                 _vies_retry_jid is not None and not is_job_done(_vies_retry_jid)
@@ -373,8 +397,18 @@ def render_vies(ctx: TabContext) -> None:
                         st.rerun()
                 else:
                     if st.button(_("vies_reverify_btn"), key="retry_vies_btn"):
+                        # Action EXPLICITE de l'utilisateur : contourne
+                        # volontairement la garde anti-relance automatique
+                        # ci-dessus (elle ne vise que le déclenchement
+                        # silencieux, pas un clic délibéré sur ce bouton).
+                        # On (re)démarre donc directement la boucle ici,
+                        # sans dépendre du bloc auto plus haut qui, lui, ne
+                        # se déclenchera plus tant que le drapeau reste posé.
                         if _vies_retry_jid:
                             clear_job(_vies_retry_jid)
+                        if _vies_retry_vat_ids:
+                            start_vies_retry_loop(_vies_scope_id, _vies_retry_vat_ids)
+                            st.session_state[_vies_auto_retry_flag_key] = True
                         CalcCacheState.save_vies_retry_nonce(_vies_retry_nonce + 1)
                         st.rerun()
 
