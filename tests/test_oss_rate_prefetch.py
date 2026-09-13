@@ -72,14 +72,28 @@ def test_aggregate_oss_results_prefetches_rates_in_one_batch_call():
     )
 
 
-def test_aggregate_oss_results_skips_prefetch_when_no_period():
-    """Sans `period` fourni, convert_ht_tva_for_oss_period ne convertit rien
-    (comportement historique conservé) : aucun prefetch ne doit être tenté."""
+def test_aggregate_oss_results_still_prefetches_and_converts_when_no_period():
+    """BUGFIX (2026-09-13) : `period=""` ne doit PLUS désactiver la
+    conversion de clôture. L'ancien comportement (aucun prefetch, aucune
+    conversion) était le bug lui-même : c'est précisément ce chemin
+    qu'emprunte l'IOSS dans excel_report.py::export_xlsx (appel volontaire
+    avec period=""), pour que get_ioss_rate_date retombe sur la fin du
+    MOIS de la transaction (fallback correct au regard de l'art. 5 bis
+    Règl. UE 2020/194) — un fallback qui, avant ce correctif, n'était en
+    réalité jamais atteint car la garde `if period` coupait la conversion
+    avant même d'appeler `_rate_date_fn`. Voir aussi le commentaire BUGFIX
+    dans convert_ht_tva_for_oss_period (oss_export.py)."""
     results = compute_all_with_vies([_make_sale("s1", "GBP", "2026-01-15", "100")], scope_id="test-oss-prefetch")[0]
 
     with patch.object(oss_export, "prefetch_closing_rates") as mock_prefetch, \
-         patch.object(oss_export, "convert_to_currency_for_oss") as mock_convert:
+         patch.object(oss_export, "convert_to_currency_for_oss",
+                      return_value=(Decimal("100"), Decimal("1"), "cache")) as mock_convert:
         oss_export.aggregate_oss_results(results, period="")
 
-    mock_prefetch.assert_not_called()
-    mock_convert.assert_not_called()
+    mock_prefetch.assert_called_once()
+    # Fallback ligne à ligne : fin du mois de la transaction (2026-01-15 -> 31/01/2026),
+    # get_oss_rate_date("", ...) retombant sur la fin du TRIMESTRE faute de
+    # période reconnue (voir get_oss_rate_date) -> 2026-Q1 se termine le 31/03.
+    pairs = set(mock_prefetch.call_args[0][0])
+    assert pairs == {("GBP", date(2026, 3, 31))}
+    mock_convert.assert_called_once()

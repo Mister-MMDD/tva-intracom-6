@@ -8104,3 +8104,25 @@ Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tva_intracom/engine.py`, `
 Validation : `py_compile` + `pyflakes` propres. Suite `pytest` : **281 passed / 0 failed**, aucune régression.
 
 Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `optimisations_en_attente.md`.
+
+## 2026-09-13 — Point 9 traité : incohérence taux de change OSS/IOSS entre détail mensuel et total de période
+
+**Demande** : traiter le point 9 de `optimisations_en_attente.md` (détail mensuel OSS/IOSS ne s'additionnant pas exactement au total de fin de ligne dans l'Excel, pour un pays facturé en devise étrangère).
+
+**Diagnostic confirmé contre le code réel** :
+- `report.py::_aggregate_result` alimente `summary.oss_by_country_month` avec `r.vat_amount` figé au taux du **jour de la vente** — `build_report()` n'a jamais connaissance de la période déclarée. Les totaux Brut/Remb affichés en bout de ligne (`_write_oss_tab`/`_write_ioss_tab`) proviennent, eux, de `aggregate_oss_results`/`aggregate_ioss_results` (`oss_export.py`), qui reconvertissent au taux de **clôture de la période** (art. 5 bis Règl. UE 2020/194) via `convert_ht_tva_for_oss_period`. Deux taux différents → écart visuel pour toute vente en devise non-EUR.
+- Point de droit confirmé (Matthieu) avant implémentation : le taux de clôture légal est celui de la **période déclarée entière** — trimestre pour l'OSS (même taux pour les 3 mois), mois pour l'IOSS (période = mois). Une ventilation avec un taux "propre à chaque mois calendaire" pour l'OSS aurait été non conforme (l'art. 5 bis ne prévoit qu'un taux par période déclarée) et n'aurait de toute façon pas garanti somme mensuelle = total.
+
+**Bug plus fondamental découvert en cours de diagnostic (corrigé dans la foulée, décision Matthieu)** : la garde `if period and ...` dans `convert_ht_tva_for_oss_period` désactivait **toute** conversion de clôture dès que `period=""` — chaîne vide, falsy en Python. Or `export_xlsx()` appelle **volontairement** `aggregate_ioss_results(..., period="")` pour l'IOSS, afin que `get_ioss_rate_date` retombe sur la fin du mois de la transaction (fallback correct et déjà présent dans `ecb_rates.py`). Ce fallback n'était en réalité **jamais atteint** : la garde coupait avant même l'appel à `get_ioss_rate_date`. Conséquence en prod : tous les montants IOSS (Excel + dashboard) étaient valorisés au taux du jour de la vente, pas au taux de clôture — non-conforme art. 5 bis pour toute vente IOSS en devise étrangère. Bug indépendant du point 9 mais touchant directement les totaux utilisés comme référence pour la correction.
+
+**Correctifs livrés** :
+- `oss_export.py::convert_ht_tva_for_oss_period` : garde corrigée pour ne dépendre que du changement de devise (`period=""` n'empêche plus la conversion ; le fallback de `get_oss_rate_date`/`get_ioss_rate_date` prend le relais proprement).
+- `oss_export.py::_aggregate_by_scenario` : pré-batch des taux BCE rendu inconditionnel (`if period:` supprimé) — sans ça, chaque ligne IOSS (toujours appelée avec `period=""`) aurait retapé la BDD individuellement, régression de perf que ce mécanisme visait justement à éviter.
+- Nouvelle fonction `oss_export.py::aggregate_by_month_and_country()` : ventile les `VatResult` par (pays d'arrivée, mois), en appliquant la **même** conversion que les totaux (`convert_ht_tva_for_oss_period`) — garantit par construction que la somme des mois d'un pays égale le total Brut/Remb de ce pays.
+- `excel_report.py::_write_oss_tab` : détail mensuel désormais issu de `aggregate_by_month_and_country` (quand `results` est fourni) au lieu de `summary.oss_by_country_month` (taux du jour) ; repli sur l'ancien comportement conservé pour les appelants sans `results` (CLI/tests historiques).
+- `excel_report.py::_write_ioss_tab` : reconstruction manuelle au taux du jour remplacée par le même mécanisme.
+- `tests/test_oss_rate_prefetch.py` : test `test_aggregate_oss_results_skips_prefetch_when_no_period` renommé `test_aggregate_oss_results_still_prefetches_and_converts_when_no_period` et mis à jour — il vérifiait explicitement l'ancien comportement bugué (`period=""` = no-op) ; il vérifie désormais que la conversion et le pré-batch ont bien lieu.
+
+Validation : `py_compile` + `pyflakes` propres sur les fichiers modifiés (3 warnings pré-existants sans rapport, déjà connus). Suite `pytest` : **281 passed / 0 failed**, aucune régression (le test mis à jour ci-dessus reflète un changement de comportement intentionnel, pas une régression). Symétrie i18n vérifiée (1180 clés × 7 langues, inchangée — aucune chaîne ajoutée).
+
+Fichiers modifiés : `tva_intracom/oss_export.py`, `tva_intracom/excel_report.py`, `tests/test_oss_rate_prefetch.py`, `optimisations_en_attente.md`.

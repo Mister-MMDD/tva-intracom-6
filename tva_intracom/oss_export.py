@@ -71,7 +71,21 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
     # (voir tva_intracom/ui/formatting.py, report.py, excel_report.py).
     target_currency = "EUR"
 
-    if period and res.sale.original_currency and res.sale.original_currency != target_currency:
+    # BUGFIX (2026-09-13) : la garde testait auparavant `if period and ...`,
+    # ce qui désactivait TOUTE conversion de clôture dès que `period` valait
+    # "" (chaîne vide, falsy en Python) — cas volontairement utilisé par
+    # `export_xlsx()` pour l'IOSS (`aggregate_ioss_results(..., period="")`,
+    # voir commentaire à cet appel) afin que `get_ioss_rate_date` retombe
+    # sur la fin du MOIS de la transaction. Ce fallback, pourtant bien conçu
+    # dans ecb_rates.py, n'était en réalité JAMAIS atteint : la garde
+    # coupait avant même l'appel à `_rate_date_fn`. Résultat en prod : les
+    # montants IOSS (Excel + dashboard) étaient valorisés au taux du JOUR DE
+    # LA VENTE (spot) au lieu du taux de clôture — non-conforme à l'art. 5
+    # bis Règl. UE 2020/194 pour toute vente IOSS en devise étrangère.
+    # Seul le changement de devise doit conditionner la conversion ;
+    # `period` vide ou non reconnu est géré par le fallback interne de
+    # `_rate_date_fn` (get_oss_rate_date / get_ioss_rate_date), pas ici.
+    if res.sale.original_currency and res.sale.original_currency != target_currency:
         try:
             tx_date = _date.fromisoformat((res.sale.transaction_date or "")[:10])
         except ValueError:
@@ -194,32 +208,43 @@ def _aggregate_by_scenario(
     # requête batch groupée suffit). `get_oss_rate_date` est une fonction
     # pure (aucun accès DB) — sûre à appeler ici pour construire l'ensemble
     # des paires à précharger, sans dupliquer la logique de conversion.
-    if period:
-        # BUGFIX (2026-09-09) : l'IOSS (mensuel) doit résoudre sa date de
-        # clôture via get_ioss_rate_date, pas get_oss_rate_date (trimestriel)
-        # — voir convert_ht_tva_for_oss_period, même correctif.
-        #
-        # BUGFIX (2026-09-09, non-conformité art. 5 bis) : ce pré-batch
-        # appelait auparavant prefetch_rates(), qui alimente le cache "en
-        # arrière" de get_rate(). La conversion de clôture OSS/IOSS utilise
-        # désormais get_closing_rate() (recherche EN AVANT — voir
-        # ecb_rates.py) avec son propre cache mémoire, d'où
-        # prefetch_closing_rates() à la place.
-        _rate_date_fn = get_ioss_rate_date if scenarios == (Scenario.IOSS_DIRECT,) else get_oss_rate_date
-        _needed_pairs: set[tuple[str, _date]] = set()
-        for _res in results:
-            if _res.scenario not in scenarios:
-                continue
-            _src_ccy = _res.sale.original_currency
-            if not _src_ccy or _src_ccy == "EUR":
-                continue
-            try:
-                _tx_date = _date.fromisoformat((_res.sale.transaction_date or "")[:10])
-            except ValueError:
-                _tx_date = _date.today()
-            _needed_pairs.add((_src_ccy, _rate_date_fn(period, _tx_date)))
-        if _needed_pairs:
-            prefetch_closing_rates(sorted(_needed_pairs))
+    # BUGFIX (2026-09-09) : l'IOSS (mensuel) doit résoudre sa date de
+    # clôture via get_ioss_rate_date, pas get_oss_rate_date (trimestriel)
+    # — voir convert_ht_tva_for_oss_period, même correctif.
+    #
+    # BUGFIX (2026-09-09, non-conformité art. 5 bis) : ce pré-batch
+    # appelait auparavant prefetch_rates(), qui alimente le cache "en
+    # arrière" de get_rate(). La conversion de clôture OSS/IOSS utilise
+    # désormais get_closing_rate() (recherche EN AVANT — voir
+    # ecb_rates.py) avec son propre cache mémoire, d'où
+    # prefetch_closing_rates() à la place.
+    #
+    # BUGFIX (2026-09-13) : ce bloc était auparavant gardé par `if period:`,
+    # ce qui le désactivait entièrement pour `period=""` (cas volontaire de
+    # l'IOSS dans export_xlsx()). Or convert_ht_tva_for_oss_period tente
+    # désormais la conversion même sans période reconnue (voir son BUGFIX du
+    # même jour) : sans ce pré-batch, chaque ligne IOSS retapait la BDD
+    # individuellement à la première occurrence de chaque devise/date
+    # rencontrée, exactement la régression de perf que ce mécanisme de
+    # pré-batch groupé visait à éviter (voir commentaire d'origine
+    # ci-dessus). Le pré-batch est donc désormais inconditionnel ;
+    # `_rate_date_fn("", tx_date)` retombe proprement sur son fallback ligne
+    # à ligne (voir get_oss_rate_date / get_ioss_rate_date, ecb_rates.py).
+    _rate_date_fn = get_ioss_rate_date if scenarios == (Scenario.IOSS_DIRECT,) else get_oss_rate_date
+    _needed_pairs: set[tuple[str, _date]] = set()
+    for _res in results:
+        if _res.scenario not in scenarios:
+            continue
+        _src_ccy = _res.sale.original_currency
+        if not _src_ccy or _src_ccy == "EUR":
+            continue
+        try:
+            _tx_date = _date.fromisoformat((_res.sale.transaction_date or "")[:10])
+        except ValueError:
+            _tx_date = _date.today()
+        _needed_pairs.add((_src_ccy, _rate_date_fn(period, _tx_date)))
+    if _needed_pairs:
+        prefetch_closing_rates(sorted(_needed_pairs))
 
     for res in results:
         if res.scenario not in scenarios:
@@ -260,6 +285,112 @@ def _aggregate_by_scenario(
         bucket["nb"]  += 1
 
     return aggregated
+
+
+# Type : pays d'arrivée → mois ("YYYY-MM") → {"ht_vente"/"tva_vente"/"ht_remb"/"tva_remb": Decimal}
+OssMonthlyAggType = dict
+
+
+def aggregate_by_month_and_country(
+    results: list[VatResult], period: str, scenarios: tuple[Scenario, ...],
+) -> OssMonthlyAggType:
+    """Ventile les VatResult par (pays d'arrivée, mois de transaction), en
+    appliquant EXACTEMENT la même conversion que `_aggregate_by_scenario`
+    (`convert_ht_tva_for_oss_period` — taux de clôture de la période
+    déclarée, art. 5 bis Règl. UE 2020/194) : trimestre entier pour l'OSS
+    (même taux pour les 3 mois d'un même trimestre), mois pour l'IOSS.
+
+    Créée pour le point 9 de `optimisations_en_attente.md` (2026-09-11) :
+    l'ancien détail mensuel de l'onglet OSS_Détail/IOSS_Détail
+    (`summary.oss_by_country_month`, alimenté par `report.py` sans
+    connaissance de la période déclarée, donc au taux du JOUR DE LA VENTE)
+    ne s'additionnait pas exactement au total de fin de ligne (calculé,
+    lui, au taux de clôture par `aggregate_oss_results`/
+    `aggregate_ioss_results`). Ici, chaque ligne est convertie UNE SEULE
+    fois avec la même fonction que les totaux avant d'être ventilée par
+    mois : la somme des mois d'un pays est donc garantie identique au total
+    Brut/Remb de ce pays, par construction (mêmes valeurs sources, juste
+    reventilées différemment), sans qu'il soit nécessaire de forcer un
+    recalage a posteriori.
+
+    Important (voir discussion du 2026-09-13, point 9) : pour l'OSS
+    (période trimestrielle), les 3 mois d'un même trimestre affichent donc
+    la MÊME contre-valeur de taux de change que le trimestre entier — ce
+    n'est PAS un taux "propre à chaque mois calendaire" (qui ne serait pas
+    conforme à l'art. 5 bis, ce dernier ne prévoyant qu'un taux de clôture
+    par période déclarée, pas par mois pour l'OSS). Pour l'IOSS, période =
+    mois, donc le taux de clôture de la période EST le taux de clôture du
+    mois : les deux notions coïncident naturellement, sans traitement
+    particulier ici.
+
+    Args:
+        results: VatResult à ventiler (ventes ET avoirs mélangés, comme
+            pour `_aggregate_by_scenario` — le signe de `ht` distingue
+            vente/avoir).
+        period: période déclarée (ex: "2026-Q1" pour l'OSS, "2026-03" pour
+            l'IOSS). Si vide, chaque `_rate_date_fn` retombe sur son
+            fallback ligne à ligne (fin du trimestre/mois DE LA
+            TRANSACTION elle-même) — voir BUGFIX 2026-09-13 sur
+            `convert_ht_tva_for_oss_period` (la garde `if period` qui
+            désactivait ce fallback a été supprimée).
+        scenarios: filtre de scénario, ex. `(Scenario.OSS_B2C,)` ou
+            `(Scenario.IOSS_DIRECT,)` — même paramètre que
+            `_aggregate_by_scenario`.
+
+    Returns:
+        {"DE": {"2026-01": {"ht_vente": ..., "tva_vente": ..., "ht_remb": ...,
+                             "tva_remb": ...}, "2026-02": {...}}, ...}
+    """
+    out: OssMonthlyAggType = {}
+
+    # Même pré-batch que _aggregate_by_scenario (évite une requête BCE
+    # individuelle par ligne — voir son commentaire pour le détail mesuré
+    # en prod), désormais inconditionnel comme son pendant depuis le
+    # BUGFIX 2026-09-13 (period="" convertit quand même, via le fallback
+    # ligne à ligne de _rate_date_fn). Un doublon de préchargement avec
+    # _aggregate_by_scenario (quand les deux sont appelées pour le même
+    # export) touche uniquement le cache mémoire L1 déjà chaud — coût
+    # négligeable.
+    _rate_date_fn = get_ioss_rate_date if scenarios == (Scenario.IOSS_DIRECT,) else get_oss_rate_date
+    _needed_pairs: set[tuple[str, _date]] = set()
+    for _res in results:
+        if _res.scenario not in scenarios:
+            continue
+        _src_ccy = _res.sale.original_currency
+        if not _src_ccy or _src_ccy == "EUR":
+            continue
+        try:
+            _tx_date = _date.fromisoformat((_res.sale.transaction_date or "")[:10])
+        except ValueError:
+            _tx_date = _date.today()
+        _needed_pairs.add((_src_ccy, _rate_date_fn(period, _tx_date)))
+    if _needed_pairs:
+        prefetch_closing_rates(sorted(_needed_pairs))
+
+    for res in results:
+        if res.scenario not in scenarios:
+            continue
+        month = (res.sale.transaction_date or "")[:7]  # "YYYY-MM"
+        if not month:
+            continue
+
+        arrival = res.vat_country
+        ht, tva = convert_ht_tva_for_oss_period(res, period)
+
+        bucket = out.setdefault(arrival, {}).setdefault(
+            month, {
+                "ht_vente": Decimal("0.00"), "tva_vente": Decimal("0.00"),
+                "ht_remb":  Decimal("0.00"), "tva_remb":  Decimal("0.00"),
+            }
+        )
+        if ht >= 0:
+            bucket["ht_vente"]  += ht
+            bucket["tva_vente"] += tva
+        else:
+            bucket["ht_remb"]  += ht
+            bucket["tva_remb"] += tva
+
+    return out
 
 
 @dataclass

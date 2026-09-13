@@ -18,7 +18,7 @@ from openpyxl.utils import get_column_letter
 from . import ecb_rates
 from .i18n import _ as i18n_, country_label
 from .models import VatResult
-from .oss_export import aggregate_oss_results, aggregate_ioss_results
+from .oss_export import aggregate_oss_results, aggregate_ioss_results, aggregate_by_month_and_country
 from .parsers.amazon.detect import parse_date as _parse_amz_date
 from .rates import COUNTRY_CURRENCIES
 from .report import ReportSummary, build_report
@@ -1805,7 +1805,35 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
     all_countries = sorted(
         set(summary.oss_by_country) | set(getattr(summary, "refund_oss_by_country", {}))
     )
-    by_country_month = getattr(summary, "oss_by_country_month", {}) or {}
+
+    # Détail mensuel (point 9, optimisations_en_attente.md, 2026-09-13) :
+    # quand `results` est disponible, on calcule le détail mensuel au MÊME
+    # taux de clôture de période que les totaux Brut/Remb (via
+    # `aggregate_by_month_and_country`), au lieu de `summary.oss_by_country_month`
+    # (alimenté par report.py au taux du JOUR DE LA VENTE, sans connaissance
+    # de la période déclarée). Ça garantit que la somme des colonnes
+    # mensuelles == total Brut/Remb affiché en bout de ligne, y compris pour
+    # un pays facturé en devise étrangère (ex. Suède/SEK). Pour l'OSS
+    # (trimestriel), les 3 mois d'un même trimestre partagent donc le même
+    # taux de change — c'est le comportement légalement correct (art. 5 bis
+    # Règl. UE 2020/194 ne prévoit qu'un taux de clôture par période
+    # déclarée, pas par mois calendaire). Si `results` est absent (appelants
+    # historiques CLI/tests sans period), on retombe sur
+    # `summary.oss_by_country_month` (comportement d'origine, taux du jour).
+    if results is not None:
+        from .models import Scenario as _Scen
+        _monthly_agg = aggregate_by_month_and_country(
+            list(results) + list(refund_results or []), period, scenarios=(_Scen.OSS_B2C,)
+        )
+        by_country_month = {
+            country: {
+                month: buckets["tva_vente"] + buckets["tva_remb"]
+                for month, buckets in per_month.items()
+            }
+            for country, per_month in _monthly_agg.items()
+        }
+    else:
+        by_country_month = getattr(summary, "oss_by_country_month", {}) or {}
     months = sorted({m for per_country in by_country_month.values() for m in per_country})
 
     # Totaux Brut/Remb par pays d'arrivée reconvertis au taux BCE de clôture
@@ -1944,18 +1972,26 @@ def _write_ioss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
 
     _z = Decimal("0.00")
 
-    # Détail mensuel par pays d'arrivée (taux du jour de vente, pour
-    # information — voir docstring : pas de source pré-agrégée existante).
+    # Détail mensuel par pays d'arrivée (point 9, optimisations_en_attente.md,
+    # 2026-09-13) : calculé au MÊME taux de clôture de période que les
+    # totaux Brut/Remb ci-dessous (`aggregate_by_month_and_country`), au lieu
+    # d'une reconstruction manuelle utilisant `r.vat_amount` au taux du JOUR
+    # DE LA VENTE (comportement d'origine, conservé en commentaire ci-dessus
+    # jusqu'au 2026-09-13). Pour l'IOSS, période = mois : le taux de clôture
+    # de la période EST le taux de clôture du mois, donc chaque colonne
+    # mensuelle a naturellement son propre taux, et la somme des mois d'un
+    # pays == total Brut/Remb de ce pays par construction.
     from .models import Scenario as _Scen
-    by_country_month: Dict[str, Dict[str, Decimal]] = {}
-    for r in chain(results or [], refund_results or []):
-        if r.scenario != _Scen.IOSS_DIRECT:
-            continue
-        month = (r.sale.transaction_date or "")[:7]
-        if not month:
-            continue
-        by_month = by_country_month.setdefault(r.vat_country, {})
-        by_month[month] = by_month.get(month, _z) + r.vat_amount
+    _monthly_agg = aggregate_by_month_and_country(
+        list(results or []) + list(refund_results or []), period, scenarios=(_Scen.IOSS_DIRECT,)
+    )
+    by_country_month: Dict[str, Dict[str, Decimal]] = {
+        country: {
+            month: buckets["tva_vente"] + buckets["tva_remb"]
+            for month, buckets in per_month.items()
+        }
+        for country, per_month in _monthly_agg.items()
+    }
     months = sorted({m for per_country in by_country_month.values() for m in per_country})
 
     # Totaux Brut/Remb par pays d'arrivée au taux BCE de clôture de période
