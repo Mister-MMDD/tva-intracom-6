@@ -2018,10 +2018,31 @@ def purge_expired_cache(scope_id: str, acting_user_id: str | None = None) -> int
 
 
 def force_revalidate(scope_id: str, vat_ids: list[str]) -> None:
-    """Force la revalidation de numéros spécifiques pour CE scope, en
-    supprimant leur entrée du cache privé du scope. N'affecte pas le cache
-    global (un autre scope continuera de bénéficier de la valeur mutualisée
-    tant qu'elle est fraîche)."""
+    """Force la revalidation de numéros spécifiques pour CE scope.
+
+    N'affecte pas le cache global (un autre scope continuera de bénéficier
+    de la valeur mutualisée tant qu'elle est fraîche).
+
+    BUGFIX (2026-09-12, suite retour terrain) : cette fonction supprimait
+    auparavant (DELETE) la ligne du cache scope. Or validate_vat_numbers_parallel
+    (appelée juste après par retry_vats_batch) construit son fallback_cache
+    EN LISANT ce même cache scope pour savoir quoi proposer si la
+    revérification échoue à nouveau (VIES indisponible) — voir son
+    commentaire "BUGFIX (2026-09-11, régression du correctif 2026-09-09)".
+    En supprimant la ligne avant cette lecture, on détruisait justement
+    l'historique ("dernier statut automatique connu") que ce mécanisme est
+    censé préserver : un numéro pourtant déjà vérifié avec succès (TTL
+    simplement dépassé) réapparaissait comme "Jamais vérifié par le
+    serveur" si la nouvelle tentative échouait — seul un hit du cache
+    GLOBAL mutualisé (non affecté par ce DELETE) pouvait compenser, ce qui
+    n'est pas garanti (numéro vérifié uniquement dans ce scope, ou déjà
+    expiré/purgé côté global).
+    On vieillit désormais la ligne (checked_at forcé dans le passé) au
+    lieu de la supprimer : elle est alors considérée expirée par
+    _is_expired() (donc bien revérifiée, comportement de "force" inchangé)
+    tout en restant disponible comme fallback_cache si VIES est encore
+    indisponible.
+    """
     with _conn() as conn, conn.cursor() as cur:
         for vat_id in vat_ids:
             try:
@@ -2029,7 +2050,11 @@ def force_revalidate(scope_id: str, vat_ids: list[str]) -> None:
             except ValueError:
                 continue
             cur.execute(
-                "DELETE FROM vies_scope_cache WHERE scope_id=%s AND vat_id=%s",
+                """
+                UPDATE vies_scope_cache
+                   SET checked_at = TIMESTAMP WITH TIME ZONE 'epoch'
+                 WHERE scope_id = %s AND vat_id = %s
+                """,
                 (scope_id, norm),
             )
         conn.commit()
