@@ -760,6 +760,48 @@ def _db_get_scope_batch(scope_id: str, vat_ids: list[str]) -> dict[str, tuple[Vi
     return out
 
 
+def _db_get_history_latest_batch(scope_id: str, vat_ids: list[str]) -> dict[str, ViesResult]:
+    """Dernière entrée connue de vies_check_history par numéro, pour CE scope.
+
+    Filet de sécurité de DERNIER recours (2026-09-12, suite retour terrain :
+    purge manuelle de vies_scope_cache/vies_global_cache en base sans purger
+    l'historique -> le système répondait "jamais vérifié par le serveur"
+    alors qu'une vérification réussie existait bien, seulement plus
+    accessible via les deux caches). vies_check_history est un journal
+    d'audit APPEND-ONLY jamais purgé par l'application elle-même : la
+    dernière vérification y reste retrouvable même après une purge des
+    caches. Retourne toujours des résultats avec stale_fallback=True :
+    jamais traité comme une confirmation automatique fraîche, seulement
+    comme "dernier statut connu" (voir engine.py : is_inconclusive traite
+    stale_fallback comme un inconclusif classique, B2C par défaut, motif
+    affiché à l'utilisateur)."""
+    if not vat_ids:
+        return {}
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT ON (vat_id)
+                       vat_id, valid, country_code, vat_number, name, address, error, checked_at
+                  FROM vies_check_history
+                 WHERE scope_id = %s AND vat_id = ANY(%s)
+                 ORDER BY vat_id, checked_at DESC
+                """,
+                (scope_id, list(vat_ids)),
+            )
+            rows = cur.fetchall()
+    except RuntimeError as exc:
+        logger.warning("Historique VIES (secours) indisponible : %s", exc)
+        return {}
+    out: dict[str, ViesResult] = {}
+    for row in rows:
+        vat_id = row["vat_id"]
+        result = _row_to_result(row[1:8])
+        result.stale_fallback = True
+        out[vat_id] = result
+    return out
+
+
 def _db_get_global_batch(vat_ids: list[str]) -> dict[str, tuple[ViesResult, bool]]:
     """Une seule requête pour tous les vat_ids d'un coup."""
     if not vat_ids:
@@ -1870,6 +1912,17 @@ def validate_vat_numbers_parallel(
             fallback_cache[norm] = global_entry[0]
 
         to_fetch[norm] = vat_id
+
+    # Filet de sécurité de dernier recours (2026-09-12) : pour les numéros
+    # sans AUCUNE entrée exploitable en cache (scope et global), on va
+    # chercher dans vies_check_history (journal d'audit jamais purgé) avant
+    # d'accepter qu'il n'existe vraiment aucun historique. Ne remplace pas
+    # les caches (perf : un aller-retour DB supplémentaire, uniquement pour
+    # les numéros qui en ont réellement besoin).
+    _missing_norms = [n for n in to_fetch if n not in fallback_cache]
+    if _missing_norms:
+        for norm, vr in _db_get_history_latest_batch(scope_id, _missing_norms).items():
+            fallback_cache[norm] = vr
 
     # Une seule requête pour copier tous les hits du cache global vers le scope
     # (+ historique) au lieu d'une requête par numéro. use_result_checked_at=True :
