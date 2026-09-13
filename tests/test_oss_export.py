@@ -33,11 +33,7 @@ def sample_results():
     # `check_vat_raw` seul ne suffit pas : `validate_vat_numbers_parallel`
     # tente d'abord le cache DB (scope + global) avant tout appel HTTP, donc
     # sans SUPABASE_DB_URL (sandbox de test) toute la validation échoue et
-    # la vente B2B est traitée comme B2C par sécurité (cf. tests/test_vies.py,
-    # 2 tests déjà en échec pré-existant sur ce point précis — `scope_id`
-    # positionnel manquant, hors-sujet ici). On mocke donc directement
-    # `validate_vat_numbers_parallel`, le point d'entrée réellement appelé
-    # par `compute_all_with_vies`, pour obtenir une vente B2B validée.
+    # la vente B2B est traitée comme B2C par sécurité (cf. tests/test_vies.py)
     with patch("tva_intracom.vies_engine.validate_vat_numbers_parallel") as mock_validate:
         mock_validate.return_value = {
             "DE123456789": ViesResult(
