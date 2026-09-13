@@ -101,6 +101,14 @@ _CATEGORY_TO_TEDB: dict[str, str] = {
     "PARKING": "PARKING",
 }
 
+# Extraction des catégories REDUCED (_CATEGORY_TO_TEDB ci-dessus) désactivée
+# tant que _is_tedb_eligible() ne les autorise pas (restriction au taux
+# STANDARD uniquement, 2026-09-13). Réactiver EN MÊME TEMPS que
+# l'éligibilité TEDB sera étendue au-delà de STANDARD — sinon on retombe
+# dans la pollution de logs/CPU inutile qui a motivé cette restriction
+# (voir _parse_tedb_response).
+_PARSE_REDUCED_CATEGORIES = False
+
 # ------------------------------------------------------------------
 # Cache L1 (mémoire/process) + Verrou de thread
 # ------------------------------------------------------------------
@@ -124,7 +132,7 @@ def _get_pool() -> Optional[NonPoolingConnectionPool]:
         return None
     dsn = get_secret("SUPABASE_DB_URL")
     if not dsn:
-        logger.debug("SUPABASE_DB_URL non défini — TVA dynamique en cache mémoire / statique uniquement.")
+        logger.debug("[VAT_RATES] SUPABASE_DB_URL non défini — cache mémoire / statique uniquement.")
         _db_unavailable = True
         return None
     try:
@@ -135,7 +143,7 @@ def _get_pool() -> Optional[NonPoolingConnectionPool]:
                     _init_schema(pool)
                     _schema_ready = True
     except Exception as exc:
-        logger.warning("Cache TVA dynamique : Postgres indisponible (%s) — repli statique.", exc)
+        logger.warning("[VAT_RATES] Cache Postgres indisponible (%s) — repli statique.", exc)
         _db_unavailable = True
         return None
     return pool
@@ -173,7 +181,7 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
             existing_columns = {row[0] for row in cur.fetchall()}
             if existing_columns and existing_columns != _EXPECTED_COLUMNS:
                 logger.warning(
-                    "Cache TVA dynamique : table vat_rate_cache existante avec un "
+                    "[VAT_RATES] table vat_rate_cache existante avec un "
                     "schéma incompatible (colonnes trouvées : %s, attendues : %s) — "
                     "recréation (perte de cache uniquement, aucune donnée fiscale "
                     "source n'est stockée dans cette table).",
@@ -211,7 +219,7 @@ def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[De
             row = cur.fetchone()
             return Decimal(str(row[0])) if row else None
     except Exception as exc:
-        logger.warning("Cache TVA dynamique : lecture Postgres échouée pour %s/%s/%s : %s",
+        logger.warning("[VAT_RATES] lecture Postgres échouée pour %s/%s/%s : %s",
                         country, rate_type, target_date, exc)
         return None
     finally:
@@ -245,7 +253,7 @@ def _db_upsert_batch(entries: list[tuple[str, str, date, Decimal]]) -> None:
                 [(c, rt, d, val, now) for c, rt, d, val in entries],
             )
     except Exception as exc:
-        logger.warning("Cache TVA dynamique : écriture Postgres échouée (%d entrées) : %s", len(entries), exc)
+        logger.warning("[VAT_RATES] écriture Postgres échouée (%d entrées) : %s", len(entries), exc)
     finally:
         pool.putconn(conn)
 
@@ -344,22 +352,22 @@ def _request_tedb(tedb_iso: str, target_date: date) -> Optional[tuple[ET.Element
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
             if _is_permanent_ssl_error(exc):
                 logger.warning(
-                    "TEDB API : certificat SSL non vérifiable (%s) — "
+                    "[VAT_RATES] TEDB API : certificat SSL non vérifiable (%s) — "
                     "aucune nouvelle tentative pour cette requête : %s",
                     description, exc,
                 )
                 return None
             is_last_attempt = attempt >= _FETCH_MAX_ATTEMPTS
             if is_last_attempt:
-                logger.warning("TEDB API indisponible (%s) après %d tentative(s) : %s",
+                logger.warning("[VAT_RATES] TEDB API indisponible (%s) après %d tentative(s) : %s",
                                 description, attempt, exc)
                 return None
             delay = _FETCH_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
-            logger.debug("TEDB API échec (%s, tentative %d/%d) : %s — retry dans %.0fs",
+            logger.debug("[VAT_RATES] TEDB API échec (%s, tentative %d/%d) : %s — retry dans %.0fs",
                          description, attempt, _FETCH_MAX_ATTEMPTS, exc, delay)
             time.sleep(delay)
         except ET.ParseError as exc:
-            logger.warning("Réponse TEDB non parsable (%s) : %s", description, exc)
+            logger.warning("[VAT_RATES] Réponse TEDB non parsable (%s) : %s", description, exc)
             return None
     return None
 
@@ -368,17 +376,47 @@ def _local_tag(tag: str) -> str:
     return tag.split("}")[-1] if "}" in tag else tag
 
 
-def _parse_tedb_response(root: ET.Element) -> dict[str, Decimal]:
+def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: Optional[date] = None) -> dict[str, Decimal]:
     """Extrait {catégorie interne: taux} depuis une réponse retrieveVatRatesRespMsg.
 
-    Ne garde que :
-      - le taux STANDARD (type == "STANDARD"),
-      - les taux REDUCED dont la catégorie TEDB est dans _CATEGORY_TO_TEDB.
-    Ignore les entrées rate.type == NOT_APPLICABLE/OUT_OF_SCOPE ou sans
-    valeur (cf. docstring module, point 3).
+    Ne garde que le taux STANDARD (type == "STANDARD") — l'extraction des
+    catégories REDUCED (FOOD/MEDICINES/PARKING) est désactivée tant que
+    _is_tedb_eligible() ne les autorise pas (cf. restriction du 2026-09-13
+    au taux STANDARD uniquement). Un seul appel SOAP TEDB renvoie TOUTES
+    les catégories d'un pays/date en une fois (~2000 lignes de XML avec
+    tous les codes CN) : parser puis comparer au statique des catégories
+    qu'on n'utilise même pas gaspillait du CPU et — surtout — générait des
+    warnings de plausibilité (avec dump du XML brut COMPLET, parfois
+    plusieurs dizaines de Ko) pour des taux jamais consommés. Observé en
+    prod (Matthieu, 2026-09-13) : c'est cette pollution de logs qui
+    causait le ralentissement perçu, pas l'appel réseau lui-même.
+    Réactiver `_PARSE_REDUCED_CATEGORIES = True` en même temps que
+    l'éligibilité TEDB sera étendue au-delà de STANDARD.
+
+    N'accepte une valeur que si rate.type == "DEFAULT" ou "EXEMPTED" (les
+    seules valeurs documentées comme fiables — cf. docstring module, point
+    3) ; toute autre valeur de rate.type (NOT_APPLICABLE, OUT_OF_SCOPE, ou
+    autre) est ignorée. Note : l'ancienne version de ce code faisait
+    l'inverse (exclusion de 2 valeurs au lieu d'inclusion de 2 valeurs) —
+    corrigé le 2026-09-13.
+
+    Cas STANDARD multiple (incident du 2026-09-12, confirmé sur donnée
+    réelle ES du 2026-01-01) : TEDB peut renvoyer PLUSIEURS entrées
+    type=STANDARD pour un même (pays, date) lorsqu'un territoire spécial
+    a un régime distinct (ex. Canaries pour l'Espagne, hors TVA UE,
+    identifiable uniquement via un texte libre non structuré dans
+    <comment> — donc pas exploitable de façon fiable pour distinguer les
+    cas automatiquement). Si les valeurs STANDARD distinctes trouvées
+    diffèrent, le résultat est jugé AMBIGU : aucune valeur STANDARD n'est
+    retournée (repli automatique sur rates.py côté appelant), et un
+    warning explicite est loggé avec le détail de chaque candidat pour
+    permettre une revue manuelle. Comportement volontairement conservateur
+    tant qu'aucune règle de désambiguïsation par territoire n'a été
+    validée avec le cabinet comptable.
     """
     tedb_to_category = {v: k for k, v in _CATEGORY_TO_TEDB.items()}
     result: dict[str, Decimal] = {}
+    standard_candidates: list[tuple[Decimal, Optional[str]]] = []
 
     for elem in root.iter():
         if _local_tag(elem.tag) != "vatRateResults":
@@ -388,11 +426,16 @@ def _parse_tedb_response(root: ET.Element) -> dict[str, Decimal]:
         rtype: Optional[str] = None
         rvalue: Optional[str] = None
         cat_id: Optional[str] = None
+        comment: Optional[str] = None
 
         for child in elem:
             tag = _local_tag(child.tag)
             if tag == "type":
                 vtype = (child.text or "").strip().upper()
+                if not _PARSE_REDUCED_CATEGORIES and vtype != "STANDARD":
+                    # Court-circuit : on ne s'interesse a rien d'autre que
+                    # STANDARD pour l'instant, inutile de lire rate/category.
+                    break
             elif tag == "rate":
                 for rc in child:
                     rtag = _local_tag(rc.tag)
@@ -404,8 +447,12 @@ def _parse_tedb_response(root: ET.Element) -> dict[str, Decimal]:
                 for cc in child:
                     if _local_tag(cc.tag) == "identifier":
                         cat_id = (cc.text or "").strip().upper()
+            elif tag == "comment":
+                comment = (child.text or "").strip() or None
 
-        if rtype in ("NOT_APPLICABLE", "OUT_OF_SCOPE") or rvalue is None:
+        if vtype != "STANDARD" and not _PARSE_REDUCED_CATEGORIES:
+            continue
+        if rtype not in ("DEFAULT", "EXEMPTED") or rvalue is None:
             continue
         try:
             value = Decimal(str(rvalue).strip())
@@ -413,9 +460,22 @@ def _parse_tedb_response(root: ET.Element) -> dict[str, Decimal]:
             continue
 
         if vtype == "STANDARD":
-            result.setdefault("STANDARD", value)
+            standard_candidates.append((value, comment))
         elif vtype == "REDUCED" and cat_id in tedb_to_category:
             result.setdefault(tedb_to_category[cat_id], value)
+
+    if standard_candidates:
+        distinct_values = {v for v, _ in standard_candidates}
+        if len(distinct_values) == 1:
+            result["STANDARD"] = standard_candidates[0][0]
+        else:
+            logger.warning(
+                "[VAT_RATES] TEDB : %d valeurs STANDARD distinctes et incompatibles reçues pour "
+                "%s au %s (probable territoire spécial, ex. régime IGIC Canaries pour "
+                "ES) — résultat jugé ambigu, repli statique. Candidats : %s",
+                len(distinct_values), country, target_date,
+                [f"{v}% ({c or 'sans commentaire'})" for v, c in standard_candidates],
+            )
 
     return result
 
@@ -426,7 +486,7 @@ def _fetch_tedb_rates(country: str, target_date: date) -> Optional[tuple[dict[st
     if result is None:
         return None
     root, raw = result
-    return _parse_tedb_response(root), raw
+    return _parse_tedb_response(root, country=country, target_date=target_date), raw
 
 
 # ------------------------------------------------------------------
@@ -466,14 +526,18 @@ def _is_plausible(country: str, rate_type: str, value: Decimal) -> bool:
 
 
 def _is_tedb_eligible(country: str, rate_type: str) -> bool:
+    """Périmètre volontairement restreint au taux STANDARD (2026-09-13) :
+    FOOD/MEDICINES/PARKING (mapping _CATEGORY_TO_TEDB) ne sont PAS
+    supprimés du code mais désactivés côté TEDB tant que le mécanisme
+    dynamique n'est pas validé en profondeur sur le cas simple. Ces
+    catégories retombent sur rates.py, comme avant l'introduction de ce
+    module."""
     if not _dynamic_tedb_enabled():
         return False
-    tedb_iso = _ISO_TO_TEDB.get(country, country)
-    if tedb_iso not in _TEDB_SUPPORTED:
+    if rate_type != "STANDARD":
         return False
-    if rate_type == "STANDARD":
-        return True
-    return rate_type in _CATEGORY_TO_TEDB
+    tedb_iso = _ISO_TO_TEDB.get(country, country)
+    return tedb_iso in _TEDB_SUPPORTED
 
 
 def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
@@ -482,34 +546,60 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     Ordre de résolution :
       1. Cache L1 RAM (accès immédiat)
       2. Cache L2 Postgres (Supabase)
-      3. API TEDB (Commission européenne) — un seul appel par (pays, date),
+      3. API TEDB (Commission européenne) — un seul appel par (pays, MOIS),
          qui alimente le cache pour TOUTES les catégories mappées d'un coup
       4. Fallback statique local (rates.py) — utilisé aussi immédiatement,
          sans aucun appel réseau, si le (pays, catégorie) n'est pas
          couvert par TEDB (cf. _is_tedb_eligible).
+
+    Granularité MENSUELLE côté TEDB (2026-09-13, demande Matthieu) : un
+    taux de TVA standard en UE ne change jamais en cours de mois (mise en
+    application légale systématiquement au 1er du mois ou au 1er janvier)
+    — hypothèse fiscale à confirmer explicitement avec le cabinet
+    comptable si un contre-exemple historique était identifié, mais
+    l'implémentation reste sûre par construction : TOUTE date de
+    transaction est normalisée au 1er du mois AVANT interrogation TEDB et
+    AVANT construction de la clé de cache. La valeur mise en cache est
+    donc explicitement "le taux en vigueur au 1er du mois", jamais "la
+    valeur vue par hasard au premier jour interrogé". Un seul appel réseau
+    par (pays, mois) au lieu d'un par (pays, jour) — gain direct sur le
+    volume de requêtes ET sur le volume de logs.
+
+    Le repli statique (`rates.py`) continue d'utiliser la date EXACTE de
+    la transaction (pas la date normalisée) : son mécanisme d'historique
+    par date n'a pas besoin de cette optimisation et on ne veut rien
+    changer à son comportement existant.
     """
     country = country.upper()
     rate_type = rate_type.upper()
-    key = _cache_key(country, rate_type, target_date)
+    situation_date = target_date.replace(day=1)  # granularité mensuelle TEDB
+    key = _cache_key(country, rate_type, situation_date)
 
     with _cache_lock:
         if key in _vat_memory_cache:
-            return _vat_memory_cache[key]
+            rate = _vat_memory_cache[key]
+            logger.info("[VAT_RATES] source=L1_RAM %s/%s/%s (mois %s) -> %s%%",
+                        country, rate_type, target_date, situation_date, rate)
+            return rate
 
     if not _is_tedb_eligible(country, rate_type):
         rate = _static_vat_rate_at_date(country, target_date, rate_type)
+        logger.info("[VAT_RATES] source=STATIC_FALLBACK (non éligible TEDB) %s/%s/%s -> %s%%",
+                    country, rate_type, target_date, rate)
         with _cache_lock:
             _vat_memory_cache[key] = rate
         return rate
 
-    cached = _db_get_rate(country, rate_type, target_date)
+    cached = _db_get_rate(country, rate_type, situation_date)
     if cached is not None:
+        logger.info("[VAT_RATES] source=L2_POSTGRES %s/%s/%s (mois %s) -> %s%%",
+                     country, rate_type, target_date, situation_date, cached)
         with _cache_lock:
             _vat_memory_cache[key] = cached
         return cached
 
-    if not _is_permanently_failed(country, target_date):
-        result = _fetch_tedb_rates(country, target_date)
+    if not _is_permanently_failed(country, situation_date):
+        result = _fetch_tedb_rates(country, situation_date)
         if result:
             raw_fetched, raw_xml = result
             fetched: dict[str, Decimal] = {}
@@ -522,29 +612,33 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
                         else _STATIC_REDUCED_RATES.get(country, {}).get(rt)
                     )
                     logger.warning(
-                        "TEDB : taux %s/%s au %s = %s%% rejeté (écart > %s points vs "
+                        "[VAT_RATES] TEDB : taux %s/%s au %s (mois %s) = %s%% rejeté (écart > %s points vs "
                         "référence statique %s%%) — repli statique. Réponse XML brute "
                         "ci-dessous pour diagnostic :\n%s",
-                        country, rt, target_date, val, _PLAUSIBILITY_MAX_DEVIATION,
+                        country, rt, target_date, situation_date, val, _PLAUSIBILITY_MAX_DEVIATION,
                         reference, raw_xml.decode("utf-8", errors="replace"),
                     )
             if fetched:
-                entries = [(country, rt, target_date, val) for rt, val in fetched.items()]
+                entries = [(country, rt, situation_date, val) for rt, val in fetched.items()]
                 _db_upsert_batch(entries)
                 with _cache_lock:
                     for rt, val in fetched.items():
-                        _vat_memory_cache[_cache_key(country, rt, target_date)] = val
+                        _vat_memory_cache[_cache_key(country, rt, situation_date)] = val
             if rate_type in fetched:
+                logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s (mois %s) -> %s%%",
+                            country, rate_type, target_date, situation_date, fetched[rate_type])
                 return fetched[rate_type]
             logger.debug(
-                "TEDB : réponse reçue pour %s au %s mais catégorie '%s' absente ou "
+                "[VAT_RATES] TEDB : réponse reçue pour %s au %s mais catégorie '%s' absente ou "
                 "rejetée (pays sans taux réduit de ce type, ou anomalie) — repli statique.",
                 country, target_date, rate_type,
             )
         else:
-            _mark_failed(country, target_date)
+            _mark_failed(country, situation_date)
 
     rate = _static_vat_rate_at_date(country, target_date, rate_type)
+    logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible/rejeté) %s/%s/%s -> %s%%",
+                country, rate_type, target_date, rate)
     with _cache_lock:
         _vat_memory_cache[key] = rate
     return rate
@@ -601,7 +695,7 @@ def clear_cache(persistent: bool = True) -> None:
         with conn, conn.cursor() as cur:
             cur.execute("DELETE FROM vat_rate_cache")
     except Exception as exc:
-        logger.warning("Impossible de vider le cache TVA dynamique Postgres : %s", exc)
+        logger.warning("[VAT_RATES] Impossible de vider le cache Postgres : %s", exc)
     finally:
         pool.putconn(conn)
 
@@ -622,7 +716,7 @@ def cache_info() -> dict:
             cur.execute("SELECT COUNT(*) FROM vat_rate_cache")
             info["db_entries"] = cur.fetchone()[0]
     except Exception as exc:
-        logger.warning("Cache TVA dynamique : lecture des stats Postgres échouée : %s", exc)
+        logger.warning("[VAT_RATES] lecture des stats Postgres échouée : %s", exc)
     finally:
         pool.putconn(conn)
     return info

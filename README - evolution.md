@@ -8141,3 +8141,43 @@ Fichiers modifiés : `tva_intracom/oss_export.py`, `tva_intracom/excel_report.py
 Validation : `py_compile` + `pyflakes` propres sur les deux fichiers modifiés (1 warning pré-existant sans rapport dans `sidebar.py` — variable de boucle `_dt` réutilisée en import, ligne ~1156, hors périmètre). Suite `pytest` : **281 passed / 0 failed**, aucune régression (pas de test dédié à ces modules UI Streamlit). Aucun impact scale-to-zero (aucune connexion/thread persistant introduit).
 
 Fichiers modifiés : `tva_intracom/ui/admin.py`, `tva_intracom/ui/sidebar.py`, `optimisations_en_attente.md`.
+
+## 2026-09-13 (3) — TVA dynamique TEDB : cause racine du taux ES erroné confirmée sur donnée réelle + périmètre restreint au taux STANDARD
+
+**Contexte** : suite du coupe-circuit posé le 2026-09-12 (2). Table `vat_rate_cache` supprimée par Matthieu côté Supabase (repart sur un schéma propre, recréé automatiquement par `_init_schema` au premier appel). Diagnostic mené via un script autonome (`diag_tedb.py`, hors dépôt, fourni à Matthieu) interrogeant TEDB en direct pour ES et FR — impossible de reproduire l'appel SOAP depuis le bac à sable de développement (domaine `ec.europa.eu` hors liste blanche réseau).
+
+**Cause racine confirmée sur XML réel** (et non plus supposée) : TEDB renvoie **deux entrées `type=STANDARD`** pour l'Espagne à la même date — 21.0% (Espagne continentale + Baléares, sans commentaire) et 7.0% (`comment` = "VAT - Canary Islands -", régime IGIC hors TVA UE). `_parse_tedb_response` faisait `result.setdefault("STANDARD", value)`, gardant systématiquement la **première entrée rencontrée dans l'ordre du document XML** — qui se trouve être celle des Canaries. La France n'a qu'une seule entrée STANDARD (20.0%), d'où l'absence de symptôme sur ce pays.
+
+**Bug secondaire trouvé en marge, corrigé dans la foulée** : le filtre de fiabilité `rate.type` (docstring module, point 3 : seuls `DEFAULT`/`EXEMPTED` sont fiables) était implémenté à l'envers dans le code — exclusion de 2 valeurs (`NOT_APPLICABLE`/`OUT_OF_SCOPE`) au lieu d'inclusion stricte des 2 valeurs fiables. Sans conséquence observée à ce jour (aucune autre valeur de `rate.type` rencontrée dans les fixtures réelles), mais latent.
+
+**Correctifs livrés (`vat_rates_db.py`)** :
+- `_parse_tedb_response` : en cas de plusieurs valeurs `STANDARD` distinctes pour un même (pays, date), le résultat est jugé **ambigu** — aucune valeur STANDARD n'est retournée (repli automatique sur `rates.py` côté appelant), avec un warning dédié listant chaque candidat et son commentaire. Aucune tentative de désambiguïsation par reconnaissance de texte libre dans `comment` (fragile, non structuré) — sujet documenté comme point ouvert si un client vend un jour spécifiquement vers les Canaries/Ceuta/Melilla (décision à valider avec le cabinet comptable le cas échéant).
+- Filtre `rate.type` corrigé en inclusion stricte (`DEFAULT`/`EXEMPTED` uniquement), conforme au docstring.
+- **Périmètre volontairement restreint au taux STANDARD** : `_is_tedb_eligible` ne retourne `True` que pour `rate_type == "STANDARD"` — FOOD/MEDICINES/PARKING (mapping `_CATEGORY_TO_TEDB`) restent en repli statique systématique pour l'instant (code non supprimé, juste non actif), le temps de valider le mécanisme sur le cas simple.
+- Logs source-of-truth explicites et préfixés `[VAT_RATES]` à chaque résolution (`source=L1_RAM` / `source=L2_POSTGRES` / `source=TEDB_FETCH` / `source=STATIC_FALLBACK`), et uniformisation du préfixe `[VAT_RATES]` sur tous les logs existants du module (résout la pollution visuelle avec les logs VIES/OSS en cours de calcul).
+- Coupe-circuit `VAT_DYNAMIC_TEDB_ENABLED` toujours désactivé par défaut — réactivation explicite à décider par Matthieu après test en environnement réel (le sandbox de développement ne peut pas atteindre `ec.europa.eu`).
+
+**Tests ajoutés** : `tests/test_vat_rates_db.py` (15 tests), avec deux fixtures XML **réelles** capturées en direct (`tests/fixtures/tedb/FR_standard_2025-07-01.xml`, `tests/fixtures/tedb/ES_standard_ambiguous_2026-01-01.xml`) — couvrant le parsing bas niveau, la non-régression explicite sur le cas ES (le taux ne doit jamais valoir 7.0), la restriction de périmètre STANDARD-only, le comportement de bout en bout de `get_vat_rate()` (cache L1, appel TEDB simulé, repli statique) et les logs source-of-truth.
+
+**Non fait dans cette session** : réactivation du flag en production (à faire par Matthieu une fois le comportement validé en réel) ; réactivation de FOOD/MEDICINES/PARKING (dépend de la validation du cas STANDARD en prod) ; désambiguïsation Canaries/Ceuta/Melilla (nécessite décision cabinet si le besoin se présente).
+
+Validation : `py_compile` + `pyflakes` propres. Suite `pytest` : **296 passed / 0 failed** (nouvelle baseline, 281 + 15 nouveaux tests), aucune régression.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tests/test_vat_rates_db.py` (nouveau), `tests/fixtures/tedb/FR_standard_2025-07-01.xml` (nouveau), `tests/fixtures/tedb/ES_standard_ambiguous_2026-01-01.xml` (nouveau), `README - evolution.md`.
+
+## 2026-09-13 (4) — TVA dynamique TEDB : correctif de lenteur/pollution de logs + cache mensuel
+
+**Constat (retour terrain Matthieu, flag activé en local)** : `source=TEDB_FETCH` fonctionnait bien (AT/DE/FR STANDARD corrects), mais l'app était très lente, avec des warnings `[VAT_RATES] TEDB : taux AT/FOOD ... rejeté` / `BE/FOOD ... rejeté` dans les logs — alors que FOOD est explicitement hors périmètre depuis la session (3).
+
+**Cause confirmée** : un seul appel SOAP TEDB par (pays, date) renvoie TOUTES les catégories du pays (STANDARD + une quinzaine de catégories REDUCED, ~30-60 Ko de XML avec tous les codes CN/CPA). `_parse_tedb_response` continuait d'extraire les catégories REDUCED mappées (`_CATEGORY_TO_TEDB` : FOOD/MEDICINES/PARKING) même si `_is_tedb_eligible` ne les autorise plus — ces valeurs étaient ensuite comparées au statique par le garde-fou de plausibilité, et le moindre écart déclenchait un `logger.warning` **avec dump du XML brut complet en entier**. C'est ce volume de logs (pas l'appel réseau lui-même) qui causait la lenteur perçue sur Streamlit Cloud.
+
+**Correctifs livrés** :
+- `_parse_tedb_response` : n'extrait plus QUE le taux STANDARD tant que `_PARSE_REDUCED_CATEGORIES = False` (nouvelle constante, à côté de `_CATEGORY_TO_TEDB`) — court-circuite dès la lecture du tag `<type>` pour les entrées non-STANDARD, sans même lire `<rate>`/`<category>`. Élimine à la source les warnings de plausibilité et les dumps XML pour des catégories jamais consommées. À réactiver en même temps que l'éligibilité TEDB sera étendue au-delà de STANDARD.
+- **Granularité mensuelle** (demande explicite Matthieu) : un taux de TVA standard en UE ne change jamais en cours de mois (mise en application légale au 1er du mois ou au 1er janvier). `get_vat_rate` normalise désormais systématiquement `target_date` au 1er du mois (`target_date.replace(day=1)`) **avant** toute clé de cache (L1/L2) et **avant** toute requête TEDB — la valeur mise en cache correspond donc explicitement à "le taux en vigueur au 1er du mois interrogé", jamais à "la première valeur vue par hasard ce mois-ci" (implémentation volontairement déterministe plutôt qu'un simple cache paresseux). Un seul appel réseau par (pays, mois) au lieu d'un par (pays, jour). Le repli statique (`rates.py`) continue d'utiliser la date exacte de la transaction, inchangé.
+- Hypothèse fiscale documentée dans le code (docstring `get_vat_rate`) : à confirmer avec le cabinet comptable si un contre-exemple de changement de taux en cours de mois était identifié un jour — sans quoi une seule journée de décalage serait mal servie pour tout le reste du mois. Pas bloquant pour cette implémentation (sûre par construction, réversible).
+
+**Tests ajoutés** (`tests/test_vat_rates_db.py`, 19 tests désormais) : absence d'extraction des catégories REDUCED (`_PARSE_REDUCED_CATEGORIES=False`), absence de warning sur des catégories non consommées, un seul appel TEDB partagé entre plusieurs dates du même mois (et vérification que l'appel effectif utilise bien le 1er du mois, pas une date arbitraire), et déclenchement d'un nouvel appel pour un mois différent.
+
+Validation : `py_compile` + `pyflakes` propres. Suite `pytest` : **300 passed / 0 failed** (nouvelle baseline, 296 + 4 nouveaux tests), aucune régression.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tests/test_vat_rates_db.py`, `README - evolution.md`.
