@@ -1294,6 +1294,47 @@ def _run_oss_loop(
     return results, refund_results, oss_summary
 
 
+def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> list[tuple[str, _date]]:
+    """Construit la liste (en SUPERSET volontaire, voir docstring de
+    prefetch_standard_rates) des couples (pays, date) susceptibles d'être
+    interrogés par compute_vat() sur ce lot, pour précharger les taux TEDB
+    en une seule passe parallélisée avant _run_oss_loop.
+
+    On ne réplique pas ici toute la logique de branchement fiscal de
+    compute_vat (Monaco, départ/destination, FBA...) — bien trop risqué de
+    la deviner/dupliquer sans se tromper. À la place, on prend l'union de
+    TOUTES les origines de pays effectivement passées à vat_rate() dans ce
+    module (grep : "FR" pour les cas Monaco/domestique, stock_country,
+    buyer_country), pour CHAQUE vente/avoir. Un couple en trop dans ce
+    SUPERSET ne coûte quasi rien (ineligible ou déjà en cache, voir
+    prefetch_standard_rates) ; un couple manquant ferait retomber
+    silencieusement sur un fetch à la demande dans la boucle — donc aucun
+    risque de correction, seulement une perte partielle de l'optimisation
+    dans un scénario non prévu ici.
+
+    Même règle de date que _vat_rate_tx_date dans _run_oss_loop : un avoir
+    (amount_ht < 0) utilise order_date (date de la vente d'origine) quand
+    disponible, sinon transaction_date.
+    """
+    pairs: list[tuple[str, _date]] = []
+    for sale in all_items_sorted:
+        raw_date = sale.transaction_date
+        if sale.amount_ht < 0 and sale.order_date:
+            raw_date = sale.order_date
+        if not raw_date:
+            continue
+        try:
+            tx_date = _date.fromisoformat(raw_date[:10])
+        except ValueError:
+            continue
+        pairs.append(("FR", tx_date))
+        if sale.stock_country:
+            pairs.append((sale.stock_country, tx_date))
+        if sale.buyer_country:
+            pairs.append((sale.buyer_country, tx_date))
+    return pairs
+
+
 def compute_all_with_vies(
         sales: list[Sale],
         scope_id: str,
@@ -1305,6 +1346,7 @@ def compute_all_with_vies(
         refunds: list[Sale] | None = None,
         vies_progress_callback=None,
         oss_progress_callback=None,
+        vat_rate_progress_callback=None,
         lang: str = "fr",
         currency: str = "EUR",
         symbol: str = "€",
@@ -1334,6 +1376,17 @@ def compute_all_with_vies(
                   — phase la plus longue sur un gros fichier, auparavant
                   silencieuse pour l'appelant (diagnostic 2026-08-27, voir
                   README - évolution.md).
+        vat_rate_progress_callback: optionnel, callable(done: int, total: int)
+                  appelé pendant le préchargement en lot des taux de TVA
+                  dynamiques (voir vat_rates_db.prefetch_standard_rates) —
+                  exécuté juste avant _run_oss_loop, quand la TVA dynamique
+                  TEDB est active (VAT_DYNAMIC_TEDB_ENABLED). Sans cela,
+                  les premiers ratés de cache (un par nouveau couple
+                  pays/mois) bloquaient silencieusement la boucle OSS sur
+                  un aller-retour réseau, sans aucune progression affichée
+                  entre la fin de VIES et le prochain tick OSS (retour
+                  terrain Matthieu, 2026-09-13). total = nombre de couples
+                  (pays, mois) uniques à traiter, PAS le nombre de lignes.
         refunds: liste des remboursements (montants négatifs). S'ils sont fournis,
                  leur montant OSS-éligible est déduit du cumul pour que le seuil
                  affiché reflète le CA OSS net (conformément à l'art. 59 ter directive TVA).
@@ -1732,6 +1785,18 @@ def compute_all_with_vies(
         return effective
 
     _lang, _curr, _sym = lang, currency, symbol
+
+    # Préchargement en lot des taux TVA dynamiques (voir docstring du
+    # paramètre vat_rate_progress_callback ci-dessus) : no-op quasi
+    # immédiat si VAT_DYNAMIC_TEDB_ENABLED est désactivé (aucun couple
+    # n'est éligible, voir vat_rates_db._is_tedb_eligible) — donc rien à
+    # protéger ici par un test explicite du flag, la fonction dégrade
+    # déjà silencieusement d'elle-même.
+    from .vat_rates_db import prefetch_standard_rates
+    prefetch_standard_rates(
+        _collect_vat_rate_prefetch_pairs(all_items_sorted),
+        progress_callback=vat_rate_progress_callback,
+    )
 
     results, refund_results, oss_summary = _run_oss_loop(
         all_items_sorted, refund_keys, marketplace_name,

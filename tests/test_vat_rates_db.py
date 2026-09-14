@@ -235,3 +235,90 @@ def test_vat_rate_public_api_unaffected_when_tedb_disabled():
     with patch.object(m, "get_secret", return_value=None):
         assert m.vat_rate("FR", "STANDARD", date(2025, 7, 1)) == Decimal("20")
         assert m.vat_rate("ES", "STANDARD", date(2026, 1, 1)) == Decimal("21")
+
+
+# ---------------------------------------------------------------------
+# Regression audit 2026-09-13 (6) : une panne TEDB transitoire ne doit
+# JAMAIS figer le taux sur le statique pour le reste du process — le
+# mecanisme de reessai apres _FAILED_PAIR_TTL_SECONDS doit rester actif.
+# ---------------------------------------------------------------------
+
+def test_transient_network_failure_does_not_poison_l1_cache_forever(tedb_enabled_no_db):
+    """Avant le correctif du 2026-09-13 (6) : un premier echec reseau
+    ecrivait le repli statique en cache L1 (sans TTL) -> plus jamais
+    ressayé, meme apres le retour de TEDB. Ce test aurait echoue sur
+    l'ancien code."""
+    root = _load_fixture("FR_standard_2025-07-01.xml")
+    fake_raw_xml = (FIXTURES_DIR / "FR_standard_2025-07-01.xml").read_bytes()
+
+    call_count = {"n": 0}
+
+    def _flaky_then_ok(iso_code, target_date):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return None  # simulate panne reseau (toutes tentatives epuisees)
+        return root, fake_raw_xml
+
+    with patch.object(m, "_request_tedb", side_effect=_flaky_then_ok):
+        # Premier appel : echec reseau -> repli statique, mais ne doit PAS
+        # figer le cache L1 (le futur appel doit pouvoir retenter).
+        rate1 = m.get_vat_rate("FR", "STANDARD", date(2025, 7, 1))
+        assert rate1 == Decimal("20")  # statique
+
+        # On force la fin de la fenetre d'echec temporaire pour simuler
+        # l'ecoulement de _FAILED_PAIR_TTL_SECONDS sans attendre 5 minutes.
+        m._failed_pairs.clear()
+
+        # Deuxieme appel, meme mois : doit retenter TEDB (pas bloque par
+        # un cache L1 pollue par le repli precedent) et reussir cette fois.
+        rate2 = m.get_vat_rate("FR", "STANDARD", date(2025, 7, 15))
+        assert rate2 == Decimal("20.0")
+        assert call_count["n"] == 2  # bien deux tentatives reseau distinctes
+
+
+def test_result_obtained_but_category_rejected_is_cached_in_l1(tedb_enabled_no_db, caplog):
+    """A l'inverse : quand TEDB REPOND mais que la categorie est absente/
+    rejetee (ex: cas ambigu ES), c'est un fait fiscal stable -> mise en
+    cache L1 attendue (pas de nouvel appel reseau pour la meme ligne)."""
+    root = _load_fixture("ES_standard_ambiguous_2026-01-01.xml")
+    fake_raw_xml = (FIXTURES_DIR / "ES_standard_ambiguous_2026-01-01.xml").read_bytes()
+
+    with patch.object(m, "_request_tedb", return_value=(root, fake_raw_xml)) as mocked:
+        m.get_vat_rate("ES", "STANDARD", date(2026, 1, 1))
+        # Deuxieme appel meme mois : doit venir du cache L1 (pas un nouvel
+        # appel reseau), car le rejet est un fait stable pour ce mois.
+        with caplog.at_level(logging.INFO, logger="tva_intracom.vat_rates_db"):
+            rate = m.get_vat_rate("ES", "STANDARD", date(2026, 1, 15))
+
+    assert rate == Decimal("21")
+    mocked.assert_called_once()
+    assert any("source=L1_RAM" in rec.message for rec in caplog.records)
+
+
+def test_permanently_failed_window_prevents_repeated_network_calls(tedb_enabled_no_db):
+    """Tant que la fenetre _FAILED_PAIR_TTL_SECONDS n'est pas ecoulee, on
+    ne doit PAS retenter le reseau a chaque ligne (protection deja
+    existante, ne doit pas regresser avec le correctif ci-dessus)."""
+    with patch.object(m, "_request_tedb", return_value=None) as mocked:
+        m.get_vat_rate("FR", "STANDARD", date(2025, 7, 1))
+        m.get_vat_rate("FR", "STANDARD", date(2025, 7, 2))
+        m.get_vat_rate("FR", "STANDARD", date(2025, 7, 3))
+
+    mocked.assert_called_once()  # 1 seul essai reseau pour les 3 lignes
+
+
+def test_permanently_failed_window_skips_l2_lookup_too(tedb_enabled_no_db):
+    """Audit 2026-09-13 (6), deuxieme volet : pendant la fenetre d'echec
+    temporaire, on ne doit meme plus interroger Postgres (L2) a chaque
+    ligne — seule la premiere ligne (avant que l'echec soit constate) a le
+    droit de le faire. Sans ce correctif, un gros fichier pendant une
+    panne TEDB ferait un aller-retour Postgres par ligne pour rien."""
+    with patch.object(m, "_request_tedb", return_value=None):
+        m.get_vat_rate("FR", "STANDARD", date(2025, 7, 1))  # constate l'echec
+
+    with patch.object(m, "_db_get_rate") as mocked_db:
+        m.get_vat_rate("FR", "STANDARD", date(2025, 7, 2))
+        m.get_vat_rate("FR", "STANDARD", date(2025, 7, 3))
+
+    mocked_db.assert_not_called()
+

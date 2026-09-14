@@ -4,12 +4,12 @@ Source unique de vérité pour toutes les données pays UE du projet :
   - EU_COUNTRIES, STANDARD_VAT_RATES, REDUCED_VAT_RATES (calcul moteur)
   - COUNTRY_NAMES, COUNTRY_ISO3 (noms et codes ISO 3166-1 alpha-3)
   - COUNTRY_FISCAL_META (déclarations fiscales locales — utilisé par app.py)
-  - VAT_RATE_HISTORY (taux historiques depuis le 01/01/2024 pour toutes catégories)
+  - VAT_RATE_HISTORY (taux historiques depuis le 01/01/2000)
 
 Taux actuels (STANDARD_VAT_RATES & REDUCED_VAT_RATES) : situation au 01/01/2026+.
 Taux historiques (VAT_RATE_HISTORY) : corrections applicables pour les
 fichiers couvrant la période 01/01/2024–présent.
-Périmètre historique : à partir du 01/01/2024 (antérieur = hors scope).
+Périmètre historique : à partir du 01/01/2000 (antérieur = hors scope).
 
 Source : Commission européenne, Taxation and Customs Union,
          tableau des taux TVA 2024/2026.
@@ -509,49 +509,154 @@ class _VatPeriod(NamedTuple):
 
 
 VAT_RATE_HISTORY: List[_VatPeriod] = [
-    # --- Estonie (EE) ---
-    _VatPeriod("EE", date(2024, 1, 1),  date(2025, 6, 30),  Decimal("22"), "STANDARD"),
-    _VatPeriod("EE", date(2025, 7, 1),  None,               Decimal("24"), "STANDARD"),
-    _VatPeriod("EE", date(2024, 1, 1),  date(2025, 6, 30),  Decimal("22"), "FOOD"),      # Suit le taux standard
-    _VatPeriod("EE", date(2024, 1, 1),  date(2025, 6, 30),  Decimal("22"), "CLOTHING"),  # Suit le taux standard
+    # --- AT ---
+    _VatPeriod("AT", date(2000, 1, 1) , None             , Decimal("20.0"), "STANDARD"),
+    # --- BE ---
+    _VatPeriod("BE", date(2000, 1, 1) , None             , Decimal("21.0"), "STANDARD"),
+    # --- BG ---
+    _VatPeriod("BG", date(2000, 1, 1) , None             , Decimal("20.0"), "STANDARD"),
+    # --- CY ---
+    _VatPeriod("CY", date(2000, 1, 1) , date(2000, 6, 30), Decimal("8.0"), "STANDARD"),
+    _VatPeriod("CY", date(2000, 7, 1) , date(2002, 6, 30), Decimal("10.0"), "STANDARD"),
+    _VatPeriod("CY", date(2002, 7, 1) , date(2002, 12, 31), Decimal("13.0"), "STANDARD"),
+    _VatPeriod("CY", date(2003, 1, 1) , date(2012, 2, 29), Decimal("15.0"), "STANDARD"),
+    _VatPeriod("CY", date(2012, 3, 1) , date(2013, 1, 13), Decimal("17.0"), "STANDARD"),
+    _VatPeriod("CY", date(2013, 1, 14), date(2014, 1, 12), Decimal("18.0"), "STANDARD"),
+    _VatPeriod("CY", date(2014, 1, 13), None             , Decimal("19.0"), "STANDARD"),
+    # --- CZ ---
+    _VatPeriod("CZ", date(2000, 1, 1) , date(2004, 4, 30), Decimal("22.0"), "STANDARD"),
+    _VatPeriod("CZ", date(2004, 5, 1) , date(2009, 12, 31), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("CZ", date(2010, 1, 1) , date(2012, 12, 31), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("CZ", date(2013, 1, 1) , None             , Decimal("21.0"), "STANDARD"),
+    # --- DE ---
+    _VatPeriod("DE", date(2000, 1, 1) , date(2006, 12, 31), Decimal("16.0"), "STANDARD"),
+    _VatPeriod("DE", date(2007, 1, 1) , date(2020, 6, 30), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("DE", date(2020, 7, 1) , date(2020, 12, 31), Decimal("16.0"), "STANDARD"),
+    _VatPeriod("DE", date(2021, 1, 1) , None             , Decimal("19.0"), "STANDARD"),
+    # --- DK ---
+    _VatPeriod("DK", date(2000, 1, 1) , None             , Decimal("25.0"), "STANDARD"),
+    # --- EE ---
+    _VatPeriod("EE", date(2000, 1, 1) , date(2009, 6, 30), Decimal("18.0"), "STANDARD"),
+    _VatPeriod("EE", date(2009, 7, 1) , date(2023, 12, 31), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("EE", date(2024, 1, 1) , date(2025, 6, 30), Decimal("22.0"), "STANDARD"),
+    _VatPeriod("EE", date(2025, 7, 1) , None             , Decimal("24.0"), "STANDARD"),
+    # --- ES ---
+    _VatPeriod("ES", date(2000, 1, 1) , date(2010, 6, 30), Decimal("16.0"), "STANDARD"),
+    _VatPeriod("ES", date(2010, 7, 1) , date(2012, 8, 31), Decimal("18.0"), "STANDARD"),
+    _VatPeriod("ES", date(2012, 9, 1) , None             , Decimal("21.0"), "STANDARD"),
+    # --- FI ---
+    _VatPeriod("FI", date(2000, 1, 1) , date(2010, 6, 30), Decimal("22.0"), "STANDARD"),
+    _VatPeriod("FI", date(2010, 7, 1) , date(2012, 12, 31), Decimal("23.0"), "STANDARD"),
+    _VatPeriod("FI", date(2013, 1, 1) , date(2024, 8, 31), Decimal("24.0"), "STANDARD"),
+    _VatPeriod("FI", date(2024, 9, 1) , None             , Decimal("25.5"), "STANDARD"),
+    # --- FR ---
+    _VatPeriod("FR", date(2000, 1, 1) , date(2000, 3, 31), Decimal("20.6"), "STANDARD"),
+    _VatPeriod("FR", date(2000, 4, 1) , date(2013, 12, 31), Decimal("19.6"), "STANDARD"),
+    _VatPeriod("FR", date(2014, 1, 1) , None             , Decimal("20.0"), "STANDARD"),
+    # --- GR ---
+    _VatPeriod("GR", date(2000, 1, 1) , date(2005, 3, 31), Decimal("18.0"), "STANDARD"),
+    _VatPeriod("GR", date(2005, 4, 1) , date(2010, 3, 14), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("GR", date(2010, 3, 15), date(2010, 6, 30), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("GR", date(2010, 7, 1) , date(2016, 5, 31), Decimal("23.0"), "STANDARD"),
+    _VatPeriod("GR", date(2016, 6, 1) , None             , Decimal("24.0"), "STANDARD"),
+    # --- HR ---
+    _VatPeriod("HR", date(2000, 1, 1) , date(2009, 7, 31), Decimal("22.0"), "STANDARD"),
+    _VatPeriod("HR", date(2009, 8, 1) , date(2012, 2, 29), Decimal("23.0"), "STANDARD"),
+    _VatPeriod("HR", date(2012, 3, 1) , None             , Decimal("25.0"), "STANDARD"),
+    # --- HU ---
+    _VatPeriod("HU", date(2000, 1, 1) , date(2005, 12, 31), Decimal("25.0"), "STANDARD"),
+    _VatPeriod("HU", date(2006, 1, 1) , date(2009, 6, 30), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("HU", date(2009, 7, 1) , date(2011, 12, 31), Decimal("25.0"), "STANDARD"),
+    _VatPeriod("HU", date(2012, 1, 1) , None             , Decimal("27.0"), "STANDARD"),
+    # --- IE ---
+    _VatPeriod("IE", date(2000, 1, 1) , date(2000, 12, 31), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("IE", date(2001, 1, 1) , date(2002, 2, 28), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("IE", date(2002, 3, 1) , date(2008, 11, 30), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("IE", date(2008, 12, 1), date(2009, 12, 31), Decimal("21.5"), "STANDARD"),
+    _VatPeriod("IE", date(2010, 1, 1) , date(2011, 12, 31), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("IE", date(2012, 1, 1) , date(2020, 8, 31), Decimal("23.0"), "STANDARD"),
+    _VatPeriod("IE", date(2020, 9, 1) , date(2021, 2, 28), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("IE", date(2021, 3, 1) , None             , Decimal("23.0"), "STANDARD"),
+    # --- IT ---
+    _VatPeriod("IT", date(2000, 1, 1) , date(2011, 9, 16), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("IT", date(2011, 9, 17), date(2013, 9, 30), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("IT", date(2013, 10, 1), None             , Decimal("22.0"), "STANDARD"),
+    # --- LT ---
+    _VatPeriod("LT", date(2000, 1, 1) , date(2008, 12, 31), Decimal("18.0"), "STANDARD"),
+    _VatPeriod("LT", date(2009, 1, 1) , date(2009, 8, 31), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("LT", date(2009, 9, 1) , None             , Decimal("21.0"), "STANDARD"),
+    # --- LU ---
+    _VatPeriod("LU", date(2000, 1, 1) , date(2014, 12, 31), Decimal("15.0"), "STANDARD"),
+    _VatPeriod("LU", date(2015, 1, 1) , date(2022, 12, 31), Decimal("17.0"), "STANDARD"),
+    _VatPeriod("LU", date(2023, 1, 1) , date(2023, 12, 31), Decimal("16.0"), "STANDARD"),
+    _VatPeriod("LU", date(2024, 1, 1) , None             , Decimal("17.0"), "STANDARD"),
+    # --- LV ---
+    _VatPeriod("LV", date(2000, 1, 1) , date(2008, 12, 31), Decimal("18.0"), "STANDARD"),
+    _VatPeriod("LV", date(2009, 1, 1) , date(2010, 12, 31), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("LV", date(2011, 1, 1) , date(2012, 6, 30), Decimal("22.0"), "STANDARD"),
+    _VatPeriod("LV", date(2012, 7, 1) , None             , Decimal("21.0"), "STANDARD"),
+    # --- MC ---
+    _VatPeriod("MC", date(2000, 1, 1) , date(2000, 3, 31), Decimal("20.6"), "STANDARD"),
+    _VatPeriod("MC", date(2000, 4, 1) , date(2013, 12, 31), Decimal("19.6"), "STANDARD"),
+    _VatPeriod("MC", date(2014, 1, 1) , None             , Decimal("20.0"), "STANDARD"),
+    # --- MT ---
+    _VatPeriod("MT", date(2000, 1, 1) , date(2003, 12, 31), Decimal("15.0"), "STANDARD"),
+    _VatPeriod("MT", date(2004, 1, 1) , None             , Decimal("18.0"), "STANDARD"),
+    # --- NL ---
+    _VatPeriod("NL", date(2000, 1, 1) , date(2000, 12, 31), Decimal("17.5"), "STANDARD"),
+    _VatPeriod("NL", date(2001, 1, 1) , date(2012, 9, 30), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("NL", date(2012, 10, 1), None             , Decimal("21.0"), "STANDARD"),
+    # --- PL ---
+    _VatPeriod("PL", date(2000, 1, 1) , date(2010, 12, 31), Decimal("22.0"), "STANDARD"),
+    _VatPeriod("PL", date(2011, 1, 1) , None             , Decimal("23.0"), "STANDARD"),
+    # --- PT ---
+    _VatPeriod("PT", date(2000, 1, 1) , date(2002, 6, 4) , Decimal("17.0"), "STANDARD"),
+    _VatPeriod("PT", date(2002, 6, 5) , date(2005, 6, 30), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("PT", date(2005, 7, 1) , date(2008, 6, 30), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("PT", date(2008, 7, 1) , date(2010, 6, 30), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("PT", date(2010, 7, 1) , date(2010, 12, 31), Decimal("21.0"), "STANDARD"),
+    _VatPeriod("PT", date(2011, 1, 1) , None             , Decimal("23.0"), "STANDARD"),
+    # --- RO ---
+    _VatPeriod("RO", date(2000, 1, 1) , date(2010, 6, 30), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("RO", date(2010, 7, 1) , date(2015, 12, 31), Decimal("24.0"), "STANDARD"),
+    _VatPeriod("RO", date(2016, 1, 1) , date(2016, 12, 31), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("RO", date(2017, 1, 1) , date(2025, 7, 31), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("RO", date(2025, 8, 1) , None             , Decimal("21.0"), "STANDARD"),
+    # --- SE ---
+    _VatPeriod("SE", date(2000, 1, 1) , None             , Decimal("25.0"), "STANDARD"),
+    # --- SI ---
+    _VatPeriod("SI", date(2000, 1, 1) , date(2001, 12, 31), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("SI", date(2002, 1, 1) , date(2013, 6, 30), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("SI", date(2013, 7, 1) , None             , Decimal("22.0"), "STANDARD"),
+    # --- SK ---
+    _VatPeriod("SK", date(2000, 1, 1) , date(2002, 12, 31), Decimal("23.0"), "STANDARD"),
+    _VatPeriod("SK", date(2003, 1, 1) , date(2003, 12, 31), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("SK", date(2004, 1, 1) , date(2010, 12, 31), Decimal("19.0"), "STANDARD"),
+    _VatPeriod("SK", date(2011, 1, 1) , date(2024, 12, 31), Decimal("20.0"), "STANDARD"),
+    _VatPeriod("SK", date(2025, 1, 1) , None             , Decimal("23.0"), "STANDARD"),
 
-    # --- Finlande (FI) ---
-    _VatPeriod("FI", date(2024, 1, 1),  date(2024, 8, 31),  Decimal("24"), "STANDARD"),
-    _VatPeriod("FI", date(2024, 9, 1),  None,               Decimal("25.5"), "STANDARD"),
-    # Livres, médicaments & super-réduits (10% en 2024 -> 14% en 2025 -> 13.5% en 2026 par défaut)
-    _VatPeriod("FI", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "BOOKS"),
-    _VatPeriod("FI", date(2025, 1, 1),  date(2025, 12, 31), Decimal("14"), "BOOKS"),
-    _VatPeriod("FI", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "MEDICINES"),
-    _VatPeriod("FI", date(2025, 1, 1),  date(2025, 12, 31), Decimal("14"), "MEDICINES"),
-    _VatPeriod("FI", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "SUPER_REDUCED"),
-    _VatPeriod("FI", date(2025, 1, 1),  date(2025, 12, 31), Decimal("14"), "SUPER_REDUCED"),
-    # Alimentation générale (14% stable en 2024/2025 -> passe à 13.5% en 2026 par défaut)
-    _VatPeriod("FI", date(2024, 1, 1),  date(2025, 12, 31), Decimal("14"), "FOOD"),
-    # Vêtements (suit le taux standard de près)
-    _VatPeriod("FI", date(2024, 1, 1),  date(2024, 8, 31),  Decimal("24"), "CLOTHING"),
-    _VatPeriod("FI", date(2024, 9, 1),  None,               Decimal("25.5"), "CLOTHING"),
-
-    # --- Roumanie (RO) ---
-    _VatPeriod("RO", date(2024, 1, 1),  date(2025, 7, 31),  Decimal("19"), "STANDARD"),
-    _VatPeriod("RO", date(2025, 8, 1),  None,               Decimal("21"), "STANDARD"),
-    _VatPeriod("RO", date(2024, 1, 1),  date(2025, 7, 31),  Decimal("19"), "CLOTHING"),  # Suit le taux standard
-
-    # --- Slovaquie (SK) ---
-    _VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("20"), "STANDARD"),
-    _VatPeriod("SK", date(2025, 1, 1),  None,               Decimal("23"), "STANDARD"),
-    # Réforme des taux réduits au 01/01/2025 (10% -> 5% sur l'essentiel)
-    _VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "BOOKS"),
-    _VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "FOOD"),
-    _VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "MEDICINES"),
-    _VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "SUPER_REDUCED"),
-    _VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("20"), "CLOTHING"),
-
-    # --- Espagne (ES) ---
-    # Mesures anti-inflation alimentaires : 0% puis 2% en 2024, retour à la normale (4%) en 2025
-    _VatPeriod("ES", date(2024, 1, 1),  date(2024, 9, 30),  Decimal("0"),  "FOOD"),
-    _VatPeriod("ES", date(2024, 10, 1), date(2024, 12, 31), Decimal("2"),  "FOOD"),
-    _VatPeriod("ES", date(2024, 1, 1),  date(2024, 9, 30),  Decimal("0"),  "SUPER_REDUCED"),
-    _VatPeriod("ES", date(2024, 10, 1), date(2024, 12, 31), Decimal("2"),  "SUPER_REDUCED"),
+    # --- Taux réduits historiques (préservés) ---
+_VatPeriod("EE", date(2024, 1, 1),  date(2025, 6, 30),  Decimal("22"), "FOOD"),      # Suit le taux standard
+_VatPeriod("EE", date(2024, 1, 1),  date(2025, 6, 30),  Decimal("22"), "CLOTHING"),  # Suit le taux standard
+_VatPeriod("FI", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "BOOKS"),
+_VatPeriod("FI", date(2025, 1, 1),  date(2025, 12, 31), Decimal("14"), "BOOKS"),
+_VatPeriod("FI", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "MEDICINES"),
+_VatPeriod("FI", date(2025, 1, 1),  date(2025, 12, 31), Decimal("14"), "MEDICINES"),
+_VatPeriod("FI", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "SUPER_REDUCED"),
+_VatPeriod("FI", date(2025, 1, 1),  date(2025, 12, 31), Decimal("14"), "SUPER_REDUCED"),
+_VatPeriod("FI", date(2024, 1, 1),  date(2025, 12, 31), Decimal("14"), "FOOD"),
+_VatPeriod("FI", date(2024, 1, 1),  date(2024, 8, 31),  Decimal("24"), "CLOTHING"),
+_VatPeriod("FI", date(2024, 9, 1),  None,               Decimal("25.5"), "CLOTHING"),
+_VatPeriod("RO", date(2024, 1, 1),  date(2025, 7, 31),  Decimal("19"), "CLOTHING"),  # Suit le taux standard
+_VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "BOOKS"),
+_VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "FOOD"),
+_VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "MEDICINES"),
+_VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("10"), "SUPER_REDUCED"),
+_VatPeriod("SK", date(2024, 1, 1),  date(2024, 12, 31), Decimal("20"), "CLOTHING"),
+_VatPeriod("ES", date(2024, 1, 1),  date(2024, 9, 30),  Decimal("0"),  "FOOD"),
+_VatPeriod("ES", date(2024, 10, 1), date(2024, 12, 31), Decimal("2"),  "FOOD"),
+_VatPeriod("ES", date(2024, 1, 1),  date(2024, 9, 30),  Decimal("0"),  "SUPER_REDUCED"),
+_VatPeriod("ES", date(2024, 10, 1), date(2024, 12, 31), Decimal("2"),  "SUPER_REDUCED"),
 ]
 
 # Index précalculé : (pays, catégorie) → liste de périodes (triées par date_from)

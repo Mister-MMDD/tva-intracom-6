@@ -780,10 +780,16 @@ if uploaded_files:
                 report(0.4 + min(done / total, 1.0) * 0.18,
                        _("calc_progress_vies_count", lang=_lang_for_thread, done=done, total=total))
 
+            def _vat_rate_progress_cb(done: int, total: int) -> None:
+                if total <= 0:
+                    return
+                report(0.58 + min(done / total, 1.0) * 0.05,
+                       _("calc_progress_vat_rates_count", lang=_lang_for_thread, done=done, total=total))
+
             def _oss_progress_cb(done: int, total: int) -> None:
                 if total <= 0:
                     return
-                report(0.58 + min(done / total, 1.0) * 0.37,
+                report(0.63 + min(done / total, 1.0) * 0.32,
                        _("calc_progress_oss_count", lang=_lang_for_thread, done=done, total=total))
 
             _results, _refund_results, _vies_summary, _oss_summary = compute_all_with_vies(
@@ -793,6 +799,7 @@ if uploaded_files:
                 refunds=_c_refunds if _c_refunds else None,
                 vies_progress_callback=_vies_progress_cb,
                 oss_progress_callback=_oss_progress_cb,
+                vat_rate_progress_callback=_vat_rate_progress_cb,
                 lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
                 ioss_own_number_active=ioss_own_number_active,
                 oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year)
@@ -1173,10 +1180,15 @@ if uploaded_files:
                         return
                     report(min(done / total, 1.0) * 0.3, _("calc_progress_vies_count", lang=_lang_for_thread, done=done, total=total))
 
+                def _vat_rate_progress_cb(done: int, total: int) -> None:
+                    if total <= 0:
+                        return
+                    report(0.3 + min(done / total, 1.0) * 0.05, _("calc_progress_vat_rates_count", lang=_lang_for_thread, done=done, total=total))
+
                 def _oss_progress_cb(done: int, total: int) -> None:
                     if total <= 0:
                         return
-                    report(0.3 + min(done / total, 1.0) * 0.55, _("calc_progress_oss_count", lang=_lang_for_thread, done=done, total=total))
+                    report(0.35 + min(done / total, 1.0) * 0.5, _("calc_progress_oss_count", lang=_lang_for_thread, done=done, total=total))
 
                 # Ventes ET avoirs sont désormais calculés en un seul appel
                 # (voir compute_all_with_vies / _run_oss_loop dans engine.py) :
@@ -1195,6 +1207,7 @@ if uploaded_files:
                     refunds=refunds if refunds else None,
                     vies_progress_callback=_vies_progress_cb,
                     oss_progress_callback=_oss_progress_cb,
+                    vat_rate_progress_callback=_vat_rate_progress_cb,
                     lang=_lang_for_thread, currency=_curr_for_thread, symbol=_sym_for_thread,
                     ioss_own_number_active=ioss_own_number_active,
                     oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year)

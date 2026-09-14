@@ -8181,3 +8181,43 @@ Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tests/test_vat_rates_db.py
 Validation : `py_compile` + `pyflakes` propres. Suite `pytest` : **300 passed / 0 failed** (nouvelle baseline, 296 + 4 nouveaux tests), aucune régression.
 
 Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tests/test_vat_rates_db.py`, `README - evolution.md`.
+
+## 2026-09-13 (5) — TVA dynamique TEDB : progression visible "Calcul TVA/OSS" + préchargement en lot par (pays, mois)
+
+**Constat (retour terrain Matthieu)** : après le correctif (4), le calcul est nettement plus rapide mais peut encore prendre du temps sans retour visuel entre la fin de la validation VIES et le prochain tick de la boucle OSS.
+
+**Analyse** : le libellé `calc_progress_oss_count` ("⏳ Calcul TVA/OSS : {done} / {total} lignes traitées") existait déjà et était bien câblé à `_run_oss_loop` — mais `_OSS_PROGRESS_TICK_EVERY = 500` ne déclenche le callback que tous les 500 lignes (ou à la dernière). Or c'est justement DANS cette boucle que `compute_vat()` appelle `vat_rate()`, qui déclenche un appel réseau TEDB synchrone au premier couple (pays, mois) rencontré. Résultat : sur les 500 premières lignes d'un lot couvrant plusieurs pays, chaque nouveau couple ajoute un aller-retour réseau bloquant, invisible tant que le tick suivant n'est pas atteint — d'où l'impression de gel entre le message VIES et l'apparition du message OSS.
+
+**Solution retenue (proposition de Matthieu)** : puisqu'un taux ne change qu'au 1er du mois (cf. session (4)), on peut identifier À L'AVANCE tous les couples (pays, mois) nécessaires à un lot de ventes/avoirs, et les précharger en un seul passage — avec sa propre barre de progression — AVANT de lancer la boucle OSS elle-même, qui ne fait alors plus que des lectures de cache instantanées.
+
+**Livré** :
+- `vat_rates_db.prefetch_standard_rates(pairs, progress_callback=...)` (nouveau) : déduplique les couples (pays, mois normalisé), ignore immédiatement ceux non éligibles TEDB ou déjà en cache L1/L2 (coût quasi nul), puis interroge TEDB **en parallèle** (`ThreadPoolExecutor`, réseau uniquement dans les threads workers — écritures Postgres faites séquentiellement dans le thread appelant après collecte, même contrainte architecturale que `vies_engine.validate_vat_numbers_parallel`) pour les couples manquants. Réutilise la même logique de validation/plausibilité/log que `get_vat_rate` via une fonction commune extraite au passage (`_process_fetch_result`) — un seul chemin de vérité, pas de duplication de la logique fiscale.
+- `engine._collect_vat_rate_prefetch_pairs` (nouveau) : construit un SUPERSET volontaire des couples (pays, date) susceptibles d'être interrogés par `compute_vat()` sur un lot donné (FR systématique + `stock_country` + `buyer_country` de chaque vente/avoir, avec la même règle de date que `_vat_rate_tx_date` — `order_date` pour un avoir si disponible, sinon `transaction_date`). Un couple en trop ne coûte presque rien (ignoré par `prefetch_standard_rates`) ; aucune tentative de reproduire la logique de branchement fiscal complète de `compute_vat` (Monaco, départ/destination, FBA...), jugé trop risqué à deviner/dupliquer.
+- `compute_all_with_vies` : nouveau paramètre `vat_rate_progress_callback`, appelle le préchargement juste avant `_run_oss_loop`. No-op quasi immédiat si `VAT_DYNAMIC_TEDB_ENABLED` est désactivé (comportement par défaut) — aucun test explicite du flag nécessaire côté `engine.py`, `_is_tedb_eligible` s'en charge déjà.
+- `app.py` (2 sites d'appel) : nouveau libellé `calc_progress_vat_rates_count` ("⏳ Chargement des taux de TVA : {done} / {total} couples pays/mois"), ajouté aux 7 langues (i18n toujours symétrique, vérifié programmatiquement). Plages de progression réajustées pour insérer cette nouvelle étape entre VIES et OSS.
+
+**Tests ajoutés** : `tests/test_vat_rate_prefetch.py` (13 tests) — construction du superset de couples (y compris règle avoir/order_date), dédoublonnage et parallélisation de `prefetch_standard_rates`, callback de progression, no-op si TEDB désactivé ou pays non éligible, résilience à un échec réseau partiel (un pays en échec n'empêche pas les autres), et non-régression du chemin `get_vat_rate` après un `prefetch_standard_rates` (plus aucun appel réseau ensuite, quel que soit le jour exact demandé dans le mois déjà préchargé).
+
+Validation : `py_compile` + `pyflakes` propres sur tous les fichiers modifiés. Suite `pytest` : **313 passed / 0 failed** (nouvelle baseline, 300 + 13 nouveaux tests), aucune régression.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tva_intracom/engine.py`, `app.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`, `tests/test_vat_rate_prefetch.py` (nouveau), `README - evolution.md`.
+
+## 2026-09-13 (6) — Audit du système taux static/dynamique : bug de cache trouvé et corrigé
+
+**Contexte** : demande explicite de Matthieu de faire un audit du mécanisme (sessions (3) à (5)) pendant qu'il teste en local, avant d'aller plus loin.
+
+**Bug trouvé (réel, pas cosmétique)** : en cas de panne réseau TEDB transitoire, `get_vat_rate` retombait sur le taux statique et le mettait en cache L1 **sans TTL**. Le cache L1 étant vérifié tout en haut de la fonction, à l'appel suivant pour le même (pays, mois) il court-circuitait tout — y compris le mécanisme `_is_permanently_failed`/`_FAILED_PAIR_TTL_SECONDS` (5 minutes) censé permettre un nouvel essai une fois la panne résorbée. Concrètement : une coupure réseau de quelques secondes figeait silencieusement le taux sur le statique **pour tout le reste de la session Streamlit**, même après le retour de TEDB — jusqu'au redémarrage du process.
+
+**Deuxième point trouvé dans la foulée** : l'ordre des vérifications faisait que, même en sachant déjà qu'un (pays, mois) était en échec temporaire (`_is_permanently_failed` = True), le code interrogeait quand même Postgres (cache L2) à **chaque ligne** avant de s'en apercevoir — inutile, puisqu'aucune écriture n'a pu se produire côté L2 depuis le constat d'échec. Sur un gros fichier pendant une panne TEDB, ça representait un aller-retour Postgres par ligne pour rien.
+
+**Correctifs livrés** (`get_vat_rate`, `prefetch_standard_rates`) :
+- Distinction explicite entre deux cas de repli statique, qui n'étaient pas traités différemment avant : (a) TEDB a **répondu** mais la catégorie demandée est absente/rejetée (cas ambigu ES, plausibilité...) — fait fiscal stable pour ce mois, mise en cache L1 conservée, correcte ; (b) l'appel réseau a **échoué** (panne) — **plus jamais mis en cache L1**, pour que le mécanisme de réessai après `_FAILED_PAIR_TTL_SECONDS` fonctionne réellement.
+- Réordonnancement : `_is_permanently_failed` est désormais vérifié **avant** la lecture Postgres (L2), pas après — court-circuite l'aller-retour DB pour chaque ligne tant que la panne dure. Même réordonnancement appliqué dans `prefetch_standard_rates` pour la cohérence (impact moindre ici, un seul passage par couple).
+
+**Tests ajoutés** (`tests/test_vat_rates_db.py`, 23 tests désormais) : simulation d'une panne réseau suivie d'un retour à la normale (vérifie que le deuxième appel retente bien TEDB et n'est pas bloqué par un cache L1 pollué — ce test aurait échoué sur l'ancien code) ; vérification que le cas "TEDB a répondu mais catégorie rejetée" reste bien mis en cache L1 (comportement correct à préserver) ; vérification qu'aucun appel Postgres n'est fait pendant la fenêtre d'échec temporaire.
+
+**Reste du module audité, rien d'autre trouvé** : couverture de tous les pays `_TEDB_SUPPORTED` par les tables statiques (garde-fou de plausibilité jamais aveugle), séparation stricte réseau (threads workers)/Postgres (thread appelant) dans `prefetch_standard_rates` conforme à la contrainte scale-to-zero, coût de `get_secret()` négligeable (accès mémoire pur, pas d'I/O par appel).
+
+Validation : `py_compile` + `pyflakes` propres. Suite `pytest` : **317 passed / 0 failed** (nouvelle baseline, 313 + 4 nouveaux/modifiés), aucune régression.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tests/test_vat_rates_db.py`, `README - evolution.md`.

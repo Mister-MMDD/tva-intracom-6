@@ -540,6 +540,48 @@ def _is_tedb_eligible(country: str, rate_type: str) -> bool:
     return tedb_iso in _TEDB_SUPPORTED
 
 
+def _process_fetch_result(
+    country: str, situation_date: date, result: Optional[tuple[dict[str, Decimal], bytes]],
+) -> dict[str, Decimal]:
+    """Traite le résultat brut d'un fetch TEDB (filtre de plausibilité,
+    warning + log XML sur rejet, écriture cache L1+L2) et retourne le
+    dict final {rate_type: valeur} accepté pour ce (pays, mois).
+
+    Factorisé pour être utilisé à la fois par get_vat_rate() (fetch à la
+    demande, une paire à la fois) et par prefetch_standard_rates() (fetch
+    en lot avant la boucle de calcul, voir docstring de cette dernière) —
+    la logique de validation/log/cache doit rester identique dans les deux
+    cas, un seul et même chemin de vérité."""
+    if result is None:
+        _mark_failed(country, situation_date)
+        return {}
+
+    raw_fetched, raw_xml = result
+    fetched: dict[str, Decimal] = {}
+    for rt, val in raw_fetched.items():
+        if _is_plausible(country, rt, val):
+            fetched[rt] = val
+        else:
+            reference = (
+                _STATIC_STANDARD_RATES.get(country) if rt == "STANDARD"
+                else _STATIC_REDUCED_RATES.get(country, {}).get(rt)
+            )
+            logger.warning(
+                "[VAT_RATES] TEDB : taux %s/%s au mois %s = %s%% rejeté (écart > %s points vs "
+                "référence statique %s%%) — repli statique. Réponse XML brute "
+                "ci-dessous pour diagnostic :\n%s",
+                country, rt, situation_date, val, _PLAUSIBILITY_MAX_DEVIATION,
+                reference, raw_xml.decode("utf-8", errors="replace"),
+            )
+    if fetched:
+        entries = [(country, rt, situation_date, val) for rt, val in fetched.items()]
+        _db_upsert_batch(entries)
+        with _cache_lock:
+            for rt, val in fetched.items():
+                _vat_memory_cache[_cache_key(country, rt, situation_date)] = val
+    return fetched
+
+
 def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     """Retourne le taux de TVA applicable pour un pays, un type de taux et une date.
 
@@ -569,6 +611,16 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     la transaction (pas la date normalisée) : son mécanisme d'historique
     par date n'a pas besoin de cette optimisation et on ne veut rien
     changer à son comportement existant.
+
+    NOTE PERFORMANCE (2026-09-13) : dans un traitement en masse (moteur de
+    calcul, voir engine.py::_run_oss_loop), appeler cette fonction ligne à
+    ligne signifie que les premiers ratés de cache (un par nouveau couple
+    pays/mois rencontré) bloquent la boucle sur un aller-retour réseau
+    synchrone — invisible pour l'utilisateur tant que le prochain "tick" de
+    progression n'est pas atteint. Voir prefetch_standard_rates() pour
+    charger TOUS les couples (pays, mois) nécessaires en une seule passe
+    parallélisée AVANT de lancer la boucle ligne à ligne, avec sa propre
+    progression affichable.
     """
     country = country.upper()
     rate_type = rate_type.upper()
@@ -590,6 +642,20 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
             _vat_memory_cache[key] = rate
         return rate
 
+    if _is_permanently_failed(country, situation_date):
+        # Panne déjà constatée pour ce (pays, mois) il y a moins de
+        # _FAILED_PAIR_TTL_SECONDS : inutile de vérifier le cache L2
+        # (aucune écriture n'a pu s'y produire depuis ce constat d'échec —
+        # voir _process_fetch_result, _mark_failed n'est déclenché que
+        # lorsque le fetch réseau échoue totalement, donc rien de nouveau
+        # à lire côté Postgres). Sans ce court-circuit, chaque ligne d'un
+        # gros fichier referait un aller-retour Postgres pour rien tant
+        # que la panne dure (audit 2026-09-13 (6)).
+        rate = _static_vat_rate_at_date(country, target_date, rate_type)
+        logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
+                    _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
+        return rate
+
     cached = _db_get_rate(country, rate_type, situation_date)
     if cached is not None:
         logger.info("[VAT_RATES] source=L2_POSTGRES %s/%s/%s (mois %s) -> %s%%",
@@ -598,50 +664,158 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
             _vat_memory_cache[key] = cached
         return cached
 
-    if not _is_permanently_failed(country, situation_date):
-        result = _fetch_tedb_rates(country, situation_date)
-        if result:
-            raw_fetched, raw_xml = result
-            fetched: dict[str, Decimal] = {}
-            for rt, val in raw_fetched.items():
-                if _is_plausible(country, rt, val):
-                    fetched[rt] = val
-                else:
-                    reference = (
-                        _STATIC_STANDARD_RATES.get(country) if rt == "STANDARD"
-                        else _STATIC_REDUCED_RATES.get(country, {}).get(rt)
-                    )
-                    logger.warning(
-                        "[VAT_RATES] TEDB : taux %s/%s au %s (mois %s) = %s%% rejeté (écart > %s points vs "
-                        "référence statique %s%%) — repli statique. Réponse XML brute "
-                        "ci-dessous pour diagnostic :\n%s",
-                        country, rt, target_date, situation_date, val, _PLAUSIBILITY_MAX_DEVIATION,
-                        reference, raw_xml.decode("utf-8", errors="replace"),
-                    )
-            if fetched:
-                entries = [(country, rt, situation_date, val) for rt, val in fetched.items()]
-                _db_upsert_batch(entries)
-                with _cache_lock:
-                    for rt, val in fetched.items():
-                        _vat_memory_cache[_cache_key(country, rt, situation_date)] = val
-            if rate_type in fetched:
-                logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s (mois %s) -> %s%%",
-                            country, rate_type, target_date, situation_date, fetched[rate_type])
-                return fetched[rate_type]
-            logger.debug(
-                "[VAT_RATES] TEDB : réponse reçue pour %s au %s mais catégorie '%s' absente ou "
-                "rejetée (pays sans taux réduit de ce type, ou anomalie) — repli statique.",
-                country, target_date, rate_type,
-            )
-        else:
-            _mark_failed(country, situation_date)
+    result = _fetch_tedb_rates(country, situation_date)
+    fetched = _process_fetch_result(country, situation_date, result)
+    if rate_type in fetched:
+        logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s (mois %s) -> %s%%",
+                    country, rate_type, target_date, situation_date, fetched[rate_type])
+        return fetched[rate_type]
+    if result is not None:
+        # Réponse TEDB obtenue mais catégorie absente/rejetée (cas
+        # ambigu, plausibilité, ou pays sans ce taux réduit) : fait
+        # fiscal stable pour ce (pays, mois) — sûr de mettre en cache
+        # L1, aucune raison qu'un nouvel appel donne un résultat
+        # différent dans la même session.
+        logger.debug(
+            "[VAT_RATES] TEDB : réponse reçue pour %s au mois %s mais catégorie '%s' absente ou "
+            "rejetée (pays sans taux réduit de ce type, ou anomalie) — repli statique.",
+            country, situation_date, rate_type,
+        )
+        rate = _static_vat_rate_at_date(country, target_date, rate_type)
+        logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB répondu, catégorie rejetée) %s/%s/%s -> %s%%",
+                    country, rate_type, target_date, rate)
+        with _cache_lock:
+            _vat_memory_cache[key] = rate
+        return rate
 
+    # result is None : l'appel réseau vient d'échouer (voir
+    # _process_fetch_result -> _mark_failed). Volontairement PAS mis en
+    # cache L1 : le cache L1 n'a pas de TTL, donc le mettre en cache ici
+    # figerait silencieusement le taux sur le statique pour tout le reste
+    # du process, même une fois TEDB de nouveau joignable — annulant de
+    # facto le mécanisme de réessai après _FAILED_PAIR_TTL_SECONDS. Bug
+    # identifié lors de l'audit du 2026-09-13 (6) : avant ce correctif,
+    # une simple coupure réseau transitoire figeait le taux sur le
+    # statique jusqu'au redémarrage du process.
     rate = _static_vat_rate_at_date(country, target_date, rate_type)
-    logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible/rejeté) %s/%s/%s -> %s%%",
-                country, rate_type, target_date, rate)
-    with _cache_lock:
-        _vat_memory_cache[key] = rate
+    logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
+                _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
     return rate
+
+
+def prefetch_standard_rates(
+    pairs,
+    *,
+    max_workers: int = 8,
+    progress_callback=None,
+) -> None:
+    """Précharge en une seule passe le taux STANDARD pour tous les couples
+    (pays, date de transaction) fournis — pensé pour être appelé UNE FOIS
+    avant une boucle de calcul en masse (voir engine.py), plutôt que de
+    laisser chaque ligne déclencher son propre aller-retour réseau au fil
+    de l'eau (voir note de performance dans get_vat_rate()).
+
+    Args:
+        pairs: itérable de (country: str, target_date: date). Chaque date
+            est normalisée au 1er du mois (même granularité que
+            get_vat_rate) — peu importe le jour exact fourni ici, seul le
+            couple (pays, mois) compte. Un simple SUPERSET des couples
+            réellement nécessaires est parfaitement sûr à passer ici : les
+            couples non éligibles TEDB (_is_tedb_eligible) ou déjà en
+            cache sont ignorés quasi gratuitement, sans appel réseau.
+        max_workers: nombre de requêtes SOAP TEDB menées en parallèle.
+            Threads de courte durée, aucune connexion/pool persistant —
+            même contrainte scale-to-zero que
+            vies_engine.validate_vat_numbers_parallel, dont ce mécanisme
+            s'inspire directement (réseau UNIQUEMENT dans les threads
+            workers, aucun accès Postgres depuis un thread — les écritures
+            cache L1/L2 sont faites séquentiellement dans le thread
+            appelant après collecte de tous les résultats réseau).
+        progress_callback: optionnel, callable(done: int, total: int),
+            appelé après chaque couple (pays, mois) traité (cache hit
+            immédiat ou fin de fetch réseau) — total = nombre de couples
+            UNIQUES et éligibles à traiter, pas le nombre de lignes de
+            vente d'origine (peut donc atteindre 100% bien avant que la
+            boucle de calcul elle-même n'affiche sa propre progression).
+    """
+    # Normalisation + déduplication (pays, mois) — potentiellement des
+    # dizaines de milliers de lignes en entrée pour une poignée de couples
+    # distincts en sortie (un fichier Amazon typique couvre peu de pays et
+    # peu de mois à la fois).
+    normalized: set[tuple[str, date]] = set()
+    for country, d in pairs:
+        c = (country or "").upper()
+        if not c:
+            continue
+        normalized.add((c, d.replace(day=1)))
+
+    to_fetch: list[tuple[str, date]] = []
+    for country, situation_date in normalized:
+        if not _is_tedb_eligible(country, "STANDARD"):
+            continue
+        key = _cache_key(country, "STANDARD", situation_date)
+        with _cache_lock:
+            if key in _vat_memory_cache:
+                continue
+        if _is_permanently_failed(country, situation_date):
+            continue
+        if _db_get_rate(country, "STANDARD", situation_date) is not None:
+            # Déjà en L2 : get_vat_rate() le retrouvera directement (L1
+            # miss mais L2 hit) sans repasser par le réseau — pas la peine
+            # de le committer nous-mêmes ici, juste de le compter comme
+            # "traité" pour la barre de progression.
+            continue
+        to_fetch.append((country, situation_date))
+
+    total = len(normalized)
+    done = 0
+
+    def _tick() -> None:
+        nonlocal done
+        done += 1
+        if progress_callback is not None:
+            try:
+                progress_callback(done, total)
+            except Exception:
+                # Même posture que _run_oss_loop / validate_vat_numbers_parallel :
+                # un callback défaillant ne doit jamais faire échouer le calcul.
+                pass
+
+    # Couples déjà résolus (cache hit immédiat ou ineligibles) : comptés
+    # tout de suite pour que la barre de progression parte d'un état
+    # cohérent plutôt que de rester bloquée à 0% pendant tout le fetch réseau.
+    for _ in range(total - len(to_fetch)):
+        _tick()
+
+    if not to_fetch:
+        return
+
+    if len(to_fetch) == 1:
+        country, situation_date = to_fetch[0]
+        result = _fetch_tedb_rates(country, situation_date)
+        _process_fetch_result(country, situation_date, result)
+        _tick()
+        return
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as executor:
+        futures = {
+            executor.submit(_fetch_tedb_rates, country, situation_date): (country, situation_date)
+            for country, situation_date in to_fetch
+        }
+        for future in as_completed(futures):
+            country, situation_date = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                logger.warning(
+                    "[VAT_RATES] prefetch_standard_rates : échec inattendu pour %s/%s : %s",
+                    country, situation_date, exc,
+                )
+                result = None
+            _process_fetch_result(country, situation_date, result)
+            _tick()
 
 
 @lru_cache(maxsize=20_000)
