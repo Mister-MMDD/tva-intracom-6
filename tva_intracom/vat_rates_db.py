@@ -815,24 +815,6 @@ def prefetch_standard_rates(
             continue
         normalized.add((c, d))
 
-    to_fetch: list[tuple[str, date]] = []
-    for country, situation_date in normalized:
-        if not _is_tedb_eligible(country, "STANDARD"):
-            continue
-        key = _cache_key(country, "STANDARD", situation_date)
-        with _cache_lock:
-            if key in _vat_memory_cache:
-                continue
-        if _is_permanently_failed(country, situation_date):
-            continue
-        if _db_get_rate(country, "STANDARD", situation_date) is not None:
-            # Déjà en L2 : get_vat_rate() le retrouvera directement (L1
-            # miss mais L2 hit) sans repasser par le réseau — pas la peine
-            # de le committer nous-mêmes ici, juste de le compter comme
-            # "traité" pour la barre de progression.
-            continue
-        to_fetch.append((country, situation_date))
-
     total = len(normalized)
     done = 0
 
@@ -847,11 +829,41 @@ def prefetch_standard_rates(
                 # un callback défaillant ne doit jamais faire échouer le calcul.
                 pass
 
-    # Couples déjà résolus (cache hit immédiat ou ineligibles) : comptés
-    # tout de suite pour que la barre de progression parte d'un état
-    # cohérent plutôt que de rester bloquée à 0% pendant tout le fetch réseau.
-    for _ in range(total - len(to_fetch)):
-        _tick()
+    # Signal immédiat (0/total) AVANT même de commencer la pré-vérification
+    # ci-dessous : sans ça, le texte de progression affiché à l'écran reste
+    # celui de l'étape précédente (ex. "VIES : 532/532 vérifiés") pendant
+    # toute la durée de cette boucle — plusieurs secondes, un aller-retour
+    # Postgres par pays — car aucun tick n'était émis avant sa fin complète
+    # (diagnostic 2026-09-14). Un total de 0 (rien à précharger) ne déclenche
+    # rien : le callable côté UI ignore déjà total<=0.
+    if progress_callback is not None and total > 0:
+        try:
+            progress_callback(0, total)
+        except Exception:
+            pass
+
+    to_fetch: list[tuple[str, date]] = []
+    for country, situation_date in normalized:
+        if not _is_tedb_eligible(country, "STANDARD"):
+            _tick()
+            continue
+        key = _cache_key(country, "STANDARD", situation_date)
+        with _cache_lock:
+            if key in _vat_memory_cache:
+                _tick()
+                continue
+        if _is_permanently_failed(country, situation_date):
+            _tick()
+            continue
+        if _db_get_rate(country, "STANDARD", situation_date) is not None:
+            # Déjà en L2 (ou résolu en mémoire via l'historique pays, voir
+            # _load_country_history) : get_vat_rate() le retrouvera
+            # directement sans repasser par le réseau — pas la peine de le
+            # committer nous-mêmes ici, juste de le compter comme "traité"
+            # pour la barre de progression.
+            _tick()
+            continue
+        to_fetch.append((country, situation_date))
 
     if not to_fetch:
         return
