@@ -241,7 +241,20 @@ def _load_country_history(country: str, rate_type: str) -> list[tuple[date, Deci
                 """,
                 (country, rate_type),
             )
-            history = [(row[0], Decimal(str(row[1]))) for row in cur.fetchall()]
+            # Sécurité sur les types de données : certains exports/imports SQL ou drivers
+            # peuvent renvoyer des dates sous forme de chaînes de caractères.
+            history = []
+            for row in cur.fetchall():
+                d = row[0]
+                if isinstance(d, str):
+                    try:
+                        d = date.fromisoformat(d)
+                    except ValueError:
+                        # Si le format n'est pas ISO, on laisse bisect lever l'erreur
+                        # plus loin pour diagnostic, mais on tente au moins l'ISO.
+                        pass
+                if isinstance(d, date):
+                    history.append((d, Decimal(str(row[1]))))
     except Exception as exc:
         logger.warning("[VAT_RATES] chargement historique Postgres échoué pour %s/%s : %s",
                         country, rate_type, exc)
@@ -533,13 +546,23 @@ def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: O
         if len(distinct_values) == 1:
             result["STANDARD"] = standard_candidates[0][0]
         else:
-            logger.warning(
-                "[VAT_RATES] TEDB : %d valeurs STANDARD distinctes et incompatibles reçues pour "
-                "%s au %s (probable territoire spécial, ex. régime IGIC Canaries pour "
-                "ES) — résultat jugé ambigu, repli statique. Candidats : %s",
-                len(distinct_values), country, target_date,
-                [f"{v}% ({c or 'sans commentaire'})" for v, c in standard_candidates],
-            )
+            # DESAMBIGUÏSATION (2026-09-15) : cas typique ES (Continent 21% vs Canaries 7%).
+            # Si l'un des candidats correspond exactement à notre référence statique,
+            # on le privilégie au lieu de rejeter tout le bloc.
+            reference = _STATIC_STANDARD_RATES.get(country)
+            matches = [v for v, _ in standard_candidates if reference is not None and v == reference]
+            if len(matches) == 1:
+                result["STANDARD"] = matches[0]
+                logger.debug("[VAT_RATES] TEDB : ambiguïté résolue pour %s (correspondance statique %s%%).",
+                             country, matches[0])
+            else:
+                logger.warning(
+                    "[VAT_RATES] TEDB : %d valeurs STANDARD distinctes et incompatibles reçues pour "
+                    "%s au %s (probable territoire spécial, ex. régime IGIC Canaries pour "
+                    "ES) — résultat jugé ambigu, repli statique. Candidats : %s",
+                    len(distinct_values), country, target_date,
+                    [f"{v}% ({c or 'sans commentaire'})" for v, c in standard_candidates],
+                )
 
     return result
 
@@ -562,36 +585,36 @@ def _fetch_tedb_rates(country: str, target_date: date) -> Optional[tuple[dict[st
 # d'environnement/secret VAT_DYNAMIC_TEDB_ENABLED=true.
 # ------------------------------------------------------------------
 def _dynamic_tedb_enabled() -> bool:
+    """Détermine si la TVA dynamique (TEDB) est active.
+
+    BASCULE 2026-09-15 (demande utilisateur) : Activée par DÉFAUT pour
+    pallier les problèmes de lecture de secrets en production. La sécurité
+    repose désormais sur le garde-fou de plausibilité (écart max toléré)
+    plutôt que sur une activation manuelle.
+    """
     raw = get_secret("VAT_DYNAMIC_TEDB_ENABLED")
 
-    # Si absent, on cherche une variante de casse (Streamlit secrets est sensible à la casse)
+    # Si absent, on cherche une variante de casse
     if raw is None:
         try:
             import streamlit as st
             if st is not None:
-                # On cherche une clé qui ressemble (insensible à la casse)
                 for k in st.secrets.keys():
                     if k.upper() == "VAT_DYNAMIC_TEDB_ENABLED":
                         raw = st.secrets.get(k)
-                        logger.info("[VAT_RATES] Secret trouvé avec une casse différente : %s", k)
                         break
         except Exception:
             pass
 
+    # Si toujours absent (None), on active par défaut
+    if raw is None:
+        return True
+
+    # Si présent, on ne désactive que si explicitement demandé
     if isinstance(raw, bool):
         return raw
     val = str(raw or "").strip().lower()
-    enabled = val in ("1", "true", "yes", "on")
-
-    # Log de diagnostic si on a un secret mais qu'il n'est pas interprété comme True
-    if not enabled and raw is not None:
-        logger.warning("[VAT_RATES] Secret VAT_DYNAMIC_TEDB_ENABLED trouvé (%r) mais interprété comme False.", raw)
-    elif raw is None:
-        # Ce log ne sortira qu'une fois par process via lru_cache ou si on appelle souvent
-        # On le limite pour ne pas polluer, mais c'est utile pour le diagnostic initial
-        pass
-
-    return enabled
+    return val not in ("0", "false", "no", "off")
 
 
 # Écart maximal toléré (en points de %) entre un taux STANDARD renvoyé par
@@ -633,17 +656,18 @@ def _is_tedb_eligible(country: str, rate_type: str) -> bool:
 
 
 def _process_fetch_result(
-    country: str, situation_date: date, result: Optional[tuple[dict[str, Decimal], bytes]],
+    country: str,
+    situation_date: date,
+    result: Optional[tuple[dict[str, Decimal], bytes]],
+    requested_rate_type: str = "STANDARD",
 ) -> dict[str, Decimal]:
     """Traite le résultat brut d'un fetch TEDB (filtre de plausibilité,
-    warning + log XML sur rejet, écriture cache L1+L2) et retourne le
-    dict final {rate_type: valeur} accepté pour ce (pays, mois).
+    warning + log XML sur rejet, écriture cache L1+L2).
 
-    Factorisé pour être utilisé à la fois par get_vat_rate() (fetch à la
-    demande, une paire à la fois) et par prefetch_standard_rates() (fetch
-    en lot avant la boucle de calcul, voir docstring de cette dernière) —
-    la logique de validation/log/cache doit rester identique dans les deux
-    cas, un seul et même chemin de vérité."""
+    requested_rate_type : permet de persister le fallback statique en base
+    si TEDB a répondu mais n'a pas fourni ce taux (ex: ambiguïté rejetée),
+    évitant ainsi de re-fetcher par le réseau au prochain appel (performance).
+    """
     if result is None:
         _mark_failed(country, situation_date)
         return {}
@@ -665,6 +689,14 @@ def _process_fetch_result(
                 country, rt, situation_date, val, _PLAUSIBILITY_MAX_DEVIATION,
                 reference, raw_xml.decode("utf-8", errors="replace"),
             )
+
+    # PERSISTANCE DU FALLBACK (2026-09-15) : si le taux demandé n'a pas pu être
+    # extrait (ambiguïté non résolue ou rejet), on enregistre le taux statique
+    # en base pour que les appels suivants soient instantanés (L2).
+    if requested_rate_type not in fetched:
+        fallback = _static_vat_rate_at_date(country, situation_date, requested_rate_type)
+        fetched[requested_rate_type] = fallback
+
     if fetched:
         entries = [(country, rt, situation_date, val) for rt, val in fetched.items()]
         _db_upsert_batch(entries)
@@ -767,7 +799,7 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         return cached
 
     result = _fetch_tedb_rates(country, situation_date)
-    fetched = _process_fetch_result(country, situation_date, result)
+    fetched = _process_fetch_result(country, situation_date, result, requested_rate_type=rate_type)
     if rate_type in fetched:
         logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s -> %s%%",
                     country, rate_type, target_date, fetched[rate_type])
@@ -928,7 +960,7 @@ def prefetch_standard_rates(
                     country, situation_date, exc,
                 )
                 result = None
-            _process_fetch_result(country, situation_date, result)
+            _process_fetch_result(country, situation_date, result, requested_rate_type="STANDARD")
             _tick()
 
 
