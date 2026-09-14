@@ -8221,3 +8221,19 @@ Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tva_intracom/engine.py`, `
 Validation : `py_compile` + `pyflakes` propres. Suite `pytest` : **317 passed / 0 failed** (nouvelle baseline, 313 + 4 nouveaux/modifiés), aucune régression.
 
 Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tests/test_vat_rates_db.py`, `README - evolution.md`.
+
+## 2026-09-14 — Correctif granularité historique TVA (mid-month changes)
+
+**Constat** : l'hypothèse d'une granularité mensuelle fixe (taux ne changeant qu'au 1er du mois) était incorrecte — certains pays (ex: Grèce 15/03/2010, Portugal 05/06/2002) ont des changements en cours de mois. La normalisation `.replace(day=1)` écrasait ces variations dans le cache L1/L2.
+
+**Correctifs livrés (`vat_rates_db.py`)** :
+- **Suppression de la normalisation mensuelle** : `get_vat_rate` et `prefetch_standard_rates` utilisent désormais la date exacte de transaction.
+- **Logique de recherche "Milestone"** : `_db_get_rate` ne cherche plus par égalité stricte (`=`) mais par borne supérieure (`<= situation_date ORDER BY situation_date DESC LIMIT 1`).
+- **Conséquence architecture** : la base de données ne contient désormais que les points d'inflexion (milestones) de l'historique. Une recherche pour n'importe quelle date entre deux milestones frappera le milestone précédent en DB, garantissant l'exactitude sans redondance.
+- **Performance** : réduction drastique du nombre de lignes nécessaires pour pré-remplir l'historique (98 milestones au lieu de ~9300 entrées mensuelles).
+
+**Script SQL de peuplement** : généré et fourni à Matthieu pour vider et remplir proprement la table `vat_rate_cache` avec l'historique standard complet depuis 2000 issu de `rates.py`.
+
+Validation : `py_compile` propre. Tests manuels sur les cas GR (2010-03-15) confirmés via le nouveau script SQL.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `README - evolution.md`.

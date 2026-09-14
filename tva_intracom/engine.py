@@ -1717,20 +1717,6 @@ def compute_all_with_vies(
             return sale
 
         if not (sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number and sale.buyer_vat_valid):
-            # DEBUG TEMPORAIRE (2026-09-12, diagnostic retour terrain "9 au lieu
-            # de 10 dans le tableau VIES") : trace toute vente B2B avec un n° de
-            # TVA renseigné qui sort ICI, AVANT toute entrée dans
-            # vies_summary.reclassifications — donc invisible dans le tableau
-            # de catégorisation, sans jamais être envoyée à VIES. À retirer une
-            # fois le diagnostic terminé.
-            if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number:
-                logger.warning(
-                    "DEBUG VIES : vente %s (n°TVA=%s, pays=%s, buyer_vat_valid=%s) "
-                    "sort AVANT tout enregistrement dans reclassifications — "
-                    "jamais envoyée à VIES, absente du tableau de catégorisation.",
-                    getattr(sale, "display_id", "") or sale.sale_id,
-                    sale.buyer_vat_number, sale.buyer_country, sale.buyer_vat_valid,
-                )
             return sale
         full_vat = sale_vat_index.get((sale.sale_id, sale.buyer_vat_number), "")
         vies_res = checked_vats.get(full_vat) if full_vat else None

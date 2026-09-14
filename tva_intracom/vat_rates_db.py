@@ -209,10 +209,14 @@ def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[De
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
+            # Recherche du taux applicable à la date cible (le plus récent <= target_date).
+            # Cette logique permet de stocker uniquement les dates de changement (milestones)
+            # tout en restant performant pour n'importe quelle date de transaction.
             cur.execute(
                 """
                 SELECT rate FROM vat_rate_cache
-                 WHERE country_code = %s AND rate_type = %s AND situation_date = %s
+                 WHERE country_code = %s AND rate_type = %s AND situation_date <= %s
+                 ORDER BY situation_date DESC LIMIT 1
                 """,
                 (country, rate_type, target_date),
             )
@@ -624,14 +628,14 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     """
     country = country.upper()
     rate_type = rate_type.upper()
-    situation_date = target_date.replace(day=1)  # granularité mensuelle TEDB
+    situation_date = target_date  # granularité journalière pour supporter les changements mi-mois
     key = _cache_key(country, rate_type, situation_date)
 
     with _cache_lock:
         if key in _vat_memory_cache:
             rate = _vat_memory_cache[key]
-            logger.info("[VAT_RATES] source=L1_RAM %s/%s/%s (mois %s) -> %s%%",
-                        country, rate_type, target_date, situation_date, rate)
+            logger.info("[VAT_RATES] source=L1_RAM %s/%s/%s -> %s%%",
+                        country, rate_type, target_date, rate)
             return rate
 
     if not _is_tedb_eligible(country, rate_type):
@@ -643,7 +647,7 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         return rate
 
     if _is_permanently_failed(country, situation_date):
-        # Panne déjà constatée pour ce (pays, mois) il y a moins de
+        # Panne déjà constatée pour ce (pays, date) il y a moins de
         # _FAILED_PAIR_TTL_SECONDS : inutile de vérifier le cache L2
         # (aucune écriture n'a pu s'y produire depuis ce constat d'échec —
         # voir _process_fetch_result, _mark_failed n'est déclenché que
@@ -658,8 +662,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
 
     cached = _db_get_rate(country, rate_type, situation_date)
     if cached is not None:
-        logger.info("[VAT_RATES] source=L2_POSTGRES %s/%s/%s (mois %s) -> %s%%",
-                     country, rate_type, target_date, situation_date, cached)
+        logger.info("[VAT_RATES] source=L2_POSTGRES %s/%s/%s -> %s%%",
+                     country, rate_type, target_date, cached)
         with _cache_lock:
             _vat_memory_cache[key] = cached
         return cached
@@ -667,8 +671,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     result = _fetch_tedb_rates(country, situation_date)
     fetched = _process_fetch_result(country, situation_date, result)
     if rate_type in fetched:
-        logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s (mois %s) -> %s%%",
-                    country, rate_type, target_date, situation_date, fetched[rate_type])
+        logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s -> %s%%",
+                    country, rate_type, target_date, fetched[rate_type])
         return fetched[rate_type]
     if result is not None:
         # Réponse TEDB obtenue mais catégorie absente/rejetée (cas
@@ -747,7 +751,7 @@ def prefetch_standard_rates(
         c = (country or "").upper()
         if not c:
             continue
-        normalized.add((c, d.replace(day=1)))
+        normalized.add((c, d))
 
     to_fetch: list[tuple[str, date]] = []
     for country, situation_date in normalized:
