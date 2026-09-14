@@ -41,6 +41,7 @@ fiscale — cf. principe du projet, le cabinet tranche en dernier ressort) :
 
 from __future__ import annotations
 
+import bisect
 import logging
 import ssl
 import threading
@@ -115,6 +116,13 @@ _PARSE_REDUCED_CATEGORIES = False
 # Clé : "COUNTRY|RATE_TYPE|YYYY-MM-DD" -> Decimal(rate)
 _vat_memory_cache: dict[str, Decimal] = {}
 _cache_lock = threading.Lock()
+
+# Cache L1bis : historique complet {(pays, type_taux): [(date, taux), ...]}
+# trié par date. Une seule requête Postgres par (pays, type_taux) au lieu
+# d'une par jour distinct rencontré — corrige le ralentissement "jour par
+# jour" constaté après passage à la granularité journalière (2026-09-14).
+_country_history_cache: dict[tuple[str, str], list[tuple[date, Decimal]]] = {}
+_country_history_loaded: set[tuple[str, str]] = set()
 
 _pool_lock = threading.Lock()
 _schema_ready = False
@@ -202,32 +210,84 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
         pool.putconn(conn)
 
 
-def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[Decimal]:
+def _load_country_history(country: str, rate_type: str) -> list[tuple[date, Decimal]]:
+    """Charge en UNE requête tout l'historique de milestones connu pour ce
+    (pays, type de taux), trié par date croissante. Résultat mis en cache
+    process (jamais invalidé pendant la vie du process, sauf clear_cache()
+    ou nouvelle entrée insérée via _record_history_entry après un fetch
+    TEDB) : c'est un historique fiscal, il ne "rajeunit" jamais en base.
+
+    Remplace l'ancienne approche (une requête SQL 'situation_date <=
+    target_date ORDER BY situation_date DESC LIMIT 1' PAR JOUR distinct
+    rencontré) par une seule requête par (pays, type_taux) — voir
+    diagnostic du 2026-09-14 (ralentissement "jour par jour" après passage
+    à la granularité journalière)."""
+    key = (country, rate_type)
+    with _cache_lock:
+        if key in _country_history_loaded:
+            return _country_history_cache.get(key, [])
+
     pool = _get_pool()
     if pool is None:
-        return None
+        return []
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
-            # Recherche du taux applicable à la date cible (le plus récent <= target_date).
-            # Cette logique permet de stocker uniquement les dates de changement (milestones)
-            # tout en restant performant pour n'importe quelle date de transaction.
             cur.execute(
                 """
-                SELECT rate FROM vat_rate_cache
-                 WHERE country_code = %s AND rate_type = %s AND situation_date <= %s
-                 ORDER BY situation_date DESC LIMIT 1
+                SELECT situation_date, rate FROM vat_rate_cache
+                 WHERE country_code = %s AND rate_type = %s
+                 ORDER BY situation_date
                 """,
-                (country, rate_type, target_date),
+                (country, rate_type),
             )
-            row = cur.fetchone()
-            return Decimal(str(row[0])) if row else None
+            history = [(row[0], Decimal(str(row[1]))) for row in cur.fetchall()]
     except Exception as exc:
-        logger.warning("[VAT_RATES] lecture Postgres échouée pour %s/%s/%s : %s",
-                        country, rate_type, target_date, exc)
-        return None
+        logger.warning("[VAT_RATES] chargement historique Postgres échoué pour %s/%s : %s",
+                        country, rate_type, exc)
+        # Pas de mise en cache "loaded" sur échec : on retentera au
+        # prochain appel plutôt que de figer un historique vide.
+        return []
     finally:
         pool.putconn(conn)
+
+    with _cache_lock:
+        _country_history_cache[key] = history
+        _country_history_loaded.add(key)
+    return history
+
+
+def _record_history_entry(country: str, rate_type: str, situation_date: date, rate: Decimal) -> None:
+    """Insère un nouveau milestone (issu d'un fetch TEDB) dans l'historique
+    déjà chargé en mémoire, en conservant le tri — évite de forcer un
+    rechargement complet depuis Postgres juste après l'avoir écrit."""
+    key = (country, rate_type)
+    with _cache_lock:
+        if key not in _country_history_loaded:
+            return  # sera chargé (avec cette entrée incluse) au prochain besoin
+        history = _country_history_cache.setdefault(key, [])
+        dates = [d for d, _ in history]
+        idx = bisect.bisect_left(dates, situation_date)
+        if idx < len(history) and history[idx][0] == situation_date:
+            history[idx] = (situation_date, rate)
+        else:
+            history.insert(idx, (situation_date, rate))
+
+
+def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[Decimal]:
+    """Résout le taux applicable par recherche dichotomique dans
+    l'historique complet du pays (chargé une seule fois, voir
+    _load_country_history) — équivalent fonctionnel exact de l'ancienne
+    requête SQL 'situation_date <= target_date ORDER BY situation_date DESC
+    LIMIT 1', mais sans aller-retour réseau par date de transaction."""
+    history = _load_country_history(country, rate_type)
+    if not history:
+        return None
+    dates = [d for d, _ in history]
+    idx = bisect.bisect_right(dates, target_date) - 1
+    if idx < 0:
+        return None  # target_date antérieure au premier milestone connu
+    return history[idx][1]
 
 
 def _db_upsert_batch(entries: list[tuple[str, str, date, Decimal]]) -> None:
@@ -583,6 +643,8 @@ def _process_fetch_result(
         with _cache_lock:
             for rt, val in fetched.items():
                 _vat_memory_cache[_cache_key(country, rt, situation_date)] = val
+        for rt, val in fetched.items():
+            _record_history_entry(country, rt, situation_date, val)
     return fetched
 
 
@@ -861,6 +923,8 @@ def clear_cache(persistent: bool = True) -> None:
     """Vide le cache mémoire (L1) et, par défaut, le cache Postgres (L2)."""
     with _cache_lock:
         _vat_memory_cache.clear()
+        _country_history_cache.clear()
+        _country_history_loaded.clear()
     vat_rate.cache_clear()
     _failed_pairs.clear()
     if not persistent:
