@@ -563,10 +563,35 @@ def _fetch_tedb_rates(country: str, target_date: date) -> Optional[tuple[dict[st
 # ------------------------------------------------------------------
 def _dynamic_tedb_enabled() -> bool:
     raw = get_secret("VAT_DYNAMIC_TEDB_ENABLED")
+
+    # Si absent, on cherche une variante de casse (Streamlit secrets est sensible à la casse)
+    if raw is None:
+        try:
+            import streamlit as st
+            if st is not None:
+                # On cherche une clé qui ressemble (insensible à la casse)
+                for k in st.secrets.keys():
+                    if k.upper() == "VAT_DYNAMIC_TEDB_ENABLED":
+                        raw = st.secrets.get(k)
+                        logger.info("[VAT_RATES] Secret trouvé avec une casse différente : %s", k)
+                        break
+        except Exception:
+            pass
+
     if isinstance(raw, bool):
         return raw
     val = str(raw or "").strip().lower()
-    return val in ("1", "true", "yes", "on")
+    enabled = val in ("1", "true", "yes", "on")
+
+    # Log de diagnostic si on a un secret mais qu'il n'est pas interprété comme True
+    if not enabled and raw is not None:
+        logger.warning("[VAT_RATES] Secret VAT_DYNAMIC_TEDB_ENABLED trouvé (%r) mais interprété comme False.", raw)
+    elif raw is None:
+        # Ce log ne sortira qu'une fois par process via lru_cache ou si on appelle souvent
+        # On le limite pour ne pas polluer, mais c'est utile pour le diagnostic initial
+        pass
+
+    return enabled
 
 
 # Écart maximal toléré (en points de %) entre un taux STANDARD renvoyé par
@@ -705,8 +730,16 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
 
     if not _is_tedb_eligible(country, rate_type):
         rate = _static_vat_rate_at_date(country, target_date, rate_type)
-        logger.info("[VAT_RATES] source=STATIC_FALLBACK (non éligible TEDB) %s/%s/%s -> %s%%",
-                    country, rate_type, target_date, rate)
+        # Diagnostic plus précis sur la raison du repli
+        if not _dynamic_tedb_enabled():
+            reason = "non activé via VAT_DYNAMIC_TEDB_ENABLED"
+        elif rate_type != "STANDARD":
+            reason = f"catégorie {rate_type} non éligible (seul STANDARD l'est)"
+        else:
+            reason = f"pays {country} non supporté par TEDB"
+
+        logger.info("[VAT_RATES] source=STATIC_FALLBACK (%s) %s/%s/%s -> %s%%",
+                    reason, country, rate_type, target_date, rate)
         with _cache_lock:
             _vat_memory_cache[key] = rate
         return rate
