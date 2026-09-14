@@ -39,7 +39,16 @@ MAGIC_LINK_TTL_SECONDS = 15 * 60
 # complète du navigateur (redirection Stripe post-paiement, F5), qui fait
 # perdre la session Streamlit en mémoire. Il est porté dans l'URL
 # (?session_token=...) et ne doit jamais être envoyé par e-mail.
-SESSION_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
+#
+# BUGFIX sécurité (audit 2026-09-13, ÉLEVÉ #3) : 30 jours fixes était trop
+# long pour une appli financière (fenêtre d'exploitation d'un jeton volé/
+# fuité par référent HTTP, historique navigateur, log serveur...). Ramené à
+# 7 jours, avec renouvellement glissant : `get_user_by_session_token()`
+# retarde `created_at` à chaque usage réussi (voir plus bas), donc un
+# utilisateur actif au moins une fois par semaine ne revoit jamais le lien
+# magique, mais un jeton inactif expire en 7 jours au lieu de 30 — pas
+# besoin d'une table de refresh-token séparée pour ça.
+SESSION_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 
 _pool_lock = threading.Lock()
 _schema_ready = False
@@ -903,7 +912,19 @@ def create_session_token(user_id: str) -> str:
 
 def get_user_by_session_token(token: str) -> Optional[User]:
     """Retourne l'utilisateur associé à un jeton de session valide (non
-    expiré), sans le consommer — il reste utilisable jusqu'à expiration."""
+    expiré), sans le consommer — il reste utilisable jusqu'à expiration.
+
+    BUGFIX sécurité (audit 2026-09-13, ÉLEVÉ #3) : renouvellement glissant.
+    `SESSION_TOKEN_TTL_SECONDS` est désormais de 7 jours (au lieu de 30) ;
+    pour qu'un utilisateur actif régulièrement ne soit pas déconnecté toutes
+    les semaines, chaque restauration réussie recule `created_at` à
+    maintenant — un jeton non réutilisé pendant 7 jours pleins expire bel et
+    bien (fenêtre d'exploitation courte pour un jeton volé/fuité), mais un
+    jeton utilisé au moins une fois par semaine reste valide indéfiniment,
+    exactement comme avant côté usage réel. Pas de nouvelle table de
+    refresh-token : un simple UPDATE, appelé uniquement à la restauration
+    de session (pleine navigation navigateur, pas à chaque rerun Streamlit
+    — voir auth_flow.py, gardé par `auth_user is None`)."""
     def _fetch_token(conn, cur):
         cur.execute(
             "SELECT user_id, created_at FROM tva_session_tokens WHERE token=%s",
@@ -917,6 +938,21 @@ def get_user_by_session_token(token: str) -> Optional[User]:
     user_id, created_at = row
     if (time.time() - created_at) > SESSION_TOKEN_TTL_SECONDS:
         return None
+
+    def _touch(conn, cur):
+        cur.execute(
+            "UPDATE tva_session_tokens SET created_at=%s WHERE token=%s",
+            (time.time(), token),
+        )
+        conn.commit()
+
+    try:
+        _run(_touch)
+    except Exception:
+        # Le renouvellement est un confort (éviter une reconnexion
+        # hebdomadaire) — un échec ne doit jamais bloquer la restauration
+        # de session elle-même, dont le résultat est déjà déterminé ci-dessus.
+        logger.warning("Échec du renouvellement glissant du jeton de session (non bloquant).", exc_info=True)
 
     return get_user_by_id(user_id)
 

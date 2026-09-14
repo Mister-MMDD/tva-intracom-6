@@ -36,6 +36,7 @@ from tva_intracom import billing as tva_billing
 from tva_intracom.i18n import _, country_label
 from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
     oss_threshold_in_currency
+from tva_intracom.ui.files import sniff_upload_rejection_reason
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 from tva_intracom.ui.theme import _PLATFORM_OPTIONS
 from tva_intracom.ui.display_mode import is_detailed
@@ -1434,6 +1435,11 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                     _size_mb = catalog_file.size / (1024 * 1024)
                     if _size_mb > _MAX_CATALOG_MB:
                         st.error(_("catalog_too_large", size_mb=_size_mb, max_mb=_MAX_CATALOG_MB))
+                    elif sniff_upload_rejection_reason(catalog_file.getvalue()[:4096]):
+                        # Audit sécurité 2026-09-13 (MOYEN #4) : même contrôle
+                        # de contenu que l'import principal (app.py) — voir
+                        # tva_intracom/ui/files.py::sniff_upload_rejection_reason.
+                        st.error(_("files_invalid_content_error", files=catalog_file.name))
                     else:
                         try:
                             _parsed_catalog = _parse_catalog_bytes(catalog_file.getvalue(), catalog_file.name)

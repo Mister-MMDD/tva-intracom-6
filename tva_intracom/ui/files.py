@@ -102,3 +102,57 @@ def _upload_sig(f) -> tuple:
     _head = _content[:131072]
     _tail = _content[-131072:] if len(_content) > 131072 else b""
     return (f.name, f.size, hashlib.md5(_head + _tail).hexdigest())
+
+
+# ── Contrôle de contenu des imports (audit sécurité 2026-09-13, MOYEN #4) ───
+# Jusqu'ici, seule l'extension déclarée (`type=["csv","tsv","txt"]` du
+# widget Streamlit) filtrait les imports — un fichier peut être renommé en
+# `.csv` quel que soit son contenu réel. On n'a pas de lib magic dans
+# requirements.txt (Streamlit Cloud ne garantit pas libmagic au niveau OS),
+# donc pas de vraie détection MIME RFC — mais on bloque les cas concrets à
+# risque : un binaire (exécutable, PDF, image, archive/Office) déguisé en
+# texte par simple renommage, et tout contenu qui n'est même pas décodable
+# comme texte dans un encodage plausible pour un export Amazon/Mirakl/
+# Shopify (ce que le parsing CSV en aval exigerait de toute façon).
+_BINARY_MAGIC_SIGNATURES: tuple[bytes, ...] = (
+    b"MZ",                   # exécutable Windows PE
+    b"\x7fELF",               # exécutable Linux ELF
+    b"PK\x03\x04",           # ZIP / Office OOXML (xlsx, docx...) / JAR
+    b"%PDF",                 # PDF
+    b"\x89PNG\r\n\x1a\n",     # PNG
+    b"\xff\xd8\xff",          # JPEG
+    b"GIF87a",
+    b"GIF89a",
+    b"\x1f\x8b",              # GZIP
+    b"Rar!\x1a\x07",          # RAR
+    b"7z\xbc\xaf\x27\x1c",    # 7-Zip
+)
+
+# Encodages plausibles pour un export e-commerce (Excel FR exporte souvent
+# en cp1252/latin-1, pas seulement en UTF-8) — voir _file_encoding_choice
+# dans app.py, qui gère déjà ce choix côté parsing.
+_TEXT_DECODE_CANDIDATES: tuple[str, ...] = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
+
+
+def sniff_upload_rejection_reason(file_head: bytes) -> str | None:
+    """Contrôle de contenu minimal sur le DÉBUT d'un fichier déclaré
+    csv/tsv/txt. Retourne None si accepté, sinon une clé i18n à afficher.
+
+    `file_head` : les premiers ko du fichier suffisent (toutes les
+    signatures binaires ci-dessus tiennent dans les 16 premiers octets, et
+    un fichier réellement texte doit être décodable dès le début)."""
+    if b"\x00" in file_head:
+        return "upload_rejected_binary"
+
+    for sig in _BINARY_MAGIC_SIGNATURES:
+        if file_head.startswith(sig):
+            return "upload_rejected_binary"
+
+    for enc in _TEXT_DECODE_CANDIDATES:
+        try:
+            file_head.decode(enc)
+            return None
+        except UnicodeDecodeError:
+            continue
+
+    return "upload_rejected_binary"

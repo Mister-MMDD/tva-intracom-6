@@ -77,9 +77,14 @@ class TestMonacoScenarios:
 
     def test_monaco_stock_monaco_buyer_germany_b2b_valid_vat(self):
         """Vente avec stock Monaco et acheteur Allemagne B2B avec TVA valide.
-        
-        Note: Le moteur traite actuellement ce cas comme OSS_B2C.
-        Cela peut être un bug ou un comportement attendu à vérifier.
+
+        BUGFIX (audit sécurité 2026-09-13) : ce cas était traité à tort en
+        OSS_B2C — le branchement spécifique "stock == MC" ne testait jamais
+        `buyer_type == B2B`, contrairement au cas général (engine.py, ~L454).
+        Corrigé : une livraison B2B intracommunautaire au départ de Monaco
+        (assimilé France) vers un acheteur UE assujetti avec TVA valide doit
+        être exonérée avec autoliquidation (Art. 262 ter CGI), exactement
+        comme un départ de stock France.
         """
         sale = Sale(
             sale_id="test_mc_004",
@@ -96,11 +101,9 @@ class TestMonacoScenarios:
         
         result = compute_vat(sale)
         
-        # Stock MC (assimilé FR) + buyer DE B2B
-        # Comportement actuel: OSS_B2C (possiblement un bug)
-        # Comportement attendu: B2B_REVERSE_CHARGE
-        # Ce test documente le comportement actuel
-        assert result.scenario.value == "OSS_B2C"  # Comportement actuel documenté
+        assert result.scenario.value == "B2B_REVERSE_CHARGE"
+        assert result.vat_rate == Decimal("0")
+        assert result.vat_amount == Decimal("0.00")
 
     def test_monaco_in_eu_countries_set(self):
         """Vérifie que Monaco est dans l'ensemble EU_COUNTRIES."""

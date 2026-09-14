@@ -3,10 +3,13 @@
 Ce module vérifie que les fichiers historiques utilisent les bons taux TVA
 pour chaque année, conformément aux réglementations UE.
 
-CRITIQUE: rates.py contient VAT_RATE_HISTORY mais la fonction vat_rate_at_date
-ne l'utilise PAS - elle retourne toujours le taux actuel. Cela signifie qu'un
-fichier de vente de 2024 sera calculé avec les taux de 2026, ce qui est
-NON CONFORME aux réglementations UE.
+MISE À JOUR (audit sécurité 2026-09-13) : le constat initial ci-dessous ne
+correspond plus au code actuel — vérifié directement dans rates.py.
+`vat_rate()` délègue bien à `vat_rate_at_date()` dès qu'un `tx_date` est
+fourni (voir son docstring : "Restaurée depuis rates0.py — supprimée par
+erreur..."), qui elle-même consulte correctement VAT_RATE_HISTORY. Les
+tests ci-dessous valident ce comportement réel plutôt que de documenter un
+bug qui n'existe plus.
 """
 
 import pytest
@@ -35,22 +38,32 @@ class TestHistoricalRates:
         
         assert len(years) >= 2, f"VAT_RATE_HISTORY devrait couvrir au moins 2 années, trouvé: {years}"
 
-    def test_france_historical_rates_2024_vs_2026(self):
-        """Vérifie que les taux France ont changé entre 2024 et 2026."""
-        # VAT_RATE_HISTORY est une liste de _VatPeriod
-        # Chercher les périodes pour la France
-        fr_periods = [p for p in VAT_RATE_HISTORY if p.country == "FR"]
-        
-        if not fr_periods:
-            pytest.skip("FR non présent dans VAT_RATE_HISTORY")
-        
-        # Vérifier qu'il y a des périodes couvrant 2024 et 2026
-        has_2024 = any(p.date_from and p.date_from.year == 2024 for p in fr_periods)
-        has_2026 = any(p.date_from and p.date_from.year == 2026 for p in fr_periods)
-        
-        # On peut ne pas avoir 2026 car c'est l'année courante
-        # mais on devrait avoir au moins 2024
-        assert has_2024, "Devrait avoir des périodes pour 2024"
+    def test_estonia_historical_rates_2024_vs_2026(self):
+        """Vérifie que les taux Estonie ont bien changé entre 2024 et 2026.
+
+        CORRECTIF (audit sécurité 2026-09-13) : la version précédente de ce
+        test portait sur la France et supposait à tort l'existence d'une
+        période démarrant en 2024 — le taux standard FR est stable à 20%
+        depuis le 1er janvier 2014 (dernière hausse), il n'y a donc
+        légitimement AUCUNE période FR démarrant en 2024 dans
+        VAT_RATE_HISTORY. Le test échouait sur une hypothèse fausse, pas sur
+        un bug de rates.py — remplacé par l'Estonie, qui a réellement changé
+        deux fois sur cette fenêtre (22% au 01/01/2024, puis 24% au
+        01/07/2025), pour vérifier la même chose sur un cas réel."""
+        ee_periods = [p for p in VAT_RATE_HISTORY if p.country == "EE"]
+
+        if not ee_periods:
+            pytest.skip("EE non présent dans VAT_RATE_HISTORY")
+
+        has_2024 = any(p.date_from and p.date_from.year == 2024 for p in ee_periods)
+        assert has_2024, "Devrait avoir des périodes EE pour 2024 (passage à 22%)"
+
+        # Le taux au 15/06/2024 (22%) doit différer du taux courant 2026 (24%)
+        rate_2024 = vat_rate_at_date("EE", date(2024, 6, 15), "STANDARD")
+        rate_current = vat_rate("EE", "STANDARD")
+        assert rate_2024 == Decimal("22")
+        assert rate_current == Decimal("24")
+        assert rate_2024 != rate_current
 
     def test_vat_rate_at_date_uses_history(self):
         """CRITIQUE: Vérifie que vat_rate_at_date utilise VAT_RATE_HISTORY.

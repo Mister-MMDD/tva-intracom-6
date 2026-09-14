@@ -8237,3 +8237,20 @@ Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tests/test_vat_rates_db.py
 Validation : `py_compile` propre. Tests manuels sur les cas GR (2010-03-15) confirmés via le nouveau script SQL.
 
 Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `README - evolution.md`.
+
+## 2026-09-14 (2) — Audit sécurité externe (5 points) : vérification point par point + 3 correctifs livrés
+
+**Constat** : audit livré avec 589 lignes de rapport + 4 fichiers de tests (`test_fiscal_historical_rates.py`, `test_fiscal_monaco.py`, `test_fiscal_vies_scope_isolation.py`, `test_security.py`). Chaque point a été vérifié contre le code réel du repo (`dev`) avant toute correction, conformément à la règle « vérifier avant de corriger — les audits se trompent souvent ou documentent des points déjà corrigés ».
+
+**Verdict par point** :
+- **CRITIQUE #1** (`vat_rate()` ignorerait `tx_date`) — **faux, déjà corrigé** : le code délègue bien à `vat_rate_at_date()`. Le test associé échouait sur une hypothèse fausse (attendait une période FR démarrant en 2024, alors que le taux standard FR est stable à 20% depuis 2014) — test corrigé, remplacé par un cas réel (Estonie, changement 2024→2025).
+- **ÉLEVÉ #2** (brute-force non protégé) — **faux, déjà implémenté** : `consume_magic_link()` bloque après 5 échecs / 5 min via `tva_failed_logins`.
+- **ÉLEVÉ #3** (TTL session 30 jours) — **vrai, corrigé** : `SESSION_TOKEN_TTL_SECONDS` ramené à 7 jours (`auth.py`), avec renouvellement glissant sur usage (`get_user_by_session_token()` recule `created_at` à chaque restauration réussie) pour ne pas dégrader l'UX d'un utilisateur actif au moins 1×/semaine.
+- **MOYEN #4** (pas de validation MIME des imports) — **vrai, corrigé** : nouvelle fonction `sniff_upload_rejection_reason()` (`tva_intracom/ui/files.py`) — rejette les signatures binaires connues (exe, ELF, ZIP/Office, PDF, images, archives) et tout contenu non décodable en texte (utf-8/cp1252/latin-1) sur les 4 premiers Ko. Branchée sur les deux `file_uploader` (import principal `app.py`, catalogue ASIN `sidebar.py`). Nouvelle clé i18n `files_invalid_content_error` (7 langues).
+- **MOYEN #5** (isolation VIES par domaine) — **pas un bug** : mutualisation par domaine professionnel déjà documentée comme décision produit intentionnelle et acceptée dans `resolve_scope_id()` (`vies_engine.py`).
+
+**Bug réel non listé par l'audit, trouvé en creusant le test Monaco** : le branchement spécifique `stock_country == "MC"` dans `engine.py` renvoyait toujours `OSS_B2C`, y compris pour un acheteur B2B avec n° de TVA intracom valide — il ne passait jamais par le test `buyer_type == B2B` du cas général (une livraison B2B au départ de Monaco perdait à tort l'exonération intracom, Art. 262 ter CGI). Corrigé en répliquant ce test avant le fallback OSS. Test `test_monaco_stock_monaco_buyer_germany_b2b_valid_vat` mis à jour pour attendre `B2B_REVERSE_CHARGE`.
+
+**Non-régression** : suite complète 371 passed / 11 skipped-non-liés / 27 skipped (baseline 275 passed avant l'ajout des 4 fichiers de tests de l'audit). Les 11 échecs restants sont tous pré-existants et hors périmètre (5 = `ENCRYPTION_KEY` absente du sandbox local, 6 = bug de cache TEDB déjà connu dans `vat_rates_db.py`, voir entrée 2026-09-12 (2)). Symétrie i18n vérifiée : 7 langues × 1182 clés.
+
+Fichiers modifiés : `app.py`, `tva_intracom/auth.py`, `tva_intracom/engine.py`, `tva_intracom/ui/sidebar.py`, `tva_intracom/ui/files.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`, `tests/test_security.py`, `tests/test_fiscal_monaco.py`, `tests/test_fiscal_historical_rates.py`, `README - evolution.md`.

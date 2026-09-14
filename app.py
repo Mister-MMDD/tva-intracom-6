@@ -54,7 +54,7 @@ from tva_intracom import vies_engine as _tva_vies_engine
 from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
 from tva_intracom.ui.sidebar import render_sidebar, _invalidate_db_cache
-from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig
+from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig, sniff_upload_rejection_reason
 from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.display_mode import ensure_display_mode, is_detailed, render_mode_toggle
 from tva_intracom.ui.onboarding import (
@@ -406,6 +406,21 @@ if uploaded_files:
     _OVERSIZED = [f.name for f in uploaded_files if f.size > 100 * 1024 * 1024]
     if _OVERSIZED:
         st.error(_("files_too_large_error", files=", ".join(f"`{n}`" for n in _OVERSIZED), max_mb=100))
+        st.stop()
+
+    # ── Contrôle de contenu (audit sécurité 2026-09-13, MOYEN #4) ───────────
+    # Ne lit que les 4 premiers Ko de chaque fichier (read/seek — pas
+    # getvalue(), pour ne pas forcer la lecture complète d'un fichier de
+    # 100 Mo rien que pour ce contrôle). Voir sniff_upload_rejection_reason.
+    _INVALID_CONTENT = []
+    for _f in uploaded_files:
+        _f.seek(0)
+        _head = _f.read(4096)
+        _f.seek(0)
+        if sniff_upload_rejection_reason(_head):
+            _INVALID_CONTENT.append(_f.name)
+    if _INVALID_CONTENT:
+        st.error(_("files_invalid_content_error", files=", ".join(f"`{n}`" for n in _INVALID_CONTENT)))
         st.stop()
 
     # On ne recompresse que si le jeu de fichiers a réellement changé

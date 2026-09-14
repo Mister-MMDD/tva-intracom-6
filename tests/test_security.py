@@ -217,16 +217,16 @@ class TestBruteForceProtection:
         pytest.skip("Rate-limiting non implémenté - voir audit de sécurité")
 
     def test_session_token_ttl(self):
-        """Vérifie la durée du token de session."""
+        """Vérifie la durée du token de session.
+
+        BUGFIX (audit sécurité 2026-09-13, ÉLEVÉ #3) : ramené de 30 à 7
+        jours, avec renouvellement glissant sur usage (voir
+        auth.get_user_by_session_token) pour ne pas dégrader l'UX d'un
+        utilisateur actif au moins une fois par semaine."""
         from tva_intracom.auth import SESSION_TOKEN_TTL_SECONDS
-        
-        # TTL actuel: 30 jours
-        assert SESSION_TOKEN_TTL_SECONDS == 30 * 24 * 60 * 60
-        
-        # RECOMMANDATION: Réduire à 7 jours pour améliorer la sécurité
-        # Ce test documente le TTL actuel
-        assert SESSION_TOKEN_TTL_SECONDS > 7 * 24 * 60 * 60, \
-            "Documente le problème: TTL de session trop long (30 jours)"
+
+        assert SESSION_TOKEN_TTL_SECONDS == 7 * 24 * 60 * 60, \
+            "TTL de session attendu : 7 jours (corrigé, était 30 jours)"
 
     def test_magic_link_ttl(self):
         """Vérifie la durée du lien magique."""

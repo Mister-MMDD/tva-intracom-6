@@ -336,6 +336,37 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 ),
             )
         elif is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None):
+            # BUGFIX fiscal (audit 2026-09-13, bug non listé, trouvé via
+            # tests/test_fiscal_monaco.py::test_monaco_stock_monaco_buyer_germany_b2b_valid_vat) :
+            # ce branchement spécifique "stock == MC" renvoyait toujours
+            # OSS_B2C, y compris pour un acheteur B2B avec n° de TVA
+            # intracommunautaire valide — contrairement au "Cas 3" général
+            # (~ligne 454, `if sale.buyer_type == BuyerType.B2B: ...`) qui
+            # n'est jamais atteint ici puisqu'on retourne avant. Résultat :
+            # une livraison B2B au départ de Monaco (= France) vers un
+            # acheteur UE assujetti perdait à tort l'exonération intracom
+            # (Art. 262 ter CGI / Art. 138 Dir. 2006/112/CE) et se
+            # retrouvait taxée en OSS_B2C. On réplique ici la même
+            # condition que le Cas 3 général avant de retomber sur OSS_B2C.
+            if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_valid:
+                return VatResult._new_unchecked(
+                    sale=sale,
+                    scenario=Scenario.B2B_REVERSE_CHARGE,
+                    vat_country="",
+                    vat_rate=Decimal("0"),
+                    vat_amount=Decimal("0.00"),
+                    collector=Collector.BUYER,
+                    channel=Channel.EXONERATION,
+                    note=_note(
+                        f"Livraison intracommunautaire B2B depuis un stock à Monaco "
+                        f"(assimilé France) vers {sale.buyer_country} : exonérée "
+                        "avec autoliquidation par l'acquéreur (Art. 262 ter du CGI "
+                        "— https://bit.ly/Art262ter).",
+                        "engine_note_monaco_stock_b2b_reverse_charge", lang=lang,
+                        buyer=sale.buyer_country,
+                    ),
+                )
+
             # Stock à Monaco, vente vers un autre pays UE : OSS classique
             # vers ce pays, exactement comme si le stock était en France.
             mc_stock_dest_rate = vat_rate(sale.buyer_country, effective_category, tx_date=_tx_date)
