@@ -562,7 +562,10 @@ def _fetch_tedb_rates(country: str, target_date: date) -> Optional[tuple[dict[st
 # d'environnement/secret VAT_DYNAMIC_TEDB_ENABLED=true.
 # ------------------------------------------------------------------
 def _dynamic_tedb_enabled() -> bool:
-    val = str(get_secret("VAT_DYNAMIC_TEDB_ENABLED") or "").strip().lower()
+    raw = get_secret("VAT_DYNAMIC_TEDB_ENABLED")
+    if isinstance(raw, bool):
+        return raw
+    val = str(raw or "").strip().lower()
     return val in ("1", "true", "yes", "on")
 
 
@@ -913,8 +916,8 @@ def vat_rate(
     Raises:
         KeyError: si le pays est inconnu (délégué au repli statique).
     """
-    code = country.upper()
-    cat = product_category.strip().upper()
+    code = (country or "").strip().upper()
+    cat = (product_category or "").strip().upper()
     # Normalisation FR/EN identique à rates.vat_rate_at_date (dupliquée
     # volontairement ici : get_vat_rate() a besoin de la catégorie déjà
     # normalisée AVANT de décider de l'éligibilité TEDB).

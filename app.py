@@ -51,6 +51,7 @@ from tva_intracom import auth as tva_auth
 from tva_intracom import ecb_rates as _tva_ecb_rates
 from tva_intracom import billing as _tva_billing
 from tva_intracom import vies_engine as _tva_vies_engine
+from tva_intracom import vat_rates_db as _tva_vat_rates
 from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
 from tva_intracom.ui.sidebar import render_sidebar, _invalidate_db_cache
@@ -106,6 +107,7 @@ for _close_fn in (
         _tva_ecb_rates.close_idle_connections,
         _tva_billing.close_idle_connections,
         _tva_vies_engine.close_idle_connections,
+        _tva_vat_rates.close_idle_connections,
 ):
     try:
         _close_fn()
