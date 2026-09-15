@@ -242,7 +242,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
                 st.rerun()
         else:
             # DEBUG DISCRET : Le cookie existe mais la session est invalide en DB
-            st.sidebar.caption("⚠️ Session expired")
+            st.sidebar.caption("⚠️ " + _("auth_session_expired"))
 
     # ── 1. Interception du code OAuth (PKCE ou Implicit) ────────────────────
     _qp = st.query_params

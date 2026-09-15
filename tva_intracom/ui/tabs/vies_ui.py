@@ -285,9 +285,9 @@ def render_vies(ctx: TabContext) -> None:
                 st.error(_("vies_certificate_error", error=_cert_err))
 
         if st.session_state.get("_vies_certificate_pdf"):
-            _cert_suffix = "fichier" if st.session_state.get("_vies_certificate_scope") == "file" else "compte"
+            _cert_suffix = _("vies_cert_suffix_file") if st.session_state.get("_vies_certificate_scope") == "file" else _("vies_cert_suffix_account")
             if st.session_state.get("_vies_certificate_history_mode"):
-                _cert_suffix += "_historique"
+                _cert_suffix += "_" + _("vies_cert_suffix_history")
             # Le certificat VIES est gratuit au téléchargement (preuve de bonne foi)
             st.download_button(
                 _("vies_certificate_dl_btn"),
@@ -315,7 +315,7 @@ def render_vies(ctx: TabContext) -> None:
         # comme B2C, exactement comme un inconclusif classique.
         v4.metric(_("vies_kpi_unverified"), vies_summary.total_not_auto_verified,
             delta=f"{vies_summary.total_not_auto_verified}" if vies_summary.total_not_auto_verified else None, delta_color="off")
-        v5.metric(_("vies_kpi_recovered_vat"), f"{float(vies_summary.fraud_avoided_amount):,.2f} €")
+        v5.metric(_("vies_kpi_recovered_vat"), _fmt(vies_summary.fraud_avoided_amount))
 
         if vies_summary.inconclusive_vats:
             st.warning(_("vies_unverified_warning", count=len(vies_summary.inconclusive_vats)))
@@ -632,8 +632,9 @@ def render_vies(ctx: TabContext) -> None:
                 for r in avec_delta:
                     _c_lbl = country_label(r.buyer_country)
                     by_c[_c_lbl] = by_c.get(_c_lbl,0) + float(r.vat_avoided)
+                _sym = st.session_state.get("currency_symbol", "€")
                 fig_f = go.Figure(go.Bar(x=list(by_c.keys()), y=list(by_c.values()),
-                    marker_color="#d62728", text=[f"{v:,.2f}€" for v in by_c.values()], textposition="auto"))
+                    marker_color="#d62728", text=[f"{v:,.2f}{_sym}" for v in by_c.values()], textposition="auto"))
                 fig_f.update_layout(title=_("vies_chart_title"), yaxis_title=_("vies_chart_yaxis"), height=280, margin=dict(t=40,b=30))
                 st.plotly_chart(fig_f, width="stretch")
 

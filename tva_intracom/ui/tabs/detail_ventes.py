@@ -179,7 +179,7 @@ def render_detail_ventes() -> None:
     _c_collector = _("col_collector")
 
     _labels = {
-        "id": "ID", "stock": _c_stock, "dest": _c_dest, "ht": _lbl_ht,
+        "id": _("vies_col_id"), "stock": _c_stock, "dest": _c_dest, "ht": _lbl_ht,
         "rate_pct": _c_rate_pct, "vat": _lbl_vat, "canal": _c_canal,
         "scenario": _c_scenario, "collector": _c_collector,
         "currency": _c_currency, "orig": _lbl_orig, "note": _c_note,

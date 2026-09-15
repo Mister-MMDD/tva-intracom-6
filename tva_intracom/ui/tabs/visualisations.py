@@ -79,10 +79,10 @@ def _aggregate_viz_raw(_results: list, _refund_results: list, calc_key) -> dict:
 
     all_months = sorted(set(sales_df.index) | set(refunds_df.index))
     monthly_df = pd.DataFrame(index=all_months)
-    monthly_df["CA HT"] = sales_df["ht"].reindex(all_months).fillna(0.0)
-    monthly_df["TVA due"] = sales_df["vat"].reindex(all_months).fillna(0.0)
-    monthly_df["Remb. HT"] = refunds_df["ht"].reindex(all_months).fillna(0.0)
-    monthly_df["TVA remb."] = refunds_df["vat"].reindex(all_months).fillna(0.0)
+    monthly_df["ca_ht"] = sales_df["ht"].reindex(all_months).fillna(0.0)
+    monthly_df["vat_due"] = sales_df["vat"].reindex(all_months).fillna(0.0)
+    monthly_df["refund_ht"] = refunds_df["ht"].reindex(all_months).fillna(0.0)
+    monthly_df["vat_refund"] = refunds_df["vat"].reindex(all_months).fillna(0.0)
 
     scen_data = sorted(scen_counts.items(), key=lambda x: -x[1])
 
@@ -418,9 +418,9 @@ def render_visualisations() -> None:
         _monthly_records = tuple(
             (
                 _mois_label(m),
-                round(float(_monthly_df.at[m, "CA HT"]) * _rate, 2),
-                round(float(_monthly_df.at[m, "Remb. HT"]) * _rate, 2),
-                round((float(_monthly_df.at[m, "TVA due"]) + float(_monthly_df.at[m, "TVA remb."])) * _rate, 2),
+                round(float(_monthly_df.at[m, "ca_ht"]) * _rate, 2),
+                round(float(_monthly_df.at[m, "refund_ht"]) * _rate, 2),
+                round((float(_monthly_df.at[m, "vat_due"]) + float(_monthly_df.at[m, "vat_refund"])) * _rate, 2),
             )
             for m in _months_sorted
         )

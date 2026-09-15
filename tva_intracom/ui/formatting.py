@@ -109,24 +109,27 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
         _search = st.text_input(_("filter_search"), placeholder=_("filter_search_placeholder"), key=f"search_{key_suffix}")
     
     with _fb:
-        _dest_opts = sorted([str(x) for x in df["Dest"].unique() if pd.notna(x)]) if "Dest" in df.columns else []
+        _dest_col = _("col_dest")
+        _dest_opts = sorted([str(x) for x in df[_dest_col].unique() if pd.notna(x)]) if _dest_col in df.columns else []
         _dest_sel = st.multiselect(_("filter_dest"), _dest_opts, key=f"dest_{key_suffix}", 
                                    placeholder=_("filter_dest_placeholder"))
         
     with _fc:
-        _canal_opts = sorted([str(x) for x in df["Canal"].unique() if pd.notna(x)]) if "Canal" in df.columns else []
+        _canal_col = _("col_canal")
+        _canal_opts = sorted([str(x) for x in df[_canal_col].unique() if pd.notna(x)]) if _canal_col in df.columns else []
         _canal_sel = st.multiselect(_("filter_canal"), _canal_opts, key=f"canal_{key_suffix}", 
                                    placeholder=_("filter_canal_placeholder"))
         
     with _fd:
-        _scen_opts = sorted([str(x) for x in df["Scénario"].unique() if pd.notna(x)]) if "Scénario" in df.columns else []
+        _scen_col = _("col_scenario")
+        _scen_opts = sorted([str(x) for x in df[_scen_col].unique() if pd.notna(x)]) if _scen_col in df.columns else []
         _scen_sel = st.multiselect(_("filter_scenario"), _scen_opts, key=f"scen_{key_suffix}", 
                                    placeholder=_("filter_scenario_placeholder"))
         
     df_filt = df # On évite la copie systématique ici
     
     if _search:
-        _search_cols = [c for c in ("ID", "Note", "Transaction") if c in df_filt.columns]
+        _search_cols = [c for c in (_("vies_col_id"), _("col_note"), _("col_transaction")) if c in df_filt.columns]
         if _search_cols:
             # Une seule colonne concaténée + un seul scan .str.contains(), au
             # lieu d'une conversion .astype(str) et d'un scan par colonne
@@ -142,12 +145,12 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
             mask = _search_index.str.contains(_search, case=False, na=False)
             df_filt = df_filt[mask]
         
-    if _dest_sel and "Dest" in df_filt.columns:
-        df_filt = df_filt[df_filt["Dest"].isin(_dest_sel)]
-    if _scen_sel and "Scénario" in df_filt.columns:
-        df_filt = df_filt[df_filt["Scénario"].isin(_scen_sel)]
-    if _canal_sel and "Canal" in df_filt.columns:
-        df_filt = df_filt[df_filt["Canal"].isin(_canal_sel)]
+    if _dest_sel and _dest_col in df_filt.columns:
+        df_filt = df_filt[df_filt[_dest_col].isin(_dest_sel)]
+    if _scen_sel and _scen_col in df_filt.columns:
+        df_filt = df_filt[df_filt[_scen_col].isin(_scen_sel)]
+    if _canal_sel and _canal_col in df_filt.columns:
+        df_filt = df_filt[df_filt[_canal_col].isin(_canal_sel)]
         
     return df_filt
 
@@ -423,7 +426,7 @@ def _gated_preview_table(
     # ne le fournit pas (compatibilité ascendante).
     if lock_msg is None:
         lock_msg = "🔒 " + _("gated_locked")
-    safe_cols = [] if lock_all else ["Date", "Pays", "Dest", "ID", "Transaction", "Type", "Stock"]
+    safe_cols = [] if lock_all else [_("col_date"), _("col_pays"), _("col_dest"), _("vies_col_id"), _("col_transaction"), _("col_type"), _("col_stock")]
     if extra_safe_cols:
         safe_cols.extend(extra_safe_cols)
     

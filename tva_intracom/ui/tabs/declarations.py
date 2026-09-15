@@ -206,7 +206,7 @@ def render_declarations(ctx: TabContext) -> None:
         home_label = _("canal_vat_fr")
     else:
         # On utilise une version courte pour le tableau récap : "Déclaration [Pays]"
-        home_label = f"🏠 Déclaration {home_country}"
+        home_label = _("canal_decl_home", country=home_country)
 
     recap_data = [
         {
@@ -259,7 +259,7 @@ def render_declarations(ctx: TabContext) -> None:
     if _ddp_agg:
         for _ccode, _vals in sorted(_ddp_agg.items()):
             if _ccode == home_country:
-                _label = _("canal_ddp_fr") if home_country == "FR" else f"TVA DDP {home_country}"
+                _label = _("canal_ddp_fr") if home_country == "FR" else _("canal_ddp_home", country=home_country)
             else:
                 _label = _("canal_ddp_local", country=country_label(_ccode))
 

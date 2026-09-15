@@ -494,15 +494,15 @@ def render_telechargements() -> None:
                         by_rate[str(r.vat_rate)]["tva"]  += r.vat_amount
                         by_rate[str(r.vat_rate)]["nb"]   += 1
                     w.writerow([f"{decl_name} — {period_lbl}"])
-                    w.writerow([f"Pays : {country_label(country)} ({country}) | Standard : {rate_std} | Reduit : {rate_red}"])
+                    w.writerow([f"{_('csv_label_country')} : {country_label(country)} ({country}) | {_('csv_header_std_rate')} : {rate_std} | {_('csv_header_reduced_rate')} : {rate_red}"])
                     w.writerow([])
                     fmt_map = LOCAL_VAT_BOX_CODES  # source unique — voir tva_intracom/rates.py
                     if country == home_country:
-                        w.writerow(["Base HT","Taux (%)","TVA","ID vente","Canal"])
+                        w.writerow([_("csv_header_base_ht"), _("csv_header_rate_pct"), _("csv_header_vat_amount"), _("csv_header_sale_id"), _("csv_header_channel")])
                         for r in country_results:
                             w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),(r.sale.display_id or r.sale.sale_id),r.channel.value])
-                        w.writerow([]); w.writerow([f"TOTAL TVA {home_country}",str(summary.net_fr_domestic_vat).replace(".",",")])
-                        w.writerow(["TOTAL OSS",str(_oss_tva_net_total).replace(".",",")])
+                        w.writerow([]); w.writerow([_("csv_header_total_vat_country", country=home_country),str(summary.net_fr_domestic_vat).replace(".",",")])
+                        w.writerow([_("csv_header_total_oss"),str(_oss_tva_net_total).replace(".",",")])
                     elif country in fmt_map:
                         headers, mapping = fmt_map[country]
                         w.writerow(headers)
@@ -513,14 +513,14 @@ def render_telechargements() -> None:
                             else:
                                 code, desc = "", rk+"%"
                             w.writerow([code,desc,str(d["base"]).replace(".",","),str(d["tva"]).replace(".",","),d["nb"]])
-                        w.writerow(["","TOTAL","",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
+                        w.writerow(["",_("TOTAL"),"",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
                     else:
-                        w.writerow([lbl_base+" (EUR)","Taux (%)","TVA (EUR)","Nb","ID vente","Date"])
+                        w.writerow([lbl_base+" (EUR)", _("csv_header_rate_pct"), lbl_tax+" (EUR)", _("csv_header_count"), _("csv_header_sale_id"), _("csv_header_date")])
                         for r in country_results:
                             w.writerow([str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),1,(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date])
-                        w.writerow([]); w.writerow(["TOTAL TVA","",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
-                    w.writerow([]); w.writerow(["--- Détail ---"])
-                    w.writerow(["ID vente","Date","Base HT (EUR)","Taux (%)","TVA (EUR)","Canal","Pays dest."])
+                        w.writerow([]); w.writerow([_("csv_header_total_vat_country", country=country),"",str(sum(d["tva"] for d in by_rate.values())).replace(".",",")])
+                    w.writerow([]); w.writerow([_("csv_header_detail_section")])
+                    w.writerow([_("csv_header_sale_id"), _("csv_header_date"), lbl_base+" (EUR)", _("csv_header_rate_pct"), lbl_tax+" (EUR)", _("csv_header_channel"), _("csv_header_country_dest")])
                     for r in country_results:
                         w.writerow([(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date,str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),r.channel.value,r.sale.buyer_country])
                     return ("\ufeff"+buf.getvalue()).encode("utf-8")

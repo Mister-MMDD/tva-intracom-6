@@ -270,7 +270,7 @@ def render_audit() -> None:
             ok = [c for c in by_c if c in countries_with_vat]
             if at_risk: st.error(_("audit_local_sales_error", countries=', '.join(at_risk)))
             if ok: st.success(_("audit_local_sales_success", countries=', '.join(ok)))
-            _df_loc = pd.DataFrame([{"ID": c, "Dest":c, _("type_column_label"):c, _("col_sales_count"):d["nb"], _("col_volume_ht_eur", currency=_target_currency):round(d["ht"],2),
+            _df_loc = pd.DataFrame([{_("audit_col_id"): c, _("audit_col_dest"):c, _("type_column_label"):c, _("col_sales_count"):d["nb"], _("col_volume_ht_eur", currency=_target_currency):round(d["ht"],2),
                                      _("col_status"):_("audit_status_ok") if c in countries_with_vat else _("audit_status_required")}
                                     for c,d in by_c.items()])
             _df_loc_filt = _render_filter_bar(_df_loc, "stock_loc")
@@ -280,11 +280,11 @@ def render_audit() -> None:
             st.caption(_("audit_fba_count_caption", count=len(all_fc_transfers)))
             with st.expander(_("audit_fba_expander")):
                 _df_fc = pd.DataFrame(all_fc_transfers)
-                if "ID" not in _df_fc.columns and "transaction_id" in _df_fc.columns:
-                    _df_fc["ID"] = _df_fc["transaction_id"]
+                if _("audit_col_id") not in _df_fc.columns and "transaction_id" in _df_fc.columns:
+                    _df_fc[_("audit_col_id")] = _df_fc["transaction_id"]
                 # On adapte pour le filtre
-                if "Dest" not in _df_fc.columns and "arrival_country" in _df_fc.columns:
-                    _df_fc["Dest"] = _df_fc["arrival_country"]
+                if _("audit_col_dest") not in _df_fc.columns and "arrival_country" in _df_fc.columns:
+                    _df_fc[_("audit_col_dest")] = _df_fc["arrival_country"]
                 _df_fc_filt = _render_filter_bar(_df_fc, "fba_transfers")
                 _ps_fc = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
                                           value=250, key="page_size_fba_transfers")
