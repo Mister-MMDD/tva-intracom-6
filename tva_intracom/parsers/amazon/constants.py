@@ -88,6 +88,17 @@ NEEDED_COLUMNS: frozenset[str] = frozenset({
     "marketplace_facilitator_tax_collection_model",
     "tax_reporting_scheme", "jurisdiction_level",
     # INVOICE / CREDIT_NOTE (écritures de facturation pure)
+    # Classification produit (chantier taux réduit dynamique CN/CPA, cf.
+    # synthèse taux_reduit_dynamique.md) — lues à partir de cette version
+    # mais non exploitées pour le calcul fiscal (product_category reste
+    # piloté par asin_to_category jusqu'à la suppression du catalogue
+    # manuel, point 2 du plan). commodity_code = Niveau 1 (code NC, vide
+    # sur tous les exports Amazon observés à ce jour — lu quand même pour
+    # ne pas fermer la porte si un jour la donnée existe) ; product_tax_code
+    # = Niveau 2 (ex. A_GEN_STANDARD, A_BOOKS_GEN — classification Amazon
+    # retenue comme source principale) ; item_description = Niveau 3
+    # (fallback texte, non exploité, aucun mapping prévu pour l'instant).
+    "commodity_code", "product_tax_code", "item_description",
 })
 
 # ---------------------------------------------------------------------------

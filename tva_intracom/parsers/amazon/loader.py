@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import logging
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -99,6 +100,17 @@ class AmazonImportResult:
     # shipment_date, amount_ht}. Format 5 uniquement (seul format où les
     # deux dates sont disponibles séparément).
     period_mismatches: List[dict] = field(default_factory=list)
+    # Chantier taux réduit dynamique CN/CPA (cf. synthèse
+    # taux_reduit_dynamique.md) — répartition diagnostique des valeurs
+    # PRODUCT_TAX_CODE / COMMODITY_CODE brutes rencontrées (sales/refunds
+    # uniquement). Un Counter plutôt qu'un stockage par ligne : ces champs
+    # sont un jeu fini de quelques dizaines de codes distincts au maximum,
+    # pas O(nb_lignes) — voir le commentaire perf équivalent sur
+    # df.to_dicts() dans constants.py. Purement diagnostique à ce stade :
+    # ne pilote aucun calcul (product_category reste inchangé, piloté par
+    # asin_to_category jusqu'au point 2 du chantier).
+    product_tax_code_counts: "Counter[str]" = field(default_factory=Counter)
+    commodity_code_counts: "Counter[str]" = field(default_factory=Counter)
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +265,16 @@ def _process_rows(
         row_asin     = parser.asin(row)
         currency     = parser.currency(row)
         arrival_pc   = parser.arrival_post_code(row)
+
+        # Chantier taux réduit dynamique CN/CPA — diagnostic uniquement,
+        # ne pilote pas product_category à ce stade (cf. commentaire sur
+        # AmazonImportResult.product_tax_code_counts).
+        row_product_tax_code = parser.product_tax_code(row)
+        if row_product_tax_code:
+            result.product_tax_code_counts[row_product_tax_code] += 1
+        row_commodity_code = parser.commodity_code(row)
+        if row_commodity_code:
+            result.commodity_code_counts[row_commodity_code] += 1
 
         product_category = "STANDARD"
         if asin_to_category and row_asin in asin_to_category:

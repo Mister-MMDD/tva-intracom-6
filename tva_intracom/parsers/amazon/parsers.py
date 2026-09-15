@@ -76,6 +76,30 @@ class _RowParser:
         """Numéro IOSS propre au vendeur. Vide par défaut."""
         return ""
 
+    # --- Classification produit (chantier taux réduit dynamique CN/CPA) ---
+    # Colonnes communes à tous les formats Amazon observés (même nom brut
+    # post normalize_header) — pas de surcharge par format à ce stade.
+    # Lues à partir de cette version mais non exploitées pour le calcul
+    # fiscal (voir commentaire NEEDED_COLUMNS dans constants.py).
+
+    def product_tax_code(self, row: dict) -> str:
+        """Code de classification fiscale Amazon (ex: A_GEN_STANDARD,
+        A_BOOKS_GEN) — Niveau 2 de la stratégie CN/CPA, source principale
+        retenue pour la classification produit."""
+        return (row.get("product_tax_code") or "").strip()
+
+    def commodity_code(self, row: dict) -> str:
+        """Code NC (nomenclature combinée douanière) — Niveau 1 de la
+        stratégie CN/CPA. Vide sur tous les échantillons Amazon observés à
+        ce jour ; lu quand même pour ne pas fermer la porte si la donnée
+        devient disponible un jour."""
+        return (row.get("commodity_code") or "").strip()
+
+    def item_description(self, row: dict) -> str:
+        """Libellé produit brut Amazon — Niveau 3 (fallback texte) de la
+        stratégie CN/CPA. Aucun mapping prévu pour l'instant, non exploité."""
+        return (row.get("item_description") or "").strip()
+
 
 # ---------------------------------------------------------------------------
 # Format 1 — Ancien format
