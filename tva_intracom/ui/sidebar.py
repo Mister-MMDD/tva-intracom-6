@@ -4,9 +4,14 @@ Regroupe tous les accordéons de la sidebar :
   - Validation & Devises (toggles toujours actifs)
   - Cache VIES (TTL, stats, purge)
   - Paramètres du fichier (encodage)
-  - Catalogue Produits (taux réduits par ASIN)
   - Entreprise & Paramètres (SIREN, IOSS, DDP, seuil OSS, TVA locales)
   - Abonnements & forfaits (Stripe : PAYG, Pro, Cabinet)
+
+Le bloc "Catalogue Produits" (upload ASIN -> catégorie pour les taux
+réduits) a été supprimé (chantier taux réduit dynamique CN/CPA,
+2026-09-15) — remplacé par la table product_tax_code_category, résolue
+automatiquement à l'import du fichier (voir parsers/amazon/loader.py et
+product_tax_code_category.py). Plus aucune action utilisateur requise.
 
 Usage dans app.py :
 
@@ -14,7 +19,7 @@ Usage dans app.py :
 
     sb = render_sidebar(_auth_ctx)
     # sb.file_format, sb.enable_vies, sb.convert_fx, sb.encoding,
-    # sb.asin_to_category, sb.ioss_number, sb.seller_is_importer,
+    # sb.ioss_number, sb.seller_is_importer,
     # sb.apply_fr_under_threshold, sb.countries_with_vat,
     # sb.nom_entreprise, sb.siren_entreprise, sb.tva_fr,
     # sb.local_vat_numbers, sb.oss_period, sb.on_invalid_behavior
@@ -36,7 +41,6 @@ from tva_intracom import billing as tva_billing
 from tva_intracom.i18n import _, country_label
 from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
     oss_threshold_in_currency
-from tva_intracom.ui.files import sniff_upload_rejection_reason
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 from tva_intracom.ui.theme import _PLATFORM_OPTIONS
 from tva_intracom.ui.display_mode import is_detailed
@@ -74,7 +78,6 @@ class SidebarResult:
     on_invalid_behavior: str
     convert_fx: bool
     encoding: str
-    asin_to_category: dict[str, str]
     ioss_number: str
     seller_is_importer: bool
     apply_fr_under_threshold: bool
@@ -374,63 +377,6 @@ def _edit_siren_form_fragment(
                 preserve_upload_rerun()  # rerun complet volontaire : il faut recharger _match à jour
             except Exception as _reg_err:
                 st.error(_("update_error", error=_reg_err))
-
-
-# Taille max acceptée pour un catalogue produits uploadé (Mo). Sans cette
-# garde, un fichier très volumineux lu via pd.read_csv(engine='python')
-# pouvait épuiser la mémoire du process Streamlit (partagé entre sessions
-# sur Streamlit Cloud) — DoS involontaire ou malveillant.
-_MAX_CATALOG_MB = 100
-
-
-@st.cache_resource(show_spinner=False, ttl=1800, max_entries=20)
-def _parse_catalog_bytes(file_bytes: bytes, filename: str) -> dict[str, str]:
-    """Parse un catalogue ASIN → catégorie fiscale depuis son contenu brut.
-
-    Mis en cache par contenu (`file_bytes` fait partie de la clé de hash) :
-    tant que l'utilisateur ne change pas de fichier, ce parsing ne s'exécute
-    qu'une seule fois, au lieu d'être refait à chaque rerun Streamlit
-    (changement de widget, etc.).
-
-    `st.cache_resource` (et non `st.cache_data`) : le dict retourné n'est
-    JAMAIS muté après sa construction (uniquement des `.get()` en aval, dans
-    `engine.py`/`loader.py`) — `cache_resource` partage donc la même
-    instance mémoire entre toutes les sessions au lieu d'en renvoyer une
-    copie par appel. Pour un catalogue de 20k+ ASIN et plusieurs sessions
-    utilisateur simultanées, ça évite une copie complète du dict par
-    session (RAM divisée par le nombre de sessions actives).
-
-    IMPORTANT (mémoire) : ce cache est GLOBAL au process (partagé entre
-    toutes les sessions), donc jamais purgé par le logout ni par le retrait
-    d'un fichier en session_state. Sans borne, un nouveau catalogue uploadé
-    par n'importe quel utilisateur créait une entrée permanente. `ttl=1800`
-    + `max_entries=20` évitent la croissance illimitée.
-    """
-    import io
-    buf = io.BytesIO(file_bytes)
-    if filename.endswith(".tsv"):
-        df_cat = pd.read_csv(buf, sep="\t")
-    else:
-        # CSV/TXT : on tente de détecter le séparateur (comportement
-        # simplifié par rapport au chargeur principal de fichiers de ventes).
-        df_cat = pd.read_csv(buf, sep=None, engine="python")
-    df_cat.columns = [c.strip().upper() for c in df_cat.columns]
-    asin_col = next((c for c in df_cat.columns if "ASIN" in c), None)
-    cat_col = next((c for c in df_cat.columns if "PRODUCT-TAX-CODE" in c or "TAX-CODE" in c), None)
-    if not cat_col:
-        cat_col = next((c for c in df_cat.columns if any(k in c for k in ["TAX", "GROUP", "CODE", "TYPE"])), None)
-    if asin_col and cat_col:
-        import sys
-        # PERF RAM (voir README - évolution.md) : les ASIN du catalogue sont
-        # comparés/utilisés comme clé pour retrouver les mêmes ASIN déjà
-        # internés côté Sale (models.py, `self.asin`). Sans sys.intern() ici,
-        # chaque ASIN existe deux fois en mémoire (chaîne catalogue distincte
-        # de la chaîne Sale) au lieu de partager le même objet str.
-        return {
-            sys.intern(str(a).strip().upper()): sys.intern(str(c).strip().upper())
-            for a, c in zip(df_cat[asin_col], df_cat[cat_col]) if pd.notna(a) and pd.notna(c)
-        }
-    return {}
 
 
 def _render_account_dialog(_current_user) -> None:
@@ -1410,46 +1356,6 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                             except Exception as _cab_err:
                                 st.error(_("generic_error_prefix", error=str(_cab_err)))
 
-        # ── Catalogue Produits ────────────────────────────────────────────────────
-        # Fonctionnalité avancée (taux réduits par ASIN) — masquée en mode
-        # Simple (voir tva_intracom/ui/display_mode.py).
-        #
-        # BUGFIX (2026-08-21) : `asin_to_category` alimente `_cache_key`
-        # (calc_key, voir app.py) — le fixer à {} par défaut à chaque fois
-        # que ce bloc n'est pas rendu (mode Simple) changeait `calc_key`
-        # dès qu'on quittait le mode Détaillé après avoir chargé un
-        # catalogue, ce qui déclenchait un recalcul complet à CHAQUE
-        # bascule de mode (et faisait perdre le catalogue déjà chargé,
-        # widget file_uploader non rendu = state non conservé sans clé
-        # explicite). Le dict parsé est désormais mis en cache dans
-        # session_state, relu ici quel que soit le mode, pour que le
-        # toggle Simple/Détaillé ne touche plus jamais au calcul.
-        asin_to_category = st.session_state.get("_asin_catalog_data", {})
-        if is_detailed():
-            with st.expander(_("catalog_header"), expanded=False):
-                catalog_file = st.file_uploader(_("catalog_upload"),
-                                                type=["csv","tsv","txt"],
-                                                help=_("catalog_help"),
-                                                key="catalog_file_uploader")
-                if catalog_file is not None:
-                    _size_mb = catalog_file.size / (1024 * 1024)
-                    if _size_mb > _MAX_CATALOG_MB:
-                        st.error(_("catalog_too_large", size_mb=_size_mb, max_mb=_MAX_CATALOG_MB))
-                    elif sniff_upload_rejection_reason(catalog_file.getvalue()[:4096]):
-                        # Audit sécurité 2026-09-13 (MOYEN #4) : même contrôle
-                        # de contenu que l'import principal (app.py) — voir
-                        # tva_intracom/ui/files.py::sniff_upload_rejection_reason.
-                        st.error(_("files_invalid_content_error", files=catalog_file.name))
-                    else:
-                        try:
-                            _parsed_catalog = _parse_catalog_bytes(catalog_file.getvalue(), catalog_file.name)
-                            if _parsed_catalog:
-                                asin_to_category = _parsed_catalog
-                                st.session_state["_asin_catalog_data"] = asin_to_category
-                                st.success(_("catalog_success", count=len(asin_to_category)))
-                        except Exception as e:
-                            st.error(_("catalog_error", error=e))
-
         # ── Cache VIES ────────────────────────────────────────────────────────────
         # RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — le TTL
         # (partagé par toute l'organisation, modifiable par l'admin seul), les stats
@@ -1570,8 +1476,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         # "utf-8" couvre l'immense majorité des exports Amazon — réglage
         # avancé masqué en mode Simple.
         #
-        # BUGFIX (2026-08-21) : même classe de bug que le catalogue
-        # ci-dessus — `encoding` alimente `parse_key` (voir app.py) ; le
+        # BUGFIX (2026-08-21) : même classe de bug qu'avec l'ancien catalogue
+        # ASIN -> catégorie (supprimé, cf. chantier taux réduit dynamique CN/CPA) — `encoding` alimente `parse_key` (voir app.py) ; le
         # re-fixer à "utf-8" par défaut à chaque run où l'expander n'est
         # pas rendu aurait fait perdre un encodage explicitement choisi
         # (ex. "latin-1") dès la bascule vers le mode Simple, et forcé un
@@ -1619,7 +1525,6 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         on_invalid_behavior=on_invalid_behavior,
         convert_fx=convert_fx,
         encoding=encoding,
-        asin_to_category=asin_to_category,
         ioss_number=ioss_number,
         seller_is_importer=seller_is_importer,
         apply_fr_under_threshold=apply_fr_under_threshold,

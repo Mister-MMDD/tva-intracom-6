@@ -41,6 +41,7 @@ from .detect import EXPECTED_COLUMNS, detect_format, detect_separator, normalize
 from .parsers import PARSERS, _RowParser
 from ...ecb_rates import prefetch_rates
 from ...models import BuyerType, Sale
+from ...product_tax_code_category import map_product_tax_code_to_category
 from ...vies_engine import _normalize_vat_id as normalize_vat
 
 logger = logging.getLogger(__name__)
@@ -106,9 +107,10 @@ class AmazonImportResult:
     # uniquement). Un Counter plutôt qu'un stockage par ligne : ces champs
     # sont un jeu fini de quelques dizaines de codes distincts au maximum,
     # pas O(nb_lignes) — voir le commentaire perf équivalent sur
-    # df.to_dicts() dans constants.py. Purement diagnostique à ce stade :
-    # ne pilote aucun calcul (product_category reste inchangé, piloté par
-    # asin_to_category jusqu'au point 2 du chantier).
+    # df.to_dicts() dans constants.py. product_category est maintenant
+    # résolu à partir de product_tax_code (voir product_tax_code_category.py) ;
+    # ces compteurs restent un diagnostic complémentaire (répartition brute
+    # observée), pas la source de vérité du calcul.
     product_tax_code_counts: "Counter[str]" = field(default_factory=Counter)
     commodity_code_counts: "Counter[str]" = field(default_factory=Counter)
 
@@ -123,7 +125,6 @@ def _process_rows(
     fmt: int,
     seller_country: str,
     convert_currencies: bool,
-    asin_to_category: Optional[dict[str, str]],
     result: AmazonImportResult,
     # Signature harmonisée avec load_amazon_report/_bce_cb (3e paramètre
     # `label` optionnel) : avant ce correctif, les deux fonctions déclaraient
@@ -266,9 +267,13 @@ def _process_rows(
         currency     = parser.currency(row)
         arrival_pc   = parser.arrival_post_code(row)
 
-        # Chantier taux réduit dynamique CN/CPA — diagnostic uniquement,
-        # ne pilote pas product_category à ce stade (cf. commentaire sur
-        # AmazonImportResult.product_tax_code_counts).
+        # Chantier taux réduit dynamique CN/CPA — product_tax_code pilote
+        # désormais product_category (table product_tax_code_category,
+        # remplace l'ancien catalogue manuel ASIN -> catégorie). Résolu une
+        # seule fois ici, à l'import (décision Matthieu 2026-09-15 : pas de
+        # recalcul à la volée depuis une table live, contrairement à
+        # l'ancien asin_to_category dans engine.py — voir docstring de
+        # product_tax_code_category.py).
         row_product_tax_code = parser.product_tax_code(row)
         if row_product_tax_code:
             result.product_tax_code_counts[row_product_tax_code] += 1
@@ -276,9 +281,7 @@ def _process_rows(
         if row_commodity_code:
             result.commodity_code_counts[row_commodity_code] += 1
 
-        product_category = "STANDARD"
-        if asin_to_category and row_asin in asin_to_category:
-            product_category = asin_to_category[row_asin]
+        product_category = map_product_tax_code_to_category(row_product_tax_code)
 
         # --- Date de transaction absente ou non normalisée ---
         # tx_date_str est censée sortir de parse_date() au format YYYY-MM-DD,
@@ -696,7 +699,6 @@ def load_amazon_report(
     seller_country: str = "FR",
     encoding: Optional[str] = None,
     convert_currencies: bool = False,
-    asin_to_category: Optional[dict[str, str]] = None,
     progress_callback: Optional[Callable[[int, int, Optional[str]], None]] = None,
     bce_label: Optional[str] = None,
     bce_wait_label: Optional[str] = None,
@@ -807,7 +809,6 @@ def load_amazon_report(
         fmt=fmt,
         seller_country=seller_country,
         convert_currencies=convert_currencies,
-        asin_to_category=asin_to_category,
         result=result,
         progress_callback=progress_callback,
         target_currency=target_currency,

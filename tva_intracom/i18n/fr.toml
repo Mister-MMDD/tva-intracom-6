@@ -539,12 +539,6 @@ unlock_label_fallback = "débloquer cette période ou vous abonner"
 # Sidebar - Paramètres & Catalogue
 file_params_header = "📦 Paramètres du fichier"
 file_encoding = "Encodage du fichier"
-catalog_header = "📋 Catalogue Produits (taux réduits)"
-catalog_upload = "Importer le catalogue Amazon"
-catalog_help = "Colonnes ASIN + PRODUCT-TAX-CODE pour taux réduits (max 100 Mo)."
-catalog_success = "📈 {count} ASIN mappés."
-catalog_error = "Erreur catalogue : {error}"
-catalog_too_large = "Fichier catalogue trop volumineux ({size_mb:.1f} Mo, max {max_mb} Mo)."
 
 # Sidebar - Entreprise
 company_header = "📅 Entreprise & Paramètres"

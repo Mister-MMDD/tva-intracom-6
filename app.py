@@ -256,7 +256,6 @@ enable_vies = _sb.enable_vies
 on_invalid_behavior = _sb.on_invalid_behavior
 convert_fx = _sb.convert_fx
 encoding = _sb.encoding
-asin_to_category = _sb.asin_to_category
 ioss_number = _sb.ioss_number
 seller_is_importer = _sb.seller_is_importer
 apply_fr_under_threshold = _sb.apply_fr_under_threshold
@@ -470,7 +469,7 @@ else:
         "language_selector_ui", "home_country_select", "display_currency_select",
         "target_currency", "currency_symbol", "display_currency_choice",
         "confirm_delete_account", "_malformed_vies_purged",
-        "display_mode", "_display_mode_widget", "_asin_catalog_data",
+        "display_mode", "_display_mode_widget",
         "_file_encoding_choice",
     }
     for _stale_key in list(st.session_state.keys()):
@@ -524,25 +523,17 @@ if uploaded_files:
     # (rerun), ce qui relançait sans le vouloir toute la boucle de parsing —
     # invisible sur un petit fichier, mais doublant le temps de chargement sur
     # un gros fichier. On ne ré-analyse que si les fichiers ou les options
-    # d'import (pays d'origine, encodage, conversion devise, format,
-    # catalogue ASIN) ont réellement changé.
+    # d'import (pays d'origine, encodage, conversion devise, format) ont
+    # réellement changé.
     #
-    # Le catalogue ASIN peut compter des dizaines de milliers d'entrées.
-    # `_parse_catalog_bytes` est en `@st.cache_resource` côté sidebar (même
-    # instance mémoire partagée entre sessions, pas de copie par appel) :
-    # l'id() de asin_to_category reste donc stable pour un même contenu.
-    # On garde malgré tout un hash de contenu (plutôt que de comparer sur
-    # id()) pour ne pas faire reposer ce cache de clé sur un détail
-    # d'implémentation de st.cache_resource : tuple(sorted(dict.items()))
-    # retriait tout le catalogue (O(n log n)) à *chaque* rerun (changement
-    # de filtre, d'onglet...) ; hash sur un frozenset est O(n), sans tri, et
-    # ne compare qu'un simple int au rerun suivant au lieu d'un tuple de 20k
-    # éléments.
-    _asin_catalog_sig = hash(frozenset(asin_to_category.items())) if asin_to_category else None
+    # L'ancien hash de contenu du catalogue ASIN (_asin_catalog_sig) a été
+    # supprimé avec le catalogue manuel lui-même (chantier taux réduit
+    # dynamique CN/CPA, 2026-09-15) — la classification produit est
+    # désormais résolue une seule fois à l'import (product_tax_code_category.py),
+    # plus besoin d'une signature de catalogue dans la clé de cache.
     _parse_cache_key = (
         tuple(sorted(_upload_sig(f) for f in uploaded_files)),
         home_country, encoding, convert_fx, file_format,
-        _asin_catalog_sig,
     )
 
     # RELANCE AUTO VIES — une seule fois par fichier/analyse (voir échange
@@ -568,11 +559,6 @@ if uploaded_files:
     # fusionné parsing+calcul ci-dessous (voir README - évolution.md,
     # correctif "un seul slot de file pour parsing+calcul").
     def _compute_cache_key() -> tuple:
-        # BUGFIX (2026-09-11) : réutilise `_asin_catalog_sig` (déjà calculé
-        # ci-dessus, hash O(n) sur frozenset) au lieu de refaire
-        # `tuple(sorted(asin_to_category.items()))` ici — ce tri O(n log n)
-        # était exécuté à CHAQUE rerun Streamlit (clic, filtre, etc.) et
-        # devenait très coûteux sur un gros catalogue ASIN (20k+ entrées).
         return (
             # SÉCURITÉ (voir README - évolution.md) : `current_user.id` inclus
             # explicitement en tête de clé. Sans cela, deux comptes distincts
@@ -583,7 +569,6 @@ if uploaded_files:
             _current_user.id,
             tuple(_upload_sig(f) for f in uploaded_files),
             enable_vies, convert_fx, file_format,
-            _asin_catalog_sig,
             ioss_number, seller_is_importer,
             tuple(sorted(countries_with_vat)),
             apply_fr_under_threshold,
@@ -721,7 +706,6 @@ if uploaded_files:
                     continue
                 _parse_result = parser_amazon.load_amazon_report(
                     _tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx,
-                    asin_to_category=asin_to_category,
                     progress_callback=_on_parse_progress,
                     bce_label=_("calc_progress_bce_count", lang=_lang_for_thread),
                     bce_wait_label=_("calc_progress_bce", lang=_lang_for_thread),
@@ -810,7 +794,7 @@ if uploaded_files:
                        _("calc_progress_oss_count", lang=_lang_for_thread, done=done, total=total))
 
             _results, _refund_results, _vies_summary, _oss_summary = compute_all_with_vies(
-                _c_sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
+                _c_sales, scope_id=_vies_scope_id,
                 on_invalid=on_invalid_behavior, marketplace_name=_platform_name,
                 apply_fr_under_threshold=apply_fr_under_threshold,
                 refunds=_c_refunds if _c_refunds else None,
@@ -963,7 +947,6 @@ if uploaded_files:
 
                     parse_result = parser_amazon.load_amazon_report(
                         tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx,
-                        asin_to_category=asin_to_category,
                         progress_callback=_on_parse_progress,
                         bce_label=_("calc_progress_bce_count"),
                         bce_wait_label=_("calc_progress_bce"),
@@ -1212,13 +1195,15 @@ if uploaded_files:
                 # le second appel dédié aux avoirs, qui refaisait entièrement
                 # le tri chronologique, la normalisation TVA et le lookup
                 # VIES pour rien (déjà fait en interne par le premier appel),
-                # a été supprimé. asin_to_category et apply_fr_under_threshold
-                # sont toujours transmis pour les mêmes raisons qu'avant (voir
-                # historique) : sans eux, un avoir retomberait sur la
-                # catégorie STANDARD et/ou ne matcherait pas le régime de la
-                # vente d'origine.
+                # a été supprimé. apply_fr_under_threshold est toujours
+                # transmis pour les mêmes raisons qu'avant (voir historique).
+                # asin_to_category n'existe plus (chantier taux réduit
+                # dynamique CN/CPA, 2026-09-15) : product_category est
+                # désormais résolue une seule fois à l'import, pour les
+                # ventes ET les avoirs indifféremment (voir loader.py) —
+                # plus rien à retransmettre ici pour ça.
                 _results, _refund_results, _vies_summary, _oss_summary = compute_all_with_vies(
-                    sales, scope_id=_vies_scope_id, asin_to_category=asin_to_category,
+                    sales, scope_id=_vies_scope_id,
                     on_invalid=on_invalid_behavior, marketplace_name=platform_name,
                     apply_fr_under_threshold=apply_fr_under_threshold,
                     refunds=refunds if refunds else None,

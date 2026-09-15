@@ -538,12 +538,6 @@ unlock_label_fallback = "unlock this period or subscribe"
 # Sidebar - Settings & Catalog
 file_params_header = "📦 File Settings"
 file_encoding = "File encoding"
-catalog_header = "📋 Product Catalog (reduced rates)"
-catalog_upload = "Import Amazon catalog"
-catalog_help = "ASIN + PRODUCT-TAX-CODE columns for reduced rates (max 100 MB)."
-catalog_success = "📈 {count} ASINs mapped."
-catalog_error = "Catalog error: {error}"
-catalog_too_large = "Catalog file too large ({size_mb:.1f} MB, max {max_mb} MB)."
 
 # Sidebar - Company
 company_header = "📅 Company & Settings"

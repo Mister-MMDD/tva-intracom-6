@@ -1063,7 +1063,6 @@ def _run_oss_loop(
         sorted_items: list[Sale],
         refund_keys: set[tuple[str, Decimal]],
         marketplace_name: str,
-        asin_to_category: dict[str, str],
         apply_fr_under_threshold: bool,
         effective_sale_fn=None,
         lang: str = "fr",
@@ -1206,11 +1205,14 @@ def _run_oss_loop(
 
     for _idx, sale in enumerate(sorted_items, start=1):
         is_from_refunds = _sale_key(sale) in refund_keys
-        product_asin = getattr(sale, "asin", "")
-        product_category = (
-                asin_to_category.get(product_asin, "")
-                or asin_to_category.get(product_asin.upper(), "STANDARD")
-        )
+        # Chantier taux réduit dynamique CN/CPA (2026-09-15) : product_category
+        # est désormais résolue une seule fois à l'import (product_tax_code_category.py,
+        # voir parsers/amazon/loader.py), et stockée directement sur Sale.
+        # L'ancien recalcul à la volée depuis asin_to_category (dict externe,
+        # clé ASIN) est supprimé — décision Matthieu : une correction de
+        # mapping en base impose un ré-import du fichier pour être prise en
+        # compte, au lieu d'un recalcul live.
+        product_category = sale.product_category or "STANDARD"
 
         year = _year_of(sale)
         if year and year != current_year:
@@ -1369,7 +1371,6 @@ def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> list[tuple
 def compute_all_with_vies(
         sales: list[Sale],
         scope_id: str,
-        asin_to_category: dict[str, str] | None = None,
         on_invalid: str = "reclassify",
         marketplace_name: str = "Amazon",
         check_vies_func=None,  # Conservé pour ne pas faire planter app.py
@@ -1441,9 +1442,6 @@ def compute_all_with_vies(
                  retombe déjà sur la fin de trimestre de la transaction
                  (même repli que celui utilisé côté export OSS).
     """
-    if asin_to_category is None:
-        asin_to_category = {}
-
     # IMPORT DIRECT DE TON MODULE VIES
     from .vies_engine import (
         validate_vat_numbers_parallel,
@@ -1817,7 +1815,7 @@ def compute_all_with_vies(
 
     results, refund_results, oss_summary = _run_oss_loop(
         all_items_sorted, refund_keys, marketplace_name,
-        asin_to_category, apply_fr_under_threshold,
+        apply_fr_under_threshold,
         effective_sale_fn=_effective_sale_with_vies,
         lang=_lang, currency=_curr, symbol=_sym,
         ioss_own_number_active=ioss_own_number_active,

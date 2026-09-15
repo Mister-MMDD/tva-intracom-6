@@ -538,12 +538,6 @@ unlock_label_fallback = "Diesen Zeitraum freischalten oder abonnieren"
 # Sidebar - Settings & Catalog
 file_params_header = "📦 Dateieinstellungen"
 file_encoding = "Dateicodierung"
-catalog_header = "📋 Produktkatalog (ermäßigte Steuersätze)"
-catalog_upload = "Amazon-Katalog importieren"
-catalog_help = "Spalten ASIN + PRODUCT-TAX-CODE für ermäßigte Steuersätze (max. 100 MB)."
-catalog_success = "📈 {count} ASINs zugeordnet."
-catalog_error = "Katalogfehler: {error}"
-catalog_too_large = "Katalogdatei zu groß ({size_mb:.1f} MB, max. {max_mb} MB)."
 
 # Sidebar - Company
 company_header = "📅 Unternehmen & Konfiguration"

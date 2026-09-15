@@ -538,12 +538,6 @@ unlock_label_fallback = "sblocca questo periodo o abbonati"
 # Sidebar - Settings & Catalog
 file_params_header = "📦 Impostazioni File"
 file_encoding = "Codifica del file"
-catalog_header = "📋 Catalogo Prodotti (aliquote ridotte)"
-catalog_upload = "Importa catalogo Amazon"
-catalog_help = "Colonne ASIN + PRODUCT-TAX-CODE per le aliquote ridotte (max 100 MB)."
-catalog_success = "📈 {count} ASIN mappati."
-catalog_error = "Errore catalogo: {error}"
-catalog_too_large = "File catalogo troppo grande ({size_mb:.1f} MB, max {max_mb} MB)."
 
 # Sidebar - Company
 company_header = "📅 Azienda & Impostazioni"
