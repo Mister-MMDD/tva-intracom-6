@@ -18,7 +18,7 @@ from typing import List
 import streamlit as st
 
 from .models import VatResult
-from .i18n import country_label
+from .i18n import country_label, _
 from .rates import (
     rate_periods_for_country,
     vat_rate_at_date,
@@ -158,7 +158,7 @@ def render_historical_rates_alert(results: List[VatResult], calc_key=None) -> No
             date_to_str = (
                 period.date_to.strftime("%d/%m/%Y")
                 if period.date_to
-                else "aujourd'hui"
+                else _("today")
             )
             matching_sales = sum(
                 1 for d in sale_dates
@@ -176,14 +176,14 @@ def render_historical_rates_alert(results: List[VatResult], calc_key=None) -> No
             if key in rows_by_key:
                 # Même pays/plage/taux qu'une autre catégorie déjà ajoutée :
                 # on fusionne le compte de ventes plutôt que dupliquer la ligne.
-                rows_by_key[key]["Ventes concernées"] += matching_sales
+                rows_by_key[key]["sales"] += matching_sales
             else:
                 rows_by_key[key] = {
-                    "Pays": key[0],
-                    "Du": key[1],
-                    "Au": key[2],
-                    "Taux appliqué": key[3],
-                    "Ventes concernées": matching_sales,
+                    "country": key[0],
+                    "from": key[1],
+                    "to": key[2],
+                    "rate": key[3],
+                    "sales": matching_sales,
                 }
             countries_in_rows.add(country)
 
@@ -206,7 +206,7 @@ def render_historical_rates_alert(results: List[VatResult], calc_key=None) -> No
     ]
 
     with st.expander(
-        f"📅 Taux TVA historiques détectés — {len(countries_with_history)} pays concerné(s)",
+        _("hist_title", count=len(countries_with_history)),
         expanded=bool(countries_with_multiple_rates),  # ouvert si taux multiples effectifs
     ):
         if countries_with_multiple_rates:
@@ -214,14 +214,11 @@ def render_historical_rates_alert(results: List[VatResult], calc_key=None) -> No
                 f"**{country_label(c)}**" for c in countries_with_multiple_rates
             )
             st.caption(
-                f"⚡ Changement de taux en cours de période détecté pour : {names}. "
-                "Les taux ont été appliqués vente par vente selon la date de transaction."
+                _("hist_multiple_rates", names=names)
             )
         else:
             st.caption(
-                "Les pays ci-dessous ont connu un changement de taux TVA récent. "
-                "Toutes vos ventes se situent dans une seule période — "
-                "le taux correct a été appliqué uniformément."
+                _("hist_single_rate")
             )
 
         import pandas as pd
@@ -231,17 +228,16 @@ def render_historical_rates_alert(results: List[VatResult], calc_key=None) -> No
             width="stretch",
             hide_index=True,
             column_config={
-                "Pays": st.column_config.TextColumn(width="medium"),
-                "Du": st.column_config.TextColumn(width="small"),
-                "Au": st.column_config.TextColumn(width="small"),
-                "Taux appliqué": st.column_config.TextColumn(width="small"),
-                "Ventes concernées": st.column_config.NumberColumn(
-                    width="small", format="%d vente(s)"
+                "country": st.column_config.TextColumn(_("hist_col_country"), width="medium"),
+                "from": st.column_config.TextColumn(_("hist_col_from"), width="small"),
+                "to": st.column_config.TextColumn(_("hist_col_to"), width="small"),
+                "rate": st.column_config.TextColumn(_("hist_col_rate"), width="small"),
+                "sales": st.column_config.NumberColumn(
+                    _("hist_col_sales"),
+                    width="small",
+                    format=_("hist_sales_format").replace("{count}", "%d")
                 ),
             },
         )
 
-        st.caption(
-            "Source : Commission européenne, tableau des taux TVA 2024/2026. "
-            "Périmètre : changements détectés depuis l'année précédant vos ventes par pays."
-        )
+        st.caption(_("hist_source"))
