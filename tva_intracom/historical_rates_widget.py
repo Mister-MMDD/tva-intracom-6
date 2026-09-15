@@ -130,7 +130,19 @@ def render_historical_rates_alert(results: List[VatResult], calc_key=None) -> No
         periods = rate_periods_for_country(country)
         country_name = country_label(country)
 
+        # On ne retient que les changements de taux "récents" par rapport aux
+        # commandes du fichier : depuis le 1er janvier de l'année N-1 de la
+        # commande la plus ancienne du pays (ex. commande en 2026 -> 01/01/2025).
+        country_all_dates = countries_dates.get(country, [])
+        if not country_all_dates:
+            continue
+        window_start = date(min(country_all_dates).year - 1, 1, 1)
+
         for period in periods:
+            # Filtre temporel : ignorer les changements trop anciens (N-2+)
+            if period.date_from < window_start:
+                continue
+
             sale_dates = dates_by_country_category.get((country, period.category))
             if not sale_dates:
                 continue  # Aucune vente de cette catégorie précise dans le fichier
@@ -231,5 +243,5 @@ def render_historical_rates_alert(results: List[VatResult], calc_key=None) -> No
 
         st.caption(
             "Source : Commission européenne, tableau des taux TVA 2024/2026. "
-            "Périmètre historique : à partir du 01/01/2024."
+            "Périmètre : changements détectés depuis l'année précédant vos ventes par pays."
         )
