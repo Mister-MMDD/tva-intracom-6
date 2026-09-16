@@ -93,22 +93,66 @@ _ISO_TO_TEDB = {"GR": "EL"}
 #     pas les livres. Une recherche par code CN nécessiterait de connaître
 #     le bon code CN par pays — risque de donnée fiscale erronée, non fait.
 #   - CLOTHING : aucune catégorie générale "habillement" côté TEDB (seule
-#     CLOTHING_REPAIR = réparation existe, hors sujet).
+#     CLOTHING_REPAIR = réparation existe, hors sujet). CHILD_WEAR
+#     ci-dessous est une catégorie TEDB distincte et réelle, pas un
+#     synonyme de CLOTHING.
 #   - SUPER_REDUCED : regroupement interne à ce projet (palier de taux),
 #     pas une catégorie TEDB (qui catégorise par nature de bien/service).
+#
+# Reprise chantier CN/CPA (2026-09-16) : catégories ajoutées sur la base du
+# mapping PTC->TEDB de Matthieu (premier jet, non encore validé cabinet
+# pour le mapping produit — voir tedb-amazon-ptc-reference.md) mais dont la
+# safe-list pays elle-même est un fait TEDB, pas une décision fiscale.
 _CATEGORY_TO_TEDB: dict[str, str] = {
     "FOOD": "FOODSTUFFS",
     "MEDICINES": "PHARMACEUTICAL_PRODUCTS",  # à valider cabinet, voir docstring module
     "PARKING": "PARKING",
+    "PERIODICALS": "PERIODICALS",
+    "MEDICAL_EQUIPMENT": "MEDICAL_EQUIPMENT",
+    "CHILDREN_CAR_SEATS": "CHILDREN_CAR_SEATS",
+    "SOLAR_PANELS": "SOLAR_PANELS",
+    "PLANT": "PLANT",
+    "FOSSIL_FUEL": "FOSSIL_FUEL",
+    "CHEMICAL_FERTILISERS": "CHEMICAL_FERTILISERS",
+    "CHEMICAL_PESTICIDES_ENVIRONMENT": "CHEMICAL_PESTICIDES_ENVIRONMENT",
+    "CERTAIN_AGRICULTURAL_INPUT": "CERTAIN_AGRICULTURAL_INPUT",
+    "CHILD_WEAR": "CHILD_WEAR",
+    "AGRICULTURAL_PRODUCTION": "AGRICULTURAL_PRODUCTION",
 }
 
-# Extraction des catégories REDUCED (_CATEGORY_TO_TEDB ci-dessus) désactivée
-# tant que _is_tedb_eligible() ne les autorise pas (restriction au taux
-# STANDARD uniquement, 2026-09-13). Réactiver EN MÊME TEMPS que
-# l'éligibilité TEDB sera étendue au-delà de STANDARD — sinon on retombe
-# dans la pollution de logs/CPU inutile qui a motivé cette restriction
-# (voir _parse_tedb_response).
-_PARSE_REDUCED_CATEGORIES = False
+# Safe-list pays par catégorie (dump TEDB réel, situation 2026-01-01 pour
+# FOOD/MEDICINES ; complété le 2026-09-16 par Matthieu pour les nouvelles
+# catégories, sortie de sa propre commande diag). Un pays hors de cette
+# liste pour une catégorie donnée n'est PAS interrogé en dynamique TEDB :
+# comportement inchangé (repli rates.py::REDUCED_VAT_RATES si une entrée
+# statique existe pour cette catégorie, sinon STANDARD — jamais de
+# sous-déclaration). Ce sont des FAITS TEDB (nombre de taux distincts par
+# pays), pas des décisions fiscales — la décision fiscale porte sur le
+# mapping PRODUCT_TAX_CODE -> catégorie (product_tax_code_category, table
+# Postgres, "known_mapping"), pas sur cette liste.
+_TEDB_CATEGORY_SAFE_COUNTRIES: dict[str, frozenset[str]] = {
+    "FOOD": frozenset({"BG", "CY", "CZ", "DE", "ES", "FI", "FR", "HR", "LU", "LV", "NL", "RO", "SE", "SI"}),
+    "MEDICINES": frozenset({"AT", "BG", "CY", "CZ", "DE", "EE", "ES", "FI", "HU", "LT", "LU", "LV", "NL", "PT", "RO", "SI", "SK", "XI"}),
+    "AGRICULTURAL_PRODUCTION": frozenset({"AT", "CY", "ES", "FR", "HR", "IE", "IT", "LU", "PL", "PT", "RO", "SI"}),
+    "PERIODICALS": frozenset({"AT", "CY", "CZ", "DE", "FI", "FR", "HR", "LT", "LV", "MT"}),
+    "MEDICAL_EQUIPMENT": frozenset({"BE", "CZ", "DE", "EE", "ES", "FR", "HR", "HU", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK"}),
+    "SOLAR_PANELS": frozenset({"AT", "FR", "IE", "LU", "NL"}),
+    "FOSSIL_FUEL": frozenset({"IT", "PT"}),
+    "PLANT": frozenset({"BE", "CZ", "DE", "LU", "NL", "SI"}),
+    "CHILDREN_CAR_SEATS": frozenset({"CY", "CZ", "EL", "HR", "PL"}),
+    "CERTAIN_AGRICULTURAL_INPUT": frozenset({"LU"}),
+    "CHEMICAL_FERTILISERS": frozenset({"IT", "LU"}),
+    "CHEMICAL_PESTICIDES_ENVIRONMENT": frozenset({"LU"}),
+    "CHILD_WEAR": frozenset({"LU"}),
+}
+
+# Extraction des catégories REDUCED (_CATEGORY_TO_TEDB ci-dessus) réactivée
+# le 2026-09-16 en même temps que _is_tedb_eligible() ci-dessous accepte
+# désormais des catégories autres que STANDARD (restriction du 2026-09-13
+# levée). Voir _TEDB_CATEGORY_SAFE_COUNTRIES pour le périmètre réel par
+# pays/catégorie — la désactivation n'était qu'un verrou temporaire, pas
+# une remise en cause de l'extraction elle-même.
+_PARSE_REDUCED_CATEGORIES = True
 
 # ------------------------------------------------------------------
 # Cache L1 (mémoire/process) + Verrou de thread
@@ -456,26 +500,36 @@ def _local_tag(tag: str) -> str:
 def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: Optional[date] = None) -> dict[str, Decimal]:
     """Extrait {catégorie interne: taux} depuis une réponse retrieveVatRatesRespMsg.
 
-    Ne garde que le taux STANDARD (type == "STANDARD") — l'extraction des
-    catégories REDUCED (FOOD/MEDICINES/PARKING) est désactivée tant que
-    _is_tedb_eligible() ne les autorise pas (cf. restriction du 2026-09-13
-    au taux STANDARD uniquement). Un seul appel SOAP TEDB renvoie TOUTES
-    les catégories d'un pays/date en une fois (~2000 lignes de XML avec
-    tous les codes CN) : parser puis comparer au statique des catégories
-    qu'on n'utilise même pas gaspillait du CPU et — surtout — générait des
+    Ne garde que les catégories couvertes par _CATEGORY_TO_TEDB — le filtre
+    d'éligibilité réel (pays sûr ou non pour cette catégorie) est fait en
+    amont par _is_tedb_eligible(), pas ici. Jusqu'au 2026-09-16,
+    l'extraction des catégories REDUCED était désactivée en bloc
+    (_PARSE_REDUCED_CATEGORIES = False, restriction du 2026-09-13 au taux
+    STANDARD uniquement) car un seul appel SOAP TEDB renvoie TOUTES les
+    catégories d'un pays/date en une fois (~2000 lignes de XML avec tous
+    les codes CN) : parser puis comparer au statique des catégories qu'on
+    n'utilisait même pas gaspillait du CPU et — surtout — générait des
     warnings de plausibilité (avec dump du XML brut COMPLET, parfois
     plusieurs dizaines de Ko) pour des taux jamais consommés. Observé en
     prod (Matthieu, 2026-09-13) : c'est cette pollution de logs qui
-    causait le ralentissement perçu, pas l'appel réseau lui-même.
-    Réactiver `_PARSE_REDUCED_CATEGORIES = True` en même temps que
-    l'éligibilité TEDB sera étendue au-delà de STANDARD.
+    causait le ralentissement perçu, pas l'appel réseau lui-même. Réactivé
+    le 2026-09-16 en même temps que l'éligibilité TEDB (voir
+    _TEDB_CATEGORY_SAFE_COUNTRIES) — le risque de pollution de logs ne
+    revient pas puisque seules les catégories effectivement mappées dans
+    _CATEGORY_TO_TEDB sont retenues (le `if cat_id in tedb_to_category`
+    plus bas filtre déjà tout le reste).
 
-    N'accepte une valeur que si rate.type == "DEFAULT" ou "EXEMPTED" (les
-    seules valeurs documentées comme fiables — cf. docstring module, point
-    3) ; toute autre valeur de rate.type (NOT_APPLICABLE, OUT_OF_SCOPE, ou
-    autre) est ignorée. Note : l'ancienne version de ce code faisait
-    l'inverse (exclusion de 2 valeurs au lieu d'inclusion de 2 valeurs) —
-    corrigé le 2026-09-13.
+    N'accepte une valeur que si rate.type == "DEFAULT", "REDUCED_RATE",
+    "SUPER_REDUCED_RATE" ou "EXEMPTED" (les seules valeurs documentées
+    comme fiables — cf. docstring module, point 3) ; toute autre valeur de
+    rate.type (NOT_APPLICABLE, OUT_OF_SCOPE, ou autre) est ignorée.
+    Historique : l'ancienne version de ce code faisait l'inverse (exclusion
+    de 2 valeurs au lieu d'inclusion) — corrigé le 2026-09-13. Le filtre
+    corrigé n'incluait alors que "DEFAULT"/"EXEMPTED" : correct pour le
+    taux STANDARD (seul consommé à l'époque), mais rejetait à tort les
+    entrées catégorie REDUCED réelles dont rate.type vaut "REDUCED_RATE"
+    ou "SUPER_REDUCED_RATE" côté TEDB — élargi le 2026-09-16 en même temps
+    que la réactivation de l'extraction REDUCED ci-dessus.
 
     Cas STANDARD multiple (incident du 2026-09-12, confirmé sur donnée
     réelle ES du 2026-01-01) : TEDB peut renvoyer PLUSIEURS entrées
@@ -529,7 +583,7 @@ def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: O
 
         if vtype != "STANDARD" and not _PARSE_REDUCED_CATEGORIES:
             continue
-        if rtype not in ("DEFAULT", "EXEMPTED") or rvalue is None:
+        if rtype not in ("DEFAULT", "REDUCED_RATE", "SUPER_REDUCED_RATE", "EXEMPTED") or rvalue is None:
             continue
         try:
             value = Decimal(str(rvalue).strip())
@@ -539,7 +593,15 @@ def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: O
         if vtype == "STANDARD":
             standard_candidates.append((value, comment))
         elif vtype == "REDUCED" and cat_id in tedb_to_category:
-            result.setdefault(tedb_to_category[cat_id], value)
+            internal_category = tedb_to_category[cat_id]
+            # Ne garder que si ce (pays, catégorie) est réellement éligible
+            # (safe-list) — sinon on répète exactement le problème du
+            # 2026-09-13 (warnings de plausibilité + dump XML complet pour
+            # des taux jamais consommés), simplement décalé des catégories
+            # non mappées vers les catégories mappées mais ambiguës pour ce
+            # pays (ex. MEDICINES pour FR).
+            if _is_tedb_eligible(country, internal_category):
+                result.setdefault(internal_category, value)
 
     if standard_candidates:
         distinct_values = {v for v, _ in standard_candidates}
@@ -641,18 +703,23 @@ def _is_plausible(country: str, rate_type: str, value: Decimal) -> bool:
 
 
 def _is_tedb_eligible(country: str, rate_type: str) -> bool:
-    """Périmètre volontairement restreint au taux STANDARD (2026-09-13) :
-    FOOD/MEDICINES/PARKING (mapping _CATEGORY_TO_TEDB) ne sont PAS
-    supprimés du code mais désactivés côté TEDB tant que le mécanisme
-    dynamique n'est pas validé en profondeur sur le cas simple. Ces
-    catégories retombent sur rates.py, comme avant l'introduction de ce
-    module."""
+    """STANDARD reste éligible sur tout _TEDB_SUPPORTED, comme depuis le
+    2026-09-13. Les catégories REDUCED (_CATEGORY_TO_TEDB) sont éligibles
+    UNIQUEMENT sur la safe-list par catégorie (_TEDB_CATEGORY_SAFE_COUNTRIES,
+    2026-09-16 — fin de la restriction STANDARD-only) : un pays absent de
+    la safe-list d'une catégorie n'est jamais interrogé en dynamique pour
+    cette catégorie, même s'il est dans _TEDB_SUPPORTED pour STANDARD —
+    retombe sur rates.py::REDUCED_VAT_RATES (repli statique déjà en
+    production), jamais de sous-déclaration."""
     if not _dynamic_tedb_enabled():
         return False
-    if rate_type != "STANDARD":
-        return False
     tedb_iso = _ISO_TO_TEDB.get(country, country)
-    return tedb_iso in _TEDB_SUPPORTED
+    if rate_type == "STANDARD":
+        return tedb_iso in _TEDB_SUPPORTED
+    safe_countries = _TEDB_CATEGORY_SAFE_COUNTRIES.get(rate_type)
+    if safe_countries is None:
+        return False
+    return tedb_iso in safe_countries
 
 
 def _process_fetch_result(

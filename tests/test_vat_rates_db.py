@@ -99,11 +99,32 @@ def test_is_tedb_eligible_standard_true_when_enabled(tedb_enabled_no_db):
     assert m._is_tedb_eligible("FR", "STANDARD") is True
 
 
-@pytest.mark.parametrize("rate_type", ["FOOD", "MEDICINES", "PARKING", "BOOKS", "CLOTHING"])
+@pytest.mark.parametrize("rate_type", ["PARKING", "BOOKS", "CLOTHING"])
 def test_is_tedb_eligible_non_standard_always_false(tedb_enabled_no_db, rate_type):
-    """Meme avec le flag dynamique actif, les categories autres que STANDARD
-    restent hors perimetre TEDB pour l'instant (repli rates.py systematique)."""
+    """Categories jamais mappees a une categorie TEDB (BOOKS/CLOTHING) ou
+    sans safe-list definie (PARKING) : jamais eligibles, quel que soit le
+    pays -> repli rates.py systematique."""
     assert m._is_tedb_eligible("FR", rate_type) is False
+
+
+def test_is_tedb_eligible_food_true_for_safe_country(tedb_enabled_no_db):
+    """Fin de la restriction STANDARD-only (2026-09-16) : FR est dans la
+    safe-list FOOD (un seul taux dans tout le dump TEDB) -> eligible."""
+    assert m._is_tedb_eligible("FR", "FOOD") is True
+
+
+def test_is_tedb_eligible_food_false_for_ambiguous_country(tedb_enabled_no_db):
+    """PT est un pays FOOD ambigu (plusieurs taux distincts selon le
+    produit dans le dump TEDB) -> jamais interroge en dynamique pour cette
+    categorie, meme si PT est bien un pays TEDB_SUPPORTED pour STANDARD."""
+    assert m._is_tedb_eligible("PT", "FOOD") is False
+
+
+def test_is_tedb_eligible_medicines_false_for_fr(tedb_enabled_no_db):
+    """FR est un pays MEDICINES ambigu (10%/5,5%/2,1% selon le statut de
+    remboursement, non deductible du seul PRODUCT_TAX_CODE Amazon) -> hors
+    safe-list, meme si FR est eligible pour FOOD."""
+    assert m._is_tedb_eligible("FR", "MEDICINES") is False
 
 
 def test_is_tedb_eligible_false_when_flag_disabled():
@@ -160,12 +181,28 @@ def test_get_vat_rate_memory_cache_hit_logs_l1_source(tedb_enabled_no_db, caplog
 
 
 def test_get_vat_rate_non_standard_category_never_calls_tedb(tedb_enabled_no_db):
-    """FOOD reste hors perimetre : aucun appel reseau ne doit meme etre
-    tente (coherent avec le principe scale-to-zero : pas d'appel sortant
-    superflu)."""
+    """PT est hors safe-list FOOD (ambigu) : aucun appel reseau ne doit
+    meme etre tente (coherent avec le principe scale-to-zero : pas d'appel
+    sortant superflu pour un (pays, categorie) qu'on sait ne jamais
+    exploiter en dynamique)."""
     with patch.object(m, "_request_tedb") as mocked_request:
-        m.get_vat_rate("FR", "FOOD", date(2025, 7, 1))
+        m.get_vat_rate("PT", "FOOD", date(2025, 7, 1))
     mocked_request.assert_not_called()
+
+
+def test_get_vat_rate_food_safe_country_uses_tedb(tedb_enabled_no_db, caplog):
+    """A l'inverse, FR est dans la safe-list FOOD (2026-09-16) : le taux
+    dynamique doit etre utilise, coherent avec la valeur reelle du dump
+    (5.5%, un seul taux FOODSTUFFS sur toute la fixture FR)."""
+    root = _load_fixture("FR_standard_2025-07-01.xml")
+    fake_raw_xml = (FIXTURES_DIR / "FR_standard_2025-07-01.xml").read_bytes()
+
+    with patch.object(m, "_request_tedb", return_value=(root, fake_raw_xml)):
+        with caplog.at_level(logging.INFO, logger="tva_intracom.vat_rates_db"):
+            rate = m.get_vat_rate("FR", "FOOD", date(2025, 7, 1))
+
+    assert rate == Decimal("5.5")
+    assert any("source=TEDB_FETCH" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------
@@ -173,13 +210,25 @@ def test_get_vat_rate_non_standard_category_never_calls_tedb(tedb_enabled_no_db)
 # REDUCED non utilisees, et cache par MOIS (pas par jour) cote TEDB
 # ---------------------------------------------------------------------
 
-def test_parse_response_skips_reduced_categories_by_default():
-    """Meme si le XML contient des categories REDUCED mappees (FOOD...),
-    elles ne doivent PAS apparaitre dans le resultat tant que
-    _PARSE_REDUCED_CATEGORIES est False (perimetre STANDARD uniquement)."""
-    root = _load_fixture("FR_standard_2025-07-01.xml")  # contient FOODSTUFFS etc.
+def test_parse_response_extracts_only_eligible_reduced_categories():
+    """Depuis le 2026-09-16 (fin de la restriction STANDARD-only) : les
+    categories REDUCED mappees ET eligibles pour ce pays (safe-list) sont
+    extraites (FOOD, MEDICAL_EQUIPMENT, PERIODICALS, SOLAR_PANELS,
+    AGRICULTURAL_PRODUCTION pour FR), mais PAS celles mappees hors
+    safe-list pour ce pays (MEDICINES/PHARMACEUTICAL_PRODUCTS, FR est
+    ambigu) ni celles non mappees du tout (MEDICAL_CARE, LOAN_LIBRARIES,
+    SUPPLY_WATER, etc. — la majorite du XML reel)."""
+    root = _load_fixture("FR_standard_2025-07-01.xml")
     result = m._parse_tedb_response(root, country="FR", target_date=date(2025, 7, 1))
-    assert set(result.keys()) == {"STANDARD"}
+    assert set(result.keys()) == {
+        "STANDARD", "FOOD", "MEDICAL_EQUIPMENT", "PERIODICALS",
+        "SOLAR_PANELS", "AGRICULTURAL_PRODUCTION",
+    }
+    assert "MEDICINES" not in result  # FR ambigu pour cette categorie
+    assert result["FOOD"] == Decimal("5.5")
+    assert result["SOLAR_PANELS"] == Decimal("5.5")
+    assert result["PERIODICALS"] == Decimal("2.1")
+    assert result["AGRICULTURAL_PRODUCTION"] == Decimal("10.0")
 
 
 def test_fetch_does_not_warn_about_unused_reduced_categories(tedb_enabled_no_db, caplog):

@@ -17,12 +17,15 @@ l'ancien catalogue :
     taux le plus sûr), donc une correction qui traîne ne fait jamais
     sous-déclarer, seulement retarder un taux réduit.
 
-Cette table ne contient AUCUN mapping pré-rempli par ce module : les
+Cette table ne contient AUCUN mapping pré-rempli PAR CE MODULE : les
 associations PRODUCT_TAX_CODE -> catégorie relèvent de la fiscalité
-(section 4 de la synthèse, décision Matthieu + validation cabinet
-comptable à venir), pas d'une déduction de code. Tout code jamais vu est
-écrit en base avec source='unresolved_default' et catégorie STANDARD, pour
-audit et correction manuelle a posteriori (pas de blocage du calcul).
+(section 4 de la synthèse) et sont insérées séparément en base, à la main
+ou via un script de seed (voir scripts/seed_known_mappings_cn_cpa.sql,
+2026-09-16 — premier lot "sûr" du mapping de Matthieu, cas ambigus laissés
+en dehors en attente de validation cabinet), jamais en dur dans ce
+fichier. Tout code jamais vu est écrit en base avec
+source='unresolved_default' et catégorie STANDARD, pour audit et
+correction manuelle a posteriori (pas de blocage du calcul).
 """
 
 from __future__ import annotations
@@ -44,6 +47,11 @@ logger = logging.getLogger(__name__)
 _VALID_CATEGORIES = {
     "STANDARD", "FOOD", "MEDICINES", "BOOKS", "CLOTHING",
     "SUPER_REDUCED", "PARKING",
+    # Ajoutées le 2026-09-16 (reprise chantier CN/CPA, mapping PTC->TEDB) :
+    "PERIODICALS", "MEDICAL_EQUIPMENT", "CHILDREN_CAR_SEATS",
+    "SOLAR_PANELS", "PLANT", "FOSSIL_FUEL", "CHEMICAL_FERTILISERS",
+    "CHEMICAL_PESTICIDES_ENVIRONMENT", "CERTAIN_AGRICULTURAL_INPUT",
+    "CHILD_WEAR", "AGRICULTURAL_PRODUCTION",
 }
 
 _VALID_SOURCES = {"known_mapping", "manual_override", "unresolved_default"}
