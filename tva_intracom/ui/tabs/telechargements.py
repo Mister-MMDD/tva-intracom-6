@@ -537,7 +537,7 @@ def render_telechargements() -> None:
                 else:
                     country_vat = float(summary.net_local_by_country.get(export_country, 0))
 
-                m1, m2, m3 = st.columns(3)
+                m1, m2 = st.columns(2)
                 # BUGFIX : ce montant (TVA due pour le pays sélectionné) était
                 # affiché en clair même pour un compte non premium/non débloqué
                 # pour cette période — alors que le même chiffre est masqué dans
@@ -551,7 +551,6 @@ def render_telechargements() -> None:
                 m1.metric(_("dl_local_vat_due_metric", country=country_label(export_country)),
                           _fmt(country_vat) if _can_export else _lock_msg)
                 m2.metric(_("dl_standard_rate_metric"), meta_sel[3])
-                m3.metric(_("dl_reduced_rate_metric"), meta_sel[4])
                 c1, c2 = st.columns(2)
                 with c1:
                     _local_csv_filename = _("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label)
