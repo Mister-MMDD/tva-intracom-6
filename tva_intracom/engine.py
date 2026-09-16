@@ -196,6 +196,36 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # et le champ Sale prime sur le fallback STANDARD.
     effective_category = (product_category or sale.product_category or "STANDARD").strip().upper()
 
+    # ------------------------------------------------------------------
+    # Hors champ TVA (2026-09-16, PRODUCT_TAX_CODE Amazon A_GEN_NOTAX) :
+    # court-circuit total, avant Monaco/OSS/export/tout le reste. Aucun taux,
+    # aucun redevable, aucune déclaration nulle part (ni CA3, ni OSS/IOSS, ni
+    # DEB/EMEBI) — contrairement à EXPORT/B2B_REVERSE_CHARGE qui sont des
+    # opérations réelles mais exonérées. La ligne reste néanmoins visible
+    # dans le détail des ventes (traçabilité/audit) via `note`, simplement
+    # exclue de tout calcul et de toute déclaration (VatResult.scenario ==
+    # Scenario.OUT_OF_SCOPE, non repris par les filtres à liste blanche de
+    # oss_export.py / ui/tabs/declarations.py). Plus léger pour le système :
+    # évite tout appel réseau/DB (TEDB, VIES, taux de change) inutile sur une
+    # vente qui de toute façon ne sera jamais taxée.
+    # ------------------------------------------------------------------
+    if effective_category == "OUT_OF_SCOPE":
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.OUT_OF_SCOPE,
+            vat_country="",
+            vat_rate=Decimal("0"),
+            vat_amount=Decimal("0.00"),
+            collector=Collector.NONE,
+            channel=Channel.OUT_OF_SCOPE,
+            note=_note(
+                "Hors champ TVA : opération non soumise à la TVA par nature "
+                "(PRODUCT_TAX_CODE Amazon A_GEN_NOTAX). Aucun calcul, aucune "
+                "déclaration.",
+                "engine_note_out_of_scope", lang=lang,
+            ),
+        )
+
     seller_eu = is_eu(sale.seller_country)
     stock_eu = is_eu(sale.stock_country)
     # is_fiscal_eu() combine l'appartenance UE politique et les exclusions art.6

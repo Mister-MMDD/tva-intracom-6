@@ -74,6 +74,13 @@ class Scenario(enum.Enum):
     # Import > 150 EUR, vendeur est l'importateur officiel -> vente domestique dans
     # le pays de destination (immatriculation TVA locale requise).
     IMPORT_SELLER_AS_IMPORTER = "IMPORT_SELLER_AS_IMPORTER"
+    # Hors champ TVA (2026-09-16) : le produit/service n'est PAS une opération
+    # imposable par nature (ex. PRODUCT_TAX_CODE Amazon A_GEN_NOTAX). A NE PAS
+    # confondre avec EXPORT/B2B_REVERSE_CHARGE (opérations réelles, imposables
+    # par nature, mais exonérées/autoliquidées — donc à reporter comme telles
+    # sur CA3/DEB) : ici il n'y a littéralement rien à déclarer nulle part, ni
+    # par le vendeur ni par Amazon. Court-circuite tout le reste de compute_vat.
+    OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 
 class Collector(enum.Enum):
@@ -82,6 +89,7 @@ class Collector(enum.Enum):
     SELLER = "SELLER"      # Le vendeur (vous) collecte et reverse
     AMAZON = "AMAZON"      # Amazon collecte et reverse (deemed supplier)
     BUYER = "BUYER"        # L'acheteur autoliquide (reverse charge)
+    NONE = "NONE"          # Personne — hors champ TVA, aucun redevable (2026-09-16)
 
 
 class Channel(enum.Enum):
@@ -92,6 +100,13 @@ class Channel(enum.Enum):
     IOSS = "IOSS"                    # Guichet unique IOSS (imports ≤ 150 EUR, propre numéro)
     LOCAL_REGISTRATION = "LOCAL"     # Immatriculation TVA locale dans le pays
     EXONERATION = "EXONERATION"      # Aucun reversement par le vendeur (exclu du flux de taxation vendeur)
+    # Distinct d'EXONERATION : EXONERATION sert à des ventes réelles et
+    # imposables par nature mais exonérées (export, B2B intra-UE...), qui
+    # doivent être reportées comme telles sur d'autres déclarations (DEB/
+    # EMEBI notamment). OUT_OF_SCOPE est réservé aux ventes hors du champ de
+    # la TVA par nature (A_GEN_NOTAX) : aucune déclaration nulle part, y
+    # compris hors CA3/OSS (2026-09-16).
+    OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 
 @dataclass(slots=True, config=ConfigDict(arbitrary_types_allowed=True))

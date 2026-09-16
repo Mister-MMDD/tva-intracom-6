@@ -4,7 +4,6 @@
 -- (cf. mémoire tedb-amazon-ptc-reference.md section 3bis) — CES CODES-LÀ
 -- RESTENT VOLONTAIREMENT ABSENTS DE CE SCRIPT, en attente de validation
 -- cabinet comptable :
---   A_GEN_NOTAX (hors champ TVA — projet séparé, pas une catégorie)
 --   A_BOOK_ADULT, A_BOOK_ATLAS, A_BOOK_AUDIOBOOK, A_BOOK_GLOBE, A_BOOK_MAP
 --   A_CLTH_PROTECTIVE (médical vs professionnel — ambigu)
 --   A_FOOD_CEREALCHOCBARS, A_FOOD_CHOCEREAL, A_FOOD_CNDY, A_FOOD_SODAJUICE
@@ -22,6 +21,10 @@
 
 INSERT INTO product_tax_code_category (product_tax_code, category, source) VALUES
     ('A_GEN_STANDARD', 'STANDARD', 'known_mapping'),
+    -- Hors champ TVA (2026-09-16) : statut spécial, court-circuite tout calcul
+    -- dans engine.py — voir Scenario.OUT_OF_SCOPE / Collector.NONE / Channel.OUT_OF_SCOPE.
+    -- Jamais interrogé côté vat_rates_db (pas un taux).
+    ('A_GEN_NOTAX', 'OUT_OF_SCOPE', 'known_mapping'),
 
     -- Livres / périodiques
     ('A_BOOKS_GEN', 'BOOKS', 'known_mapping'),

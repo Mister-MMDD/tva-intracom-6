@@ -52,6 +52,11 @@ _VALID_CATEGORIES = {
     "SOLAR_PANELS", "PLANT", "FOSSIL_FUEL", "CHEMICAL_FERTILISERS",
     "CHEMICAL_PESTICIDES_ENVIRONMENT", "CERTAIN_AGRICULTURAL_INPUT",
     "CHILD_WEAR", "AGRICULTURAL_PRODUCTION",
+    # Statut spécial (2026-09-16, PRODUCT_TAX_CODE Amazon A_GEN_NOTAX) : PAS
+    # un taux, court-circuite tout calcul dans engine.py::compute_vat AVANT
+    # d'atteindre vat_rates_db — ne jamais l'ajouter à _CATEGORY_TO_TEDB ni
+    # _TEDB_CATEGORY_SAFE_COUNTRIES (vat_rates_db.py), ça n'aurait aucun sens.
+    "OUT_OF_SCOPE",
 }
 
 _VALID_SOURCES = {"known_mapping", "manual_override", "unresolved_default"}

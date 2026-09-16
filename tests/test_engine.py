@@ -847,3 +847,47 @@ class TestSaleReplaceFast:
         results, _refunds, _vies_summary, _oss = compute_all_with_vies([sale], scope_id="test-replace-fast")
         assert len(results) == 1
         assert results[0].sale.sale_id == "E2E-1"
+
+
+# ---------------------------------------------------------------------------
+# Hors champ TVA (A_GEN_NOTAX, 2026-09-16)
+# ---------------------------------------------------------------------------
+
+class TestOutOfScope:
+    """Statut spécial product_category='OUT_OF_SCOPE' : court-circuite tout
+    le reste de compute_vat (Monaco, OSS, export, import...) avant même
+    d'y arriver. À ne pas confondre avec EXPORT/B2B_REVERSE_CHARGE (réels,
+    exonérés, à déclarer sur CA3/DEB) : ici rien n'est déclaré nulle part."""
+
+    def test_out_of_scope_short_circuits_everything(self):
+        # Choix délibéré de paramètres qui, sans le court-circuit, mèneraient
+        # à un tout autre scénario (export hors UE) — vérifie que c'est bien
+        # la catégorie qui prime, avant toute autre logique.
+        sale = make_sale(buyer_country="US", product_category="OUT_OF_SCOPE")
+        result = compute_vat(sale)
+        assert result.scenario == Scenario.OUT_OF_SCOPE
+        assert result.vat_rate == Decimal("0")
+        assert result.vat_amount == Decimal("0.00")
+        assert result.collector == Collector.NONE
+        assert result.channel == Channel.OUT_OF_SCOPE
+
+    def test_out_of_scope_via_explicit_param_overrides_sale_category(self):
+        """Le paramètre product_category explicite de compute_vat() prime
+        sur sale.product_category, comme pour toute autre catégorie."""
+        sale = make_sale(product_category="STANDARD")
+        result = compute_vat(sale, product_category="OUT_OF_SCOPE")
+        assert result.scenario == Scenario.OUT_OF_SCOPE
+
+    def test_out_of_scope_never_appears_in_oss_or_domestic_exports(self):
+        """Vérifie noir sur blanc la propriété de liste blanche : un
+        VatResult OUT_OF_SCOPE ne matche aucun des filtres existants
+        (OSS_B2C, B2B_REVERSE_CHARGE, FR_DOMESTIC...)."""
+        sale = make_sale(product_category="OUT_OF_SCOPE")
+        result = compute_vat(sale)
+        assert result.scenario not in (
+            Scenario.OSS_B2C, Scenario.DOMESTIC, Scenario.EXPORT,
+            Scenario.B2B_REVERSE_CHARGE, Scenario.DEEMED_SUPPLIER,
+            Scenario.IOSS_DIRECT, Scenario.IMPORT_STANDARD,
+            Scenario.IMPORT_SELLER_AS_IMPORTER,
+        )
+        assert result.channel != Channel.FR_DOMESTIC
