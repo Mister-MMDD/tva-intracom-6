@@ -23,8 +23,10 @@
     <meta name="twitter:description" content="Découvrez l'interface du moteur TVA Intracommunautaire : tableau de bord, imports, visualisations, exports de déclaration.">
     <meta name="twitter:image" content="https://www.tvacalculator.eu/assets/logo/og-image.png">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-    <link rel="stylesheet" href="style.min.css?v=18213bf7">
-    <script src="script.js?v=9bfd4936" defer></script>
+    <link rel="stylesheet" href="style.min.css?v=6939db06">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="script.js?v=ad8fccd5" defer></script>
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
 </head>
 
 <body>
@@ -57,52 +59,52 @@
 
 <main id="main-content">
 <header>
-    <h1>Interface Streamlit du moteur TVA</h1>
-    <p>Une interface modulaire pour piloter le moteur fiscal et les exports.</p>
+    <h1 data-aos="fade-down" data-aos-duration="1000">Interface Streamlit du moteur TVA</h1>
+    <p data-aos="fade-up" data-aos-duration="1000" data-aos-delay="200">Une interface modulaire pour piloter le moteur fiscal et les exports.</p>
 </header>
 
-<section class="interface-grid">
+<section class="interface-grid" data-aos="fade-up" data-aos-duration="800">
     <h2>Onglets principaux de l'interface</h2>
     <p class="section-subtitle">Découvrez les différents modules conçus pour automatiser votre conformité fiscale.</p>
 
     <div class="grid-cards">
-        <div class="card">
+        <div class="card card-3d" data-aos="scale-up" data-aos-duration="600" data-aos-delay="100">
             <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/D%C3%A9clarations-%20TVA%20Intracommunautaire.png" alt="Aperçu Déclarations" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
             <h3>💶 Déclarations</h3>
             <p>Synthèse complète de vos obligations : CA3 (France), guichet unique OSS & IOSS, et détection des immatriculations locales requises à l'étranger.</p>
         </div>
 
-        <div class="card">
+        <div class="card card-3d" data-aos="scale-up" data-aos-duration="600" data-aos-delay="200">
             <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/d%C3%A9tails%20ventes-%20TVA%20Intracommunautaire.png" alt="Aperçu Détail ventes" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
             <h3>📋 Détail ventes</h3>
             <p>Analyse ligne à ligne de chaque transaction. Visualisez instantanément la répartition des responsabilités entre vous, Amazon et la Douane.</p>
         </div>
 
-        <div class="card">
+        <div class="card card-3d" data-aos="scale-up" data-aos-duration="600" data-aos-delay="300">
             <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/VIES%20-%20D%C3%A9clarations-%20TVA%20Intracommunautaire.png" alt="Aperçu VIES" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
             <h3>🛡️ VIES & B2B</h3>
             <p>Audit automatisé des numéros de TVA acheteurs. Gérez les overrides manuels et sécurisez vos exonérations avec une piste d'audit conforme.</p>
         </div>
 
-        <div class="card">
+        <div class="card card-3d" data-aos="scale-up" data-aos-duration="600" data-aos-delay="400">
             <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/%C3%A9ccart%20amazon%20-%20D%C3%A9clarations-%20TVA%20Intracommunautaire.png" alt="Aperçu Audit" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
             <h3>🔬 Audit Amazon</h3>
             <p>Réconciliation des données : identifiez les écarts de TVA collectée par Amazon et suivez les mouvements de stock FBA entre entrepôts.</p>
         </div>
 
-        <div class="card">
+        <div class="card card-3d" data-aos="scale-up" data-aos-duration="600" data-aos-delay="500">
             <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/T%C3%A9l%C3%A9chargement%20-%20TVA%20Intracommunautaire.png" alt="Aperçu Téléchargements" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
             <h3>📥 Téléchargements</h3>
             <p>Générez vos livrables en un clic : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi-onglets et export comptable FEC.</p>
         </div>
 
-        <div class="card">
+        <div class="card card-3d" data-aos="scale-up" data-aos-duration="600" data-aos-delay="600">
             <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/Visualisation%20-%20TVA%20Intracommunautaire.png" alt="Aperçu Visualisations" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
             <h3>📊 Visualisations</h3>
             <p>Tableaux de bord dynamiques : exposition fiscale par pays, carte de chaleur européenne et évolution mensuelle de votre activité.</p>
         </div>
 
-        <div class="card">
+        <div class="card card-3d" data-aos="scale-up" data-aos-duration="600" data-aos-delay="700">
             <img src="https://filedn.eu/lwpYsKy925D7JUdt4q7kB0L/tva-site/sidebar%20-%20TVA%20Intracommunautaire.png" alt="Aperçu Sidebar" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-color);">
             <h3>🛠️ Pilotage & Sidebar</h3>
             <p>Une barre latérale complète pour configurer vos SIREN, vos numéros IOSS, vos catalogues produits, et gérer vos abonnements Stripe en un clic.</p>
@@ -111,7 +113,7 @@
 </section>
 
 
-<div class="card cta" style="text-align: center;">
+<div class="card cta" style="text-align: center;" data-aos="fade-up" data-aos-duration="800" data-aos-delay="800">
     <h2>Accéder à l’interface de calcul</h2>
     <p>Le moteur est accessible via une application web sécurisée. Importez vos fichiers et obtenez vos rapports en quelques secondes.</p>
     <a class="button" href="https://tvacalculator.streamlit.app/" target="_blank" rel="noopener" style="font-size: 1.2rem; padding: 16px 40px;">🚀 Lancer l’application</a>

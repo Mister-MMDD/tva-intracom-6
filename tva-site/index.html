@@ -23,8 +23,10 @@
     <meta name="twitter:description" content="Moteur de conformité TVA intracommunautaire pour vendeurs Amazon et cabinets comptables : OSS, CA3, IOSS, VIES, Intrastat, FEC. Calcul automatique et déclarations prêtes à l'emploi.">
     <meta name="twitter:image" content="https://www.tvacalculator.eu/assets/logo/og-image.png">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-    <link rel="stylesheet" href="style.min.css?v=18213bf7">
-    <script src="script.js?v=9bfd4936" defer></script>
+    <link rel="stylesheet" href="style.min.css?v=6939db06">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="script.js?v=ad8fccd5" defer></script>
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
 <script type="application/ld+json">
     {
         "@context": "https://schema.org",
@@ -71,18 +73,18 @@
 
 <main id="main-content">
 <header>
-    <h1>Moteur TVA Intracommunautaire</h1>
-    <p>L'intelligence fiscale automatisée pour sécuriser et déclarer vos flux B2B et B2C en Europe.</p>
+    <h1 data-aos="fade-down" data-aos-duration="1000">Moteur TVA Intracommunautaire</h1>
+    <p data-aos="fade-up" data-aos-duration="1000" data-aos-delay="200">L'intelligence fiscale automatisée pour sécuriser et déclarer vos flux B2B et B2C en Europe.</p>
 </header>
 
 <div class="container">
 
-    <section class="intro">
+    <section class="intro" data-aos="fade-up" data-aos-duration="800">
         <h2>Ce que fait le moteur</h2>
         <div class="card">
             <p>Notre moteur analyse et audite en temps réel l'ensemble de vos transactions intracommunautaires pour y appliquer sans erreur les directives européennes :</p>
             <div class="grid-cards">
-                <div>
+                <div data-aos="fade-right" data-aos-duration="800" data-aos-delay="100">
                     <ul>
                         <li><strong>Classification automatisée :</strong> Détection instantanée du type de flux (livraisons, acquisitions, prestations).</li>
                         <li><strong>Territorialité fine :</strong> Gestion de <strong>Monaco</strong> (assimilé FR) et isolation des zones d'exclusions fiscales (Canaries, DOM-TOM, Åland).</li>
@@ -90,7 +92,7 @@
                         <li><strong>Multi-pays d'origine :</strong> Configurez n'importe quel pays de siège (Home Country) pour vos déclarations nationales.</li>
                     </ul>
                 </div>
-                <div>
+                <div data-aos="fade-left" data-aos-duration="800" data-aos-delay="200">
                     <ul>
                         <li><strong>Guichets Uniques :</strong> Suivi dynamique des seuils OSS (10 000 €) et exports <strong>IOSS séparés</strong>.</li>
                         <li><strong>Conformité VIES :</strong> Validation temps réel et <strong>boucle de ré-essai automatique</strong> pour les erreurs serveur UE.</li>
@@ -106,44 +108,44 @@
         </div>
     </section>
 
-    <section class="benefits">
+    <section class="benefits" data-aos="fade-up" data-aos-duration="800" data-aos-delay="300">
         <h2>Pourquoi choisir notre moteur ?</h2>
         <div class="grid-cards">
-            <div class="card" style="border-top: 4px solid #10b981;">
+            <div class="card" style="border-top: 4px solid #10b981;" data-aos="scale-up" data-aos-duration="600" data-aos-delay="100">
                 <h3>🛡️ Sécurité Fiscale</h3>
                 <p>Réduisez le risque de redressement en appliquant les règles exactes du CGI et des directives européennes.</p>
             </div>
-            <div class="card" style="border-top: 4px solid #3b82f6;">
+            <div class="card" style="border-top: 4px solid #3b82f6;" data-aos="scale-up" data-aos-duration="600" data-aos-delay="200">
                 <h3>⚡ Scalabilité & Performance</h3>
                 <p>Traitez des fichiers de 100 000 lignes en moins de 30 secondes pour l'intégralité du cycle d'audit (VIES inclus).</p>
             </div>
-            <div class="card" style="border-top: 4px solid #8b5cf6;">
+            <div class="card" style="border-top: 4px solid #8b5cf6;" data-aos="scale-up" data-aos-duration="600" data-aos-delay="300">
                 <h3>📈 Pilotage Précis</h3>
                 <p>Visualisez votre exposition fiscale par pays et anticipez vos obligations d'immatriculation.</p>
             </div>
         </div>
     </section>
 
-    <section class="rules">
+    <section class="rules" data-aos="fade-up" data-aos-duration="800" data-aos-delay="400">
         <h2>Les piliers de la TVA Intracommunautaire</h2>
         <div class="grid-cards">
-            <div class="card">
+            <div class="card" data-aos="flip-left" data-aos-duration="800" data-aos-delay="100">
                 <h3>1. Livraisons B2B (Exonération)</h3>
                 <p>Exonération de TVA applicable si et seulement si : le client dispose d'un numéro VIES valide dans un autre État membre, les biens quittent physiquement le pays d'origine, et les preuves de transport sont conservées.</p>
             </div>
 
-            <div class="card">
+            <div class="card" data-aos="flip-left" data-aos-duration="800" data-aos-delay="200">
                 <h3>2. Acquisitions B2B (Autoliquidation)</h3>
                 <p>Le preneur de la marchandise ou du service est redevable de la taxe. Il collecte et déduit simultanément la TVA sur sa propre déclaration nationale.</p>
             </div>
 
-            <div class="card">
+            <div class="card" data-aos="flip-left" data-aos-duration="800" data-aos-delay="300">
                 <h3>3. Ventes B2C à distance (OSS)</h3>
                 <p>Dès que le chiffre d'affaires cumulé des ventes transfrontalières en Europe dépasse le seuil unique de 10 000 €, la TVA du pays de destination du consommateur doit s'appliquer.</p>
             </div>
         </div>
 
-        <div class="card" style="margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; border-top: 4px solid var(--primary);">
+        <div class="card" style="margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; border-top: 4px solid var(--primary);" data-aos="fade-up" data-aos-duration="800" data-aos-delay="400">
             <div style="flex: 1; min-width: 300px;">
                 <h3 style="margin-bottom: 8px;">📚 Tous les régimes en détail</h3>
                 <p style="margin: 0;">Retrouvez l'intégralité des régimes gérés par le moteur — classiques et cas particuliers (Monaco, deemed supplier, territoires exclus...) — dans une liste unique et exhaustive.</p>
@@ -152,32 +154,32 @@
         </div>
     </section>
 
-    <section class="deliverables">
+    <section class="deliverables" data-aos="fade-up" data-aos-duration="800" data-aos-delay="500">
         <h2>Livrables de conformité</h2>
         <div class="grid-cards">
-            <div class="card">
+            <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="100">
                 <h3>📥 Déclarations Fiscales</h3>
                 <p>Génération du XML OSS officiel (DGFiP), rapports CA3 pré-remplis, rapports locaux UE harmonisés et CSV pour l'URSSAF.</p>
             </div>
-            <div class="card">
+            <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="200">
                 <h3>📊 Audit & Pilotage</h3>
                 <p>Export Excel multi-onglets (13 rapports), analyse des écarts Amazon, suivi des seuils EMEBI/Intrastat et calendrier fiscal dynamique.</p>
             </div>
-            <div class="card">
+            <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="300">
                 <h3>📒 Comptabilité</h3>
                 <p>Export FEC (Fichier des Écritures Comptables) agrégé par régime et pays, prêt pour l'importation dans votre logiciel comptable.</p>
             </div>
         </div>
     </section>
 
-    <section class="cta">
+    <section class="cta" data-aos="fade-up" data-aos-duration="800" data-aos-delay="600">
         <h2>Prêt à auditer vos fichiers transactionnels ?</h2>
         <p>Connectez vos exports Amazon (V1 à V5) à notre outil de calcul.</p>
         <a class="button" href="https://tvacalculator.streamlit.app/" target="_blank" rel="noopener">🚀 Lancer l’application</a>
         <a href="tarifs.html" style="margin-left: 16px; color: var(--primary); font-weight: 600; text-decoration: none;">Voir les tarifs &rarr;</a>
     </section>
 
-    <section class="contact card" style="text-align: center; margin-top: 60px; border-top: 4px solid var(--accent);">
+    <section class="contact card" style="text-align: center; margin-top: 60px; border-top: 4px solid var(--accent);" data-aos="fade-up" data-aos-duration="800" data-aos-delay="700">
         <h2>📧 Contact & Support</h2>
         <p>Une question sur le fonctionnement du moteur ou besoin d'assistance pour vos déclarations ?</p>
         <p>Notre équipe support est à votre disposition : <strong><a href="mailto:support@tvacalculator.eu">support@tvacalculator.eu</a></strong></p>

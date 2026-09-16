@@ -23,8 +23,10 @@
     <meta name="twitter:description" content="Sécurité et technologie du moteur TVA Intracommunautaire : chiffrement des données, infrastructure Supabase, bonnes pratiques.">
     <meta name="twitter:image" content="https://www.tvacalculator.eu/assets/logo/og-image.png">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-    <link rel="stylesheet" href="style.min.css?v=18213bf7">
-    <script src="script.js?v=9bfd4936" defer></script>
+    <link rel="stylesheet" href="style.min.css?v=6939db06">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="script.js?v=ad8fccd5" defer></script>
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
 </head>
 
 <body>
@@ -57,62 +59,62 @@
 
 <main id="main-content">
 <header>
-    <h1>Sécurité & Technologie</h1>
-    <p>Une architecture conçue pour la protection absolue de vos données commerciales.</p>
+    <h1 data-aos="fade-down" data-aos-duration="1000">Sécurité & Technologie</h1>
+    <p data-aos="fade-up" data-aos-duration="1000" data-aos-delay="200">Une architecture conçue pour la protection absolue de vos données commerciales.</p>
 </header>
 
 <div class="container">
-    <div class="security-shoutout">
+    <div class="security-shoutout" data-aos="fade-up" data-aos-duration="800" data-aos-delay="300">
         <h2>🛡️ Privacy-First Storage</h2>
         <p>Contrairement à d'autres solutions, notre moteur ne stocke jamais vos <strong>fichiers bruts</strong> de transactions. L'analyse se fait en mémoire vive. Seuls les résultats d'audit nécessaires à votre conformité (VIES, SIREN) sont persistés et chiffrés.</p>
     </div>
 
     <div class="grid-cards">
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="100">
             <h3>🏛️ Sources Officielles</h3>
             <p>Nous utilisons exclusivement les API gouvernementales : <strong>VIES</strong> (Commission Européenne) pour la validation des numéros de TVA, <strong>TEDB</strong> pour les taux de TVA à jour, et <strong>SDW</strong> (Banque Centrale Européenne) pour les taux de change.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="200">
             <h3>🔐 Chiffrement Fail-Safe</h3>
             <p>Données sensibles (SIREN, IOSS) chiffrées au repos (Fernet AES-128) avec mécanisme interdisant tout traitement si la clé est absente.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="300">
             <h3>👥 Gestion d'Organisation</h3>
             <p>Partage de l'abonnement et des SIREN par domaine professionnel (org_id). Distinction stricte entre rôles <strong>Admin</strong> et <strong>Lecteur</strong>.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="400">
             <h3>🆔 Auth Supabase + PKCE</h3>
             <p>Authentification déléguée à Supabase Auth via flux PKCE sécurisé (OAuth Google, Microsoft, Amazon), sans jetons sensibles dans l'URL.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="500">
             <h3>🛡️ Protection des Données</h3>
             <p>Pseudonymisation SHA-256 salée pour l'historique VIES et verrous avisés PostgreSQL pour garantir l'intégrité des quotas.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="600">
             <h3>📦 Conformité Amazon DPP</h3>
             <p>Notre infrastructure respecte scrupuleusement la <i>Data Protection Policy</i> d'Amazon. Nous garantissons une isolation totale entre les comptes clients.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="700">
             <h3>🌍 Hébergement Européen</h3>
             <p>Nos serveurs et bases de données sont situés exclusivement au sein de l'Union Européenne, garantissant la juridiction du RGPD sur l'ensemble du cycle de vie des données.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="800">
             <h3>⚡ Performance Rust/Polars</h3>
             <p>Le coeur du moteur utilise <strong>Polars (moteur Rust)</strong> pour parser 100 000 lignes en moins de 3 secondes, garantissant une fluidité maximale lors de l'import.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="900">
             <h3>🛡️ Protection Brute-Force</h3>
             <p>Notre système d'authentification inclut une protection active contre les attaques par force brute (DPP Amazon), limitant les tentatives de connexion suspectes par adresse IP.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="1000">
             <h3>🚀 SaaS High-Load Ready</h3>
             <p>Architecture optimisée avec <strong>String Interning</strong> et un pool de connexions PostgreSQL robuste (Supabase), garantissant stabilité et absence de deadlocks même sous forte charge.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="1100">
             <h3>🧪 Rigueur fiscale sous audit continu</h3>
             <p>Le moteur de calcul est soumis à un audit technique récurrent (règles OSS/IOSS, conventions fiscales, arrondis) validé par une suite de <strong>plus de 270 tests automatisés</strong> exécutée avant chaque évolution. Tous les montants sont calculés en précision décimale exacte, sans jamais passer par un flottant.</p>
         </div>
-        <div class="card">
+        <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="1200">
             <h3>🔁 Résilience VIES</h3>
             <p>En cas d'indisponibilité temporaire du service VIES de la Commission Européenne, le moteur reprend automatiquement le dernier statut vérifié avec succès plutôt que de bloquer ou d'invalider à tort vos numéros de TVA acheteurs.</p>
         </div>

@@ -23,8 +23,10 @@
     <meta name="twitter:description" content="Tarifs du moteur TVA Intracommunautaire : offre à l'usage, abonnement Pro, offre Cabinet comptable multi-clients.">
     <meta name="twitter:image" content="https://www.tvacalculator.eu/assets/logo/og-image.png">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-    <link rel="stylesheet" href="style.min.css?v=18213bf7">
-    <script src="script.js?v=9bfd4936" defer></script>
+    <link rel="stylesheet" href="style.min.css?v=6939db06">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="script.js?v=ad8fccd5" defer></script>
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
 <script async src="https://js.stripe.com/v3/pricing-table.js"></script>
 </head>
 
@@ -58,21 +60,21 @@
 
 <main id="main-content">
 <header>
-    <h1>Tarifs & Abonnements</h1>
-    <p>Des solutions flexibles pour les vendeurs solos comme pour les cabinets d'expertise comptable.</p>
+    <h1 data-aos="fade-down" data-aos-duration="1000">Tarifs & Abonnements</h1>
+    <p data-aos="fade-up" data-aos-duration="1000" data-aos-delay="200">Des solutions flexibles pour les vendeurs solos comme pour les cabinets d'expertise comptable.</p>
 </header>
 
 <div class="container">
-    <div class="card" style="text-align: center; margin-bottom: 40px; border: 2px solid #10b981; background: var(--alert-bg);">
+    <div class="card" style="text-align: center; margin-bottom: 40px; border: 2px solid #10b981; background: var(--alert-bg);" data-aos="fade-up" data-aos-duration="800" data-aos-delay="300">
         <h2 style="color: var(--alert-text); margin-bottom: 10px;">🎁 Testez gratuitement !</h2>
         <p style="color: var(--text-main); font-weight: 500;">L'importation, l'analyse fiscale, la validation VIES et le calcul de votre CA HT et TVA globale sont <strong>entièrement gratuits</strong>. Vous ne payez que lorsque vous souhaitez débloquer l'export des rapports officiels et l'analyse détaillée.</p>
     </div>
 
-    <div style="text-align: center; margin-bottom: 20px;">
+    <div style="text-align: center; margin-bottom: 20px;" data-aos="fade-up" data-aos-duration="800" data-aos-delay="400">
         <p style="font-weight: 600; color: #059669;">💡 Code promotionnel disponible directement dans l'application !</p>
     </div>
 
-    <section class="pricing-table">
+    <section class="pricing-table" data-aos="fade-up" data-aos-duration="800" data-aos-delay="500">
         <!-- Table de prix Stripe -->
         <stripe-pricing-table
             pricing-table-id="prctbl_1Tvz7tI04Y4H6tVSqt27c5pb"
@@ -80,13 +82,13 @@
         </stripe-pricing-table>
     </section>
 
-    <section class="faq-pricing">
+    <section class="faq-pricing" data-aos="fade-up" data-aos-duration="800" data-aos-delay="600">
         <div class="grid-cards">
-            <div class="card">
+            <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="100">
                 <h3>Achat à l'unité (PAYG)</h3>
                 <p>Idéal pour un besoin ponctuel. Vous débloquez une période fiscale spécifique pour un SIREN donné. Accès illimité aux téléchargements pour cette période.</p>
             </div>
-            <div class="card">
+            <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="200">
                 <h3>Plan Pro & Cabinet</h3>
                 <p>Pour un volume récurrent. Accès illimité à toutes les périodes. Le plan Cabinet permet de gérer plusieurs SIREN avec un tarif dégressif.</p>
             </div>

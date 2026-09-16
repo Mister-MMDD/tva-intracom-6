@@ -23,8 +23,10 @@
     <meta name="twitter:description" content="Documentation technique complète du moteur TVA Intracommunautaire : formats Amazon supportés, moteur de classification, exports OSS/CA3/FEC.">
     <meta name="twitter:image" content="https://www.tvacalculator.eu/assets/logo/og-image.png">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-    <link rel="stylesheet" href="style.min.css?v=18213bf7">
-    <script src="script.js?v=9bfd4936" defer></script>
+    <link rel="stylesheet" href="style.min.css?v=6939db06">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="script.js?v=ad8fccd5" defer></script>
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
 </head>
 
 <body>
@@ -57,13 +59,13 @@
 
 <main id="main-content">
 <header>
-    <h1>Documentation technique</h1>
+    <h1 data-aos="fade-down" data-aos-duration="1000">Documentation technique</h1>
     <p>Architecture du moteur fiscal, des parsers Amazon et de l’interface Streamlit.</p>
 </header>
 
 <div class="container">
 
-    <div class="card alert" style="margin-bottom: 30px;">
+    <div class="card alert" style="margin-bottom: 30px;" data-aos="fade-up" data-aos-duration="800" data-aos-delay="300">
         <h2>Checklist de Conformité</h2>
         <ul style="list-style-type: '✅ ';">
             <li>Compléter l'<strong>Onboarding Lighthouse</strong> pour configurer votre fiche entreprise.</li>
@@ -74,9 +76,9 @@
         </ul>
     </div>
 
-    <section class="overview">
+    <section class="overview" data-aos="fade-up" data-aos-duration="800" data-aos-delay="400">
         <div class="grid-cards">
-            <div class="card">
+            <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="100">
                 <h2>Sources de données & API</h2>
                 <ul>
                     <li><strong>VIES (EU)</strong> : Validation des numéros de TVA en temps réel.</li>
@@ -85,7 +87,7 @@
                     <li><strong>DGFIP / Schémas XSD</strong> : Validation des fichiers XML OSS.</li>
                 </ul>
             </div>
-            <div class="card">
+            <div class="card" data-aos="scale-up" data-aos-duration="600" data-aos-delay="200">
                 <h2>Cœur du Moteur</h2>
                 <ul style="font-size: 0.9rem;">
                     <li><strong>engine.py</strong> : Moteur de classification fiscale (Directive 2006/112/CE).</li>
