@@ -112,9 +112,11 @@ tva-intracom/
 │   ├── models.py                     Dataclasses : Sale, VatResult, Scenario, BuyerType…
 │   ├── oss_export.py                 Agrégation OSS partagée, exports Excel + CSV URSSAF
 │   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
+│   ├── product_tax_code_category.py  Classification Amazon (PRODUCT_TAX_CODE -> catégorie interne)
 │   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
 │   ├── report.py                     ReportSummary, build_report, render_report
 │   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
+│   ├── vat_rates_db.py               Taux de TVA dynamiques via l'API TEDB
 │   ├── vies_certificate.py           Génération de certificat de validité VIES en PDF (preuve de bonne foi).
 │   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
 │   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
@@ -178,6 +180,8 @@ tva-intracom/
 | `database.py` | Gestion centralisée des connexions Postgres : `NonPoolingConnectionPool` (cache par thread compatible scale-to-zero, ou connexion fraîche par appel selon `cache_connection`) + `run_with_retry()` — consommé par `auth.py`, `billing.py`, `ecb_rates.py` et `vies_engine.py` (voir section « Base de données partagée » ci-dessus) |
 | `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
+| `vat_rates_db.py` | Taux de TVA dynamiques via l'API TEDB (Taxes in Europe Database) avec repli sur les tables statiques |
+| `product_tax_code_category.py` | Classification Amazon (PRODUCT_TAX_CODE -> catégorie interne), niveau 2 de la stratégie CN/CPA |
 | `security.py` | Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy) — chiffrement Fernet des PII avec protection **Fail-Safe** contre l'exposition accidentelle en clair. |
 | `vies_certificate.py` | Génération d'un "Certificat de Validité VIES" en PDF (preuve de bonne foi opposable) |
 | `vies_engine.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
@@ -8254,3 +8258,49 @@ Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `README - evolution.md`.
 **Non-régression** : suite complète 371 passed / 11 skipped-non-liés / 27 skipped (baseline 275 passed avant l'ajout des 4 fichiers de tests de l'audit). Les 11 échecs restants sont tous pré-existants et hors périmètre (5 = `ENCRYPTION_KEY` absente du sandbox local, 6 = bug de cache TEDB déjà connu dans `vat_rates_db.py`, voir entrée 2026-09-12 (2)). Symétrie i18n vérifiée : 7 langues × 1182 clés.
 
 Fichiers modifiés : `app.py`, `tva_intracom/auth.py`, `tva_intracom/engine.py`, `tva_intracom/ui/sidebar.py`, `tva_intracom/ui/files.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`, `tests/test_security.py`, `tests/test_fiscal_monaco.py`, `tests/test_fiscal_historical_rates.py`, `README - evolution.md`.
+
+## 2026-09-16 — Reprise chantier taux réduit dynamique (CN/CPA), point 4 : premier lot "sûr" activé
+
+**Contexte** : reprise du chantier CN/CPA (points 1+2 déjà codés le 2026-09-15) sur la base de `plan_action_taux_reduit_dynamique_reprise.md`. Décision Matthieu : ne pas attendre la validation cabinet comptable complète du mapping PTC→catégorie — coder immédiatement les cas déjà sûrs/sans ambiguïté fiscale, laisser le reste de côté.
+
+**Analyse préalable (avant tout code)** : re-vérification de `vat_rates_db.py` contre le repo réel — le filtre `rtype` (`_parse_tedb_response`) rejetait bien à tort les entrées `REDUCED_RATE`/`SUPER_REDUCED_RATE` (n'acceptait que `DEFAULT`/`EXEMPTED`), confirmant un point du plan. `_is_tedb_eligible()` était restreint en dur au taux `STANDARD` uniquement (restriction du 2026-09-13, cf. entrée correspondante) — jamais réévalué depuis.
+
+**Livré** (`vat_rates_db.py`) :
+- Filtre `rtype` élargi : `("DEFAULT", "REDUCED_RATE", "SUPER_REDUCED_RATE", "EXEMPTED")`.
+- `_CATEGORY_TO_TEDB` étendu à 11 nouvelles catégories (PERIODICALS, MEDICAL_EQUIPMENT, CHILDREN_CAR_SEATS, SOLAR_PANELS, PLANT, FOSSIL_FUEL, CHEMICAL_FERTILISERS, CHEMICAL_PESTICIDES_ENVIRONMENT, CERTAIN_AGRICULTURAL_INPUT, CHILD_WEAR, AGRICULTURAL_PRODUCTION), en plus de FOOD/MEDICINES/PARKING déjà présents.
+- `_TEDB_CATEGORY_SAFE_COUNTRIES` (nouveau) : safe-list par catégorie (faits TEDB, pas des décisions fiscales) — FOOD/MEDICINES du 2026-09-15, 11 nouvelles catégories fournies par Matthieu (sortie de sa propre commande diag TEDB, 2026-09-16).
+- `_is_tedb_eligible(country, rate_type)` réécrit : STANDARD inchangé (tout `_TEDB_SUPPORTED`), catégories REDUCED éligibles uniquement si le pays est dans la safe-list de cette catégorie précise.
+- `_PARSE_REDUCED_CATEGORIES = True`.
+- **Correctif non prévu au plan, trouvé en testant** : filtrage par éligibilité ajouté directement dans `_parse_tedb_response` (extraction conditionnée à `_is_tedb_eligible(country, internal_category)`). Sans ce filtre, un fetch groupé (un seul appel SOAP renvoie toutes les catégories d'un pays/date) extrayait aussi les catégories mappées mais ambiguës pour ce pays (ex. MEDICINES pour FR), déclenchant un warning de plausibilité + dump XML complet à chaque fetch — exactement la pollution de logs que la restriction STANDARD-only du 2026-09-13 visait à éviter, simplement déplacée sur les nouvelles catégories. Restaure l'intention initiale tout en supportant l'extension.
+
+**Livré (`product_tax_code_category.py`)** : `_VALID_CATEGORIES` étendu aux 11 mêmes catégories.
+
+**Livré (`scripts/seed_known_mappings_cn_cpa.sql`, nouveau)** : 56 lignes `product_tax_code_category` (`source='known_mapping'`), idempotent (`ON CONFLICT DO UPDATE ... WHERE source != 'manual_override'`), à exécuter par Matthieu directement sur Supabase (pas d'accès réseau à la DB de production depuis l'environnement d'exécution). 23 codes fiscalement ambigus (confiserie/boissons sucrées, vitamines/compléments, alimentation/soins animaliers, protections hygiéniques, contraception, variantes de livres, `A_HPC_PPESANITISER`) volontairement exclus de ce lot, listés en commentaire dans le script, en attente de validation cabinet comptable.
+
+**Tests** (`tests/test_vat_rates_db.py`) : mise à jour des tests qui figeaient l'ancien comportement STANDARD-only (devenu le comportement à changer, pas une régression) — éligibilité FOOD vraie pour un pays sûr (FR) / fausse pour un pays ambigu (PT) et pour MEDICINES/FR (ambigu), extraction de `_parse_tedb_response` réécrite avec assertions de valeurs exactes sur la fixture FR réelle.
+
+Validation : `pyflakes` propre. Suite `pytest` isolée d'un `git diff` complet contre le zip GitHub vierge pour distinguer précisément régressions réelles vs baseline pré-existant (3 tests i18n_coherence + 5 test_security PII + 3 test_vat_rate_prefetch + 7 test_vat_rates_db, tous confirmés identiques à l'état vierge) : **388 passed / 18 failed (baseline exact) / 27 skipped**, 0 régression.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tva_intracom/product_tax_code_category.py`, `tests/test_vat_rates_db.py`, `scripts/seed_known_mappings_cn_cpa.sql` (nouveau), `README.md`, `README - evolution.md`.
+
+## 2026-09-16 (2) — Statut "hors champ TVA" (`A_GEN_NOTAX`)
+
+**Contexte** : `A_GEN_NOTAX` ("non concernés par la TVA") n'avait aucune notion équivalente dans le moteur (`rates.py`/`models.py`/`engine.py` — confirmé par grep exhaustif le 2026-09-15). Un produit mappé par erreur vers STANDARD serait fiscalement faux dans le sens inverse du risque habituel (sur-déclaration sur un produit qui n'en doit pas).
+
+**Clarification préalable avec Matthieu** : hypothèse initialement envisagée ("deemed supplier", Amazon redevable à la place du vendeur — cf. `Sale.amazon_vat_amount`) écartée après clarification : `A_GEN_NOTAX` est un hors-champ TVA au sens strict (opération non imposable par nature), pas une opération réelle gérée par un tiers. Aucune occurrence observée dans les fichiers réels de Matthieu à ce jour — traité quand même intégralement, le moteur étant un produit destiné à d'autres vendeurs.
+
+**Livré** :
+- `models.py` : nouveaux membres d'enum `Scenario.OUT_OF_SCOPE`, `Collector.NONE`, `Channel.OUT_OF_SCOPE` — distincts d'`EXONERATION`/`EXPORT`/`B2B_REVERSE_CHARGE` qui restent des opérations réelles et exonérées, à déclarer comme telles (CA3/DEB/EMEBI).
+- `engine.py` : court-circuit total dans `compute_vat()`, juste après résolution de `effective_category`, avant Monaco/OSS/export/tout le reste — retour direct d'un `VatResult` via `_new_unchecked` (`vat_rate=0`, `vat_amount=0`, `collector=NONE`, `channel=OUT_OF_SCOPE`). Aucun appel réseau/DB (TEDB, VIES, taux de change) déclenché pour ces lignes. La conversion de devise (BCE) n'est pas concernée par ce court-circuit : elle a lieu en amont, au moment du parsing (`parsers/amazon/classify.py::convert_currency`), indépendamment de la catégorie produit — `sale.amount_ht` est donc déjà en EUR avant d'atteindre `compute_vat()`, comme pour toute autre vente.
+- `product_tax_code_category.py` : `OUT_OF_SCOPE` ajouté à `_VALID_CATEGORIES`, avec commentaire explicite de ne jamais l'ajouter à `_CATEGORY_TO_TEDB`/`_TEDB_CATEGORY_SAFE_COUNTRIES` (`vat_rates_db.py`) — ce n'est pas un taux, la table `product_tax_code_category` sert uniquement à résoudre le PTC Amazon vers la catégorie interne, quelle que soit cette catégorie (mécanisme partagé avec STANDARD et les taux réduits, pas spécifique à ces derniers).
+- `scripts/seed_known_mappings_cn_cpa.sql` : ligne `A_GEN_NOTAX -> OUT_OF_SCOPE` ajoutée.
+- `fec_export.py` : libellé dédié `Scenario.OUT_OF_SCOPE` dans `_scenario_label()` (évite le repli sur le nom brut de l'enum).
+- `i18n/*.toml` (7 langues) : clés `engine_note_out_of_scope` et `fec_scenario_out_of_scope` ajoutées partout (symétrie préservée).
+
+**Propriété architecturale confirmée en creusant (pas dans le plan initial)** : tous les exports de déclaration (`oss_export.py`, `ui/tabs/declarations.py`) filtrent par liste blanche explicite (`if scenario == Scenario.X`), jamais par exclusion — un nouveau `Scenario`/`Channel` non répertorié en est donc automatiquement absent, sans modification de ces fichiers. Confirmé par grep exhaustif (aucun `match`/switch exhaustif sur ces enums dans le code).
+
+**Tests ajoutés** (`tests/test_engine.py`, classe `TestOutOfScope`) : court-circuit effectif même avec des paramètres qui mèneraient sinon à `EXPORT` ; priorité du paramètre explicite `product_category` de `compute_vat()` sur `sale.product_category` ; non-appartenance à tous les scénarios/canaux de déclaration existants.
+
+Validation : `pyflakes` propre. Suite `pytest` complète : **391 passed / 18 failed (baseline exact, inchangé) / 27 skipped**, 0 régression.
+
+Fichiers modifiés : `tva_intracom/models.py`, `tva_intracom/engine.py`, `tva_intracom/product_tax_code_category.py`, `tva_intracom/fec_export.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`, `scripts/seed_known_mappings_cn_cpa.sql`, `tests/test_engine.py`, `README.md`, `README - evolution.md`.

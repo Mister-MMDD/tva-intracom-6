@@ -197,6 +197,7 @@ def _scenario_label(scenario: Scenario) -> str:
         Scenario.IMPORT_STANDARD: _("fec_scenario_import_std"),
         Scenario.IOSS_DIRECT: _("fec_scenario_ioss"),
         Scenario.IMPORT_SELLER_AS_IMPORTER: _("fec_scenario_ddp"),
+        Scenario.OUT_OF_SCOPE: _("fec_scenario_out_of_scope"),
     }.get(scenario, scenario.value)
 
 

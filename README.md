@@ -27,6 +27,7 @@ en France opérant sur des places de marché (Amazon FBA, formats 1 à 5).
 | **IMPORT_STANDARD** | Import > 150 € hors UE, B2C | TVA d'importation (douane) | Importateur | EXONERATION (douane) |
 | **IOSS_DIRECT** | Import ≤ 150 €, vendeur ayant explicitement activé son propre numéro IOSS (`ioss_own_number_active`, sinon `DEEMED_SUPPLIER` par défaut — voir audit 08/2026) | Vendeur collecte via IOSS | Vendeur | Guichet **IOSS** (mensuel, déclaration et export **séparés** de l'OSS depuis l'audit 08/2026) |
 | **IMPORT_SELLER_AS_IMPORTER** | Import > 150 €, vendeur = importateur officiel (DDP) | Vente domestique dans le pays de destination | Vendeur | CA3 (FR) ou immatriculation locale |
+| **OUT_OF_SCOPE** | Produit hors du champ de la TVA par nature (ex. `PRODUCT_TAX_CODE` Amazon `A_GEN_NOTAX`) | Aucun calcul, aucune déclaration nulle part (ni CA3, ni OSS/IOSS, ni DEB/EMEBI) — à ne pas confondre avec EXPORT/B2B_REVERSE_CHARGE (opérations réelles mais exonérées, à déclarer comme telles) | — | Aucun (`Collector.NONE`) |
 
 **Cas FBA (stocks hors FR) :** tout pays UE distinct de FR où réside du stock Amazon
 déclenche une obligation d'immatriculation TVA locale, signalée dans le rapport et
@@ -53,7 +54,8 @@ tva-intracom/
 │   ├── migrate_legacy_export_credits.py  Resserre a posteriori les crédits PAYG achetés avant le
 │   │                                      rattachement SIREN (siren='') sur un SIREN précis, quand
 │   │                                      l'org n'a qu'un seul SIREN enregistré (dry-run par défaut)
-│   └── profile_ram_parsing.py         Profilage mémoire du parsing de gros fichiers Amazon
+│   ├── profile_ram_parsing.py         Profilage mémoire du parsing de gros fichiers Amazon
+│   └── seed_known_mappings_cn_cpa.sql Seed product_tax_code_category (mapping PTC->catégorie, lot "sûr" 2026-09-16)
 ├── tests/
 ├── tva-site/                         Site vitrine / landing page (HTML/JS/CSS statique)
 ├── tva_intracom/
@@ -119,9 +121,11 @@ tva-intracom/
 │   ├── models.py                     Dataclasses : Sale, VatResult, Scenario, BuyerType…
 │   ├── oss_export.py                 Agrégation OSS partagée, exports Excel + CSV URSSAF
 │   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
+│   ├── product_tax_code_category.py  Classification Amazon (PRODUCT_TAX_CODE -> catégorie interne)
 │   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
 │   ├── report.py                     ReportSummary, build_report, render_report
 │   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
+│   ├── vat_rates_db.py               Taux de TVA dynamiques via l'API TEDB
 │   ├── vies_certificate.py           Génération de certificat de validité VIES en PDF (preuve de bonne foi).
 │   ├── vies_engine.py                Validation VIES (Backend Postgres multi-niveaux, historique d'audit)
 │   ├── ui/                           Découpage modulaire de l'interface Streamlit (app.py appelle ces modules)
@@ -179,6 +183,8 @@ tva-intracom/
 | `database.py` | Gestion centralisée des connexions Postgres : `NonPoolingConnectionPool` (cache par thread compatible scale-to-zero, ou connexion fraîche par appel selon `cache_connection`) + `run_with_retry()` — consommé par `auth.py`, `billing.py`, `ecb_rates.py` et `vies_engine.py` (voir section « Base de données partagée » ci-dessus) |
 | `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
+| `vat_rates_db.py` | Taux de TVA dynamiques via l'API TEDB (Taxes in Europe Database) avec repli sur les tables statiques |
+| `product_tax_code_category.py` | Classification Amazon (PRODUCT_TAX_CODE -> catégorie interne), niveau 2 de la stratégie CN/CPA |
 | `security.py` | Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy) — chiffrement Fernet des PII avec protection **Fail-Safe** contre l'exposition accidentelle en clair. |
 | `vies_certificate.py` | Génération d'un "Certificat de Validité VIES" en PDF (preuve de bonne foi opposable) |
 | `vies_engine.py` | Validation VIES : cache PostgreSQL à double niveau (privé/global), historique append-only pour piste d'audit, overrides manuels par scope, résoluteur de domaine et retry exponentiel |
