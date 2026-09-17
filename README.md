@@ -245,6 +245,13 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
 
 ## Authentification & Facturation
 
+<!-- DÉSACTIVÉ (passage au don, voir README - évolution.md) : cette section
+décrivait le modèle payant (Stripe Pro/Cabinet, aperçu bridé tant que la
+période n'est pas débloquée) comme fonctionnalité active. Le service est
+désormais gratuit (don libre) ; le code de facturation est conservé et
+commenté pour réactivation éventuelle (voir `tva_intracom/billing.py`,
+`ui/billing_gate.py`, `ui/auth_flow.py`).
+
 - **Authentification & Rôles** : Supabase Auth (flux PKCE). Supporte e-mail/mot de passe et OAuth (Google, Microsoft, GitHub, Amazon).
     - **Partage par Organisation** : L'abonnement, les SIREN et les crédits sont partagés au niveau du domaine e-mail professionnel (`org_id`).
     - **Rôles Admin / Lecteur** : Verrouillage de sécurité dès le premier abonnement payant. Whitelist d'e-mails gérée par les administrateurs.
@@ -256,6 +263,15 @@ DDP), affiché en tout premier dans la barre latérale, persisté en base
 - **Contenu gratuit limité** : Aperçu bridé des résultats (10 premières lignes ou 15%, montants et scénarios verrouillés) tant que la période n'est pas débloquée.
 - **Base de données partagée** : Postgres (Supabase) centralisé, compatible scale-to-zero, utilisé par Streamlit et les webhooks Vercel.
 - **Webhooks Stripe** : Déployés sur Vercel serverless, gèrent l'activation instantanée des abonnements et des crédits.
+-->
+
+- **Authentification & Rôles** : Supabase Auth (flux PKCE). Supporte e-mail/mot de passe et OAuth (Google, Microsoft, GitHub, Amazon).
+    - **Partage par Organisation** : Les SIREN sont partagés au niveau du domaine e-mail professionnel (`org_id`).
+    - **Rôles Admin / Lecteur** : Whitelist d'e-mails gérée par les administrateurs.
+- **Gratuité (don libre)** : Le service est gratuit ; son développement peut être soutenu par un don libre (voir `README - evolution.md`, entrées 2026-09-17).
+- **Quotas & Profils SIREN** : Mémorisation des paramètres par SIREN (IOSS, DDP, seuil OSS, pays d'immatriculation). **Rattachement anti-abus Compte Amazon <-> SIREN** pour limiter l'usage détourné. Le SIREN/n° TVA reste obligatoire pour débloquer les exports, sauf pour le tableau récapitulatif de l'onglet Déclarations.
+- **Base de données partagée** : Postgres (Supabase) centralisé, compatible scale-to-zero, utilisé par Streamlit et les webhooks Vercel.
+- **Webhook Stripe** : toujours déployé sur Vercel serverless (voir `vercel_webhook/`) pour les abonnements antérieurs au passage au don, mais sans effet sur le fonctionnement actuel (gratuit).
 
 
 ---

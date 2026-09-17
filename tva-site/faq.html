@@ -38,10 +38,13 @@
             {"@type": "Question", "name": "Pourquoi la piste d'audit est-elle cruciale ?", "acceptedAnswer": {"@type": "Answer", "text": "En cas de contrôle fiscal sur une vente B2B exonérée, vous devez prouver que le numéro de TVA du client était valide au moment de la vente. Le moteur archive systématiquement cette preuve."}},
             {"@type": "Question", "name": "Le moteur gère-t-il les changements de taux de TVA ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui, le système intègre l'historique des taux et applique le bon taux selon la date de la transaction."}},
             {"@type": "Question", "name": "Le moteur produit-il des fichiers prêts pour la déclaration ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi-onglets, FEC comptable."}},
-            {"@type": "Question", "name": "Comment fonctionne la facturation ?", "acceptedAnswer": {"@type": "Answer", "text": "Stripe Checkout (PAYG, Pro, Cabinet), avec quotas par période et par SIREN, gérés dans Supabase."}}
+            {"@type": "Question", "name": "Le moteur est-il payant ?", "acceptedAnswer": {"@type": "Answer", "text": "Non, l'outil est gratuit. Son développement peut être soutenu par un don libre."}}
         ]
     }
     </script>
+<!-- DÉSACTIVÉ (passage au don, voir README - évolution.md) : question FAQPage obsolète sur la facturation Stripe (PAYG/Pro/Cabinet), remplacée ci-dessus par "Le moteur est-il payant ?".
+{"@type": "Question", "name": "Comment fonctionne la facturation ?", "acceptedAnswer": {"@type": "Answer", "text": "Stripe Checkout (PAYG, Pro, Cabinet), avec quotas par période et par SIREN, gérés dans Supabase."}}
+-->
 </head>
 
 <body>
@@ -150,10 +153,20 @@
     <button class="toggle-button">Afficher la réponse</button>
 </div>
 
+<!-- DÉSACTIVÉ (passage au don, voir README - évolution.md) : mention obsolète
+de la facturation Stripe (PAYG/Pro/Cabinet).
 <div class="card interactive" data-open="false">
     <h2>Comment fonctionne la facturation ?</h2>
     <div class="details">
         <p>Stripe Checkout (PAYG, Pro, Cabinet), avec quotas par période et par SIREN, gérés dans Supabase.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
+</div>
+-->
+<div class="card interactive" data-open="false">
+    <h2>Le moteur est-il payant ?</h2>
+    <div class="details">
+        <p>Non, l'outil est gratuit. Son développement peut être soutenu par un don libre depuis la page <a href="dons.html">Dons</a>.</p>
     </div>
     <button class="toggle-button">Afficher la réponse</button>
 </div>
