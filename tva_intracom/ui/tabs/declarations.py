@@ -337,43 +337,48 @@ def render_declarations(ctx: TabContext) -> None:
     _recap_cfg[_("type_column_label")] = st.column_config.TextColumn(_("type_column_label"), width="small")
     _recap_cfg[_("canal_column_label")] = st.column_config.TextColumn(_("canal_column_label"), width="large")
 
-    if _can_export:
-        st.dataframe(_recap_df, width="stretch", hide_index=True,
-                     column_config=_recap_cfg)
-    else:
-        # Aperçu gratuit restreint :
-        # On utilise le même formateur que detail_ventes pour avoir un bel affichage
-        # même si les lignes sont partiellement masquées.
-        # On force le type object pour permettre le masquage par chaînes (cadenas).
-        # "object" en chaîne plutôt que le type Python object : comportement
-        # runtime identique, mais évite un échec de résolution des overloads
-        # pandas qui faisait retomber le type inféré sur `Never` (et donc
-        # tout accès ultérieur à `_recap_preview.columns` invisible pour l'IDE).
-        _recap_preview = _recap_df.copy().astype("object")
-        tva_cols = [_("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")]
-        ca_cols = [_("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net")]
+    # Affichage du tableau (toujours complet pour cet onglet, comme demandé par l'utilisateur)
+    # L'aperçu restreint a été désactivé en commentaire pour ce tableau précis.
+    st.dataframe(_recap_df, width="stretch", hide_index=True,
+                 column_config=_recap_cfg)
 
-        # Formattage manuel avant conversion texte pour garder les espaces et €
-        for col in tva_cols + ca_cols:
-            if col in _recap_preview.columns:
-                _recap_preview[col] = _recap_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
-        
-        # Masquage — message spécifique à la vraie raison du blocage (paiement,
-        # rattachement compte, SIREN, quota), pas seulement "premium" vs
-        # "rattachement" — voir billing_gate.preview_lock_message().
-        lock_msg = ctx.lock_message
-        for idx, row in _recap_preview.iterrows():
-            # CA est maintenant toujours visible (total et pays)
-            # Seule la TVA reste verrouillée partout
-            for col in tva_cols:
-                if col in _recap_preview.columns:
-                    _recap_preview.at[idx, col] = lock_msg
-
-        # Affichage propre via dataframe (TextColumn)
-        _prev_df = _recap_preview.drop(columns=[_("type_column_label")])
-        _prev_cfg = {c: st.column_config.TextColumn(c) for c in _prev_df.columns}
-        st.dataframe(_prev_df, width="stretch", hide_index=True, column_config=_prev_cfg)
-        st.caption(_("locked_preview_caption"))
+    # if _can_export:
+    #     st.dataframe(_recap_df, width="stretch", hide_index=True,
+    #                  column_config=_recap_cfg)
+    # else:
+    #     # Aperçu gratuit restreint :
+    #     # On utilise le même formateur que detail_ventes pour avoir un bel affichage
+    #     # même si les lignes sont partiellement masquées.
+    #     # On force le type object pour permettre le masquage par chaînes (cadenas).
+    #     # "object" en chaîne plutôt que le type Python object : comportement
+    #     # runtime identique, mais évite un échec de résolution des overloads
+    #     # pandas qui faisait retomber le type inféré sur `Never` (et donc
+    #     # tout accès ultérieur à `_recap_preview.columns` invisible pour l'IDE).
+    #     _recap_preview = _recap_df.copy().astype("object")
+    #     tva_cols = [_("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")]
+    #     ca_cols = [_("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net")]
+    #
+    #     # Formattage manuel avant conversion texte pour garder les espaces et €
+    #     for col in tva_cols + ca_cols:
+    #         if col in _recap_preview.columns:
+    #             _recap_preview[col] = _recap_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
+    #
+    #     # Masquage — message spécifique à la vraie raison du blocage (paiement,
+    #     # rattachement compte, SIREN, quota), pas seulement "premium" vs
+    #     # "rattachement" — voir billing_gate.preview_lock_message().
+    #     lock_msg = ctx.lock_message
+    #     for idx, row in _recap_preview.iterrows():
+    #         # CA est maintenant toujours visible (total et pays)
+    #         # Seule la TVA reste verrouillée partout
+    #         for col in tva_cols:
+    #             if col in _recap_preview.columns:
+    #                 _recap_preview.at[idx, col] = lock_msg
+    #
+    #     # Affichage propre via dataframe (TextColumn)
+    #     _prev_df = _recap_preview.drop(columns=[_("type_column_label")])
+    #     _prev_cfg = {c: st.column_config.TextColumn(c) for c in _prev_df.columns}
+    #     st.dataframe(_prev_df, width="stretch", hide_index=True, column_config=_prev_cfg)
+    #     st.caption(_("locked_preview_caption"))
 
     if summary.refund_count:
         st.info(_("refund_summary_info", count=summary.refund_count, ht=_fmt(summary.refund_total_ht)))

@@ -64,7 +64,8 @@ def minify_css(css: str) -> str:
 NAV_LINKS = [
     ("index.html", "Accueil"),
     ("documentation.html", "Documentation"),
-    ("tarifs.html", "Tarifs"),
+    # ("tarifs.html", "Tarifs"),  # Désactivé temporairement
+    ("dons.html", "Dons"),
     ("securite.html", "Sécurité"),
     ("glossaire.html", "Glossaire"),
     ("faq.html", "FAQ"),

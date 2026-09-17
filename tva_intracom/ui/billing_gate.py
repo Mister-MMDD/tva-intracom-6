@@ -422,17 +422,21 @@ def build_billing_gate(
         f"sub_status_{current_user.org_id}",
         lambda: tva_billing.get_subscription_status(current_user.org_id),
     )
-    can_export = bool(period_label) and (
-        (_cached_sub_status and _cached_sub_status.active)
-        or tva_billing.has_export_credit(current_user.org_id, period_label, siren_entreprise)
-    )
+    # can_export = bool(period_label) and (
+    #     (_cached_sub_status and _cached_sub_status.active)
+    #     or tva_billing.has_export_credit(current_user.org_id, period_label, siren_entreprise)
+    # )
+    # Remplacement par un système de donation : l'export est toujours autorisé financièrement.
+    can_export = bool(period_label)
+
     # État "financier" pur (abonnement actif OU crédit ponctuel), capturé
     # AVANT les gates de conformité (SIREN, quota, rattachement compte)
     # ci-dessous qui peuvent eux aussi mettre can_export à False. Nécessaire
     # pour prioriser correctement le message affiché dans gated_download() :
     # un utilisateur non abonné doit voir "abonnez-vous", jamais un message
     # de conformité qui n'a de sens que s'il est déjà payant.
-    billing_ok = can_export
+    # billing_ok = can_export
+    billing_ok = True
 
     quota_status = siren_quota_status
 

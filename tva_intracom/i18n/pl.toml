@@ -1349,3 +1349,8 @@ viz_data_ca_ht = "Przychody netto"
 viz_data_vat_due = "Należny VAT"
 viz_data_refund_ht = "Zwrot netto"
 viz_data_vat_refund = "Zwrot VAT"
+
+# Donation
+donation_header = "☕ Przekaż darowiznę"
+donation_help = "Jeśli uważasz to narzędzie za przydatne, możesz wesprzeć jego rozwój darowizną."
+donation_btn = "Przekaż darowiznę przez Stripe"

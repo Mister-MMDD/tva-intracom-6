@@ -1349,3 +1349,8 @@ viz_data_ca_ht = "Fatturato netto"
 viz_data_vat_due = "IVA dovuta"
 viz_data_refund_ht = "Rimborsato netto"
 viz_data_vat_refund = "IVA rimborsata"
+
+# Donation
+donation_header = "☕ Fai una donazione"
+donation_help = "Se trovi utile questo strumento, puoi sostenere il suo sviluppo con una donazione."
+donation_btn = "Dona tramite Stripe"

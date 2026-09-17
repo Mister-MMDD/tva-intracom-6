@@ -65,6 +65,12 @@
     "extra_head": "<script async src=\"https://js.stripe.com/v3/pricing-table.js\"></script>",
     "extra_foot": ""
   },
+  "dons.html": {
+    "title": "Soutenir le projet – Dons",
+    "description": "Soutenez le développement du moteur TVA Intracommunautaire par un don libre. Contribuez à l'amélioration continue de cet outil open source.",
+    "extra_head": "<script async src=\"https://js.stripe.com/v3/buy-button.js\"></script>",
+    "extra_foot": ""
+  },
   "tutoriels.html": {
     "title": "Tutoriels & Simulateur – Moteur TVA Intracommunautaire",
     "description": "Simulateur interactif de TVA intracommunautaire et guides thématiques : testez un scénario de vente et parcourez des cas pratiques concrets (B2B, B2C, OSS, deemed supplier, imports).",

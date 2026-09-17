@@ -1349,3 +1349,8 @@ viz_data_ca_ht = "Net Revenue"
 viz_data_vat_due = "VAT due"
 viz_data_refund_ht = "Net Refund"
 viz_data_vat_refund = "VAT refund"
+
+# Donation
+donation_header = "☕ Make a Donation"
+donation_help = "If you find this tool useful, you can support its development with a donation."
+donation_btn = "Donate via Stripe"

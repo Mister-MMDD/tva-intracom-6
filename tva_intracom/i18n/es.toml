@@ -1349,3 +1349,8 @@ viz_data_ca_ht = "BI"
 viz_data_vat_due = "IVA debido"
 viz_data_refund_ht = "Reembolso BI"
 viz_data_vat_refund = "IVA reembolsado"
+
+# Donation
+donation_header = "☕ Hacer una donación"
+donation_help = "Si encuentra útil esta herramienta, puede apoyar su desarrollo con una donación."
+donation_btn = "Donar vía Stripe"

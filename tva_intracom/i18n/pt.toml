@@ -1349,3 +1349,8 @@ viz_data_ca_ht = "Faturação líquida"
 viz_data_vat_due = "IVA devido"
 viz_data_refund_ht = "Reembolso líquido"
 viz_data_vat_refund = "IVA reembolsado"
+
+# Donation
+donation_header = "☕ Fazer uma doação"
+donation_help = "Se você achar esta ferramenta útil, pode apoiar o seu desenvolvimento com uma doação."
+donation_btn = "Doar via Stripe"

@@ -1348,3 +1348,8 @@ viz_data_ca_ht = "Netto-Umsatz"
 viz_data_vat_due = "Fällige MwSt."
 viz_data_refund_ht = "Netto-Erstattung"
 viz_data_vat_refund = "MwSt.-Erstattung"
+
+# Donation
+donation_header = "☕ Spenden"
+donation_help = "Wenn Sie dieses Tool nützlich finden, können Sie seine Entwicklung mit einer Spende unterstützen."
+donation_btn = "Über Stripe spenden"

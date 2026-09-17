@@ -1349,3 +1349,8 @@ viz_data_ca_ht = "CA HT"
 viz_data_vat_due = "TVA due"
 viz_data_refund_ht = "Remb. HT"
 viz_data_vat_refund = "TVA remb."
+
+# Donation
+donation_header = "☕ Faire un don"
+donation_help = "Si cet outil vous est utile, vous pouvez soutenir son développement par un don libre."
+donation_btn = "Faire un don via Stripe"
