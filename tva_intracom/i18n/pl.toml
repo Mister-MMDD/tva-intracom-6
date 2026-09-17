@@ -201,7 +201,7 @@ action_plan_intro = "Na podstawie Twoich danych powinieneś zarejestrować się 
 action_reason_stock = "Lokalne magazynowanie"
 action_reason_sales = "Lokalna sprzedaż"
 action_reason_ddp = "Import (Sprzedawca jako Importer)"
-amazon_blocking_warning = "❌ **Blokada Amazon bliska**: Magazynujesz towary w {countries} bez lokalnego numeru VAT."
+amazon_blocking_warning = "Magazynujesz towary w {countries} bez lokalnego numeru VAT."
 
 # KPIs
 kpi_ca_ht = "Obroty netto (bez VAT)"
@@ -1354,5 +1354,7 @@ viz_data_vat_refund = "Zwrot VAT"
 donation_header = "☕ Przekaż darowiznę"
 donation_help = "Jeśli uważasz to narzędzie za przydatne, możesz wesprzeć jego rozwój darowizną."
 donation_btn = "Przekaż darowiznę przez Stripe"
+donation_paypal_btn = "Przekaż darowiznę przez PayPal"
+donation_or = "lub"
 
 gate_period_missing_err = "Nie można określić okresu dla tego eksportu (nie wykryto żadnej możliwej do wykorzystania daty sprzedaży). Sprawdź zaimportowany plik lub ustaw okres ręcznie."

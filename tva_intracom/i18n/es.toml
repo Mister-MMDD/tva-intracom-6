@@ -201,7 +201,7 @@ action_plan_intro = "Según sus datos, debería estar registrado a efectos del I
 action_reason_stock = "Almacenamiento local"
 action_reason_sales = "Ventas locales"
 action_reason_ddp = "Importación (Vendedor como Importador de Registro)"
-amazon_blocking_warning = "❌ **Bloqueo inminente de Amazon**: Está almacenando en {countries} sin un número de IVA local."
+amazon_blocking_warning = "Está almacenando en {countries} sin un número de IVA local."
 
 # KPIs
 kpi_ca_ht = "Volumen de negocio neto (sin IVA)"
@@ -1354,5 +1354,7 @@ viz_data_vat_refund = "IVA reembolsado"
 donation_header = "☕ Hacer una donación"
 donation_help = "Si encuentra útil esta herramienta, puede apoyar su desarrollo con una donación."
 donation_btn = "Donar vía Stripe"
+donation_paypal_btn = "Donar vía PayPal"
+donation_or = "o"
 
 gate_period_missing_err = "No se pudo determinar el período de esta exportación (no se detectó ninguna fecha de venta utilizable). Compruebe el archivo importado o indique el período manualmente."

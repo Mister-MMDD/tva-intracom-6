@@ -780,7 +780,6 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             f"""<div class="account-badge">
                 <span class="account-badge-dot"></span>
                 <span class="account-badge-email">{html.escape(_current_user.email)}</span>
-                <span class="account-badge-plan {_acct_plan_css}">{html.escape(_acct_plan_label)}</span>
             </div>""",
             unsafe_allow_html=True,
         )

@@ -18,17 +18,204 @@ _CSS = """
 /* ---- Définition de la couleur de marque (adaptative) ---- */
 :root {
     --brand-blue: #1f4e79;
+    
+    /* Palette de couleurs professionnelles - MODE CLAIR PAR DÉFAUT */
+    --bg-primary: #f1f5f9;
+    --bg-secondary: #e2e8f0;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    
+    /* Palette de bordures améliorée */
+    --border-light: color-mix(in srgb, var(--brand-blue) 18%, transparent);
+    --border-medium: color-mix(in srgb, var(--brand-blue) 28%, transparent);
+    --border-strong: color-mix(in srgb, var(--brand-blue) 38%, transparent);
+    
+    /* Palette d'alertes professionnelles */
+    --alert-error-bg: #fef2f2;
+    --alert-error-border: #fecaca;
+    --alert-error-text: #991b1b;
+    
+    --alert-warning-bg: #fffbeb;
+    --alert-warning-border: #fde68a;
+    --alert-warning-text: #92400e;
+    
+    --alert-success-bg: #f0fdf4;
+    --alert-success-border: #bbf7d0;
+    --alert-success-text: #166534;
+    
+    --alert-info-bg: #eff6ff;
+    --alert-info-border: #bfdbfe;
+    --alert-info-text: #1e40af;
+    
+    /* Ombres améliorées */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-hover: 0 8px 16px -4px rgba(0, 0, 0, 0.15), 0 4px 8px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* Force mode clair par défaut */
+[data-theme="light"], .stApp[data-theme="light"], :not([data-theme="dark"]) {
+    --brand-blue: #1f4e79;
+    --bg-primary: #f1f5f9;
+    --bg-secondary: #e2e8f0;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    
+    --border-light: color-mix(in srgb, var(--brand-blue) 18%, transparent);
+    --border-medium: color-mix(in srgb, var(--brand-blue) 28%, transparent);
+    --border-strong: color-mix(in srgb, var(--brand-blue) 38%, transparent);
+    
+    --alert-error-bg: #fef2f2;
+    --alert-error-border: #fecaca;
+    --alert-error-text: #991b1b;
+    
+    --alert-warning-bg: #fffbeb;
+    --alert-warning-border: #fde68a;
+    --alert-warning-text: #92400e;
+    
+    --alert-success-bg: #f0fdf4;
+    --alert-success-border: #bbf7d0;
+    --alert-success-text: #166534;
+    
+    --alert-info-bg: #eff6ff;
+    --alert-info-border: #bfdbfe;
+    --alert-info-text: #1e40af;
+    
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-hover: 0 8px 16px -4px rgba(0, 0, 0, 0.15), 0 4px 8px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Sidebar : fond clair forcé en mode clair ────────────────────────────────────────── */
+section[data-testid="stSidebar"] {
+    background-color: #f1f5f9 !important;
+    border-right: 1px solid var(--border-medium);
+}
+
+[data-theme="light"] section[data-testid="stSidebar"],
+.stApp[data-theme="light"] section[data-testid="stSidebar"],
+:not([data-theme="dark"]) section[data-testid="stSidebar"] {
+    background-color: #f1f5f9 !important;
+}
+
+/* Texte dans la sidebar - mode clair */
+section[data-testid="stSidebar"] * {
+    color: var(--text-primary) !important;
+}
+
+[data-theme="light"] section[data-testid="stSidebar"] *,
+.stApp[data-theme="light"] section[data-testid="stSidebar"] *,
+:not([data-theme="dark"]) section[data-testid="stSidebar"] * {
+    color: var(--text-primary) !important;
+}
+
+/* Inputs dans la sidebar - fond blanc */
+section[data-testid="stSidebar"] input,
+section[data-testid="stSidebar"] select,
+section[data-testid="stSidebar"] textarea {
+    background-color: white !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-medium) !important;
+}
+
+/* Expanders dans la sidebar - fond blanc */
+section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+    background-color: white !important;
+    border: 1px solid var(--border-medium) !important;
+}
+
+/* Toggle switches dans la sidebar */
+section[data-testid="stSidebar"] [role="switch"] {
+    background-color: var(--border-medium) !important;
+}
+
+section[data-testid="stSidebar"] [role="switch"][aria-checked="true"] {
+    background-color: var(--brand-blue) !important;
+}
+
+/* ── Multiselect Tags (Pays TVA) : Vert foncé au lieu de rouge ───────────────── */
+span[data-baseweb="tag"] {
+    background-color: #e8f5e9 !important; /* Vert très clair */
+    color: #2e7d32 !important;            /* Vert foncé */
+}
+
+span[data-baseweb="tag"] svg {
+    fill: #2e7d32 !important;             /* Icône de suppression en vert foncé */
 }
 
 @media (prefers-color-scheme: dark) {
     :root {
         --brand-blue: #38bdf8;
+        --bg-primary: #0f172a;
+        --bg-secondary: #1e293b;
+        --text-primary: #f8fafc;
+        --text-secondary: #cbd5e1;
+        --text-muted: #94a3b8;
+        
+        --border-light: color-mix(in srgb, var(--brand-blue) 25%, transparent);
+        --border-medium: color-mix(in srgb, var(--brand-blue) 35%, transparent);
+        --border-strong: color-mix(in srgb, var(--brand-blue) 45%, transparent);
+        
+        --alert-error-bg: #1a1010;
+        --alert-error-border: #452323;
+        --alert-error-text: #fca5a5;
+        
+        --alert-warning-bg: #1c1917;
+        --alert-warning-border: #451a03;
+        --alert-warning-text: #fcd34d;
+        
+        --alert-success-bg: #052e16;
+        --alert-success-border: #166534;
+        --alert-success-text: #86efac;
+        
+        --alert-info-bg: #1e3a8a;
+        --alert-info-border: #1e40af;
+        --alert-info-text: #93c5fd;
+        
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+        --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+        --shadow-hover: 0 8px 16px -4px rgba(0, 0, 0, 0.6), 0 4px 8px -2px rgba(0, 0, 0, 0.5);
     }
 }
 
 /* On surcharge si Streamlit est en mode sombre (basé sur la couleur de fond) */
 [data-theme="dark"], .stApp[data-theme="dark"] {
     --brand-blue: #38bdf8;
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    
+    --border-light: color-mix(in srgb, var(--brand-blue) 25%, transparent);
+    --border-medium: color-mix(in srgb, var(--brand-blue) 35%, transparent);
+    --border-strong: color-mix(in srgb, var(--brand-blue) 45%, transparent);
+    
+    --alert-error-bg: #1a1010;
+    --alert-error-border: #452323;
+    --alert-error-text: #fca5a5;
+    
+    --alert-warning-bg: #1c1917;
+    --alert-warning-border: #451a03;
+    --alert-warning-text: #fcd34d;
+    
+    --alert-success-bg: #052e16;
+    --alert-success-border: #166534;
+    --alert-success-text: #86efac;
+    
+    --alert-info-bg: #1e3a8a;
+    --alert-info-border: #1e40af;
+    --alert-info-text: #93c5fd;
+    
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+    --shadow-hover: 0 8px 16px -4px rgba(0, 0, 0, 0.6), 0 4px 8px -2px rgba(0, 0, 0, 0.5);
 }
 
 [data-theme="dark"] button[kind="primary"], .stApp[data-theme="dark"] button[kind="primary"] {
@@ -52,6 +239,13 @@ button[kind="primary"] {
     border-color: var(--brand-blue) !important;
     color: white !important;
     width: 100%;
+    box-shadow: var(--shadow-md);
+    transition: all 0.2s ease;
+}
+
+button[kind="primary"]:hover {
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-1px);
 }
 
 /* Bouton st.download_button (secondary par défaut dans Streamlit) doit aussi être full width s'il est utilisé en mode download principal */
@@ -64,9 +258,26 @@ h1 {
     color: var(--brand-blue);
     border-bottom: 3px solid var(--brand-blue);
     padding-bottom: 8px;
+    font-weight: 700;
 }
 h2, h3 {
     color: var(--brand-blue);
+    font-weight: 600;
+}
+
+/* ---- Amélioration du corps du texte ---- */
+.stMarkdown {
+    color: var(--text-primary);
+    line-height: 1.6;
+}
+
+.stMarkdown p {
+    color: var(--text-primary);
+}
+
+.stMarkdown li {
+    color: var(--text-primary);
+    margin-bottom: 8px;
 }
 
 /* ---- Onglets : accent net sur l'onglet actif ---- */
@@ -85,33 +296,188 @@ button[data-baseweb="tab"]:hover {
     max-width: 450px !important;
 }
 
+/* ── Sidebar : mode clair SEULEMENT ────────────────────────────────────────── */
+[data-theme="light"] section[data-testid="stSidebar"],
+.stApp[data-theme="light"] section[data-testid="stSidebar"],
+:not([data-theme="dark"]) section[data-testid="stSidebar"] {
+    background-color: #f1f5f9 !important;
+    border-right: 1px solid var(--border-medium);
+}
+
+/* Texte dans la sidebar - mode clair SEULEMENT */
+[data-theme="light"] section[data-testid="stSidebar"] *,
+.stApp[data-theme="light"] section[data-testid="stSidebar"] *,
+:not([data-theme="dark"]) section[data-testid="stSidebar"] * {
+    color: var(--text-primary) !important;
+}
+
+/* Inputs dans la sidebar - fond blanc - mode clair SEULEMENT */
+[data-theme="light"] section[data-testid="stSidebar"] input,
+.stApp[data-theme="light"] section[data-testid="stSidebar"] input,
+:not([data-theme="dark"]) section[data-testid="stSidebar"] input,
+[data-theme="light"] section[data-testid="stSidebar"] select,
+.stApp[data-theme="light"] section[data-testid="stSidebar"] select,
+:not([data-theme="dark"]) section[data-testid="stSidebar"] select,
+[data-theme="light"] section[data-testid="stSidebar"] textarea,
+.stApp[data-theme="light"] section[data-testid="stSidebar"] textarea,
+:not([data-theme="dark"]) section[data-testid="stSidebar"] textarea {
+    background-color: white !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-medium) !important;
+}
+
+/* Expanders dans la sidebar - fond blanc - mode clair SEULEMENT */
+[data-theme="light"] section[data-testid="stSidebar"] div[data-testid="stExpander"],
+.stApp[data-theme="light"] section[data-testid="stSidebar"] div[data-testid="stExpander"],
+:not([data-theme="dark"]) section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+    background-color: white !important;
+    border: 1px solid var(--border-medium) !important;
+}
+
+/* Toggle switches dans la sidebar - mode clair SEULEMENT */
+[data-theme="light"] section[data-testid="stSidebar"] [role="switch"],
+.stApp[data-theme="light"] section[data-testid="stSidebar"] [role="switch"],
+:not([data-theme="dark"]) section[data-testid="stSidebar"] [role="switch"] {
+    background-color: var(--border-medium) !important;
+}
+
+[data-theme="light"] section[data-testid="stSidebar"] [role="switch"][aria-checked="true"],
+.stApp[data-theme="light"] section[data-testid="stSidebar"] [role="switch"][aria-checked="true"],
+:not([data-theme="dark"]) section[data-testid="stSidebar"] [role="switch"][aria-checked="true"] {
+    background-color: var(--brand-blue) !important;
+}
+
+/* ── Sidebar : mode sombre ────────────────────────────────────────── */
+[data-theme="dark"] section[data-testid="stSidebar"],
+.stApp[data-theme="dark"] section[data-testid="stSidebar"] {
+    background-color: var(--bg-primary) !important;
+    border-right: 1px solid var(--border-medium);
+}
+
+[data-theme="dark"] section[data-testid="stSidebar"] *,
+.stApp[data-theme="dark"] section[data-testid="stSidebar"] * {
+    color: var(--text-primary) !important;
+}
+
+[data-theme="dark"] section[data-testid="stSidebar"] input,
+.stApp[data-theme="dark"] section[data-testid="stSidebar"] input,
+[data-theme="dark"] section[data-testid="stSidebar"] select,
+.stApp[data-theme="dark"] section[data-testid="stSidebar"] select,
+[data-theme="dark"] section[data-testid="stSidebar"] textarea,
+.stApp[data-theme="dark"] section[data-testid="stSidebar"] textarea {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-medium) !important;
+}
+
+[data-theme="dark"] section[data-testid="stSidebar"] div[data-testid="stExpander"],
+.stApp[data-theme="dark"] section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-medium) !important;
+}
+
 div[data-testid="stExpander"] {
-    border: 1px solid color-mix(in srgb, var(--brand-blue) 20%, transparent);
+    border: 1px solid var(--border-medium);
     border-radius: 10px;
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-blue) 8%, transparent);
+    box-shadow: var(--shadow-sm);
     background-color: var(--secondary-background-color);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+div[data-testid="stExpander"]:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-md);
 }
 
 div[data-testid="stMetric"] {
     background-color: var(--secondary-background-color);
-    border: 1px solid color-mix(in srgb, var(--brand-blue) 18%, transparent);
+    border: 1px solid var(--border-medium);
     border-radius: 10px;
     padding: 14px 16px;
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-blue) 8%, transparent);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 div[data-testid="stMetric"]:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-blue) 15%, transparent);
+    box-shadow: var(--shadow-hover);
+    border-color: var(--border-strong);
 }
 
-/* ── Sidebar : séparation nette ────────────────────────────────────────── */
-section[data-testid="stSidebar"] {
-    border-right: 1px solid color-mix(in srgb, var(--primary-color) 15%, transparent);
+/* ── Main content area : correction mode clair ────────────────────────────────────────── */
+[data-theme="light"] .main,
+.stApp[data-theme="light"] .main,
+:not([data-theme="dark"]) .main {
+    background-color: #f1f5f9 !important;
 }
+
+[data-theme="light"] .block-container,
+.stApp[data-theme="light"] .block-container,
+:not([data-theme="dark"]) .block-container {
+    background-color: #f1f5f9 !important;
+}
+
+/* Correction du texte principal en mode clair */
+[data-theme="light"] .stMarkdown,
+.stApp[data-theme="light"] .stMarkdown,
+:not([data-theme="dark"]) .stMarkdown {
+    color: var(--text-primary) !important;
+}
+
+[data-theme="light"] h1, [data-theme="light"] h2, [data-theme="light"] h3,
+.stApp[data-theme="light"] h1, .stApp[data-theme="light"] h2, .stApp[data-theme="light"] h3,
+:not([data-theme="dark"]) h1, :not([data-theme="dark"]) h2, :not([data-theme="dark"]) h3 {
+    color: var(--brand-blue) !important;
+}
+
+/* Correction des données et métriques en mode clair */
+[data-theme="light"] [data-testid="stMetricValue"],
+.stApp[data-theme="light"] [data-testid="stMetricValue"],
+:not([data-theme="dark"]) [data-testid="stMetricValue"] {
+    color: var(--text-primary) !important;
+}
+
+[data-theme="light"] [data-testid="stMetricLabel"],
+.stApp[data-theme="light"] [data-testid="stMetricLabel"],
+:not([data-theme="dark"]) [data-testid="stMetricLabel"] {
+    color: var(--text-secondary) !important;
+}
+
+/* ── Espacement dans le récapitulatif ────────────────────────────────────────── */
+div[data-testid="stVerticalBlock"] > div {
+    gap: 16px !important;
+}
+
+/* Espacement spécifique pour les métriques et les blocs de contenu */
+div[data-testid="stVerticalBlock"] > div > div {
+    margin-bottom: 12px;
+}
+
+/* Espacement entre les sections principales */
+.stVerticalBlock {
+    gap: 20px !important;
+}
+
+/* Espacement entre les éléments dans les expanders */
+div[data-testid="stExpander"] > div {
+    padding: 16px;
+}
+
+/* Espacement entre les lignes dans les tableaux */
+.stTable tbody tr {
+    margin-bottom: 8px;
+}
+
+/* Espacement entre les cartes et conteneurs */
+.stVerticalBlock > div[data-testid="stVerticalBlock"] {
+    margin-top: 16px;
+    margin-bottom: 16px;
+}
+
+/* Espacement dans la sidebar */
 section[data-testid="stSidebar"] div[data-testid="stExpander"] {
     margin-bottom: 10px;
 }
+
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
     gap: 0.5rem;
 }
@@ -122,22 +488,60 @@ header { visibility: visible !important; }
 
 /* ---- Boutons primaires ---- */
 button[kind="primary"] {
-    transition: opacity 0.15s ease;
+    transition: all 0.2s ease;
 }
 button[kind="primary"]:hover {
-    opacity: 0.85;
+    opacity: 0.9;
+    transform: translateY(-1px);
 }
 
 /* ---- Dataframes : coins arrondis + bordure discrète ---- */
 div[data-testid="stDataFrame"] {
     border-radius: 8px;
-    border: 1px solid color-mix(in srgb, var(--primary-color) 12%, transparent);
+    border: 1px solid var(--border-light);
     overflow-x: auto !important;
+    box-shadow: var(--shadow-sm);
+    transition: border-color 0.2s ease;
+}
+
+div[data-testid="stDataFrame"]:hover {
+    border-color: var(--border-medium);
 }
 
 /* ---- Alertes (st.error / st.warning / st.success / st.info) : coins arrondis ---- */
 div[data-testid="stAlert"] {
     border-radius: 8px;
+    border: 1px solid;
+    padding: 12px 16px;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Alertes d'erreur */
+div[data-testid="stAlert"][data-status="error"] {
+    background-color: var(--alert-error-bg);
+    border-color: var(--alert-error-border);
+    color: var(--alert-error-text);
+}
+
+/* Alertes de warning */
+div[data-testid="stAlert"][data-status="warning"] {
+    background-color: var(--alert-warning-bg);
+    border-color: var(--alert-warning-border);
+    color: var(--alert-warning-text);
+}
+
+/* Alertes de succès */
+div[data-testid="stAlert"][data-status="success"] {
+    background-color: var(--alert-success-bg);
+    border-color: var(--alert-success-border);
+    color: var(--alert-success-text);
+}
+
+/* Alertes d'info */
+div[data-testid="stAlert"][data-status="info"] {
+    background-color: var(--alert-info-bg);
+    border-color: var(--alert-info-border);
+    color: var(--alert-info-text);
 }
 
 /* ---- Séparateurs plus discrets que le défaut ---- */
@@ -157,9 +561,16 @@ button[data-testid="stBaseButton-secondary"]:hover {
     border-radius: 10px;
     padding: 14px 18px;
     background-color: var(--secondary-background-color);
-    border: 1px solid color-mix(in srgb, var(--primary-color) 15%, transparent);
-    border-left: 4px solid var(--kpi-accent, var(--primary-color));
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--primary-color) 8%, transparent);
+    border: 1px solid var(--border-medium);
+    border-left: 4px solid var(--kpi-accent, var(--brand-blue));
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.kpi-card:hover {
+    box-shadow: var(--shadow-hover);
+    border-color: var(--border-strong);
+    transform: translateY(-2px);
 }
 .kpi-label {
     font-size: 0.8rem;
@@ -191,9 +602,14 @@ button[data-testid="stBaseButton-secondary"]:hover {
     padding: 10px 16px;
     margin-bottom: 14px;
     background-color: var(--secondary-background-color);
-    border: 1px solid color-mix(in srgb, var(--brand-blue) 18%, transparent);
+    border: 1px solid var(--border-medium);
     border-left: 4px solid var(--brand-blue);
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-blue) 8%, transparent);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s ease;
+}
+
+.status-bar:hover {
+    box-shadow: var(--shadow-md);
 }
 .status-bar-item {
     display: flex;
@@ -230,9 +646,14 @@ button[data-testid="stBaseButton-secondary"]:hover {
     padding: 14px 18px;
     margin-bottom: 14px;
     background-color: var(--secondary-background-color);
-    border: 1px solid color-mix(in srgb, var(--brand-blue) 25%, transparent);
+    border: 1px solid var(--border-medium);
     border-left: 4px solid var(--brand-blue);
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-blue) 8%, transparent);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s ease;
+}
+
+.onboarding-banner:hover {
+    box-shadow: var(--shadow-md);
 }
 .onboarding-banner-title {
     margin: 0 0 10px;
@@ -262,8 +683,8 @@ button[data-testid="stBaseButton-secondary"]:hover {
    DOM. Pur CSS, aucun JS, aucune requête serveur — n'a donc aucun impact
    sur le mécanisme de scale-to-zero de Railway. */
 @keyframes onboarding-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-blue) 45%, transparent); }
-    50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand-blue) 0%, transparent); }
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-blue) 50%, transparent); }
+    50%      { box-shadow: 0 0 0 8px color-mix(in srgb, var(--brand-blue) 0%, transparent); }
 }
 .st-key-onb_pulse_entreprise + div[data-testid="stExpander"],
 .st-key-onb_pulse_vies + div[data-testid="stExpander"],
@@ -285,8 +706,16 @@ button[data-testid="stBaseButton-secondary"]:hover {
     border-radius: 12px;
     padding: 16px 18px;
     background-color: var(--secondary-background-color);
-    border: 1px solid color-mix(in srgb, var(--brand-blue) 20%, transparent);
+    border: 1px solid var(--border-medium);
     border-top: 3px solid var(--brand-blue);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.zero-state-card:hover {
+    box-shadow: var(--shadow-hover);
+    border-color: var(--border-strong);
+    transform: translateY(-2px);
 }
 .zero-state-card.done {
     border-top-color: #2ca02c;
@@ -315,9 +744,16 @@ button[data-testid="stBaseButton-secondary"]:hover {
     border-radius: 999px;
     padding: 5px 12px 5px 10px;
     background-color: var(--secondary-background-color);
-    border: 1px solid color-mix(in srgb, var(--brand-blue) 18%, transparent);
+    border: 1px solid var(--border-medium);
     font-size: 0.82rem;
     line-height: 1.4;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.account-badge:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--border-strong);
 }
 .account-badge-dot {
     display: inline-block;
@@ -351,6 +787,202 @@ button[data-testid="stBaseButton-secondary"]:hover {
 .account-badge-plan.plan-achat {
     background-color: color-mix(in srgb, #6b46c1 22%, transparent);
     color: #8b5cf6;
+}
+
+/* ---- Amélioration des inputs et formulaires ---- */
+.stTextInput > div > div > input,
+.stSelectbox > div > div > select,
+.stNumberInput > div > div > input {
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stTextInput > div > div > input:focus,
+.stSelectbox > div > div > select:focus,
+.stNumberInput > div > div > input:focus {
+    border-color: var(--brand-blue);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-blue) 20%, transparent);
+    outline: none;
+}
+
+/* ---- Amélioration des scrollbars ---- */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-medium);
+    border-radius: 4px;
+    transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--border-strong);
+}
+
+/* ---- Amélioration des sliders ---- */
+.stSlider > div > div > div {
+    background-color: var(--border-light);
+}
+
+/* ---- Amélioration des checkboxes ---- */
+.stCheckbox > label {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* ---- Amélioration des radios ---- */
+.stRadio > div {
+    color: var(--text-primary);
+}
+
+/* ---- Amélioration des tooltips ---- */
+[data-testid="stTooltip"] {
+    background-color: var(--text-primary);
+    color: var(--bg-primary);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    box-shadow: var(--shadow-lg);
+}
+
+/* ---- Amélioration des badges ---- */
+.stBadge {
+    background-color: var(--brand-blue);
+    color: white;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* ---- Amélioration des sélecteurs de fichiers ---- */
+.stFileUploader {
+    border: 2px dashed var(--border-medium);
+    border-radius: 8px;
+    background-color: var(--secondary-background-color);
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.stFileUploader:hover {
+    border-color: var(--brand-blue);
+    background-color: var(--bg-primary);
+}
+
+/* ---- Amélioration des progress bars ---- */
+.stProgress > div > div > div > div {
+    background-color: var(--brand-blue);
+    border-radius: 4px;
+}
+
+/* ---- Amélioration des tables de données ---- */
+.stTable {
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.stTable thead th {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    font-weight: 600;
+    border-bottom: 2px solid var(--border-medium);
+}
+
+.stTable tbody tr {
+    border-bottom: 1px solid var(--border-light);
+    transition: background-color 0.2s ease;
+}
+
+.stTable tbody tr:hover {
+    background-color: var(--bg-secondary);
+}
+
+/* ---- Amélioration des expander headers ---- */
+.streamlit-expanderHeader {
+    font-weight: 600;
+    color: var(--text-primary);
+    transition: color 0.2s ease;
+}
+
+.streamlit-expanderHeader:hover {
+    color: var(--brand-blue);
+}
+
+/* ---- Amélioration des tabs ---- */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background-color: var(--secondary-background-color);
+    border: 1px solid var(--border-light);
+    border-radius: 8px 8px 0 0;
+    padding: 10px 20px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    background-color: var(--bg-primary);
+    border-color: var(--border-medium);
+    color: var(--brand-blue);
+    font-weight: 600;
+    border-bottom: 2px solid var(--brand-blue);
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    border-color: var(--border-medium);
+    color: var(--text-primary);
+}
+
+/* ---- Amélioration des boutons secondaires ---- */
+button[kind="secondary"] {
+    border: 1px solid var(--border-medium);
+    color: var(--text-primary);
+    background-color: var(--secondary-background-color);
+    transition: all 0.2s ease;
+}
+
+button[kind="secondary"]:hover {
+    border-color: var(--brand-blue);
+    color: var(--brand-blue);
+    background-color: var(--bg-primary);
+}
+
+/* ---- Amélioration globale du conteneur principal ---- */
+.main {
+    background-color: var(--bg-primary);
+}
+
+/* ---- Amélioration des blocs de code ---- */
+.stCode {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+/* ---- Amélioration des citations/blockquotes ---- */
+.stBlockquote {
+    border-left: 4px solid var(--brand-blue);
+    background-color: var(--secondary-background-color);
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 8px 8px 0;
+    color: var(--text-primary);
+    font-style: italic;
 }
 </style>
 """

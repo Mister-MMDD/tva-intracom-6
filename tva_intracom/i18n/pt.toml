@@ -201,7 +201,7 @@ action_plan_intro = "Com base nos seus dados, deverá estar registado para efeit
 action_reason_stock = "Armazenamento local"
 action_reason_sales = "Vendas locais"
 action_reason_ddp = "Importação (Vendedor como Importador)"
-amazon_blocking_warning = "❌ **Bloqueio Iminente da Amazon**: Está a armazenar em {countries} sem um número de IVA local."
+amazon_blocking_warning = "Está a armazenar em {countries} sem um número de IVA local."
 
 # KPIs
 kpi_ca_ht = "Volume de Negócios Líquido (excl. IVA)"
@@ -1354,5 +1354,7 @@ viz_data_vat_refund = "IVA reembolsado"
 donation_header = "☕ Fazer uma doação"
 donation_help = "Se você achar esta ferramenta útil, pode apoiar o seu desenvolvimento com uma doação."
 donation_btn = "Doar via Stripe"
+donation_paypal_btn = "Doar via PayPal"
+donation_or = "ou"
 
 gate_period_missing_err = "Não foi possível determinar o período desta exportação (nenhuma data de venda utilizável detetada). Verifique o ficheiro importado ou defina o período manualmente."

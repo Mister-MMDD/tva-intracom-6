@@ -129,6 +129,15 @@ language_selector()
 
 st.title(f"🇪🇺 {_('title')}")
 
+# Section Donation (Format rectangles/boutons horizontaux propres)
+_d_col_text, _d_col_stripe, _d_col_paypal = st.columns([2.5, 1, 1], vertical_alignment="center")
+with _d_col_text:
+    st.markdown("❤️ **Don pour soutenir le projet :**")
+with _d_col_stripe:
+    st.link_button("💳 Stripe", "https://donate.stripe.com/fZu00jePda0f2cK0dw7Zu00", type="primary", width="stretch")
+with _d_col_paypal:
+    st.link_button("🔵 PayPal", "https://paypal.me/MatthieuGossein", type="secondary", width="stretch")
+
 _auth_ctx = run_auth_flow(cookie_manager)
 if _auth_ctx is None:
     st.stop()
@@ -1510,10 +1519,8 @@ if uploaded_files:
 
                     st.markdown(f"- **{country_label(c)} ({c})** : {icons} — *Raison : {' + '.join(reasons)}*")
 
-                critical_blocking = [c for c in registration_needed if c in ["DE", home_country]]
-                if critical_blocking:
-                    _c_list = " et ".join(f"**{country_label(c)} ({c})**" for c in sorted(critical_blocking))
-                    st.warning(_("amazon_blocking_warning", countries=_c_list))
+                # Bloc amazon_blocking_warning supprimé définitivement
+                pass
 
         # =====================================================================
         # KPIs — toujours visibles

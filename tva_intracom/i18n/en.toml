@@ -201,7 +201,7 @@ action_plan_intro = "Based on your data, you should be VAT registered in the fol
 action_reason_stock = "Local storage"
 action_reason_sales = "Local sales"
 action_reason_ddp = "Import (Seller as Importer)"
-amazon_blocking_warning = "❌ **Imminent Amazon Block**: You are storing in {countries} without a local VAT number."
+amazon_blocking_warning = "You are storing in {countries} without a local VAT number."
 
 # KPIs
 kpi_ca_ht = "Net Turnover (excl. VAT)"
@@ -1354,5 +1354,7 @@ viz_data_vat_refund = "VAT refund"
 donation_header = "☕ Make a Donation"
 donation_help = "If you find this tool useful, you can support its development with a donation."
 donation_btn = "Donate via Stripe"
+donation_paypal_btn = "Donate via PayPal"
+donation_or = "or"
 
 gate_period_missing_err = "Unable to determine the period for this export (no usable sale date detected). Please check the imported file or set the period manually."

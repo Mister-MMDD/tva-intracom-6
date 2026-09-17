@@ -681,8 +681,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 not _registered_sirens_early
                 or st.session_state.get("siren_select_box") == _new_siren_label_early
             )
-            if _creating_new_siren:
-                st.warning(_("fiscal_fields_lock_warning_new"))
+            # if _creating_new_siren:
+            #     st.warning(_("fiscal_fields_lock_warning_new"))
 
             st.markdown(f"**{_('identity_vat_params_title')}**")
             try:
@@ -995,10 +995,16 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                                     st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
                                 preserve_upload_rerun()
 
-        # ── Donation ────────────────────────────────────────────────────────────
-        with st.expander(_("donation_header"), expanded=True):
-            st.markdown(_("donation_help"))
-            st.link_button(_("donation_btn"), "https://donate.stripe.com/fZu00jePda0f2cK0dw7Zu00", type="primary", width="stretch")
+        # ── Donation (Déplacé vers le haut de page dans app.py) ──────────────────
+        # with st.expander(_("donation_header"), expanded=True):
+        #     st.markdown(_("donation_help"))
+        #     _col1, _col2, _col3 = st.columns([1, 0.2, 1])
+        #     with _col1:
+        #         st.link_button(_("donation_btn"), "https://donate.stripe.com/fZu00jePda0f2cK0dw7Zu00", type="primary", width="stretch")
+        #     with _col2:
+        #         st.markdown(f"<div style='text-align: center; padding-top: 5px; color: var(--text-muted);'>{_('donation_or')}</div>", unsafe_allow_html=True)
+        #     with _col3:
+        #         st.link_button(f"🔵 {_('donation_paypal_btn')}", "https://paypal.me/MatthieuGossein", type="secondary", width="stretch")
 
         # ── Abonnements & forfaits (Désactivé) ───────────────────────────────────
         # RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — abonnement
@@ -1513,10 +1519,10 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         # appelées par admin.py (set_user_role, add/remove_allowed_email)
         # revérifient elles-mêmes is_admin(acting_user) en défense en
         # profondeur — voir leurs docstrings dans auth.py.
-        if tva_auth.is_admin(_current_user):
-            if st.button(_("admin_module_header"), key="btn_open_admin_dialog", width="stretch"):
-                from tva_intracom.ui.admin import render_admin_dialog
-                render_admin_dialog(_current_user)
+        # if tva_auth.is_admin(_current_user):
+        #     if st.button(_("admin_module_header"), key="btn_open_admin_dialog", width="stretch"):
+        #         from tva_intracom.ui.admin import render_admin_dialog
+        #         render_admin_dialog(_current_user)
 
         # ── Support ───────────────────────────────────────────────────────────────
         st.divider()

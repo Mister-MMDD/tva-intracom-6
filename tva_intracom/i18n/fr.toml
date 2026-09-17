@@ -201,7 +201,7 @@ action_plan_intro = "Basé sur vos données, vous devriez être immatriculé à 
 action_reason_stock = "Stockage local"
 action_reason_sales = "Ventes locales"
 action_reason_ddp = "Importation (Vendeur Importateur)"
-amazon_blocking_warning = "❌ **Blocage Amazon imminent** : Vous stockez en {countries} sans numéro de TVA local renseigné."
+amazon_blocking_warning = "Vous stockez en {countries} sans numéro de TVA local renseigné."
 
 # KPIs
 kpi_ca_ht = "CA Net (HT)"
@@ -1354,5 +1354,7 @@ viz_data_vat_refund = "TVA remb."
 donation_header = "☕ Faire un don"
 donation_help = "Si cet outil vous est utile, vous pouvez soutenir son développement par un don libre."
 donation_btn = "Faire un don via Stripe"
+donation_paypal_btn = "Faire un don via PayPal"
+donation_or = "ou"
 
 gate_period_missing_err = "Impossible de déterminer la période de cet export (aucune date de vente exploitable détectée). Vérifiez le fichier importé ou renseignez la période manuellement."

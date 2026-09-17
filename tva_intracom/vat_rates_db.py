@@ -823,8 +823,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     with _cache_lock:
         if key in _vat_memory_cache:
             rate = _vat_memory_cache[key]
-            logger.info("[VAT_RATES] source=L1_RAM %s/%s/%s -> %s%%",
-                        country, rate_type, target_date, rate)
+            logger.debug("[VAT_RATES] source=L1_RAM %s/%s/%s -> %s%%",
+                         country, rate_type, target_date, rate)
             return rate
 
     if not _is_tedb_eligible(country, rate_type):
@@ -837,8 +837,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         else:
             reason = f"pays {country} non supporté par TEDB"
 
-        logger.info("[VAT_RATES] source=STATIC_FALLBACK (%s) %s/%s/%s -> %s%%",
-                    reason, country, rate_type, target_date, rate)
+        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (%s) %s/%s/%s -> %s%%",
+                     reason, country, rate_type, target_date, rate)
         with _cache_lock:
             _vat_memory_cache[key] = rate
         return rate
@@ -853,14 +853,14 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         # gros fichier referait un aller-retour Postgres pour rien tant
         # que la panne dure (audit 2026-09-13 (6)).
         rate = _static_vat_rate_at_date(country, target_date, rate_type)
-        logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
-                    _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
+        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
+                     _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
         return rate
 
     cached = _db_get_rate(country, rate_type, situation_date)
     if cached is not None:
-        logger.info("[VAT_RATES] source=L2_POSTGRES %s/%s/%s -> %s%%",
-                     country, rate_type, target_date, cached)
+        logger.debug("[VAT_RATES] source=L2_POSTGRES %s/%s/%s -> %s%%",
+                      country, rate_type, target_date, cached)
         with _cache_lock:
             _vat_memory_cache[key] = cached
         return cached
@@ -868,8 +868,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     result = _fetch_tedb_rates(country, situation_date)
     fetched = _process_fetch_result(country, situation_date, result, requested_rate_type=rate_type)
     if rate_type in fetched:
-        logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s -> %s%%",
-                    country, rate_type, target_date, fetched[rate_type])
+        logger.debug("[VAT_RATES] source=TEDB_FETCH %s/%s/%s -> %s%%",
+                     country, rate_type, target_date, fetched[rate_type])
         return fetched[rate_type]
     if result is not None:
         # Réponse TEDB obtenue mais catégorie absente/rejetée (cas
@@ -883,8 +883,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
             country, situation_date, rate_type,
         )
         rate = _static_vat_rate_at_date(country, target_date, rate_type)
-        logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB répondu, catégorie rejetée) %s/%s/%s -> %s%%",
-                    country, rate_type, target_date, rate)
+        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB répondu, catégorie rejetée) %s/%s/%s -> %s%%",
+                     country, rate_type, target_date, rate)
         with _cache_lock:
             _vat_memory_cache[key] = rate
         return rate
@@ -899,8 +899,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     # une simple coupure réseau transitoire figeait le taux sur le
     # statique jusqu'au redémarrage du process.
     rate = _static_vat_rate_at_date(country, target_date, rate_type)
-    logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
-                _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
+    logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
+                 _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
     return rate
 
 

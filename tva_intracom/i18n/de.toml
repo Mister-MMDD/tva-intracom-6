@@ -201,7 +201,7 @@ action_plan_intro = "Basierend auf Ihren Daten sollten Sie in folgenden Ländern
 action_reason_stock = "Lokale Lagerung"
 action_reason_sales = "Lokale Verkäufe"
 action_reason_ddp = "Import (Verkäufer als Importer of Record)"
-amazon_blocking_warning = "❌ **In Kürze Amazon-Sperrung**: Sie lagern in {countries} ohne eine lokale USt-IdNr."
+amazon_blocking_warning = "Sie lagern in {countries} ohne eine lokale USt-IdNr."
 
 # KPIs
 kpi_ca_ht = "Nettoumsatz (ohne MwSt)"
@@ -1353,5 +1353,7 @@ viz_data_vat_refund = "MwSt.-Erstattung"
 donation_header = "☕ Spenden"
 donation_help = "Wenn Sie dieses Tool nützlich finden, können Sie seine Entwicklung mit einer Spende unterstützen."
 donation_btn = "Über Stripe spenden"
+donation_paypal_btn = "Über PayPal spenden"
+donation_or = "oder"
 
 gate_period_missing_err = "Der Zeitraum für diesen Export konnte nicht ermittelt werden (kein verwertbares Verkaufsdatum gefunden). Bitte prüfen Sie die importierte Datei oder legen Sie den Zeitraum manuell fest."
