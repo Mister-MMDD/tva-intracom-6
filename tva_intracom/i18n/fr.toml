@@ -1354,3 +1354,5 @@ viz_data_vat_refund = "TVA remb."
 donation_header = "☕ Faire un don"
 donation_help = "Si cet outil vous est utile, vous pouvez soutenir son développement par un don libre."
 donation_btn = "Faire un don via Stripe"
+
+gate_period_missing_err = "Impossible de déterminer la période de cet export (aucune date de vente exploitable détectée). Vérifiez le fichier importé ou renseignez la période manuellement."

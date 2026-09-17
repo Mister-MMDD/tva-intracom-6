@@ -163,37 +163,43 @@ class TestSirenQuotaStatus:
 
 
 # ---------------------------------------------------------------------------
-# get_siren_quota : 1 pour Pro/PAYG, quantité Stripe pour Cabinet
+# get_siren_quota : DÉSACTIVÉ (passage au don, voir README - évolution.md) —
+# le quota est neutralisé (_DONATION_MODE_SIREN_QUOTA) quel que soit le
+# statut d'abonnement, pour ne pas plafonner à 1 SIREN les organisations
+# (notamment Cabinet) dès qu'un abonnement Stripe expire, alors qu'il n'est
+# plus possible d'en souscrire un nouveau. L'ancienne logique par plan reste
+# en commentaire dans billing.py pour réactivation si besoin ; ces tests
+# vérifient désormais uniquement la neutralisation, peu importe le plan.
 # ---------------------------------------------------------------------------
 
 class TestGetSirenQuota:
 
-    def test_no_active_subscription_quota_is_one(self, monkeypatch):
+    def test_no_active_subscription_quota_is_neutralized(self, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda user_id: billing.SubscriptionStatus(active=False))
-        assert billing.get_siren_quota("user-1") == 1
+        assert billing.get_siren_quota("user-1") == billing._DONATION_MODE_SIREN_QUOTA
 
-    def test_business_plan_quota_is_one(self, monkeypatch):
+    def test_business_plan_quota_is_neutralized(self, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda user_id: billing.SubscriptionStatus(active=True, plan="business"))
-        assert billing.get_siren_quota("user-1") == 1
+        assert billing.get_siren_quota("user-1") == billing._DONATION_MODE_SIREN_QUOTA
 
-    def test_cabinet_plan_quota_is_purchased_quantity(self, monkeypatch):
+    def test_cabinet_plan_quota_is_neutralized_even_with_purchased_quantity(self, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda user_id: billing.SubscriptionStatus(
                                  active=True, plan="cabinet", siren_quantity=7))
-        assert billing.get_siren_quota("user-1") == 7
+        assert billing.get_siren_quota("user-1") == billing._DONATION_MODE_SIREN_QUOTA
 
-    def test_cabinet_plan_with_missing_quantity_falls_back_to_one(self, monkeypatch):
+    def test_cabinet_plan_with_missing_quantity_is_neutralized(self, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda user_id: billing.SubscriptionStatus(
                                  active=True, plan="cabinet", siren_quantity=None))
-        assert billing.get_siren_quota("user-1") == 1
+        assert billing.get_siren_quota("user-1") == billing._DONATION_MODE_SIREN_QUOTA
 
-    def test_unknown_plan_defaults_to_business_quota(self, monkeypatch):
+    def test_unknown_plan_is_neutralized(self, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda user_id: billing.SubscriptionStatus(active=True, plan="mystere"))
-        assert billing.get_siren_quota("user-1") == billing._BUSINESS_SIREN_QUOTA
+        assert billing.get_siren_quota("user-1") == billing._DONATION_MODE_SIREN_QUOTA
 
 
 # ---------------------------------------------------------------------------
@@ -380,12 +386,19 @@ class TestRequestSirenRemoval:
         assert before <= effective_at <= after
 
     def test_deferred_removal_with_active_subscription(self, fake_db, monkeypatch):
+        """DÉSACTIVÉ (passage au don) : le différé à la date anniversaire de
+        l'abonnement (ancienne logique, commentée dans billing.py) ne
+        s'applique plus — le retrait est désormais toujours immédiat, même
+        avec un abonnement actif encore en cours (résidu d'avant le
+        changement de modèle)."""
         period_end = time.time() + 30 * 24 * 3600  # dans 30 jours
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda org_id: billing.SubscriptionStatus(
                                  active=True, plan="cabinet", current_period_end=period_end))
+        before = time.time()
         effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
-        assert effective_at == period_end
+        after = time.time()
+        assert before <= effective_at <= after
 
     def test_immediate_removal_if_over_quota_even_with_active_subscription(self, fake_db, monkeypatch):
         """Abonnement actif avec échéance lointaine, mais organisation
@@ -405,16 +418,20 @@ class TestRequestSirenRemoval:
         assert before <= effective_at <= after
 
     def test_deferred_removal_still_applies_when_within_quota(self, fake_db, monkeypatch):
-        """Non-régression : le check hors-quota ne doit pas casser le
-        différé standard quand l'organisation est dans les clous."""
+        """DÉSACTIVÉ (passage au don) : le différé standard n'existe plus,
+        voir test_deferred_removal_with_active_subscription ci-dessus — le
+        retrait reste immédiat que l'organisation soit dans son quota ou
+        non."""
         period_end = time.time() + 30 * 24 * 3600
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda org_id: billing.SubscriptionStatus(
                                  active=True, plan="cabinet", current_period_end=period_end))
         monkeypatch.setattr(billing, "get_siren_quota_status",
                              lambda org_id: billing.SirenQuotaStatus(registered_count=3, quota=3, over_quota_by=0))
+        before = time.time()
         effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
-        assert effective_at == period_end
+        after = time.time()
+        assert before <= effective_at <= after
 
     def test_removal_writes_pending_removal_at_via_sql(self, fake_db, monkeypatch):
         # status="canceled" (abonnement déjà existant, résilié) plutôt que le
@@ -457,12 +474,20 @@ class TestRequestSirenRemoval:
 # ---------------------------------------------------------------------------
 
 class TestSirenLockedForAchatOnlyAccount:
-    def test_removal_blocked_for_payg_only_account(self, fake_db, monkeypatch):
+    def test_removal_no_longer_blocked_for_payg_only_account(self, fake_db, monkeypatch):
+        """DÉSACTIVÉ (passage au don, voir README - évolution.md) : ce verrou
+        (ancienne PermissionError, commentée dans billing.py) n'est plus
+        levé — plus aucun abonnement ne pouvant être souscrit, il aurait
+        bloqué indéfiniment les organisations ayant fait un achat PAYG avant
+        le changement de modèle, sans issue de sortie possible. Le retrait
+        est désormais immédiat comme pour un compte gratuit."""
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda org_id: billing.SubscriptionStatus(active=False))
         monkeypatch.setattr(billing, "_has_any_payg_purchase", lambda org_id: True)
-        with pytest.raises(PermissionError, match="verrouillé"):
-            billing.request_siren_removal("org-1", "user-1", "123456789")
+        before = time.time()
+        effective_at = billing.request_siren_removal("org-1", "user-1", "123456789")
+        after = time.time()
+        assert before <= effective_at <= after
 
     def test_removal_allowed_once_subscription_exists_even_if_inactive(self, fake_db, monkeypatch):
         monkeypatch.setattr(billing, "get_subscription_status",

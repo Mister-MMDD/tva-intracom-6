@@ -1416,7 +1416,10 @@ if uploaded_files:
         # fois ici et propagé via TabContext.lock_message à tous les onglets
         # (detail_ventes, vies_ui, audit, declarations, telechargements).
         _lock_message = preview_lock_message(_gate)
-        _get_payg_checkout_url = _gate.get_payg_checkout_url
+        # DÉSACTIVÉ (passage au don) : get_payg_checkout_url() est neutralisé
+        # (voir billing_gate.py) et cette référence n'est plus utilisée nulle
+        # part dans app.py — conservée en commentaire.
+        # _get_payg_checkout_url = _gate.get_payg_checkout_url
 
         # Taux BCE de clôture de période réellement utilisés pour la
         # conversion OSS (Règl. UE 2020/194, art. 5 bis) — affiche les taux

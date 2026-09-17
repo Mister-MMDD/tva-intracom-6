@@ -1354,3 +1354,5 @@ viz_data_vat_refund = "IVA rimborsata"
 donation_header = "☕ Fai una donazione"
 donation_help = "Se trovi utile questo strumento, puoi sostenere il suo sviluppo con una donazione."
 donation_btn = "Dona tramite Stripe"
+
+gate_period_missing_err = "Impossibile determinare il periodo di questa esportazione (nessuna data di vendita utilizzabile rilevata). Controllare il file importato o impostare manualmente il periodo."

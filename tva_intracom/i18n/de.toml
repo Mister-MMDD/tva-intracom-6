@@ -1353,3 +1353,5 @@ viz_data_vat_refund = "MwSt.-Erstattung"
 donation_header = "☕ Spenden"
 donation_help = "Wenn Sie dieses Tool nützlich finden, können Sie seine Entwicklung mit einer Spende unterstützen."
 donation_btn = "Über Stripe spenden"
+
+gate_period_missing_err = "Der Zeitraum für diesen Export konnte nicht ermittelt werden (kein verwertbares Verkaufsdatum gefunden). Bitte prüfen Sie die importierte Datei oder legen Sie den Zeitraum manuell fest."

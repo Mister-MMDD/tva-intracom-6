@@ -1354,3 +1354,5 @@ viz_data_vat_refund = "Zwrot VAT"
 donation_header = "☕ Przekaż darowiznę"
 donation_help = "Jeśli uważasz to narzędzie za przydatne, możesz wesprzeć jego rozwój darowizną."
 donation_btn = "Przekaż darowiznę przez Stripe"
+
+gate_period_missing_err = "Nie można określić okresu dla tego eksportu (nie wykryto żadnej możliwej do wykorzystania daty sprzedaży). Sprawdź zaimportowany plik lub ustaw okres ręcznie."

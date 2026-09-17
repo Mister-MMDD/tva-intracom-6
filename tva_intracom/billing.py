@@ -95,6 +95,10 @@ PRICE_PAYG_EXPORT = os.environ.get("STRIPE_PRICE_PAYG_EXPORT", "")
 # "cabinet" est dynamique : il vaut la quantité Stripe achetée
 # (tva_subscriptions.siren_quantity).
 _BUSINESS_SIREN_QUOTA = 1
+# Mode don (voir get_siren_quota) : quota neutralisé tant qu'aucun abonnement
+# Stripe ne peut plus être souscrit. Valeur large plutôt qu'un vrai "illimité"
+# pour garder SirenQuotaStatus/over_quota_by numériquement cohérents.
+_DONATION_MODE_SIREN_QUOTA = 999_999
 _CABINET_MIN_QUANTITY = 3
 
 _pool_lock = threading.Lock()
@@ -832,18 +836,26 @@ def list_registered_sirens(org_id: str) -> list[dict]:
 def get_siren_quota(org_id: str) -> int:
     """Retourne le quota de SIREN distincts pour cette organisation.
 
-    - Pas d'abonnement actif (PAYG) : 1 SIREN, comme le forfait Pro.
-    - Pro ("business") : 1 SIREN.
-    - Cabinet ("cabinet") : quantité Stripe achetée (`siren_quantity`).
+    DÉSACTIVÉ (passage au don, voir README - évolution.md) : la logique
+    d'origine ci-dessous retombe à `_BUSINESS_SIREN_QUOTA` (1) dès qu'un
+    abonnement Stripe n'est plus actif — or aucun abonnement ne peut plus
+    être souscrit (checkout commenté dans sidebar.py), donc TOUT abonnement
+    finit par expirer et cette fonction aurait fini par plafonner tout le
+    monde à 1 SIREN, y compris les anciens comptes Cabinet multi-SIREN
+    (régression bloquant `can_export` via le gate quota de billing_gate.py).
+    Le quota est neutralisé (valeur très large) tant que le mode don est
+    actif ; la logique par abonnement est conservée en commentaire pour
+    réactivation si besoin.
     """
-    sub = get_subscription_status(org_id)
-    if not sub.active:
-        return _BUSINESS_SIREN_QUOTA
-    if sub.plan == "business":
-        return _BUSINESS_SIREN_QUOTA
-    if sub.plan == "cabinet":
-        return sub.siren_quantity or 1
-    return _BUSINESS_SIREN_QUOTA
+    return _DONATION_MODE_SIREN_QUOTA
+    # sub = get_subscription_status(org_id)
+    # if not sub.active:
+    #     return _BUSINESS_SIREN_QUOTA
+    # if sub.plan == "business":
+    #     return _BUSINESS_SIREN_QUOTA
+    # if sub.plan == "cabinet":
+    #     return sub.siren_quantity or 1
+    # return _BUSINESS_SIREN_QUOTA
 
 
 @dataclass
@@ -1115,28 +1127,37 @@ def request_siren_removal(org_id: str, acting_user_id: str, siren: str) -> float
     Retourne le timestamp d'échéance effective."""
     _require_write_access(acting_user_id)
 
-    if get_siren_quota_status(org_id).blocked:
-        # Hors-quota : priorité absolue sur toute autre règle, y compris le
-        # verrou "Achat" PAYG ci-dessous.
-        effective_at = time.time()
-    else:
-        sub = get_subscription_status(org_id)
-        if sub.active and sub.current_period_end:
-            effective_at = sub.current_period_end
-        elif sub.status is not None:
-            # Abonnement déjà existant (actif ou passé/résilié) : comportement
-            # standard, immédiat puisqu'on sait déjà qu'il n'est pas actif ici.
-            effective_at = time.time()
-        elif _has_any_payg_purchase(org_id):
-            raise PermissionError(
-                "Ce SIREN est verrouillé : un compte à l'achat unique (PAYG) ne "
-                "permet pas de changer de SIREN. Souscrivez un abonnement pour "
-                "pouvoir en changer (retrait possible ensuite à la date de "
-                "renouvellement)."
-            )
-        else:
-            # Jamais rien payé (ni abonnement, ni PAYG) : retrait immédiat.
-            effective_at = time.time()
+    # DÉSACTIVÉ (passage au don, voir README - évolution.md) : la logique
+    # d'origine (commentée ci-dessous) verrouillait définitivement le SIREN
+    # d'un compte "Achat" (PAYG déjà effectué, jamais abonné) tant qu'il ne
+    # souscrivait pas d'abonnement — or plus aucun abonnement ne peut être
+    # souscrit (checkout commenté dans sidebar.py). Les organisations ayant
+    # fait un achat PAYG avant ce changement se seraient retrouvées bloquées
+    # indéfiniment (PermissionError renvoyant vers un chemin UI qui n'existe
+    # plus). Le retrait est désormais toujours immédiat.
+    effective_at = time.time()
+    # if get_siren_quota_status(org_id).blocked:
+    #     # Hors-quota : priorité absolue sur toute autre règle, y compris le
+    #     # verrou "Achat" PAYG ci-dessous.
+    #     effective_at = time.time()
+    # else:
+    #     sub = get_subscription_status(org_id)
+    #     if sub.active and sub.current_period_end:
+    #         effective_at = sub.current_period_end
+    #     elif sub.status is not None:
+    #         # Abonnement déjà existant (actif ou passé/résilié) : comportement
+    #         # standard, immédiat puisqu'on sait déjà qu'il n'est pas actif ici.
+    #         effective_at = time.time()
+    #     elif _has_any_payg_purchase(org_id):
+    #         raise PermissionError(
+    #             "Ce SIREN est verrouillé : un compte à l'achat unique (PAYG) ne "
+    #             "permet pas de changer de SIREN. Souscrivez un abonnement pour "
+    #             "pouvoir en changer (retrait possible ensuite à la date de "
+    #             "renouvellement)."
+    #         )
+    #     else:
+    #         # Jamais rien payé (ni abonnement, ni PAYG) : retrait immédiat.
+    #         effective_at = time.time()
 
     def _fn(conn, cur):
         cur.execute(

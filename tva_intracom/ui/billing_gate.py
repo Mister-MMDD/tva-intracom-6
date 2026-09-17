@@ -30,14 +30,18 @@ Usage dans app.py :
 
 from __future__ import annotations
 
-import hashlib
+# import hashlib  # DÉSACTIVÉ (passage au don) : uniquement utilisé par le
+# bloc paywall Stripe de gated_download(), désormais commenté — à
+# réactiver avec lui si besoin.
 from dataclasses import dataclass, field
 from datetime import datetime as _dt
 from typing import Any, Iterable, Optional
 
 import streamlit as st
 
-from tva_intracom import auth as tva_auth
+# from tva_intracom import auth as tva_auth  # DÉSACTIVÉ (passage au don) :
+# uniquement utilisé par les blocs paywall Stripe désormais commentés
+# ci-dessous (is_admin) — à réactiver avec eux si besoin.
 from tva_intracom import billing as tva_billing
 from tva_intracom.i18n import _, country_label
 from tva_intracom.models import Channel
@@ -138,7 +142,12 @@ class BillingGate:
     nom_entreprise: str = field(repr=False, default="")
 
     def get_payg_checkout_url(self) -> Optional[str]:
-        """Crée la session Stripe Checkout une seule fois par période/session
+        """DÉSACTIVÉ (passage au don, voir README - évolution.md) : plus
+        aucun appelant actif (seul appelant était le bloc paywall Stripe de
+        gated_download(), désormais commenté). Conservée telle quelle,
+        court-circuitée pour ne plus déclencher de session Stripe.
+
+        Crée la session Stripe Checkout une seule fois par période/session
         (mise en cache dans session_state) et retourne son URL.
 
         RÔLES (2026-08-25) : un lecteur ne peut pas engager de dépense pour
@@ -146,31 +155,32 @@ class BillingGate:
         ne crée même pas la session Stripe dans ce cas (évite un appel
         réseau inutile en plus du blocage) ; voir gated_download() pour le
         traitement UI (bouton visible mais désactivé, pas masqué)."""
-        if not tva_auth.is_admin(self.current_user):
-            return None
-        # BUGFIX (2026-09-04) : la clé de cache incluait seulement la période,
-        # pas le SIREN — en changeant de SIREN sélectionné dans la même
-        # session (période identique), le lien Stripe déjà en cache aurait
-        # été réutilisé tel quel, avec le SIREN de la 1ère création dans sa
-        # metadata (voir create_payg_checkout_session). Le SIREN fait
-        # maintenant partie de la clé.
-        _cache_key = f"_stripe_checkout_url::{self.period_label}::{self.siren_entreprise}"
-        _err_key = f"_stripe_checkout_error::{self.period_label}::{self.siren_entreprise}"
-        if _cache_key not in st.session_state:
-            try:
-                st.session_state[_cache_key] = tva_billing.create_payg_checkout_session(
-                    org_id=self.current_user.org_id,
-                    acting_user_id=self.current_user.id,
-                    email=self.current_user.email,
-                    period_label=self.period_label,
-                    success_url=self.stripe_success_url("export_ok=1"),
-                    cancel_url=self.stripe_cancel_url(),
-                    siren=self.siren_entreprise,
-                )
-            except Exception as _billing_err:
-                st.session_state.pop(_cache_key, None)
-                st.session_state[_err_key] = str(_billing_err)
-        return st.session_state.get(_cache_key)
+        return None
+        # if not tva_auth.is_admin(self.current_user):
+        #     return None
+        # # BUGFIX (2026-09-04) : la clé de cache incluait seulement la période,
+        # # pas le SIREN — en changeant de SIREN sélectionné dans la même
+        # # session (période identique), le lien Stripe déjà en cache aurait
+        # # été réutilisé tel quel, avec le SIREN de la 1ère création dans sa
+        # # metadata (voir create_payg_checkout_session). Le SIREN fait
+        # # maintenant partie de la clé.
+        # _cache_key = f"_stripe_checkout_url::{self.period_label}::{self.siren_entreprise}"
+        # _err_key = f"_stripe_checkout_error::{self.period_label}::{self.siren_entreprise}"
+        # if _cache_key not in st.session_state:
+        #     try:
+        #         st.session_state[_cache_key] = tva_billing.create_payg_checkout_session(
+        #             org_id=self.current_user.org_id,
+        #             acting_user_id=self.current_user.id,
+        #             email=self.current_user.email,
+        #             period_label=self.period_label,
+        #             success_url=self.stripe_success_url("export_ok=1"),
+        #             cancel_url=self.stripe_cancel_url(),
+        #             siren=self.siren_entreprise,
+        #         )
+        #     except Exception as _billing_err:
+        #         st.session_state.pop(_cache_key, None)
+        #         st.session_state[_err_key] = str(_billing_err)
+        # return st.session_state.get(_cache_key)
 
     def gated_download(self, label, data, file_name, mime, **kwargs) -> None:
         """Remplace st.download_button : affiche le vrai bouton si crédit
@@ -226,76 +236,90 @@ class BillingGate:
                 st.error(_msg)
                 return
 
-            _btn_key = "paywall_btn_" + hashlib.sha256(
-                f"{self.period_label}_{file_name}".encode()
-            ).hexdigest()[:16]
-            _paywall_css = f"""
-                <style>
-                .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] {{
-                    background-color: #7F77DD !important;
-                    color: #FFFFFF !important;
-                    border: none !important;
-                    width: 100%;
-                }}
-                .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] p {{
-                    color: #FFFFFF !important;
-                    font-weight: 500 !important;
-                }}
-                </style>
-                """
-
-            # RÔLES (2026-08-25) : un lecteur voit le même bouton, au même
-            # endroit (demande explicite : visible, pas masqué — contexte
-            # différent du reste de la bascule org_id où l'on masque), mais
-            # désactivé — impossible d'engager une dépense Stripe pour
-            # l'organisation. `get_payg_checkout_url()` ne crée déjà plus la
-            # session Stripe pour un lecteur (voir plus haut) ; ici on se
-            # contente de distinguer ce cas du vrai cas d'erreur Stripe
-            # (compte admin mais session Checkout indisponible), qui garde
-            # son message d'erreur existant.
-            if not tva_auth.is_admin(self.current_user):
-                st.markdown(_paywall_css, unsafe_allow_html=True)
-                st.link_button(
-                    f"🔓 {label} — {self.unlock_label_suffix}",
-                    "#",
-                    width="stretch",
-                    disabled=True,
-                    key=_btn_key,
-                )
-                st.caption(_("unlock_export_admin_only"))
+            # DÉSACTIVÉ (passage au don, voir README - évolution.md) : le seul
+            # cas restant pouvant atteindre ce point (aucun gate ci-dessus
+            # n'ayant matché) est `period_label` vide — c'est-à-dire aucune
+            # date de vente exploitable dans `results`, PAS un défaut de
+            # paiement. Avant ce correctif, ce cas retombait directement dans
+            # le paywall Stripe ci-dessous (bloc conservé en commentaire),
+            # ce qui pouvait déclencher un vrai appel réseau
+            # `create_payg_checkout_session` pour un compte admin alors que
+            # l'app est désormais gratuite. On affiche maintenant un message
+            # dédié, sans toucher au Stripe Checkout.
+            else:
+                st.error(_("gate_period_missing_err"))
                 return
 
-            _url = self.get_payg_checkout_url()
-            if _url:
-                # BUGFIX : un <a> HTML brut (unsafe_allow_html) ne sort pas de
-                # l'iframe Streamlit Cloud au clic (survol OK, clic sans effet
-                # — même incident que les boutons OAuth, cf. auth_flow.py).
-                # st.link_button utilise le mécanisme de navigation propre à
-                # Streamlit et fonctionne de façon fiable en local et en cloud.
-                # Le style violet est repris via la même astuce CSS que pour
-                # les boutons OAuth : cibler .st-key-{key} a[data-testid^="stBaseLinkButton"].
-                # SÉCURITÉ (CSS/XSS injection) : file_name inclut nom_entreprise, une
-                # saisie libre utilisateur (voir telechargements.py), injectée plus bas
-                # brute dans un bloc <style> via unsafe_allow_html=True. Un nom
-                # d'entreprise contenant "}</style><script>..." casserait le style de
-                # la page, voire pire. On dérive la clé d'un hash plutôt que d'utiliser
-                # la chaîne utilisateur directement — la clé n'a besoin que d'être
-                # stable et unique par (période, fichier), pas lisible.
-                st.markdown(_paywall_css, unsafe_allow_html=True)
-                st.link_button(
-                    f"🔓 {label} — {self.unlock_label_suffix}",
-                    _url,
-                    width="stretch",
-                    key=_btn_key,
-                )
-                st.caption(_("unlock_export_footer"))
-            else:
-                _err = st.session_state.get(
-                    f"_stripe_checkout_error::{self.period_label}::{self.siren_entreprise}",
-                    _("unknown_error"),
-                )
-                st.error(_("gate_payment_unavailable_err", label=label, error=_err))
-            return
+            # _btn_key = "paywall_btn_" + hashlib.sha256(
+            #     f"{self.period_label}_{file_name}".encode()
+            # ).hexdigest()[:16]
+            # _paywall_css = f"""
+            #     <style>
+            #     .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] {{
+            #         background-color: #7F77DD !important;
+            #         color: #FFFFFF !important;
+            #         border: none !important;
+            #         width: 100%;
+            #     }}
+            #     .st-key-{_btn_key} a[data-testid^="stBaseLinkButton"] p {{
+            #         color: #FFFFFF !important;
+            #         font-weight: 500 !important;
+            #     }}
+            #     </style>
+            #     """
+            #
+            # # RÔLES (2026-08-25) : un lecteur voit le même bouton, au même
+            # # endroit (demande explicite : visible, pas masqué — contexte
+            # # différent du reste de la bascule org_id où l'on masque), mais
+            # # désactivé — impossible d'engager une dépense Stripe pour
+            # # l'organisation. `get_payg_checkout_url()` ne crée déjà plus la
+            # # session Stripe pour un lecteur (voir plus haut) ; ici on se
+            # # contente de distinguer ce cas du vrai cas d'erreur Stripe
+            # # (compte admin mais session Checkout indisponible), qui garde
+            # # son message d'erreur existant.
+            # if not tva_auth.is_admin(self.current_user):
+            #     st.markdown(_paywall_css, unsafe_allow_html=True)
+            #     st.link_button(
+            #         f"🔓 {label} — {self.unlock_label_suffix}",
+            #         "#",
+            #         width="stretch",
+            #         disabled=True,
+            #         key=_btn_key,
+            #     )
+            #     st.caption(_("unlock_export_admin_only"))
+            #     return
+            #
+            # _url = self.get_payg_checkout_url()
+            # if _url:
+            #     # BUGFIX : un <a> HTML brut (unsafe_allow_html) ne sort pas de
+            #     # l'iframe Streamlit Cloud au clic (survol OK, clic sans effet
+            #     # — même incident que les boutons OAuth, cf. auth_flow.py).
+            #     # st.link_button utilise le mécanisme de navigation propre à
+            #     # Streamlit et fonctionne de façon fiable en local et en cloud.
+            #     # Le style violet est repris via la même astuce CSS que pour
+            #     # les boutons OAuth : cibler .st-key-{key} a[data-testid^="stBaseLinkButton"].
+            #     # SÉCURITÉ (CSS/XSS injection) : file_name inclut nom_entreprise, une
+            #     # saisie libre utilisateur (voir telechargements.py), injectée plus bas
+            #     # brute dans un bloc <style> via unsafe_allow_html=True. Un nom
+            #     # d'entreprise contenant "}</style><script>..." casserait le style de
+            #     # la page, voire pire. On dérive la clé d'un hash plutôt que d'utiliser
+            #     # la chaîne utilisateur directement — la clé n'a besoin que d'être
+            #     # stable et unique par (période, fichier), pas lisible.
+            #     st.markdown(_paywall_css, unsafe_allow_html=True)
+            #     st.link_button(
+            #         f"🔓 {label} — {self.unlock_label_suffix}",
+            #         _url,
+            #         width="stretch",
+            #         key=_btn_key,
+            #     )
+            #     st.caption(_("unlock_export_footer"))
+            # else:
+            #     _err = st.session_state.get(
+            #         f"_stripe_checkout_error::{self.period_label}::{self.siren_entreprise}",
+            #         _("unknown_error"),
+            #     )
+            #     st.error(_("gate_payment_unavailable_err", label=label, error=_err))
+            # return
 
         # Priorité 3 : Affichage du bouton de téléchargement (avec warning VIES éventuel)
         #
@@ -351,9 +375,14 @@ def preview_lock_message(gate: "BillingGate") -> str:
         return "🔒 " + _("locked_siren_missing")
     if gate.compliance_blocked:
         return "🔒 " + _("locked_compliance")
+    # DÉSACTIVÉ (passage au don) : dernier cas possible ici est period_label
+    # vide (aucun des gates ci-dessus n'a matché) — pas un défaut de paiement,
+    # donc plus le message "locked_premium" (voir même correctif dans
+    # gated_download() ci-dessus).
+    return _("gate_period_missing_err")
     # Filet de sécurité (ne devrait pas arriver : can_export=False implique
     # forcément un des cas ci-dessus) — même repli que gated_download.
-    return "🔒 " + _("locked_premium")
+    # return "🔒 " + _("locked_premium")
 
 
 def build_billing_gate(
@@ -534,32 +563,39 @@ def build_billing_gate(
     if account_link_blocked:
         can_export = False
 
-    try:
-        _grid = _cached_db_read(
-            f"pricing_grid_{current_user.org_id}",
-            lambda: tva_billing.get_pricing_grid(current_user.org_id),
-        )
-        payg_price = _grid.get("payg")
-    except Exception:
-        payg_price = None
-
-    if payg_price and payg_price.get("amount") is not None:
-        if payg_price.get("discounted_amount") is not None:
-            unlock_label_suffix = _(
-                "unlock_label_discounted",
-                discounted_amount=f"{payg_price['discounted_amount']:.0f}",
-                currency=payg_price['currency'].upper(),
-                amount=f"{payg_price['amount']:.0f}",
-                discount_code=payg_price['discount_code']
-            )
-        else:
-            unlock_label_suffix = _(
-                "unlock_label_standard",
-                amount=f"{payg_price['amount']:.0f}",
-                currency=payg_price['currency'].upper()
-            )
-    else:
-        unlock_label_suffix = _("unlock_label_fallback")
+    # DÉSACTIVÉ (passage au don, voir README - évolution.md) : `unlock_label_suffix`
+    # n'est plus utilisé que par le bloc paywall Stripe de gated_download(),
+    # lui-même entièrement commenté — cet appel (DB + éventuellement Stripe
+    # via get_pricing_grid) tournait donc pour rien à chaque construction du
+    # gate. Valeur de repli directe ; logique d'origine conservée en
+    # commentaire pour réactivation.
+    unlock_label_suffix = _("unlock_label_fallback")
+    # try:
+    #     _grid = _cached_db_read(
+    #         f"pricing_grid_{current_user.org_id}",
+    #         lambda: tva_billing.get_pricing_grid(current_user.org_id),
+    #     )
+    #     payg_price = _grid.get("payg")
+    # except Exception:
+    #     payg_price = None
+    #
+    # if payg_price and payg_price.get("amount") is not None:
+    #     if payg_price.get("discounted_amount") is not None:
+    #         unlock_label_suffix = _(
+    #             "unlock_label_discounted",
+    #             discounted_amount=f"{payg_price['discounted_amount']:.0f}",
+    #             currency=payg_price['currency'].upper(),
+    #             amount=f"{payg_price['amount']:.0f}",
+    #             discount_code=payg_price['discount_code']
+    #         )
+    #     else:
+    #         unlock_label_suffix = _(
+    #             "unlock_label_standard",
+    #             amount=f"{payg_price['amount']:.0f}",
+    #             currency=payg_price['currency'].upper()
+    #         )
+    # else:
+    #     unlock_label_suffix = _("unlock_label_fallback")
 
     return BillingGate(
         period_label=period_label,

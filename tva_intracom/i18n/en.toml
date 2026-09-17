@@ -1354,3 +1354,5 @@ viz_data_vat_refund = "VAT refund"
 donation_header = "☕ Make a Donation"
 donation_help = "If you find this tool useful, you can support its development with a donation."
 donation_btn = "Donate via Stripe"
+
+gate_period_missing_err = "Unable to determine the period for this export (no usable sale date detected). Please check the imported file or set the period manually."
