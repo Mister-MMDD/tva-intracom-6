@@ -129,7 +129,7 @@ language_selector()
 
 st.title(f"🇪🇺 {_('title')}")
 
-# Section Donation (Format rectangles/boutons horizontaux propres)
+# Section Donation (Déplacée de la sidebar vers le haut de page, format boutons en ligne)
 _d_col_text, _d_col_stripe, _d_col_paypal = st.columns([2.5, 1, 1], vertical_alignment="center")
 with _d_col_text:
     st.markdown("❤️ **Don pour soutenir le projet :**")

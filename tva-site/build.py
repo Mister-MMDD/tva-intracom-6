@@ -65,7 +65,6 @@ NAV_LINKS = [
     ("index.html", "Accueil"),
     ("documentation.html", "Documentation"),
     # ("tarifs.html", "Tarifs"),  # Désactivé temporairement
-    ("dons.html", "Dons"),
     ("securite.html", "Sécurité"),
     ("glossaire.html", "Glossaire"),
     ("faq.html", "FAQ"),

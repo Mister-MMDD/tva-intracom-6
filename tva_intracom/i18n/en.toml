@@ -201,7 +201,7 @@ action_plan_intro = "Based on your data, you should be VAT registered in the fol
 action_reason_stock = "Local storage"
 action_reason_sales = "Local sales"
 action_reason_ddp = "Import (Seller as Importer)"
-amazon_blocking_warning = "You are storing in {countries} without a local VAT number."
+amazon_blocking_warning = "❌ **Imminent Amazon Block**: You are storing in {countries} without a local VAT number."
 
 # KPIs
 kpi_ca_ht = "Net Turnover (excl. VAT)"

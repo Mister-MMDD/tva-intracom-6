@@ -201,7 +201,7 @@ action_plan_intro = "Basé sur vos données, vous devriez être immatriculé à 
 action_reason_stock = "Stockage local"
 action_reason_sales = "Ventes locales"
 action_reason_ddp = "Importation (Vendeur Importateur)"
-amazon_blocking_warning = "Vous stockez en {countries} sans numéro de TVA local renseigné."
+amazon_blocking_warning = "❌ **Blocage Amazon imminent** : Vous stockez en {countries} sans numéro de TVA local renseigné."
 
 # KPIs
 kpi_ca_ht = "CA Net (HT)"

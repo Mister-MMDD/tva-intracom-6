@@ -201,7 +201,7 @@ action_plan_intro = "Basierend auf Ihren Daten sollten Sie in folgenden Ländern
 action_reason_stock = "Lokale Lagerung"
 action_reason_sales = "Lokale Verkäufe"
 action_reason_ddp = "Import (Verkäufer als Importer of Record)"
-amazon_blocking_warning = "Sie lagern in {countries} ohne eine lokale USt-IdNr."
+amazon_blocking_warning = "❌ **In Kürze Amazon-Sperrung**: Sie lagern in {countries} ohne eine lokale USt-IdNr."
 
 # KPIs
 kpi_ca_ht = "Nettoumsatz (ohne MwSt)"

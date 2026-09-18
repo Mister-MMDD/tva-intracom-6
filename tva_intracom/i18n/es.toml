@@ -201,7 +201,7 @@ action_plan_intro = "Según sus datos, debería estar registrado a efectos del I
 action_reason_stock = "Almacenamiento local"
 action_reason_sales = "Ventas locales"
 action_reason_ddp = "Importación (Vendedor como Importador de Registro)"
-amazon_blocking_warning = "Está almacenando en {countries} sin un número de IVA local."
+amazon_blocking_warning = "❌ **Bloqueo inminente de Amazon**: Está almacenando en {countries} sin un número de IVA local."
 
 # KPIs
 kpi_ca_ht = "Volumen de negocio neto (sin IVA)"

@@ -201,7 +201,7 @@ action_plan_intro = "Com base nos seus dados, deverá estar registado para efeit
 action_reason_stock = "Armazenamento local"
 action_reason_sales = "Vendas locais"
 action_reason_ddp = "Importação (Vendedor como Importador)"
-amazon_blocking_warning = "Está a armazenar em {countries} sem um número de IVA local."
+amazon_blocking_warning = "❌ **Bloqueio Iminente da Amazon**: Está a armazenar em {countries} sem um número de IVA local."
 
 # KPIs
 kpi_ca_ht = "Volume de Negócios Líquido (excl. IVA)"

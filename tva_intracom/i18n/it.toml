@@ -201,7 +201,7 @@ action_plan_intro = "In base ai tuoi dati, dovresti essere registrato ai fini IV
 action_reason_stock = "Stoccaggio locale"
 action_reason_sales = "Vendite locali"
 action_reason_ddp = "Importazione (Venditore come Importatore)"
-amazon_blocking_warning = "Stai stoccando in {countries} senza un numero IVA locale."
+amazon_blocking_warning = "❌ **Blocco Amazon imminente**: Stai stoccando in {countries} senza un numero IVA locale."
 
 # KPIs
 kpi_ca_ht = "Fatturato netto (escl. IVA)"
