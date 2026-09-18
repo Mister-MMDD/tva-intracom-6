@@ -1,2 +1,7 @@
 [server]
 maxUploadSize = 100
+
+# Pas de section [theme] ici volontairement : la définir verrouille le
+# thème et fait disparaître le sélecteur clair/sombre du menu Streamlit
+# (testé le 2026-09-17 — régression introduite puis retirée). Tout le
+# contrôle des couleurs se fait exclusivement via tva_intracom/ui/theme.py.

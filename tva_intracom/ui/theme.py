@@ -44,6 +44,14 @@ _CSS = """
 .block-container {
     padding-top: 2rem;
     padding-bottom: 3rem;
+    /* Fond bleu ciel très léger pour le mode clair uniquement */
+    background-color: var(--bg-light-blue);
+}
+
+/* S'assurer que le mode sombre ne soit pas affecté */
+[data-theme="dark"] .block-container,
+.stApp[data-theme="dark"] .block-container {
+    background-color: transparent;
 }
 
 /* ---- Boutons primaires aux couleurs de la marque ---- */
