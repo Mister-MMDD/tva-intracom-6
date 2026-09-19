@@ -299,15 +299,19 @@ def render_vies(ctx: TabContext) -> None:
 
     if not enable_vies:
         st.info(_("vies_tab_enable_info"))
-    elif vies_summary is None or vies_summary.total_checked == 0:
+    elif vies_summary is None or (vies_summary.total_checked == 0 and vies_summary.national_id_count == 0):
         st.info(_("vies_tab_no_b2b_info"))
     else:
         # KPIs VIES
+        from decimal import Decimal
+        _vies_rec = sum((r.vat_avoided for r in vies_summary.reclassifications if not getattr(r, "is_national_tax_id", False)), Decimal("0.00"))
+        _nif_rec = sum((r.vat_avoided for r in vies_summary.reclassifications if getattr(r, "is_national_tax_id", False)), Decimal("0.00"))
+
         v1, v2, v3, v4, v5 = st.columns(5)
-        v1.metric(_("vies_kpi_verified_nums"), vies_summary.total_checked)
-        v2.metric(_("vies_kpi_valid"), vies_summary.total_valid)
+        v1.metric(_("vies_kpi_verified_nums"), f"{vies_summary.total_checked} / {vies_summary.national_id_count}")
+        v2.metric(_("vies_kpi_valid"), vies_summary.total_valid, help=_("vies_kpi_nif_tooltip"))
         v3.metric(_("vies_kpi_invalid"), vies_summary.total_invalid,
-            delta=f"-{vies_summary.total_invalid}" if vies_summary.total_invalid else None, delta_color="inverse")
+            delta=f"-{vies_summary.total_invalid}" if vies_summary.total_invalid else None, delta_color="inverse", help=_("vies_kpi_nif_tooltip"))
         # NB : total_not_auto_verified (pas total_inconclusive seul) inclut
         # aussi les replis sur cache périmé (stale_fallback_count) — sans ça
         # une panne VIES en cours de calcul serait invisible dans ce KPI
@@ -315,7 +319,7 @@ def render_vies(ctx: TabContext) -> None:
         # comme B2C, exactement comme un inconclusif classique.
         v4.metric(_("vies_kpi_unverified"), vies_summary.total_not_auto_verified,
             delta=f"{vies_summary.total_not_auto_verified}" if vies_summary.total_not_auto_verified else None, delta_color="off")
-        v5.metric(_("vies_kpi_recovered_vat"), _fmt(vies_summary.fraud_avoided_amount))
+        v5.metric(_("vies_kpi_recovered_vat"), f"{_fmt(_vies_rec)} / {_fmt(_nif_rec)}")
 
         if vies_summary.inconclusive_vats:
             st.warning(_("vies_unverified_warning", count=len(vies_summary.inconclusive_vats)))
