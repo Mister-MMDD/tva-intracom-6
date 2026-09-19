@@ -1684,18 +1684,7 @@ if uploaded_files:
         with tab_dl: render_telechargements()
         with tab_viz: render_visualisations()
 
-        # Pied de page global (Footer commun)
-        st.markdown(
-            """<hr style='border-top: 1px solid var(--border-light); margin-top: 40px; margin-bottom: 20px;' />
-            <div style='text-align: center; color: var(--text-muted); font-size: 0.85rem; padding-bottom: 20px;'>
-                <img src='https://www.tvacalculator.eu/assets/logo.png' style='height: 24px; vertical-align: middle; margin-right: 8px;' onerror='this.style.display="none"' />
-                © 2026 – Moteur TVA Intracommunautaire | 
-                <a href='https://www.tvacalculator.eu/' target='_blank' style='color: var(--text-muted); text-decoration: none;'>Site web</a> | 
-                <a href='https://www.tvacalculator.eu/privacy' target='_blank' style='color: var(--text-muted); text-decoration: none;'>Politique de confidentialité</a> | 
-                Contact : support@tvacalculator.eu
-            </div>""",
-            unsafe_allow_html=True
-        )
+        pass
 
         # BUGFIX : la sidebar a été dessinée en tout début de run avec
         # `_period_label_shown_by_sidebar` (voir plus haut), potentiellement
@@ -1722,3 +1711,56 @@ else:
     # indéfiniment tant qu'aucune autre interaction serveur ne survenait.
     if _period_label_shown_by_sidebar:
         preserve_upload_rerun()
+
+# Rendu systématique du footer global même si aucun fichier n'est uploadé (en dehors du bloc if/else)
+st.markdown(
+    """<hr style='border-top: 1px solid var(--border-light); margin-top: 50px; margin-bottom: 20px;' />
+    <div style='text-align: center; color: var(--text-muted); font-size: 0.85rem; padding-bottom: 20px;'>
+        <svg width="24" height="24" viewBox="0 0 512 512" style='vertical-align: middle; margin-right: 8px;' fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="512" height="512" rx="110" fill="#003399"/>
+          <g id="europe-stars-footer" fill="#dfb659">
+            <path d="M256 29L260.5 39.5H271.5L262.5 46L266 57L256 50.5L246 57L249.5 46L240.5 39.5H251.5L256 29Z"/>
+            <path d="M364 58L368.5 68.5H379.5L370.5 75L374 86L364 79.5L354 86L357.5 75L348.5 68.5H359.5L364 58Z"/>
+            <path d="M442 137L446.5 147.5H457.5L448.5 154L452 165L442 158.5L432 165L435.5 154L426.5 147.5H437.5L442 137Z"/>
+            <path d="M471 244L475.5 254.5H486.5L477.5 261L481 272L471 265.5L461 272L464.5 261L455.5 254.5H466.5L471 244Z"/>
+            <path d="M442 352L446.5 362.5H457.5L448.5 369L452 380L442 373.5L432 380L435.5 369L426.5 362.5H437.5L442 352Z"/>
+            <path d="M364 430L368.5 440.5H379.5L370.5 447L374 458L364 451.5L354 458L357.5 447L348.5 440.5H359.5L364 430Z"/>
+            <path d="M256 459L260.5 469.5H271.5L262.5 476L266 487L256 480.5L246 487L249.5 476L240.5 469.5H251.5L256 459Z"/>
+            <path d="M149 430L153.5 440.5H164.5L155.5 447L159 458L149 451.5L139 458L142.5 447L133.5 440.5H144.5L149 430Z"/>
+            <path d="M70 352L74.5 362.5H85.5L76.5 369L80 380L70 373.5L60 380L63.5 369L54.5 362.5H65.5L70 352Z"/>
+            <path d="M41 244L45.5 254.5H56.5L47.5 261L51 272L41 265.5L31 272L34.5 261L25.5 254.5H36.5L41 244Z"/>
+            <path d="M70 137L74.5 147.5H85.5L76.5 154L80 165L70 158.5L60 165L63.5 154L54.5 147.5H65.5L70 137Z"/>
+            <path d="M149 58L153.5 68.5H164.5L155.5 75L159 86L149 79.5L139 86L142.5 75L133.5 68.5H144.5L149 58Z"/>
+          </g>
+          <text x="256" y="198" font-family="sans-serif" font-weight="800" font-size="84" fill="#dfb659" text-anchor="middle" letter-spacing="2">TVA</text>
+          <g transform="translate(181, 226)">
+            <rect x="0" y="0" width="150" height="180" rx="22" stroke="#dfb659" stroke-width="7" fill="none"/>
+            <rect x="14" y="14" width="122" height="32" rx="7" stroke="#dfb659" stroke-width="5" fill="none"/>
+            <rect x="14" y="58" width="24" height="14" rx="4" fill="#dfb659"/>
+            <rect x="46" y="58" width="24" height="14" rx="4" fill="#dfb659"/>
+            <rect x="78" y="58" width="24" height="14" rx="4" fill="#dfb659"/>
+            <rect x="112" y="58" width="24" height="14" rx="4" fill="#dfb659"/>
+            <rect x="14" y="82" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="46" y="82" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="78" y="82" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="112" y="82" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="14" y="108" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="46" y="108" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="78" y="108" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="112" y="108" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="14" y="134" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="46" y="134" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="78" y="134" width="24" height="16" rx="4" fill="#dfb659"/>
+            <rect x="112" y="134" width="24" height="28" rx="4" fill="#dfb659"/>
+            <rect x="14" y="156" width="24" height="14" rx="4" fill="#dfb659"/>
+            <rect x="46" y="156" width="24" height="14" rx="4" fill="#dfb659"/>
+            <rect x="78" y="156" width="24" height="14" rx="4" fill="#dfb659"/>
+          </g>
+        </svg>
+        © 2026 – Moteur TVA Intracommunautaire | 
+        <a href='https://www.tvacalculator.eu/' target='_blank' style='color: var(--text-muted); text-decoration: none;'>Site web</a> | 
+        <a href='https://www.tvacalculator.eu/confidentialite.html' target='_blank' style='color: var(--text-muted); text-decoration: none;'>Politique de confidentialité</a> | 
+        Contact : support@tvacalculator.eu
+    </div>""",
+    unsafe_allow_html=True
+)

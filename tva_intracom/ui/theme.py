@@ -110,6 +110,9 @@ _CSS = """
     --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
     --tag-text: #2e7d32;
     --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
+    --slider-fill-hue: 135.5deg;  /* filtre hue-rotate calculé par optimisation numérique pour matcher --accent-green exactement (2026-09-18) */
+    --slider-fill-sat: 0.54;
+    --slider-fill-bri: 1.041;
 
     /* Réutilise la variable native de Streamlit pour que TOUS ses
        composants natifs (uploader, checkbox/radio, slider, tags
@@ -163,6 +166,9 @@ _CSS = """
         --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
         --tag-text: #7cd992;
         --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
+        --slider-fill-hue: 137.5deg;  /* filtre hue-rotate calculé par optimisation numérique pour matcher --accent-green exactement (2026-09-18) */
+        --slider-fill-sat: 0.44;
+        --slider-fill-bri: 1.4046;
 
         --primary-color: #6fa8d6;
     }
@@ -207,6 +213,9 @@ _CSS = """
     --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
     --tag-text: #7cd992;
     --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
+    --slider-fill-hue: 137.5deg;  /* filtre hue-rotate calculé par optimisation numérique pour matcher --accent-green exactement (2026-09-18) */
+    --slider-fill-sat: 0.44;
+    --slider-fill-bri: 1.4046;
 
     --primary-color: #6fa8d6;
 }
@@ -253,6 +262,9 @@ _CSS = """
     --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
     --tag-text: #2e7d32;
     --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
+    --slider-fill-hue: 135.5deg;  /* filtre hue-rotate calculé par optimisation numérique pour matcher --accent-green exactement (2026-09-18) */
+    --slider-fill-sat: 0.54;
+    --slider-fill-bri: 1.041;
 
     --primary-color: #1f4e79;
 }
@@ -424,6 +436,30 @@ div[data-baseweb="multiselect"] [data-baseweb="tag"] svg {
     flex-shrink: 0;
 }
 
+/* Radio buttons — transforme le rouge en vert (2026-09-18) via le filtre fourni.
+   Sélecteur relationnel :has() pour cibler la case colorée (div frère précédent). */
+label[data-baseweb="radio"]:has(input[type="radio"]:checked) > div:first-child {
+    filter: hue-rotate(var(--slider-fill-hue)) saturate(var(--slider-fill-sat)) brightness(var(--slider-fill-bri)) !important;
+}
+
+/* Sélecteur segmenté (ex: Simple/Détaillé) et Pills — transforme le rouge en vert. */
+div[data-testid="stSegmentedControl"] button[aria-checked="true"],
+div[data-testid="stPills"] button[aria-checked="true"] {
+    filter: hue-rotate(var(--slider-fill-hue)) saturate(var(--slider-fill-sat)) brightness(var(--slider-fill-bri)) !important;
+    background-color: rgb(255, 75, 75) !important; /* Force la couleur source pour que le filtre produise le vert exact */
+    color: #ffffff !important;
+}
+[data-theme-actual="dark"] div[data-testid="stSegmentedControl"] button[aria-checked="true"],
+[data-theme-actual="dark"] div[data-testid="stPills"] button[aria-checked="true"] {
+    color: #0e1117 !important;
+}
+
+/* Ligne de soulignement (highlight) des onglets — force en vert.
+   Cible le conteneur du soulignement rouge natif. */
+.stTabs [data-baseweb="tab-highlight"] {
+    background-color: var(--accent-green) !important;
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    4. BOUTONS
    ══════════════════════════════════════════════════════════════════════ */
@@ -505,6 +541,13 @@ div[data-testid="stSlider"] [role="slider"] {
     background-color: var(--accent-green) !important;
     border-color: var(--accent-green) !important;
 }
+/* Valeur courante affichée au-dessus du slider (ex: "250") — vert (2026-09-18). */
+div[data-testid="stSlider"] [data-baseweb="slider"] > div:first-child {
+    color: var(--accent-green) !important;
+}
+div[data-testid="stSlider"] [data-baseweb="slider"] > div:first-child * {
+    color: var(--accent-green) !important;
+}
 /* Barre de remplissage — Streamlit la peint avec un `background:
    linear-gradient(to right, rgb(255,75,75) 0%, rgb(255,75,75) X%,
    rgba(151,166,195,0.25) X%, ...)`, X% étant la position recalculée en
@@ -520,23 +563,28 @@ div[data-testid="stSlider"] [role="slider"] {
    teinte rouge en vert quelle que soit sa position, et n'affecte quasi
    pas la portion grise translucide (peu saturée) — exactement l'effet
    demandé ("le vert doit remplacer le rouge, et c'est tout").
-   Angle + saturate/brightness calculés par optimisation numérique
-   (recherche par grille sur la matrice de filtre CSS réelle, pas une
-   simple rotation de teinte HSL approximative) pour que le résultat
-   colle le plus possible à --accent-green — harmonisation demandée par
-   Matthieu le 2026-09-18 (le curseur et le trait du slider n'étaient
-   pas exactement du même vert que les initiales des tags pays).
-   rgb(255,75,75) → hue-rotate(134deg) saturate(0.5) brightness(1.4) →
-   rgb(71,190,106), à ~15 unités RGB de --accent-green sombre
-   (rgb(79,187,118)) — un filtre ne peut pas reproduire une couleur
-   cible exacte, seulement s'en approcher, mais l'écart est
-   imperceptible à l'œil.
+   Angle + saturate/brightness recalculés le 2026-09-18 (round 2, retour
+   Matthieu : le point et le trait n'étaient toujours pas exactement de
+   la même couleur) par résolution numérique exacte plutôt qu'une
+   grille approximative : pour un angle donné, `brightness` optimal se
+   calcule analytiquement (projection sur la cible), et une recherche
+   fine sur l'angle + `saturate` trouve la meilleure combinaison. Résultat
+   quasi parfait : rgb(255,75,75) → hue-rotate(137.5deg) saturate(0.44)
+   brightness(1.4046) → rgb(79,187,118), IDENTIQUE au pixel près à
+   --accent-green sombre. Un filtre ne peut normalement qu'approcher une
+   couleur cible, mais l'espace de solutions se trouve ici contenir une
+   quasi-solution exacte. Valeurs différentes en clair (135.5deg / 0.54 /
+   1.041, tout aussi précises) car la cible --accent-green change de
+   teinte/luminosité entre les 2 modes alors que le rouge source
+   (rgb(255,75,75), fixe côté Streamlit) ne change pas — d'où les
+   variables --slider-fill-hue/-sat/-bri, définies par thème comme les
+   autres couleurs, plutôt qu'un filtre unique codé en dur.
    Sélecteur relationnel (`:has()` + `+`, plutôt que positionnel comme
    `:last-child`) : identifie le wrapper du curseur via le `[role=
    slider]` qu'il contient, puis cible sa div suivante — la barre de
    remplissage, quel que soit l'ordre réel des enfants. */
 div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div:has(> [role="slider"]) + div {
-    filter: hue-rotate(134deg) saturate(0.5) brightness(1.4);
+    filter: hue-rotate(var(--slider-fill-hue)) saturate(var(--slider-fill-sat)) brightness(var(--slider-fill-bri));
 }
 
 /* Libellés min/max ("1"/"30") du slider, invisibles par défaut — forcés
