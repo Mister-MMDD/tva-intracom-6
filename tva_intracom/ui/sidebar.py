@@ -1525,10 +1525,14 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         #         render_admin_dialog(_current_user)
 
         # ── Support ───────────────────────────────────────────────────────────────
-        st.divider()
-        st.markdown(f"**{_('contact_support')}**")
-        st.caption("support@tvacalculator.eu")
-        st.markdown(f"[{_('website_label')}](https://www.tvacalculator.eu/)")
+        st.markdown(
+            f"""<div class="sidebar-support-card">
+                <div class="sidebar-support-title">{_('contact_support')}</div>
+                <div class="sidebar-support-email">support@tvacalculator.eu</div>
+                <a class="sidebar-support-link" href="https://www.tvacalculator.eu/" target="_blank">{_('website_label')}</a>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
     return SidebarResult(
         file_format=file_format,

@@ -1463,17 +1463,33 @@ if uploaded_files:
                     else:
                         st.caption(_("bce_rates_oss_disclaimer", date=f"{_all_dates[0].isoformat()} → {_all_dates[-1].isoformat()}"))
 
+                    # Rendu en tableau (au lieu d'une liste de st.caption sans
+                    # séparation visuelle entre les lignes, cf. retour Matthieu
+                    # 2026-09-18) — logique de calcul des taux inchangée,
+                    # seule la présentation change. Classe dédiée dans
+                    # theme.py plutôt que de réutiliser .stTable, pour ne pas
+                    # affecter d'autres tableaux natifs Streamlit.
+                    _rows_html = []
                     for _ccy, _d in sorted(_used_rates_info):
                         try:
                             _oss_rate = _ecb_get_rate(_ccy, _d)
                         except Exception:
                             _oss_rate = None
 
-                        _date_suffix = f" ({_d.strftime('%d/%m/%Y')})" if len(_all_dates) > 1 else ""
+                        _date_suffix = _d.strftime("%d/%m/%Y") if len(_all_dates) > 1 else ""
                         if _oss_rate is not None:
-                            st.caption(f"**{_ccy}** : 1 EUR = {float(_oss_rate):.4f} {_ccy}{_date_suffix}")
+                            _rate_cell = f"1 EUR = {float(_oss_rate):.4f} {_ccy}"
                         else:
-                            st.caption(f"**{_ccy}** : {_('bce_rates_oss_unavailable')}{_date_suffix}")
+                            _rate_cell = _("bce_rates_oss_unavailable")
+                        _rows_html.append(
+                            f"<tr><td>{_ccy}</td><td>{_rate_cell}</td><td>{_date_suffix}</td></tr>"
+                        )
+                    st.markdown(
+                        '<table class="bce-rates-table"><tbody>'
+                        + "".join(_rows_html)
+                        + "</tbody></table>",
+                        unsafe_allow_html=True,
+                    )
 
         # Immatriculations requises
         # BUGFIX : un stock situé hors UE (US, GB post-Brexit, CH, CN, un

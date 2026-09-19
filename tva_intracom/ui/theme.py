@@ -21,9 +21,11 @@ D'où le mécanisme en 2 parties :
      `<html>` (jamais fourni par Streamlit) — plus un repli `@media
      (prefers-color-scheme: dark)` pour le tout premier rendu, avant que
      le script ci-dessous n'ait eu le temps de tourner.
-  2. JS (`_render_theme_debug`, exécuté via `st.components.v1.html` — un
-     `<script>` inséré par `st.markdown`/innerHTML ne s'exécute JAMAIS,
-     c'est une limitation du navigateur) : lit cette clé localStorage
+  2. JS (`_sync_theme_attribute`, exécuté via `st.iframe` — un `<script>`
+     inséré par `st.markdown`/innerHTML ne s'exécute JAMAIS, c'est une
+     limitation du navigateur ; `st.iframe` est l'API publique qui a
+     remplacé `components.v1.html`, déprécié depuis Streamlit 1.58.0 avec
+     retrait prévu après le 2026-06-01) : lit cette clé localStorage
      (valeur textuelle déterministe, pas une heuristique de couleur —
      c'est cette heuristique, fragile, qui avait causé la casse du
      2026-09-17 dans `theme1.py`, supprimé), résout "System" via
@@ -39,6 +41,13 @@ Ordre CSS à respecter (section 1) : `:root` (clair) → `@media` (repli
 avant exécution du JS) → `[data-theme-actual="dark"]` →
 `[data-theme-actual="light"]` (doit rester après le `@media` pour pouvoir
 l'annuler si l'utilisateur a choisi Clair alors que l'OS est en sombre).
+
+Statut : confirmé fonctionnel par Matthieu le 2026-09-18 dans les 3 modes
+(Système / Clair / Sombre). Ne pas réintroduire un mécanisme basé sur
+`[data-theme=...]` (attribut/classe) sans le revérifier empiriquement au
+préalable — Streamlit peut changer ce comportement d'une version à
+l'autre, et c'est précisément l'hypothèse de départ qui s'est révélée
+fausse cette fois.
 """
 
 from __future__ import annotations
@@ -98,8 +107,9 @@ _CSS = """
     --radius-sm: 6px;
     --radius-md: 10px;
 
-    --tag-bg: #e8f5e9;
+    --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
     --tag-text: #2e7d32;
+    --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
 
     /* Réutilise la variable native de Streamlit pour que TOUS ses
        composants natifs (uploader, checkbox/radio, slider, tags
@@ -150,8 +160,9 @@ _CSS = """
         --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
         --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.55);
 
-        --tag-bg: #163a1f;
+        --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
         --tag-text: #7cd992;
+        --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
 
         --primary-color: #6fa8d6;
     }
@@ -193,8 +204,9 @@ _CSS = """
     --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
     --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.55);
 
-    --tag-bg: #163a1f;
+    --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
     --tag-text: #7cd992;
+    --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
 
     --primary-color: #6fa8d6;
 }
@@ -238,8 +250,9 @@ _CSS = """
     --shadow-lg: 0 6px 20px rgba(20, 32, 46, 0.12);
     --shadow-hover: 0 4px 14px rgba(20, 32, 46, 0.16);
 
-    --tag-bg: #e8f5e9;
+    --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
     --tag-text: #2e7d32;
+    --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
 
     --primary-color: #1f4e79;
 }
@@ -321,6 +334,22 @@ section[data-testid="stSidebar"] div[data-baseweb="input"] {
     border-color: var(--border-medium) !important;
     border-radius: var(--radius-sm);
 }
+/* Exception : le multiselect (ex. pays TVA) a un <input> de recherche
+   invisible intercalé ENTRE les tags. La règle ci-dessus lui donnait un
+   fond blanc opaque, qui se retrouvait visuellement posé juste devant le
+   1er tag et masquait son 1er caractère (le "F" de "FR") — corrigé le
+   2026-09-18, retour Matthieu (le vrai coupable n'était donc pas la
+   largeur du tag, corrigée pour rien au tour précédent, mais gardée :
+   elle reste correcte en soi). Doit rester APRÈS la règle ci-dessus pour
+   la surcharger (même spécificité par élément mais sélecteur plus
+   profond ici : gagne dans tous les cas). */
+section[data-testid="stSidebar"] div[data-baseweb="select"] input,
+section[data-testid="stSidebar"] div[data-baseweb="multiselect"] input,
+section[data-testid="stSidebar"] div[data-baseweb="popover"] input {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
 
 section[data-testid="stSidebar"] div[data-testid="stExpander"] {
     background-color: var(--bg-secondary);
@@ -331,12 +360,33 @@ section[data-testid="stSidebar"] div[data-testid="stExpander"] {
 section[data-testid="stSidebar"] [role="switch"] {
     background-color: var(--border-medium);
 }
-section[data-testid="stSidebar"] [role="switch"][aria-checked="true"] {
-    background-color: var(--brand-blue);
-}
 
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
     gap: 0.5rem;
+}
+
+/* Toggles / checkboxes "coché" — vert au lieu du rouge natif Streamlit
+   (2026-09-18). Structure réelle confirmée par dump DOM le 2026-09-18 :
+   c'est un st.checkbox (data-testid="stCheckbox"), sans aucun rôle ARIA
+   switch/checkbox — seul l'<input type="checkbox"> caché porte
+   aria-checked, et la case colorée visible (1er <div> du <label>) est un
+   FRÈRE PRÉCÉDENT de cet input dans le DOM. Un combinateur CSS classique
+   (+ / ~) ne peut cibler qu'un frère SUIVANT ; on utilise donc :has(),
+   qui permet de remonter du parent <label> vers son enfant <input>
+   coché, puis de redescendre vers le 1er <div> (la case). Remplace les
+   anciens sélecteurs [role="switch"]/[role="checkbox"] qui ne
+   matchaient jamais rien (confirmé par dump : "AUCUN sélecteur ne
+   matche"). Portée globale (pas juste la sidebar) : ce composant existe
+   aussi hors sidebar.
+   Seul le 1er <div> (le "track"/la case) est coloré — PAS son enfant
+   (le "knob"/cercle qui glisse à l'intérieur) : les colorer tous les
+   deux de la même teinte les rendait indiscernables, le bouton perdant
+   tout relief visuel et ne ressemblant plus à un bouton (retour
+   Matthieu 2026-09-18). Le knob garde sa couleur native (blanc), seul
+   contraste qui montre encore qu'il s'agit d'un bouton. */
+label[data-baseweb="checkbox"]:has(input[type="checkbox"]:checked) > div:first-child {
+    background-color: var(--accent-green) !important;
+    border-color: var(--accent-green) !important;
 }
 
 /* Tags multiselect (ex : pays TVA) — vert, comme dans la version d'origine.
@@ -344,19 +394,28 @@ section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
    ne pas dépendre de l'accent de marque.
    Sélecteur élargi à `[data-baseweb="tag"]` (div OU span selon la version
    de Streamlit/BaseWeb) plutôt que `span[data-baseweb="tag"]` strict —
-   c'était trop restrictif et laissait passer le rouge par défaut. */
+   c'était trop restrictif et laissait passer le rouge par défaut.
+   Largeur forcée en `auto`/`fit-content` (2026-09-18) plutôt qu'un simple
+   `overflow: visible` sur le texte : BaseWeb calcule une largeur FIXE
+   pour le tag en anticipant une troncature ; avec juste overflow:visible
+   le texte déborde de ce cadre trop étroit au lieu de l'agrandir, et le
+   1er caractère du tout premier tag de la liste (ex. le "F" de "FR")
+   déborde hors du conteneur côté gauche et se retrouve invisible. */
 .stMultiSelect [data-baseweb="tag"],
 div[data-baseweb="multiselect"] [data-baseweb="tag"] {
     background-color: var(--tag-bg) !important;
     color: var(--tag-text) !important;
-    padding: 3px 8px 3px 10px !important;
+    padding: 3px 10px !important;
     gap: 6px;
+    width: auto !important;
+    max-width: none !important;
+    min-width: fit-content !important;
 }
 .stMultiSelect [data-baseweb="tag"] > span:first-child,
 div[data-baseweb="multiselect"] [data-baseweb="tag"] > span:first-child {
     overflow: visible !important;
     text-overflow: unset !important;
-    padding-right: 4px;
+    max-width: none !important;
     color: var(--tag-text) !important;
 }
 .stMultiSelect [data-baseweb="tag"] svg,
@@ -433,6 +492,74 @@ button[data-testid="stBaseButton-secondary"]:hover {
 
 .stSlider > div > div > div {
     background-color: var(--border-light);
+}
+/* Curseur (thumb) du slider — vert, comme les toggles ci-dessus. Le
+   sélecteur `[role="slider"]` est confirmé par dump DOM le 2026-09-18
+   (`<div role="slider" aria-valuemax="30" ...>`) — c'était le seul des
+   3 sélecteurs devinés précédemment à être correct ; les 2 autres
+   (`> div > div` et `> div:first-child > div`) matchaient des conteneurs
+   de la structure interne (probablement le wrapper du libellé de valeur)
+   et faisaient disparaître les chiffres min/max — retirés, non
+   réintroduits ici. */
+div[data-testid="stSlider"] [role="slider"] {
+    background-color: var(--accent-green) !important;
+    border-color: var(--accent-green) !important;
+}
+/* Barre de remplissage — Streamlit la peint avec un `background:
+   linear-gradient(to right, rgb(255,75,75) 0%, rgb(255,75,75) X%,
+   rgba(151,166,195,0.25) X%, ...)`, X% étant la position recalculée en
+   JS à chaque interaction. Confirmé par diagnostic de style calculé le
+   2026-09-18 (getComputedStyle) après deux tentatives infructueuses sur
+   `background-color`, qui n'a AUCUN effet sur un `background:
+   linear-gradient()` posé en style inline (ce n'est pas la même
+   propriété, et le rouge rgb(255,75,75) est la couleur "primaryColor"
+   par défaut de Streamlit, câblée côté composant — pas via notre
+   variable --primary-color).
+   Le pourcentage étant dynamique, impossible de le réécrire en CSS
+   statique. On utilise donc un filtre `hue-rotate` : il transforme la
+   teinte rouge en vert quelle que soit sa position, et n'affecte quasi
+   pas la portion grise translucide (peu saturée) — exactement l'effet
+   demandé ("le vert doit remplacer le rouge, et c'est tout").
+   Angle + saturate/brightness calculés par optimisation numérique
+   (recherche par grille sur la matrice de filtre CSS réelle, pas une
+   simple rotation de teinte HSL approximative) pour que le résultat
+   colle le plus possible à --accent-green — harmonisation demandée par
+   Matthieu le 2026-09-18 (le curseur et le trait du slider n'étaient
+   pas exactement du même vert que les initiales des tags pays).
+   rgb(255,75,75) → hue-rotate(134deg) saturate(0.5) brightness(1.4) →
+   rgb(71,190,106), à ~15 unités RGB de --accent-green sombre
+   (rgb(79,187,118)) — un filtre ne peut pas reproduire une couleur
+   cible exacte, seulement s'en approcher, mais l'écart est
+   imperceptible à l'œil.
+   Sélecteur relationnel (`:has()` + `+`, plutôt que positionnel comme
+   `:last-child`) : identifie le wrapper du curseur via le `[role=
+   slider]` qu'il contient, puis cible sa div suivante — la barre de
+   remplissage, quel que soit l'ordre réel des enfants. */
+div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div:has(> [role="slider"]) + div {
+    filter: hue-rotate(134deg) saturate(0.5) brightness(1.4);
+}
+
+/* Libellés min/max ("1"/"30") du slider, invisibles par défaut — forcés
+   visibles en permanence plutôt que seulement au survol/focus (retour
+   Matthieu 2026-09-18). Structure confirmée par dump : deux
+   <p> dans un <div data-testid="stSliderTickBar"> toujours présent dans
+   le DOM, donc masqué par une propriété CSS (opacity/visibility), pas
+   absent. */
+div[data-testid="stSliderTickBar"] {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+/* Le fond visible (petit carré) autour de "1"/"30" est le style "bulle"
+   par défaut de ce conteneur (pensé pour une bulle au survol) — devenu
+   visible en permanence maintenant qu'on force l'opacité (retour
+   Matthieu 2026-09-18). On ne garde que le texte. */
+div[data-testid="stSliderTickBar"],
+div[data-testid="stSliderTickBar"] * {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+div[data-testid="stSliderTickBar"] p {
+    color: var(--text-secondary) !important;
 }
 
 .stFileUploader {
@@ -856,6 +983,70 @@ div[data-testid="stVerticalBlock"] > div > div {
     color: var(--text-secondary);
     margin: 0;
 }
+
+/* Pied de sidebar (support/site web) — carte blanche cohérente avec les
+   autres blocs de la sidebar (qui est en fond bleu depuis le 2026-09-18),
+   à la place de st.divider()/st.caption() qui restaient nus sur le fond
+   bleu (retour Matthieu 2026-09-18). */
+.sidebar-support-card {
+    margin-top: 16px;
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-medium);
+    box-shadow: var(--shadow-sm);
+}
+.sidebar-support-title {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+}
+.sidebar-support-email {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+.sidebar-support-link {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--brand-blue);
+    text-decoration: none;
+}
+.sidebar-support-link:hover {
+    text-decoration: underline;
+}
+
+/* Tableau "Taux de change BCE utilisés" — remplace une liste de
+   st.caption() sans séparation visuelle entre les lignes (retour
+   Matthieu 2026-09-18). Rendu par app.py via st.markdown(unsafe_allow_html),
+   classe dédiée pour ne pas affecter .stTable (tableaux natifs Streamlit). */
+.bce-rates-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    margin-top: 4px;
+}
+.bce-rates-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-primary);
+}
+.bce-rates-table tr:last-child td {
+    border-bottom: none;
+}
+.bce-rates-table tr:hover td {
+    background-color: var(--bg-tertiary);
+}
+.bce-rates-table td:first-child {
+    font-weight: 700;
+    width: 15%;
+}
+.bce-rates-table td:last-child {
+    color: var(--text-muted);
+    text-align: right;
+    width: 25%;
+}
 </style>
 """
 
@@ -875,14 +1066,20 @@ def apply_theme() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SYNCHRONISATION DU THÈME RÉEL (2026-09-18)
+# SYNCHRONISATION DU THÈME RÉEL (2026-09-18, migré vers st.iframe le
+# 2026-09-18 — components.v1.html est déprécié depuis Streamlit 1.58.0 au
+# profit de st.iframe, retrait prévu après le 2026-06-01, cf. le module
+# streamlit.components.v1 : `html`/`iframe` pointent vers
+# `deprecate_func_name(..., name_override="iframe")`. Le HTML brut passé
+# à st.iframe est auto-détecté et rendu de la même façon, donc simple
+# renommage sans changement de comportement.)
 # Streamlit 1.58.0 ne pose aucun attribut/classe exploitable en CSS pur
 # pour le choix Clair/Sombre/Système (diagnostic du 2026-09-18, cf.
 # docstring en tête de fichier) : la seule source de vérité est
 # `localStorage["stActiveTheme-/-v2"]` ("Light" | "Dark" | "System").
-# `st.components.v1.html` est utilisé car un <script> inséré par
-# `st.markdown` (via innerHTML) ne s'exécute jamais — limitation du
-# navigateur, pas de Streamlit.
+# st.iframe (comme l'ancien components.v1.html) est utilisé car un
+# <script> inséré par `st.markdown` (via innerHTML) ne s'exécute jamais —
+# limitation du navigateur, pas de Streamlit.
 # Lecture déterministe (valeur textuelle exacte), pas une heuristique de
 # couleur — c'est cette différence qui évite de reproduire l'incident du
 # 2026-09-17. `setInterval` est un timer 100% client (aucune requête
@@ -891,9 +1088,7 @@ def apply_theme() -> None:
 # n'écrit l'attribut QUE si la valeur résolue a changé.
 # ═══════════════════════════════════════════════════════════════════════
 def _sync_theme_attribute() -> None:
-    import streamlit.components.v1 as components
-
-    components.html(
+    st.iframe(
         """
         <script>
         (function() {
@@ -927,5 +1122,10 @@ def _sync_theme_attribute() -> None:
         })();
         </script>
         """,
-        height=0,
+        height=1,  # st.iframe n'accepte pas 0 (StreamlitInvalidHeightError :
+                   # entier positif, "stretch" ou "content" uniquement) —
+                   # contrairement à l'ancien components.v1.html. 1px reste
+                   # visuellement invisible.
     )
+
+
