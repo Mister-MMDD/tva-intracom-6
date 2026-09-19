@@ -320,7 +320,7 @@ def render_vies(ctx: TabContext) -> None:
         # une panne VIES en cours de calcul serait invisible dans ce KPI
         # alors même que les ventes concernées sont traitées par sécurité
         # comme B2C, exactement comme un inconclusif classique.
-        v4.metric(_("vies_kpi_unverified"), vies_summary.total_not_auto_verified)
+        v4.metric(_("vies_kpi_unverified"), vies_summary.total_not_auto_verified, help=str(_("vies_kpi_unverified_tooltip")))
         v5.metric(_("vies_kpi_recovered_vat"), f"{_fmt(_vies_rec)} / {_fmt(_nif_rec)}")
 
         if vies_summary.inconclusive_vats:

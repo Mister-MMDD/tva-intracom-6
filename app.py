@@ -1684,6 +1684,19 @@ if uploaded_files:
         with tab_dl: render_telechargements()
         with tab_viz: render_visualisations()
 
+        # Pied de page global (Footer commun)
+        st.markdown(
+            """<hr style='border-top: 1px solid var(--border-light); margin-top: 40px; margin-bottom: 20px;' />
+            <div style='text-align: center; color: var(--text-muted); font-size: 0.85rem; padding-bottom: 20px;'>
+                <img src='https://www.tvacalculator.eu/assets/logo.png' style='height: 24px; vertical-align: middle; margin-right: 8px;' onerror='this.style.display="none"' />
+                © 2026 – Moteur TVA Intracommunautaire | 
+                <a href='https://www.tvacalculator.eu/' target='_blank' style='color: var(--text-muted); text-decoration: none;'>Site web</a> | 
+                <a href='https://www.tvacalculator.eu/privacy' target='_blank' style='color: var(--text-muted); text-decoration: none;'>Politique de confidentialité</a> | 
+                Contact : support@tvacalculator.eu
+            </div>""",
+            unsafe_allow_html=True
+        )
+
         # BUGFIX : la sidebar a été dessinée en tout début de run avec
         # `_period_label_shown_by_sidebar` (voir plus haut), potentiellement
         # obsolète. À ce stade, tout le contenu principal (KPIs, onglets) est

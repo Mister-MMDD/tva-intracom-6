@@ -1524,15 +1524,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         #         from tva_intracom.ui.admin import render_admin_dialog
         #         render_admin_dialog(_current_user)
 
-        # ── Support ───────────────────────────────────────────────────────────────
-        st.markdown(
-            f"""<div class="sidebar-support-card">
-                <div class="sidebar-support-title">{_('contact_support')}</div>
-                <div class="sidebar-support-email">support@tvacalculator.eu</div>
-                <a class="sidebar-support-link" href="https://www.tvacalculator.eu/" target="_blank">{_('website_label')}</a>
-            </div>""",
-            unsafe_allow_html=True,
-        )
+        pass
 
     return SidebarResult(
         file_format=file_format,
