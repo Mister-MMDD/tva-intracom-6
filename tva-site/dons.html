@@ -23,7 +23,7 @@
     <meta name="twitter:description" content="Soutenez le développement du moteur TVA Intracommunautaire par un don libre. Contribuez à l'amélioration continue de cet outil open source.">
     <meta name="twitter:image" content="https://www.tvacalculator.eu/assets/logo/og-image.png">
     <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-    <link rel="stylesheet" href="style.min.css?v=6939db06">
+    <link rel="stylesheet" href="style.min.css?v=5ce21a7b">
     <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
     <script src="script.js?v=ad8fccd5" defer></script>
     <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
@@ -35,6 +35,11 @@
 <a href="#main-content" class="skip-link">Aller au contenu principal</a>
 
 <nav class="menu" aria-label="Navigation principale">
+    <div class="logo-container">
+        <a href="index.html" aria-label="Accueil Moteur TVA">
+            <img src="assets/logo/logo.svg" alt="Logo TVA Intracommunautaire">
+        </a>
+    </div>
     <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="menu-links" aria-label="Ouvrir le menu">
         <span class="menu-toggle-bar"></span>
         <span class="menu-toggle-bar"></span>
@@ -43,7 +48,6 @@
     <div class="menu-links" id="menu-links">
         <a href="index.html">Accueil</a>
         <a href="documentation.html">Documentation</a>
-        <a href="dons.html" class="active" aria-current="page">Dons</a>
         <a href="securite.html">Sécurité</a>
         <a href="glossaire.html">Glossaire</a>
         <a href="faq.html">FAQ</a>
@@ -142,11 +146,10 @@
             
             <div style="margin: 20px 0; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap;">
                 <div style="flex: 0 1 auto;">
-                    <stripe-buy-button
-                      buy-button-id="buy_btn_1UGRbVI04Y4H6tVSb9lt9REj"
-                      publishable-key="pk_live_51TpQgYI04Y4H6tVS1hkT6dEIy3rX0tTP9TR9oJy39lEWZrJYQaCenMOTunesVh3nnJs3UocXwiABn3ze9QrjFpBp001qVWKTBp"
-                    >
-                    </stripe-buy-button>
+                    <a href="https://donate.stripe.com/fZu00jePda0f2cK0dw7Zu00" target="_blank" class="button" style="background: #635bff; display: inline-flex; align-items: center; gap: 12px; padding: 10px 24px; border-radius: 4px; box-shadow: none;">
+                        <span style="font-weight: 800; font-style: italic; letter-spacing: -0.5px; font-size: 1.1rem; color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">stripe</span>
+                        <span style="color: white;">Faire un don</span>
+                    </a>
                 </div>
 
                 <div style="font-weight: 600; color: var(--text-muted); font-size: 1.1rem;">ou</div>
@@ -159,9 +162,7 @@
                 </div>
             </div>
             
-            <p style="margin-top: 15px; font-size: 0.85rem; color: var(--text-muted);">
-                Pour un accès professionnel complet, contactez-nous à <a href="mailto:support@tvacalculator.eu" style="color: #7c3aed; font-weight: 600;">support@tvacalculator.eu</a>.
-            </p>
+
         </div>
     </section>
 
@@ -183,14 +184,6 @@
             <h2>Puis-je annuler mon don récurrent ?</h2>
             <div class="details">
                 <p>Oui, les dons récurrents peuvent être annulés à tout moment via votre compte de paiement ou en nous contactant directement.</p>
-            </div>
-            <button class="toggle-button">Afficher la réponse</button>
-        </div>
-
-        <div class="card interactive" data-open="false">
-            <h2>Comment savoir comment mon don est utilisé ?</h2>
-            <div class="details">
-                <p>Nous publions régulièrement des mises à jour sur le développement et des rapports d'utilisation des fonds. Les donateurs reçoivent également des newsletters exclusives avec des détails sur les avancements.</p>
             </div>
             <button class="toggle-button">Afficher la réponse</button>
         </div>

@@ -84,6 +84,11 @@ def build_nav(active_page: str) -> str:
             links.append(f'        <a href="{href}">{label}</a>')
     links_html = "\n".join(links)
     return f'''<nav class="menu" aria-label="Navigation principale">
+    <div class="logo-container">
+        <a href="index.html" aria-label="Accueil Moteur TVA">
+            <img src="assets/logo/logo.svg" alt="Logo TVA Intracommunautaire">
+        </a>
+    </div>
     <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="menu-links" aria-label="Ouvrir le menu">
         <span class="menu-toggle-bar"></span>
         <span class="menu-toggle-bar"></span>

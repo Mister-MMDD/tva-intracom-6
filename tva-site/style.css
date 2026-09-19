@@ -84,7 +84,7 @@ a:hover {
 /* Menu de Navigation Modernisé */
 .menu {
     background: linear-gradient(135deg, #1e40af, #1e3a8a);
-    padding: 0;
+    padding: 0 20px;
     display: flex;
     align-items: center;
     position: sticky;
@@ -93,6 +93,24 @@ a:hover {
     border-bottom: 1px solid rgba(255,255,255,0.1);
     backdrop-filter: blur(8px);
     transition: var(--transition);
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.logo-container img {
+    height: 40px;
+    width: auto;
+    border-radius: 8px;
+    transition: transform 0.3s ease;
+}
+
+.logo-container a:hover img {
+    transform: scale(1.05);
 }
 
 [data-theme="dark"] .menu {
@@ -656,9 +674,13 @@ footer {
 }
 
 .security-shoutout p {
-    color: #cbd5e1;
+    color: var(--text-main);
     font-size: 1.1rem;
     margin: 0;
+}
+
+[data-theme="dark"] .security-shoutout p {
+    color: #cbd5e1;
 }
 
 .selection-hint {

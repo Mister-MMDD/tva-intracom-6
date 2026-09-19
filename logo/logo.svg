@@ -1,16 +1,88 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Fond Bleu Arrondi -->
-  <rect width="512" height="512" rx="100" fill="#003399"/>
+  <!-- Fond Bleu Arrondi Étoilé (Identité Européenne) -->
+  <rect width="512" height="512" rx="110" fill="#003399"/>
   
-  <!-- Cercle d'étoiles (symbolisant l'Europe) -->
-  <g opacity="0.8">
-    <path d="M256 80L262 98H281L266 109L272 127L256 116L240 127L246 109L231 98H250L256 80Z" fill="#FFD700"/>
-    <!-- (Autres étoiles disposées en cercle...) -->
-    <circle cx="256" cy="256" r="160" stroke="#FFD700" stroke-width="2" stroke-dasharray="1 40" stroke-linecap="round"/>
+  <!-- Couronne des 12 Étoiles d'Europe dorées à bonne distance (Rayon augmenté à 215 pour entourer parfaitement) -->
+  <g id="europe-stars" fill="#dfb659">
+    <!-- Centre exact = (256, 256), Rayon R = 215 -->
+    <!-- Chaque étoile est dessinée individuellement à sa position trigonométrique exacte (angles de 30°) -->
+
+    <!-- 12h : angle 270° -> (256, 41) -->
+    <path d="M256 29L260.5 39.5H271.5L262.5 46L266 57L256 50.5L246 57L249.5 46L240.5 39.5H251.5L256 29Z"/>
+
+    <!-- 1h : angle 300° -> (363.5, 69.8) -> arrondi à (364, 70) -->
+    <path d="M364 58L368.5 68.5H379.5L370.5 75L374 86L364 79.5L354 86L357.5 75L348.5 68.5H359.5L364 58Z"/>
+
+    <!-- 2h : angle 330° -> (442.2, 148.5) -> arrondi à (442, 149) -->
+    <path d="M442 137L446.5 147.5H457.5L448.5 154L452 165L442 158.5L432 165L435.5 154L426.5 147.5H437.5L442 137Z"/>
+
+    <!-- 3h : angle 0° -> (471, 256) -->
+    <path d="M471 244L475.5 254.5H486.5L477.5 261L481 272L471 265.5L461 272L464.5 261L455.5 254.5H466.5L471 244Z"/>
+
+    <!-- 4h : angle 30° -> (442.2, 363.5) -> arrondi à (442, 364) -->
+    <path d="M442 352L446.5 362.5H457.5L448.5 369L452 380L442 373.5L432 380L435.5 369L426.5 362.5H437.5L442 352Z"/>
+
+    <!-- 5h : angle 60° -> (363.5, 442.2) -> arrondi à (364, 442) -->
+    <path d="M364 430L368.5 440.5H379.5L370.5 447L374 458L364 451.5L354 458L357.5 447L348.5 440.5H359.5L364 430Z"/>
+
+    <!-- 6h : angle 90° -> (256, 471) -->
+    <path d="M256 459L260.5 469.5H271.5L262.5 476L266 487L256 480.5L246 487L249.5 476L240.5 469.5H251.5L256 459Z"/>
+
+    <!-- 7h : angle 120° -> (148.5, 442.2) -> arrondi à (149, 442) -->
+    <path d="M149 430L153.5 440.5H164.5L155.5 447L159 458L149 451.5L139 458L142.5 447L133.5 440.5H144.5L149 430Z"/>
+
+    <!-- 8h : angle 150° -> (69.8, 363.5) -> arrondi à (70, 364) -->
+    <path d="M70 352L74.5 362.5H85.5L76.5 369L80 380L70 373.5L60 380L63.5 369L54.5 362.5H65.5L70 352Z"/>
+
+    <!-- 9h : angle 180° -> (41, 256) -->
+    <path d="M41 244L45.5 254.5H56.5L47.5 261L51 272L41 265.5L31 272L34.5 261L25.5 254.5H36.5L41 244Z"/>
+
+    <!-- 10h : angle 210° -> (69.8, 148.5) -> arrondi à (70, 149) -->
+    <path d="M70 137L74.5 147.5H85.5L76.5 154L80 165L70 158.5L60 165L63.5 154L54.5 147.5H65.5L70 137Z"/>
+
+    <!-- 11h : angle 240° -> (148.5, 69.8) -> arrondi à (149, 70) -->
+    <path d="M149 58L153.5 68.5H164.5L155.5 75L159 86L149 79.5L139 86L142.5 75L133.5 68.5H144.5L149 58Z"/>
   </g>
 
-  <!-- Symbole Euro stylisé -->
-  <path d="M320 200C305 180 280 170 250 170C200 170 160 210 160 260C160 310 200 350 250 350C280 350 305 340 320 320" stroke="#FFD700" stroke-width="35" stroke-linecap="round"/>
-  <path d="M140 245H260" stroke="#FFD700" stroke-width="30" stroke-linecap="round"/>
-  <path d="M140 285H260" stroke="#FFD700" stroke-width="30" stroke-linecap="round"/>
+  <!-- Texte "TVA" Réduit légèrement pour respirer au cœur (Taille 84) -->
+  <text x="256" y="198" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="800" font-size="84" fill="#dfb659" text-anchor="middle" letter-spacing="2">TVA</text>
+
+  <!-- Dessin de la Calculette d'Or - Recentré et Ajusté pour ne plus chevaucher les étoiles du bas -->
+  <g transform="translate(181, 226)">
+    <!-- Cadre de la calculette proportionnel et resserré (Largeur 150, Hauteur 180) -->
+    <rect x="0" y="0" width="150" height="180" rx="22" stroke="#dfb659" stroke-width="7" fill="none"/>
+
+    <!-- Écran vide -->
+    <rect x="14" y="14" width="122" height="32" rx="7" stroke="#dfb659" stroke-width="5" fill="none"/>
+
+    <!-- Ligne de touches de fonction supérieure -->
+    <rect x="14" y="58" width="24" height="14" rx="4" fill="#dfb659"/>
+    <rect x="46" y="58" width="24" height="14" rx="4" fill="#dfb659"/>
+    <rect x="78" y="58" width="24" height="14" rx="4" fill="#dfb659"/>
+    <rect x="112" y="58" width="24" height="14" rx="4" fill="#dfb659"/>
+
+    <!-- Grille de Touches Numériques & Opérateurs -->
+    <!-- Ligne 7 8 9 ÷ -->
+    <rect x="14" y="82" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="46" y="82" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="78" y="82" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="112" y="82" width="24" height="16" rx="4" fill="#dfb659"/>
+
+    <!-- Ligne 4 5 6 - -->
+    <rect x="14" y="108" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="46" y="108" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="78" y="108" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="112" y="108" width="24" height="16" rx="4" fill="#dfb659"/>
+
+    <!-- Ligne 1 2 3 + -->
+    <rect x="14" y="134" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="46" y="134" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="78" y="134" width="24" height="16" rx="4" fill="#dfb659"/>
+    <rect x="112" y="134" width="24" height="28" rx="4" fill="#dfb659"/> <!-- Touche + verticalisée -->
+
+    <!-- Ligne 0 . = -->
+    <rect x="14" y="156" width="24" height="14" rx="4" fill="#dfb659"/>
+    <rect x="46" y="156" width="24" height="14" rx="4" fill="#dfb659"/>
+    <rect x="78" y="156" width="24" height="14" rx="4" fill="#dfb659"/>
+  </g>
 </svg>
