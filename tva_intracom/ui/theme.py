@@ -599,10 +599,6 @@ button[kind="secondary"]:hover {
 .stDownloadButton > button {
     width: 100% !important;
 }
-[data-theme-actual="dark"] .stDownloadButton > button {
-    background-color: var(--brand-blue) !important;
-    color: #0e1117 !important;
-}
 
 button[data-testid="stBaseButton-secondary"]:hover {
     border-color: var(--brand-blue) !important;
