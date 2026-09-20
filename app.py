@@ -129,14 +129,22 @@ language_selector()
 
 st.title(f"🇪🇺 {_('title')}")
 
-# Section Donation (Déplacée de la sidebar vers le haut de page, format boutons en ligne)
-_d_col_text, _d_col_stripe, _d_col_paypal = st.columns([2.5, 1, 1], vertical_alignment="center")
-with _d_col_text:
-    st.markdown("❤️ **Don pour soutenir le projet :**")
-with _d_col_stripe:
-    st.link_button("💳 Stripe", "https://donate.stripe.com/fZu00jePda0f2cK0dw7Zu00", type="primary", width="stretch")
-with _d_col_paypal:
-    st.link_button("🔵 PayPal", "https://paypal.me/MatthieuGossein", type="secondary", width="stretch")
+# Section Donation - Boutons officiels Stripe & PayPal
+# Version 2026-09-20 : Utilisation de logos en haute définition via URLs stables certifiées.
+_donation_html = """
+<div style="font-family: sans-serif; display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+    <span style="font-weight: bold; white-space: nowrap;">❤️ Don pour soutenir le projet :</span>
+    
+    <a href="https://donate.stripe.com/fZu00jePda0f2cK0dw7Zu00" target="_blank" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; width: 85px; background: white; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); text-decoration: none;">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" alt="Stripe" style="height: 18px; width: auto;">
+    </a>
+    
+    <a href="https://paypal.me/MatthieuGossein" target="_blank" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; width: 85px; background: white; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); text-decoration: none;">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg" alt="PayPal" style="height: 18px; width: auto;">
+    </a>
+</div>
+"""
+st.html(_donation_html)
 
 _auth_ctx = run_auth_flow(cookie_manager)
 if _auth_ctx is None:

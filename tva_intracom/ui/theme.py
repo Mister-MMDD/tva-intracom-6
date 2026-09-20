@@ -7,6 +7,9 @@ Refonte 2026-09-18 : contraste et hiérarchie visuelle repensés (fond bleu
 ciel en mode clair, palette de bordures 3 niveaux, alertes professionnelles
 4 catégories, ombres 4 niveaux), mode sombre optimisé en cohérence.
 
+Refonte 2026-09-20 : palette Teal/Cyan moderne (style FinTech pro),
+animations modérées (0.3-0.5s), amélioration lisibilité et hiérarchie visuelle.
+
 Mécanisme de détection du thème (réécrit le 2026-09-18 après diagnostic) :
 Streamlit 1.58.0 NE POSE AUCUN attribut ni classe CSS reflétant le choix
 Clair/Sombre/Système sur `html`, `body` ou `.stApp` — vérifié empiriquement
@@ -70,56 +73,68 @@ _CSS = """
    redéfinir ces variables.
    ══════════════════════════════════════════════════════════════════════ */
 :root {
-    --brand-blue: #1f4e79;
-    --brand-blue-soft: color-mix(in srgb, #1f4e79 12%, transparent);
+    /* Palette Teal/Cyan moderne (style FinTech pro) - 2026-09-20 */
+    --brand-primary: #0891b2;
+    --brand-secondary: #06b6d4;
+    --brand-accent: #0e7490;
+    --brand-soft: color-mix(in srgb, #0891b2 12%, transparent);
 
-    --bg-primary: #d6ebfa;
+    /* Alias pour compatibilité avec l'existant (transition progressive) */
+    --brand-blue: var(--brand-primary);
+    --brand-blue-soft: var(--brand-soft);
+
+    /* Fond très clair inspiré du site web (slate-50) pour mode clair - 2026-09-20 */
+    --bg-primary: #f8fafc;
     --bg-secondary: #ffffff;
-    --bg-tertiary: #c3ddf4;
-    --text-primary: #14202e;
-    --text-secondary: #47566b;
-    --text-muted: #7c8aa0;
+    --bg-tertiary: #f1f5f9;
 
-    --border-light: #cddbe8;
-    --border-medium: #b3c4d6;
-    --border-strong: #94a9c0;
+    /* Texte optimisé pour lisibilité (contraste WCAG AA) */
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
 
-    --alert-error-bg: #fdf2f2;
-    --alert-error-border: #f3caca;
-    --alert-error-text: #9c2b2b;
+    /* Bordures 3 niveaux pour hiérarchie visuelle */
+    --border-light: #cbd5e1;
+    --border-medium: #94a3b8;
+    --border-strong: #64748b;
 
-    --alert-warning-bg: #fdf7ec;
-    --alert-warning-border: #eed9ab;
-    --alert-warning-text: #8a5a10;
+    /* Alertes 4 catégories - info adapté à la palette Teal */
+    --alert-error-bg: #fef2f2;
+    --alert-error-border: #fecaca;
+    --alert-error-text: #dc2626;
 
-    --alert-success-bg: #f0f8f2;
-    --alert-success-border: #bfdec8;
-    --alert-success-text: #24693c;
+    --alert-warning-bg: #fffbeb;
+    --alert-warning-border: #fde68a;
+    --alert-warning-text: #d97706;
 
-    --alert-info-bg: #eef3fb;
-    --alert-info-border: #c4d5ec;
-    --alert-info-text: #1f4e79;
+    --alert-success-bg: #f0fdf4;
+    --alert-success-border: #bbf7d0;
+    --alert-success-text: #16a34a;
 
-    --shadow-sm: 0 1px 2px rgba(20, 32, 46, 0.06);
-    --shadow-md: 0 2px 8px rgba(20, 32, 46, 0.09);
-    --shadow-lg: 0 6px 20px rgba(20, 32, 46, 0.12);
-    --shadow-hover: 0 4px 14px rgba(20, 32, 46, 0.16);
+    --alert-info-bg: #ecfeff;
+    --alert-info-border: #a5f3fc;
+    --alert-info-text: #0891b2;
+
+    /* Ombres 4 niveaux pour profondeur */
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+    --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.12);
+    --shadow-lg: 0 6px 20px rgba(15, 23, 42, 0.15);
+    --shadow-hover: 0 4px 14px rgba(15, 23, 42, 0.18);
+
+    /* Rayons de bordure */
     --radius-sm: 6px;
     --radius-md: 10px;
 
-    --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
+    /* Tags multiselect - vert conservé pour cohérence (2026-09-18) */
+    --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);
     --tag-text: #2e7d32;
-    --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
-    --slider-fill-hue: 135.5deg;  /* filtre hue-rotate calculé par optimisation numérique pour matcher --accent-green exactement (2026-09-18) */
+    --accent-green: var(--tag-text);
+    --slider-fill-hue: 135.5deg;
     --slider-fill-sat: 0.54;
     --slider-fill-bri: 1.041;
 
-    /* Réutilise la variable native de Streamlit pour que TOUS ses
-       composants natifs (uploader, checkbox/radio, slider, tags
-       multiselect, focus ring, liens) suivent notre bleu au lieu du
-       rouge/rose par défaut (#FF4B4B) — sans passer par .streamlit/
-       config.toml [theme], qui masquerait le sélecteur clair/sombre. */
-    --primary-color: #1f4e79;
+    /* Variable native Streamlit - adaptée à Teal (2026-09-20) */
+    --primary-color: #0891b2;
 }
 
 /* Repli "Système" : l'OS/navigateur est en sombre mais Streamlit n'a posé
@@ -128,149 +143,195 @@ _CSS = """
    pour que ceux-ci puissent le surcharger en cas de choix explicite. */
 @media (prefers-color-scheme: dark) {
     :root {
-        --brand-blue: #6fa8d6;
-        --brand-blue-soft: color-mix(in srgb, #6fa8d6 16%, transparent);
+        /* Palette Teal/Cyan mode sombre - 2026-09-20 */
+        --brand-primary: #22d3ee;
+        --brand-secondary: #06b6d4;
+        --brand-accent: #0891b2;
+        --brand-soft: color-mix(in srgb, #22d3ee 16%, transparent);
 
-        --bg-primary: #10151d;
-        --bg-secondary: #1a212c;
-        --bg-tertiary: #232b38;
-        --text-primary: #e7ecf3;
-        --text-secondary: #aab6c6;
-        --text-muted: #7d8ba0;
+        /* Alias pour compatibilité */
+        --brand-blue: var(--brand-primary);
+        --brand-blue-soft: var(--brand-soft);
 
-        --border-light: #2a3341;
-        --border-medium: #37424f;
-        --border-strong: #4a5766;
+        /* Fond bleu nuit pour mode sombre */
+        --bg-primary: #0f172a;
+        --bg-secondary: #1e293b;
+        --bg-tertiary: #334155;
 
-        --alert-error-bg: #241618;
-        --alert-error-border: #4a2b2e;
-        --alert-error-text: #e59a9a;
+        /* Texte optimisé contraste mode sombre */
+        --text-primary: #f1f5f9;
+        --text-secondary: #cbd5e1;
+        --text-muted: #94a3b8;
 
-        --alert-warning-bg: #241f14;
-        --alert-warning-border: #4a3d1f;
-        --alert-warning-text: #e0bf78;
+        /* Bordures mode sombre */
+        --border-light: #334155;
+        --border-medium: #475569;
+        --border-strong: #64748b;
 
-        --alert-success-bg: #142219;
-        --alert-success-border: #26432f;
-        --alert-success-text: #8fcba1;
+        /* Alertes mode sombre - info adapté Teal */
+        --alert-error-bg: #1a1515;
+        --alert-error-border: #3f2626;
+        --alert-error-text: #fca5a5;
 
-        --alert-info-bg: #14202f;
-        --alert-info-border: #274257;
-        --alert-info-text: #9dc2e8;
+        --alert-warning-bg: #1a1912;
+        --alert-warning-border: #3f3a24;
+        --alert-warning-text: #fcd34d;
 
-        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-        --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.4);
-        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-        --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.55);
+        --alert-success-bg: #0f1f15;
+        --alert-success-border: #1f3f2b;
+        --alert-success-text: #86efac;
 
-        --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
+        --alert-info-bg: #0f1f29;
+        --alert-info-border: #1e4a5a;
+        --alert-info-text: #67e8f9;
+
+        /* Ombres mode sombre */
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.5);
+        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+        --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.65);
+
+        /* Tags mode sombre */
+        --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));
         --tag-text: #7cd992;
-        --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
-        --slider-fill-hue: 137.5deg;  /* filtre hue-rotate calculé par optimisation numérique pour matcher --accent-green exactement (2026-09-18) */
+        --accent-green: var(--tag-text);
+        --slider-fill-hue: 137.5deg;
         --slider-fill-sat: 0.44;
         --slider-fill-bri: 1.4046;
 
-        --primary-color: #6fa8d6;
+        /* Variable native Streamlit mode sombre */
+        --primary-color: #22d3ee;
     }
 }
 
 [data-theme-actual="dark"] {
-    --brand-blue: #6fa8d6;
-    --brand-blue-soft: color-mix(in srgb, #6fa8d6 16%, transparent);
+    /* Palette Teal/Cyan mode sombre - 2026-09-20 */
+    --brand-primary: #22d3ee;
+    --brand-secondary: #06b6d4;
+    --brand-accent: #0891b2;
+    --brand-soft: color-mix(in srgb, #22d3ee 16%, transparent);
 
-    --bg-primary: #10151d;
-    --bg-secondary: #1a212c;
-    --bg-tertiary: #232b38;
-    --text-primary: #e7ecf3;
-    --text-secondary: #aab6c6;
-    --text-muted: #7d8ba0;
+    /* Alias pour compatibilité */
+    --brand-blue: var(--brand-primary);
+    --brand-blue-soft: var(--brand-soft);
 
-    --border-light: #2a3341;
-    --border-medium: #37424f;
-    --border-strong: #4a5766;
+    /* Fond bleu nuit pour mode sombre */
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
 
-    --alert-error-bg: #241618;
-    --alert-error-border: #4a2b2e;
-    --alert-error-text: #e59a9a;
+    /* Texte optimisé contraste mode sombre */
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
 
-    --alert-warning-bg: #241f14;
-    --alert-warning-border: #4a3d1f;
-    --alert-warning-text: #e0bf78;
+    /* Bordures mode sombre */
+    --border-light: #334155;
+    --border-medium: #475569;
+    --border-strong: #64748b;
 
-    --alert-success-bg: #142219;
-    --alert-success-border: #26432f;
-    --alert-success-text: #8fcba1;
+    /* Alertes mode sombre - info adapté Teal */
+    --alert-error-bg: #1a1515;
+    --alert-error-border: #3f2626;
+    --alert-error-text: #fca5a5;
 
-    --alert-info-bg: #14202f;
-    --alert-info-border: #274257;
-    --alert-info-text: #9dc2e8;
+    --alert-warning-bg: #1a1912;
+    --alert-warning-border: #3f3a24;
+    --alert-warning-text: #fcd34d;
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-    --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.55);
+    --alert-success-bg: #0f1f15;
+    --alert-success-border: #1f3f2b;
+    --alert-success-text: #86efac;
 
-    --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
+    --alert-info-bg: #0f1f29;
+    --alert-info-border: #1e4a5a;
+    --alert-info-text: #67e8f9;
+
+    /* Ombres mode sombre */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+    --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.65);
+
+    /* Tags mode sombre */
+    --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));
     --tag-text: #7cd992;
-    --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
-    --slider-fill-hue: 137.5deg;  /* filtre hue-rotate calculé par optimisation numérique pour matcher --accent-green exactement (2026-09-18) */
+    --accent-green: var(--tag-text);
+    --slider-fill-hue: 137.5deg;
     --slider-fill-sat: 0.44;
     --slider-fill-bri: 1.4046;
 
-    --primary-color: #6fa8d6;
+    /* Variable native Streamlit mode sombre */
+    --primary-color: #22d3ee;
 }
 
 /* Clair forcé explicitement (l'utilisateur a choisi "Clair" dans le menu
    Streamlit alors que l'OS est en sombre) : doit rester APRÈS le @media
    ci-dessus pour pouvoir annuler son repli sombre sur ces mêmes variables. */
 [data-theme-actual="light"] {
-    --brand-blue: #1f4e79;
-    --brand-blue-soft: color-mix(in srgb, #1f4e79 12%, transparent);
+    /* Palette Teal/Cyan mode clair - 2026-09-20 */
+    --brand-primary: #0891b2;
+    --brand-secondary: #06b6d4;
+    --brand-accent: #0e7490;
+    --brand-soft: color-mix(in srgb, #0891b2 12%, transparent);
 
-    --bg-primary: #d6ebfa;
+    /* Alias pour compatibilité */
+    --brand-blue: var(--brand-primary);
+    --brand-blue-soft: var(--brand-soft);
+
+    /* Fond très clair inspiré du site web (slate-50) pour mode clair - 2026-09-20 */
+    --bg-primary: #f8fafc;
     --bg-secondary: #ffffff;
-    --bg-tertiary: #c3ddf4;
-    --text-primary: #14202e;
-    --text-secondary: #47566b;
-    --text-muted: #7c8aa0;
+    --bg-tertiary: #f1f5f9;
 
-    --border-light: #cddbe8;
-    --border-medium: #b3c4d6;
-    --border-strong: #94a9c0;
+    /* Texte optimisé pour lisibilité (contraste WCAG AA) */
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
 
-    --alert-error-bg: #fdf2f2;
-    --alert-error-border: #f3caca;
-    --alert-error-text: #9c2b2b;
+    /* Bordures 3 niveaux pour hiérarchie visuelle */
+    --border-light: #cbd5e1;
+    --border-medium: #94a3b8;
+    --border-strong: #64748b;
 
-    --alert-warning-bg: #fdf7ec;
-    --alert-warning-border: #eed9ab;
-    --alert-warning-text: #8a5a10;
+    /* Alertes 4 catégories - info adapté à la palette Teal */
+    --alert-error-bg: #fef2f2;
+    --alert-error-border: #fecaca;
+    --alert-error-text: #dc2626;
 
-    --alert-success-bg: #f0f8f2;
-    --alert-success-border: #bfdec8;
-    --alert-success-text: #24693c;
+    --alert-warning-bg: #fffbeb;
+    --alert-warning-border: #fde68a;
+    --alert-warning-text: #d97706;
 
-    --alert-info-bg: #eef3fb;
-    --alert-info-border: #c4d5ec;
-    --alert-info-text: #1f4e79;
+    --alert-success-bg: #f0fdf4;
+    --alert-success-border: #bbf7d0;
+    --alert-success-text: #16a34a;
 
-    --shadow-sm: 0 1px 2px rgba(20, 32, 46, 0.06);
-    --shadow-md: 0 2px 8px rgba(20, 32, 46, 0.09);
-    --shadow-lg: 0 6px 20px rgba(20, 32, 46, 0.12);
-    --shadow-hover: 0 4px 14px rgba(20, 32, 46, 0.16);
+    --alert-info-bg: #ecfeff;
+    --alert-info-border: #a5f3fc;
+    --alert-info-text: #0891b2;
 
-    --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);  /* teinté avec le même vert que le toggle/slider (2026-09-18) */
+    /* Ombres 4 niveaux pour profondeur */
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+    --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.12);
+    --shadow-lg: 0 6px 20px rgba(15, 23, 42, 0.15);
+    --shadow-hover: 0 4px 14px rgba(15, 23, 42, 0.18);
+
+    /* Tags multiselect - vert conservé pour cohérence (2026-09-18) */
+    --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);
     --tag-text: #2e7d32;
-    --accent-green: var(--tag-text);  /* alias : même vert que les tags pays (2026-09-18, harmonisation) */
-    --slider-fill-hue: 135.5deg;  /* filtre hue-rotate calculé par optimisation numérique pour matcher --accent-green exactement (2026-09-18) */
+    --accent-green: var(--tag-text);
+    --slider-fill-hue: 135.5deg;
     --slider-fill-sat: 0.54;
     --slider-fill-bri: 1.041;
 
-    --primary-color: #1f4e79;
+    /* Variable native Streamlit - adaptée à Teal (2026-09-20) */
+    --primary-color: #0891b2;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
    2. SOCLE — fond, texte, typographie
+   Améliorations lisibilité (2026-09-20) : line-height 1.7, letter-spacing optimisé
    ══════════════════════════════════════════════════════════════════════ */
 .stApp {
     background-color: var(--bg-primary);
@@ -285,12 +346,12 @@ _CSS = """
 
 .stMarkdown, .stMarkdown p, .stMarkdown li {
     color: var(--text-primary);
-    line-height: 1.6;
+    line-height: 1.7; /* Amélioré pour lisibilité (2026-09-20) */
 }
 
 h1 {
     color: var(--text-primary);
-    border-bottom: 3px solid var(--brand-blue);
+    border-bottom: 3px solid var(--brand-primary);
     padding-bottom: 8px;
     font-weight: 700;
     letter-spacing: -0.01em;
@@ -298,7 +359,7 @@ h1 {
 h2, h3 {
     color: var(--text-primary);
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.005em; /* Subtil amélioré (2026-09-20) */
 }
 h2 {
     border-bottom: 1px solid var(--border-light);
@@ -321,6 +382,7 @@ header[data-testid="stHeader"],
 
 /* ══════════════════════════════════════════════════════════════════════
    3. SIDEBAR
+   Améliorations (2026-09-20) : transitions modérées, meilleure lisibilité
    ══════════════════════════════════════════════════════════════════════ */
 section[data-testid="stSidebar"] {
     background-color: var(--bg-primary);
@@ -334,7 +396,7 @@ section[data-testid="stSidebar"] * {
 }
 
 /* Rectangles blancs pour tout élément de saisie (contraste contre le fond
-   bleu de la sidebar) : champs natifs + wrappers BaseWeb du selectbox et
+   bleu-vert de la sidebar) : champs natifs + wrappers BaseWeb du selectbox et
    des combobox de recherche, que Streamlit ne rend pas comme <select>. */
 section[data-testid="stSidebar"] input,
 section[data-testid="stSidebar"] textarea,
@@ -345,6 +407,16 @@ section[data-testid="stSidebar"] div[data-baseweb="input"] {
     color: var(--text-primary);
     border-color: var(--border-medium) !important;
     border-radius: var(--radius-sm);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease; /* Animation modérée (2026-09-20) */
+}
+section[data-testid="stSidebar"] input:focus,
+section[data-testid="stSidebar"] textarea:focus,
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus,
+section[data-testid="stSidebar"] div[data-baseweb="base-input"]:focus,
+section[data-testid="stSidebar"] div[data-baseweb="input"]:focus {
+    border-color: var(--brand-primary) !important;
+    box-shadow: 0 0 0 3px var(--brand-soft); /* Focus ring teal (2026-09-20) */
+    outline: none;
 }
 /* Exception : le multiselect (ex. pays TVA) a un <input> de recherche
    invisible intercalé ENTRE les tags. La règle ci-dessus lui donnait un
@@ -367,10 +439,15 @@ section[data-testid="stSidebar"] div[data-testid="stExpander"] {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-medium);
     margin-bottom: 10px;
+    transition: box-shadow 0.3s ease; /* Animation modérée (2026-09-20) */
+}
+section[data-testid="stSidebar"] div[data-testid="stExpander"]:hover {
+    box-shadow: var(--shadow-md); /* Hover subtil (2026-09-20) */
 }
 
 section[data-testid="stSidebar"] [role="switch"] {
     background-color: var(--border-medium);
+    transition: background-color 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
@@ -466,31 +543,57 @@ div[data-testid="stPills"] button[data-testid="stBaseButton-pillsActive"] {
 
 /* ══════════════════════════════════════════════════════════════════════
    4. BOUTONS
+   Améliorations (2026-09-20) : transitions modérées (0.3s), palette Teal
    ══════════════════════════════════════════════════════════════════════ */
 button[kind="primary"] {
-    background-color: var(--brand-blue) !important;
-    border-color: var(--brand-blue) !important;
+    background-color: var(--brand-primary) !important;
+    border-color: var(--brand-primary) !important;
     color: #ffffff !important;
     width: 100%;
     font-weight: 600;
-    transition: filter 0.15s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Animation modérée fluide (2026-09-20) */
 }
 button[kind="primary"]:hover {
     filter: brightness(1.08);
+    transform: translateY(-1px); /* Micro-élévation (2026-09-20) */
+    box-shadow: var(--shadow-md);
 }
 [data-theme-actual="dark"] button[kind="primary"] {
-    color: #0e1117 !important;
+    color: #0f172a !important; /* Adapté pour contraste mode sombre (2026-09-20) */
 }
 
 button[kind="secondary"] {
     border: 1px solid var(--border-medium);
     color: var(--text-primary);
     background-color: var(--bg-secondary);
-    transition: border-color 0.15s ease, color 0.15s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Animation modérée (2026-09-20) */
 }
 button[kind="secondary"]:hover {
-    border-color: var(--brand-blue);
-    color: var(--brand-blue);
+    border-color: var(--brand-primary);
+    color: var(--brand-primary);
+    transform: translateY(-1px); /* Micro-élévation (2026-09-20) */
+    box-shadow: var(--shadow-sm);
+}
+
+/* Liens donation personnalisés avec SVG - 2026-09-20 */
+.donation-link {
+    text-decoration: none !important;
+    display: inline-block;
+    padding: 8px 16px;
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.donation-link:hover {
+    border-color: var(--brand-primary);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+.donation-link svg {
+    width: 80px;
+    height: 24px;
 }
 
 .stDownloadButton > button {
@@ -508,19 +611,20 @@ button[data-testid="stBaseButton-secondary"]:hover {
 
 /* ══════════════════════════════════════════════════════════════════════
    5. INPUTS / FORMULAIRES
+   Améliorations (2026-09-20) : focus rings teal, transitions modérées
    ══════════════════════════════════════════════════════════════════════ */
 .stTextInput > div > div > input,
 .stSelectbox > div > div > select,
 .stNumberInput > div > div > input {
     border: 1px solid var(--border-medium);
     border-radius: var(--radius-sm);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 .stTextInput > div > div > input:focus,
 .stSelectbox > div > div > select:focus,
 .stNumberInput > div > div > input:focus {
-    border-color: var(--brand-blue);
-    box-shadow: 0 0 0 3px var(--brand-blue-soft);
+    border-color: var(--brand-primary); /* Focus ring teal (2026-09-20) */
+    box-shadow: 0 0 0 3px var(--brand-soft);
     outline: none;
 }
 
@@ -544,6 +648,7 @@ button[data-testid="stBaseButton-secondary"]:hover {
 div[data-testid="stSlider"] [role="slider"] {
     background-color: var(--accent-green) !important;
     border-color: var(--accent-green) !important;
+    transition: background-color 0.3s ease, border-color 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 /* Valeur courante affichée au-dessus du slider (ex: "250") — vert (2026-09-18). */
 div[data-testid="stSlider"] [data-baseweb="slider"] > div:first-child {
@@ -589,6 +694,7 @@ div[data-testid="stSlider"] [data-baseweb="slider"] > div:first-child * {
    remplissage, quel que soit l'ordre réel des enfants. */
 div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div:has(> [role="slider"]) + div {
     filter: hue-rotate(var(--slider-fill-hue)) saturate(var(--slider-fill-sat)) brightness(var(--slider-fill-bri));
+    transition: filter 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 
 /* Libellés min/max ("1"/"30") du slider, invisibles par défaut — forcés
@@ -625,21 +731,26 @@ div[data-testid="stSliderTickBar"] p {
     border: 1.5px dashed var(--border-medium) !important;
     border-radius: var(--radius-sm);
     background-color: var(--bg-secondary);
-    transition: border-color 0.15s ease;
+    transition: border-color 0.3s ease, background-color 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 [data-testid="stFileUploaderDropzone"]:hover {
-    border-color: var(--brand-blue) !important;
+    border-color: var(--brand-primary) !important; /* Hover teal (2026-09-20) */
+    background-color: var(--bg-tertiary);
 }
 
 /* ══════════════════════════════════════════════════════════════════════
    6. CONTENEURS — expanders, métriques, dataframes, tables
+   Améliorations (2026-09-20) : transitions modérées, ombres optimisées, palette Teal
    ══════════════════════════════════════════════════════════════════════ */
 div[data-testid="stExpander"] {
     border: 1px solid var(--border-medium);
     border-radius: var(--radius-md);
     background-color: var(--bg-secondary);
     box-shadow: var(--shadow-sm);
-    transition: box-shadow 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Animation modérée fluide (2026-09-20) */
+}
+div[data-testid="stExpander"]:hover {
+    box-shadow: var(--shadow-md); /* Hover subtil (2026-09-20) */
 }
 div[data-testid="stExpander"] > div {
     padding: 16px;
@@ -648,9 +759,10 @@ div[data-testid="stExpander"] > div {
 .streamlit-expanderHeader {
     font-weight: 600;
     color: var(--text-primary);
+    transition: color 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 .streamlit-expanderHeader:hover {
-    color: var(--brand-blue);
+    color: var(--brand-primary); /* Hover teal (2026-09-20) */
 }
 
 div[data-testid="stMetric"] {
@@ -659,7 +771,7 @@ div[data-testid="stMetric"] {
     border-radius: var(--radius-md);
     padding: 14px 16px;
     box-shadow: var(--shadow-sm);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Animation modérée fluide (2026-09-20) */
 }
 div[data-testid="stMetric"]:hover {
     transform: translateY(-2px);
@@ -692,6 +804,7 @@ div[data-testid="stDataFrame"] {
 }
 .stTable tbody tr {
     border-bottom: 1px solid var(--border-light);
+    transition: background-color 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 .stTable tbody tr:hover {
     background-color: var(--bg-tertiary);
@@ -708,7 +821,7 @@ div[data-testid="stDataFrame"] {
 }
 
 .stBlockquote {
-    border-left: 3px solid var(--brand-blue);
+    border-left: 3px solid var(--brand-primary); /* Teal accent (2026-09-20) */
     background-color: var(--bg-secondary);
     padding: 12px 16px;
     margin: 16px 0;
@@ -726,7 +839,7 @@ div[data-testid="stDataFrame"] {
 }
 
 .stBadge {
-    background-color: var(--brand-blue);
+    background-color: var(--brand-primary); /* Teal badge (2026-09-20) */
     color: #ffffff;
     border-radius: 4px;
     padding: 2px 8px;
@@ -735,12 +848,13 @@ div[data-testid="stDataFrame"] {
 }
 
 .stProgress > div > div > div > div {
-    background-color: var(--brand-blue);
+    background-color: var(--brand-primary); /* Teal progress (2026-09-20) */
     border-radius: 4px;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
    7. ONGLETS
+   Améliorations (2026-09-20) : soulignement teal, transitions modérées
    ══════════════════════════════════════════════════════════════════════ */
 .stTabs [data-baseweb="tab-list"] {
     gap: 6px;
@@ -753,16 +867,17 @@ div[data-testid="stDataFrame"] {
     padding: 10px 18px;
     color: var(--text-secondary);
     font-weight: 500;
+    transition: all 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 .stTabs [data-baseweb="tab"][aria-selected="true"],
 button[data-baseweb="tab"][aria-selected="true"] {
-    color: var(--brand-blue) !important;
-    border-bottom: 3px solid var(--brand-blue) !important;
+    color: var(--brand-primary) !important; /* Teal actif (2026-09-20) */
+    border-bottom: 3px solid var(--brand-primary) !important;
     font-weight: 600;
 }
 .stTabs [data-baseweb="tab"]:hover,
 button[data-baseweb="tab"]:hover {
-    color: var(--brand-blue) !important;
+    color: var(--brand-primary) !important; /* Hover teal (2026-09-20) */
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -832,8 +947,7 @@ div[data-testid="stVerticalBlock"] > div > div {
 
 /* ══════════════════════════════════════════════════════════════════════
    11. COMPOSANTS MAISON (classes injectées depuis app.py / sidebar.py)
-   Interface publique inchangée — seules les couleurs/ombres/bordures
-   sont mises à jour pour suivre la nouvelle palette.
+   Améliorations (2026-09-20) : palette Teal, transitions modérées, meilleure hiérarchie
    ══════════════════════════════════════════════════════════════════════ */
 
 /* Badge "compte connecté" (email + forfait) */
@@ -848,6 +962,10 @@ div[data-testid="stVerticalBlock"] > div > div {
     border: 1px solid var(--border-medium);
     font-size: 0.82rem;
     line-height: 1.4;
+    transition: box-shadow 0.3s ease; /* Animation modérée (2026-09-20) */
+}
+.account-badge:hover {
+    box-shadow: var(--shadow-sm); /* Hover subtil (2026-09-20) */
 }
 .account-badge-dot {
     display: inline-block;
@@ -871,8 +989,8 @@ div[data-testid="stVerticalBlock"] > div > div {
     color: var(--text-secondary);
 }
 .account-badge-plan.plan-business {
-    background-color: var(--brand-blue-soft);
-    color: var(--brand-blue);
+    background-color: var(--brand-soft); /* Teal soft (2026-09-20) */
+    color: var(--brand-primary);
 }
 .account-badge-plan.plan-cabinet {
     background-color: color-mix(in srgb, #b8860b 20%, transparent);
@@ -889,9 +1007,9 @@ div[data-testid="stVerticalBlock"] > div > div {
     padding: 14px 18px;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-medium);
-    border-left: 4px solid var(--kpi-accent, var(--brand-blue));
+    border-left: 4px solid var(--kpi-accent, var(--brand-primary)); /* Teal accent (2026-09-20) */
     box-shadow: var(--shadow-sm);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Animation modérée fluide (2026-09-20) */
 }
 .kpi-card:hover {
     transform: translateY(-2px);
@@ -929,8 +1047,12 @@ div[data-testid="stVerticalBlock"] > div > div {
     margin-bottom: 14px;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-medium);
-    border-left: 4px solid var(--brand-blue);
+    border-left: 4px solid var(--brand-primary); /* Teal accent (2026-09-20) */
     box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.3s ease; /* Animation modérée (2026-09-20) */
+}
+.status-bar:hover {
+    box-shadow: var(--shadow-md); /* Hover subtil (2026-09-20) */
 }
 .status-bar-item {
     display: flex;
@@ -953,6 +1075,7 @@ div[data-testid="stVerticalBlock"] > div > div {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    transition: background-color 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 .status-bar-dot.ok { background-color: #2f8f4e; }
 .status-bar-dot.pending { background-color: #c8850f; }
@@ -965,8 +1088,12 @@ div[data-testid="stVerticalBlock"] > div > div {
     margin-bottom: 14px;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-medium);
-    border-left: 4px solid var(--brand-blue);
+    border-left: 4px solid var(--brand-primary); /* Teal accent (2026-09-20) */
     box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.3s ease; /* Animation modérée (2026-09-20) */
+}
+.onboarding-banner:hover {
+    box-shadow: var(--shadow-md); /* Hover subtil (2026-09-20) */
 }
 .onboarding-banner-title {
     margin: 0 0 10px;
@@ -993,8 +1120,8 @@ div[data-testid="stVerticalBlock"] > div > div {
 /* Guidage visuel "Lighthouse" (onboarding) — pur CSS, sans JS ni requête
    réseau : aucun impact sur la détection d'inactivité de l'hébergeur. */
 @keyframes onboarding-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-blue) 45%, transparent); }
-    50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand-blue) 0%, transparent); }
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-primary) 45%, transparent); } /* Teal pulse (2026-09-20) */
+    50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand-primary) 0%, transparent); }
 }
 .st-key-onb_pulse_entreprise + div[data-testid="stExpander"],
 .st-key-onb_pulse_vies + div[data-testid="stExpander"],
@@ -1017,8 +1144,13 @@ div[data-testid="stVerticalBlock"] > div > div {
     padding: 16px 18px;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-medium);
-    border-top: 3px solid var(--brand-blue);
+    border-top: 3px solid var(--brand-primary); /* Teal accent (2026-09-20) */
     box-shadow: var(--shadow-sm);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Animation modérée (2026-09-20) */
+}
+.zero-state-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md); /* Hover subtil (2026-09-20) */
 }
 .zero-state-card.done {
     border-top-color: #2f8f4e;
@@ -1037,9 +1169,9 @@ div[data-testid="stVerticalBlock"] > div > div {
 }
 
 /* Pied de sidebar (support/site web) — carte blanche cohérente avec les
-   autres blocs de la sidebar (qui est en fond bleu depuis le 2026-09-18),
+   autres blocs de la sidebar (qui est en fond bleu-vert depuis le 2026-09-20),
    à la place de st.divider()/st.caption() qui restaient nus sur le fond
-   bleu (retour Matthieu 2026-09-18). */
+   (retour Matthieu 2026-09-18). */
 .sidebar-support-card {
     margin-top: 16px;
     border-radius: var(--radius-md);
@@ -1047,6 +1179,10 @@ div[data-testid="stVerticalBlock"] > div > div {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-medium);
     box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.3s ease; /* Animation modérée (2026-09-20) */
+}
+.sidebar-support-card:hover {
+    box-shadow: var(--shadow-md); /* Hover subtil (2026-09-20) */
 }
 .sidebar-support-title {
     font-weight: 700;
@@ -1062,10 +1198,12 @@ div[data-testid="stVerticalBlock"] > div > div {
 .sidebar-support-link {
     font-size: 0.85rem;
     font-weight: 600;
-    color: var(--brand-blue);
+    color: var(--brand-primary); /* Teal link (2026-09-20) */
     text-decoration: none;
+    transition: color 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 .sidebar-support-link:hover {
+    color: var(--brand-secondary); /* Hover cyan (2026-09-20) */
     text-decoration: underline;
 }
 
@@ -1083,6 +1221,7 @@ div[data-testid="stVerticalBlock"] > div > div {
     padding: 6px 10px;
     border-bottom: 1px solid var(--border-light);
     color: var(--text-primary);
+    transition: background-color 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 .bce-rates-table tr:last-child td {
     border-bottom: none;
