@@ -377,26 +377,22 @@ section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
     gap: 0.5rem;
 }
 
-/* Toggles / checkboxes "coché" — vert au lieu du rouge natif Streamlit
-   (2026-09-18). Structure réelle confirmée par dump DOM le 2026-09-18 :
-   c'est un st.checkbox (data-testid="stCheckbox"), sans aucun rôle ARIA
-   switch/checkbox — seul l'<input type="checkbox"> caché porte
-   aria-checked, et la case colorée visible (1er <div> du <label>) est un
-   FRÈRE PRÉCÉDENT de cet input dans le DOM. Un combinateur CSS classique
-   (+ / ~) ne peut cibler qu'un frère SUIVANT ; on utilise donc :has(),
-   qui permet de remonter du parent <label> vers son enfant <input>
-   coché, puis de redescendre vers le 1er <div> (la case). Remplace les
-   anciens sélecteurs [role="switch"]/[role="checkbox"] qui ne
-   matchaient jamais rien (confirmé par dump : "AUCUN sélecteur ne
-   matche"). Portée globale (pas juste la sidebar) : ce composant existe
-   aussi hors sidebar.
-   Seul le 1er <div> (le "track"/la case) est coloré — PAS son enfant
-   (le "knob"/cercle qui glisse à l'intérieur) : les colorer tous les
-   deux de la même teinte les rendait indiscernables, le bouton perdant
-   tout relief visuel et ne ressemblant plus à un bouton (retour
-   Matthieu 2026-09-18). Le knob garde sa couleur native (blanc), seul
-   contraste qui montre encore qu'il s'agit d'un bouton. */
-label[data-baseweb="checkbox"]:has(input[type="checkbox"]:checked) > div:first-child {
+/* Toggles / checkboxes "coché" — vert au lieu du rouge natif Streamlit.
+   CORRIGÉ le 2026-09-19 (3e itération) : st.toggle et st.checkbox
+   partagent tous deux data-baseweb="checkbox" mais PAS la même structure
+   interne. Confirmé par deux outerHTML distincts :
+   - st.checkbox (ex. "Historique complet des vérifications") : 1er
+     enfant = <span> vide (la case), puis <input>, puis <div> = texte.
+   - st.toggle (ex. "Vendeur = importateur officiel (DDP)") : 1er enfant
+     = <div> (la piste ronde du switch) — structure jamais vérifiée par
+     outerHTML mais c'est la seule hypothèse cohérente avec le fait que
+     la toute première règle (`> div:first-child`, 2026-09-18) colorait
+     bien le DDP alors qu'elle ne matchait jamais la checkbox.
+   D'où DEUX règles nécessaires, une par variante — remplacer l'une par
+   l'autre (erreur de la 2e itération) casse systématiquement l'un des
+   deux widgets. */
+label[data-baseweb="checkbox"]:has(input[type="checkbox"]:checked) > div:first-child,
+label[data-baseweb="checkbox"]:has(input[type="checkbox"]:checked) > span:first-child {
     background-color: var(--accent-green) !important;
     border-color: var(--accent-green) !important;
 }
@@ -442,15 +438,23 @@ label[data-baseweb="radio"]:has(input[type="radio"]:checked) > div:first-child {
     filter: hue-rotate(var(--slider-fill-hue)) saturate(var(--slider-fill-sat)) brightness(var(--slider-fill-bri)) !important;
 }
 
-/* Sélecteur segmenté (ex: Simple/Détaillé) et Pills — transforme le rouge en vert. */
-div[data-testid="stSegmentedControl"] button[aria-checked="true"],
-div[data-testid="stPills"] button[aria-checked="true"] {
+/* Sélecteur segmenté (Simple/Détaillé) et Pills — transforme le rouge en vert.
+   CORRIGÉ le 2026-09-19 via inspection DOM directe : le bouton actif ne
+   porte AUCUN attribut ARIA d'état (pas de aria-checked/aria-pressed).
+   Streamlit 1.58 marque l'état actif via l'attribut `kind` lui-même :
+   `kind="segmented_controlActive"` / `data-testid=
+   "stBaseButton-segmented_controlActive"` (vs `kind="segmented_control"`
+   pour un bouton inactif). D'où l'échec des deux tentatives précédentes
+   basées sur des attributs ARIA qui n'existent pas sur ce composant. */
+div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"],
+div[data-testid="stPills"] button[data-testid="stBaseButton-pillsActive"] {
     filter: hue-rotate(var(--slider-fill-hue)) saturate(var(--slider-fill-sat)) brightness(var(--slider-fill-bri)) !important;
     background-color: rgb(255, 75, 75) !important; /* Force la couleur source pour que le filtre produise le vert exact */
+    border-color: rgb(255, 75, 75) !important;
     color: #ffffff !important;
 }
-[data-theme-actual="dark"] div[data-testid="stSegmentedControl"] button[aria-checked="true"],
-[data-theme-actual="dark"] div[data-testid="stPills"] button[aria-checked="true"] {
+[data-theme-actual="dark"] div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"],
+[data-theme-actual="dark"] div[data-testid="stPills"] button[data-testid="stBaseButton-pillsActive"] {
     color: #0e1117 !important;
 }
 
