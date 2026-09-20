@@ -1558,11 +1558,17 @@ if uploaded_files:
         # apply_theme() en tête de script — extrait de app.py, aucune
         # modification de comportement.
 
-        def _kpi_card(label: str, value: str, accent: str, help_text: str = "") -> str:
+        def _kpi_card(label: str, value: str, accent: str, help_text: str = "",
+                      icon: str = "", featured: bool = False) -> str:
             title_attr = f' title="{help_text}"' if help_text else ""
+            card_class = "kpi-card featured" if featured else "kpi-card"
+            icon_html = f'<span class="kpi-icon">{icon}</span>' if icon else ""
             return f"""
-            <div class="kpi-card" style="--kpi-accent:{accent}"{title_attr}>
-                <div class="kpi-label">{label}</div>
+            <div class="{card_class}" style="--kpi-accent:{accent}"{title_attr}>
+                <div class="kpi-top">
+                    <div class="kpi-label">{label}</div>
+                    {icon_html}
+                </div>
                 <div class="kpi-value">{value}</div>
             </div>
             """
@@ -1582,21 +1588,23 @@ if uploaded_files:
 
             with c1:
                 st.markdown(_kpi_card(_("kpi_ca_ht"), _fmt(ca_net), "#1f4e79",
-                                      _("kpi_ca_ht_help", gross=_fmt(ca_brut), refunds=_fmt(ca_remb))), unsafe_allow_html=True)
+                                      _("kpi_ca_ht_help", gross=_fmt(ca_brut), refunds=_fmt(ca_remb)),
+                                      icon="\U0001f4c8"), unsafe_allow_html=True)
             with c2:
                 st.markdown(_kpi_card(_("kpi_vat_you_owe"), _fmt(float(summary.total_you_owe)), "#d97706",
-                                      _("kpi_vat_you_owe_help")), unsafe_allow_html=True)
+                                      _("kpi_vat_you_owe_help"), icon="\U0001f4b6", featured=True), unsafe_allow_html=True)
             with c3:
                 st.markdown(_kpi_card(_("kpi_vat_amazon", platform=platform_name), _fmt(float(summary.amazon_vat)), "#2ca02c",
-                                      _("kpi_vat_amazon_help", platform=platform_name)), unsafe_allow_html=True)
+                                      _("kpi_vat_amazon_help", platform=platform_name), icon="\U0001f6cd\ufe0f"), unsafe_allow_html=True)
             with c4:
                 if abs(total_ecarts_autres) > 0.05:
                     _sign = "+" if total_ecarts_autres >= 0 else ""
-                    st.markdown(_kpi_card(_("amazon_config_error", platform=platform_name), f"{_sign}{_fmt(total_ecarts_autres)}", "#d62728"),
-                                unsafe_allow_html=True)
+                    st.markdown(_kpi_card(_("amazon_config_error", platform=platform_name), f"{_sign}{_fmt(total_ecarts_autres)}", "#d62728",
+                                          icon="\u26a0\ufe0f"), unsafe_allow_html=True)
                     st.markdown(f'<span class="badge-alert">{_("config_error_badge")}</span>', unsafe_allow_html=True)
                 else:
-                    st.markdown(_kpi_card(_("amazon_config_success", platform=platform_name), _fmt(0), "#2ca02c"), unsafe_allow_html=True)
+                    st.markdown(_kpi_card(_("amazon_config_success", platform=platform_name), _fmt(0), "#2ca02c",
+                                          icon="\u2705"), unsafe_allow_html=True)
 
         # =====================================================================
         # ONGLETS PRINCIPAUX

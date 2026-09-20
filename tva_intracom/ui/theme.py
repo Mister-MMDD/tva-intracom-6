@@ -63,14 +63,15 @@ _PLATFORM_OPTIONS = [
 
 _CSS = """
 <style>
-/* Typographie de marque (refonte 2026-09-20 bis) : Space Grotesk pour les
-   titres (personnalité, casse le rendu "sans-serif système" par défaut de
-   Streamlit) + Inter pour le corps (lisibilité neutre). Chargées via
-   Google Fonts — hôte autorisé par la CSP des artifacts publiés et sans
-   impact sur le scale-to-zero : c'est le NAVIGATEUR du client qui fait
-   cette requête au chargement de la page, pas le process serveur
-   Streamlit (aucune connexion/thread/polling côté serveur). */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+/* Typographie de marque (refonte 2026-09-20 quater, alignée sur la maquette
+   fournie par Matthieu) : Manrope pour les titres/chiffres-clés (plus
+   "fintech premium" que Space Grotesk sur ce rendu) + DM Sans pour le corps
+   (remplace Inter, légèrement plus chaleureux). Chargées via Google Fonts —
+   hôte autorisé par la CSP des artifacts publiés et sans impact sur le
+   scale-to-zero : c'est le NAVIGATEUR du client qui fait cette requête au
+   chargement de la page, pas le process serveur Streamlit (aucune
+   connexion/thread/polling côté serveur). */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;750;800&display=swap');
 
 /* ══════════════════════════════════════════════════════════════════════
    1. VARIABLES DE THÈME
@@ -351,7 +352,7 @@ _CSS = """
    ══════════════════════════════════════════════════════════════════════ */
 .stApp {
     background-color: var(--bg-primary);
-    font-family: 'Inter', sans-serif; /* Corps de texte (refonte 2026-09-20 bis) */
+    font-family: 'DM Sans', sans-serif; /* Corps de texte (refonte 2026-09-20 quater) */
 }
 .main, .block-container {
     background-color: var(--bg-primary);
@@ -369,7 +370,7 @@ _CSS = """
 h1, h2, h3, h4,
 [data-testid="stMetricValue"],
 .kpi-value {
-    font-family: 'Space Grotesk', sans-serif; /* Titres/chiffres-clés (refonte 2026-09-20 bis) */
+    font-family: 'Manrope', sans-serif; /* Titres/chiffres-clés (refonte 2026-09-20 quater) */
 }
 
 h1 {
@@ -405,11 +406,17 @@ header[data-testid="stHeader"],
 
 /* ══════════════════════════════════════════════════════════════════════
    3. SIDEBAR
-   Améliorations (2026-09-20) : transitions modérées, meilleure lisibilité
+   Refonte 2026-09-20 quater (lot 3, alignée sur la maquette de Matthieu) :
+   fond distinct du contenu principal (surface claire au lieu du même
+   fond bleuté que .stApp) pour que les "cards" (expanders) se détachent
+   dessus, à la manière du panneau blanc de la maquette. Le commentaire
+   précédent ("fond bleu-vert") ne correspondait déjà plus à la valeur
+   réellement appliquée (var(--bg-primary), identique au fond de page) —
+   corrigé ici plutôt que reconduit tel quel.
    ══════════════════════════════════════════════════════════════════════ */
 section[data-testid="stSidebar"] {
-    background-color: var(--bg-primary);
-    border-right: 1px solid var(--border-medium);
+    background-color: var(--bg-secondary);
+    border-right: 1px solid var(--border-light);
     min-width: 400px !important;
     max-width: 450px !important;
 }
@@ -418,15 +425,15 @@ section[data-testid="stSidebar"] * {
     color: var(--text-primary);
 }
 
-/* Rectangles blancs pour tout élément de saisie (contraste contre le fond
-   bleu-vert de la sidebar) : champs natifs + wrappers BaseWeb du selectbox et
+/* Rectangles pour tout élément de saisie (contraste contre le fond clair
+   de la sidebar) : champs natifs + wrappers BaseWeb du selectbox et
    des combobox de recherche, que Streamlit ne rend pas comme <select>. */
 section[data-testid="stSidebar"] input,
 section[data-testid="stSidebar"] textarea,
 section[data-testid="stSidebar"] div[data-baseweb="select"] > div,
 section[data-testid="stSidebar"] div[data-baseweb="base-input"],
 section[data-testid="stSidebar"] div[data-baseweb="input"] {
-    background-color: var(--bg-secondary) !important;
+    background-color: var(--bg-tertiary) !important;
     color: var(--text-primary);
     border-color: var(--border-medium) !important;
     border-radius: var(--radius-sm);
@@ -443,7 +450,7 @@ section[data-testid="stSidebar"] div[data-baseweb="input"]:focus {
 }
 /* Exception : le multiselect (ex. pays TVA) a un <input> de recherche
    invisible intercalé ENTRE les tags. La règle ci-dessus lui donnait un
-   fond blanc opaque, qui se retrouvait visuellement posé juste devant le
+   fond opaque, qui se retrouvait visuellement posé juste devant le
    1er tag et masquait son 1er caractère (le "F" de "FR") — corrigé le
    2026-09-18, retour Matthieu (le vrai coupable n'était donc pas la
    largeur du tag, corrigée pour rien au tour précédent, mais gardée :
@@ -458,14 +465,41 @@ section[data-testid="stSidebar"] div[data-baseweb="popover"] input {
     box-shadow: none !important;
 }
 
+/* Titre "Options" de la sidebar (st.header) — accent de marque en pied,
+   comme le bloc ".brand" de la maquette, plutôt que le h2 générique
+   (bordure grise) appliqué au reste de l'app. */
+section[data-testid="stSidebar"] h2 {
+    font-size: 1.2rem;
+    border-bottom: 2px solid var(--brand-primary);
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+}
+
+/* Rappel de thème (st.caption) sous les sélecteurs pays/devise — texte
+   discret, un peu plus d'air en dessous avant la 1ère card. */
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+    margin-bottom: 12px;
+}
+
+/* Cards de section (st.expander : Entreprise, Cache VIES, Paramètres
+   fichier...) — rayon plus généreux et fond distinct du fond de sidebar
+   pour un rendu "card sur surface", comme .company/.side-settings dans
+   la maquette. */
 section[data-testid="stSidebar"] div[data-testid="stExpander"] {
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-medium);
-    margin-bottom: 10px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    overflow: hidden; /* le radius doit aussi s'appliquer à l'en-tête cliquable */
     transition: box-shadow 0.3s ease; /* Animation modérée (2026-09-20) */
 }
 section[data-testid="stSidebar"] div[data-testid="stExpander"]:hover {
     box-shadow: var(--shadow-md); /* Hover subtil (2026-09-20) */
+}
+/* En-tête de l'expander (titre + chevron) — un peu de respiration */
+section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+    padding: 4px 2px;
+    font-weight: 650;
 }
 
 section[data-testid="stSidebar"] [role="switch"] {
@@ -803,6 +837,41 @@ div[data-testid="stMetric"]:hover {
     color: var(--text-secondary) !important;
 }
 
+/* Container natif st.container(border=True) — utilisé par l'onglet
+   Déclarations (lot 4, 2026-09-20) pour encadrer le récapitulatif dans un
+   panel, comme les cartes ".panel" de la maquette de Matthieu. Best-effort
+   NON VÉRIFIÉ visuellement (assets JS Streamlit minifiés, pas d'app
+   complète exécutable pour capture d'écran dans cet environnement) : le
+   sélecteur data-testid ci-dessous correspond au comportement documenté
+   de Streamlit sur plusieurs versions récentes, mais n'a pas été confirmé
+   sur cette install précise (1.58.0). Échec silencieux si le sélecteur ne
+   matche pas : Streamlit affiche de toute façon sa bordure native par
+   défaut, donc aucune casse visuelle possible, seulement un habillage en
+   moins. À CONFIRMER VISUELLEMENT après déploiement. */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-sm);
+    padding: 4px;
+}
+
+/* Graphiques Plotly (onglet Visualisations, lot 5, 2026-09-20) — même
+   traitement "card" que le reste de l'app (radius + ombre légère), sur un
+   sélecteur Streamlit natif et documenté (contrairement au wrapper de
+   container bordé ci-dessus). Le fond des figures elles-mêmes reste opaque
+   clair (défaut Plotly, non modifié) : Python ne peut pas savoir si le
+   thème clair/sombre est actif côté navigateur (bascule JS/CSS uniquement,
+   cf. plus haut dans ce fichier), donc un fond transparent + texte de
+   contraste fixe serait illisible dans l'un des deux thèmes. Même
+   rationnel que le fond blanc fixe déjà appliqué à la légende de la carte
+   choroplèthe (_build_fig_map, visualisations.py). */
+div[data-testid="stPlotlyChart"] {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-sm);
+    padding: 8px;
+    background-color: var(--bg-secondary);
+}
+
 div[data-testid="stDataFrame"] {
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-medium);
@@ -1020,17 +1089,18 @@ div[data-testid="stVerticalBlock"] > div > div {
     color: #7c5cd4;
 }
 
-/* KPIs (extrait de app.py, section KPIs) */
+/* KPIs (extrait de app.py, section KPIs) — refonte 2026-09-20 quater,
+   alignée sur la maquette fournie par Matthieu : bordure d'accent en haut
+   (plus proche du modèle "carte produit" que le liseré latéral précédent),
+   rayon plus généreux, variante "featured" pour la carte mise en avant
+   (fond teinté + valeur colorée). L'accent (var(--kpi-accent)) reste
+   défini par _kpi_card() dans app.py — sémantique inchangée par KPI. */
 .kpi-card {
     border-radius: var(--radius-lg);
-    padding: 14px 18px;
+    padding: 18px 18px 16px;
     background-color: var(--bg-secondary);
-    /* Dégradé Teal très discret (refonte 2026-09-20 bis) : exploite l'accent
-       de marque sur la surface elle-même plutôt que la seule bordure
-       gauche, sans nuire au contraste du texte (5% max, coin haut-droit). */
-    background-image: linear-gradient(135deg, var(--brand-soft) 0%, transparent 55%);
     border: 1px solid var(--border-medium);
-    border-left: 4px solid var(--kpi-accent, var(--brand-primary)); /* Teal accent (2026-09-20) */
+    border-top: 3px solid var(--kpi-accent, var(--brand-primary));
     box-shadow: var(--shadow-sm);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Animation modérée fluide (2026-09-20) */
 }
@@ -1038,15 +1108,41 @@ div[data-testid="stVerticalBlock"] > div > div {
     transform: translateY(-2px);
     box-shadow: var(--shadow-hover);
 }
+/* Carte mise en avant (ex. "TVA à votre charge") — fond légèrement teinté
+   par l'accent de la carte plutôt que la surface neutre, comme le
+   traitement ".kpi.featured" de la maquette. Activée via un 5e paramètre
+   optionnel de _kpi_card() (app.py), n'affecte aucune carte existante par
+   défaut. */
+.kpi-card.featured {
+    background-color: color-mix(in srgb, var(--kpi-accent, var(--brand-primary)) 8%, var(--bg-secondary));
+}
+.kpi-card.featured .kpi-value {
+    color: var(--kpi-accent, var(--brand-primary));
+}
+.kpi-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+}
 .kpi-label {
     font-size: 0.8rem;
-    color: var(--text-muted);
-    margin-bottom: 4px;
+    color: var(--text-secondary);
+    font-weight: 550;
+}
+.kpi-icon {
+    font-size: 1rem;
+    line-height: 1;
+    opacity: 0.85;
+    flex-shrink: 0;
 }
 .kpi-value {
     font-size: 1.6rem;
-    font-weight: 700;
+    font-weight: 750;
     color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
 }
 .badge-alert {
     display: inline-block;

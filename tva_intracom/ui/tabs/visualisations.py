@@ -123,9 +123,19 @@ def _build_fig_bar(
 
     types = [_("viz_france_ca3"), _("viz_oss_window"), _("viz_local_tax")]
     colors = {
-        _("viz_france_ca3"): "#2ca02c",
-        _("viz_oss_window"): "#1f77b4",
-        _("viz_local_tax"): "#9467bd"
+        # Palette alignée sur les accents KPI de app.py (lot 2, refonte
+        # graphique 2026-09-20) plutôt que les couleurs matplotlib par
+        # défaut, pour une cohérence visuelle entre les KPI cards et ces
+        # graphiques Plotly. Volontairement PAS de fond transparent sur
+        # les figures Plotly ici (voir _build_fig_map plus bas) : Python
+        # ne connaît pas le thème clair/sombre actif côté navigateur (
+        # bascule gérée en JS/CSS uniquement, cf. theme.py) donc un fond
+        # transparent avec un texte de contraste fixe deviendrait illisible
+        # dans l'un des deux thèmes selon le cas. Les figures gardent leur
+        # fond opaque clair par défaut de Plotly, comme la carte.
+        _("viz_france_ca3"): "#087f78",
+        _("viz_oss_window"): "#1f4e79",
+        _("viz_local_tax"): "#d97706"
     }
 
     fig_bar = go.Figure()
@@ -164,6 +174,7 @@ def _build_fig_bar(
         yaxis_title=_("viz_yaxis_vat_title"),
         height=450,
         margin=dict(t=40, b=40),
+        font=dict(family="DM Sans, sans-serif"),  # Cohérence typo (lot 5, 2026-09-20)
         # On place la légende en haut pour éviter la superposition avec la barre d'outils (modebar)
         legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
     )
@@ -178,9 +189,9 @@ def _build_fig_pie(
     """Construit le camembert Vous/Plateforme/Douane."""
     pie_l, pie_v, pie_c = [], [], []
     if total_you_owe > 0:
-        pie_l.append(_("viz_you")); pie_v.append(round(total_you_owe * rate, 2)); pie_c.append("#2ca02c")
+        pie_l.append(_("viz_you")); pie_v.append(round(total_you_owe * rate, 2)); pie_c.append("#d97706")
     if amazon_vat > 0:
-        pie_l.append(platform_name); pie_v.append(round(amazon_vat * rate, 2)); pie_c.append("#ff7f0e")
+        pie_l.append(platform_name); pie_v.append(round(amazon_vat * rate, 2)); pie_c.append("#1f4e79")
     if import_vat > 0:
         pie_l.append(_("viz_customs")); pie_v.append(round(import_vat * rate, 2)); pie_c.append("#9467bd")
     if not pie_v:
@@ -190,6 +201,7 @@ def _build_fig_pie(
                                marker=dict(colors=pie_c), hole=0.4, textinfo="label+percent",
                                hovertemplate=f"%{{label}} : %{{value:,.2f}} {currency_symbol} (%{{percent}})<extra></extra>"))
     fig_pie.update_layout(height=400, margin=dict(t=20, b=20),
+                          font=dict(family="DM Sans, sans-serif"),  # Cohérence typo (lot 5, 2026-09-20)
                           legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
     return fig_pie
 
@@ -207,6 +219,7 @@ def _build_fig_map(vat_net_by_country: dict, rate: float, lang: str, calc_key=No
                             labels={"tva": _("viz_map_label_vat")})
     fig_map.update_layout(
         height=400,
+        font=dict(family="DM Sans, sans-serif"),  # Cohérence typo (lot 5, 2026-09-20)
         # Marge droite réservée explicitement à la légende (au lieu
         # de compter sur x=1.05 seul) : sur un écran/conteneur
         # étroit, use_container_width redimensionne toute la
@@ -257,7 +270,7 @@ def _build_fig_time_scen(
     fig_time = go.Figure()
     fig_time.add_trace(go.Bar(
         name=_col_ca_sales, x=_df_monthly[_col_month],
-        y=_df_monthly[_col_ca_sales], marker_color="#1f77b4",
+        y=_df_monthly[_col_ca_sales], marker_color="#087f78",
         hovertemplate="%{x}<br>" + _col_ca_sales + f" : %{{y:,.2f}} {currency_symbol}<extra></extra>",
     ))
     fig_time.add_trace(go.Bar(
@@ -268,7 +281,7 @@ def _build_fig_time_scen(
     fig_time.add_trace(go.Scatter(
         name=_col_vat_net, x=_df_monthly[_col_month],
         y=_df_monthly[_col_vat_net], mode="lines+markers",
-        line=dict(color="#ff7f0e", width=2), yaxis="y2",
+        line=dict(color="#d97706", width=2), yaxis="y2",
         hovertemplate="%{x}<br>" + _col_vat_net + f" : %{{y:,.2f}} {currency_symbol}<extra></extra>",
     ))
     fig_time.update_layout(
@@ -280,6 +293,7 @@ def _build_fig_time_scen(
         legend=dict(orientation="h", y=1.08),
         margin=dict(t=40, b=40),
         hovermode="x unified",
+        font=dict(family="DM Sans, sans-serif"),  # Cohérence typo (lot 5, 2026-09-20)
     )
 
     fig_scen = go.Figure()
@@ -287,12 +301,13 @@ def _build_fig_time_scen(
         name=_("viz_nb_transactions"),
         x=[s for s, _unused in scen_data],
         y=[n for _unused, n in scen_data],
-        marker_color="#1f77b4",
+        marker_color="#087f78",
         text=[str(n) for _unused, n in scen_data],
         textposition="auto",
     ))
     fig_scen.update_layout(height=360, margin=dict(t=20, b=60),
-                           xaxis_tickangle=-30, yaxis_title=_("viz_nb_transactions"))
+                           xaxis_tickangle=-30, yaxis_title=_("viz_nb_transactions"),
+                           font=dict(family="DM Sans, sans-serif"))  # Cohérence typo (lot 5, 2026-09-20)
 
     return fig_time, fig_scen
 

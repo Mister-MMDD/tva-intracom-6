@@ -111,277 +111,278 @@ def render_declarations(ctx: TabContext) -> None:
     _can_export = ctx.can_export
     home_country = ctx.home_country
 
-    st.subheader(_("what_you_must_remit"))
+    with st.container(border=True):
+        st.subheader(_("what_you_must_remit"))
 
-    # OSS : source unique de vérité = aggregate_oss_results() (même
-    # fonction que celle utilisée par les exports Excel/CSV/XML OSS),
-    # avec reconversion BCE de clôture de période (art. 5 bis Règl.
-    # UE 2020/194). `summary.oss_by_country` (report.py) n'applique
-    # PAS cette reconversion et affichait donc un total légèrement
-    # différent de celui des exports pour les ventes en devise
-    # étrangère — on ne l'utilise plus ici pour éviter la divergence.
-    #
-    # Mémoïsation sur calc_key : contrairement à detail_ventes.py
-    # (@st.fragment) ou telechargements.py (cache _dl_cache_key),
-    # ce recalcul (aggregate_oss_results + reconversion BCE) tournait
-    # à chaque rerun de la page, même pour une interaction sans rapport
-    # (sidebar, autre onglet). On ne le relance que si le contenu réel
-    # des résultats a changé (calc_key) ou si la période affichée change.
-    _oss_cache_key = (ctx.calc_key, period_label)
-    if ctx.calc_key is not None and st.session_state.get("_oss_decl_cache_key") == _oss_cache_key:
-        _oss_country_totals = st.session_state["_oss_decl_cache_val"]
-    else:
-        _oss_period_agg = aggregate_oss_results(results + (refund_results or []), period=period_label)
-        _oss_country_totals = {}
-        for _dep, _dests in _oss_period_agg.items():
-            for _arr, _rates in _dests.items():
-                _acc = _oss_country_totals.setdefault(_arr, {
-                    "tva_vente": _ZERO, "tva_remb": _ZERO, "tva_net": _ZERO,
-                    "ht_vente": _ZERO, "ht_remb": _ZERO, "ht_net": _ZERO
-                })
-                for _rate, _amt in _rates.items():
-                    _acc["tva_vente"] += _amt["tva_vente"]
-                    _acc["tva_remb"]  += _amt["tva_remb"]
-                    _acc["tva_net"]   += _amt["tva"]
-                    _acc["ht_vente"]  += _amt["ht_vente"]
-                    _acc["ht_remb"]   += _amt["ht_remb"]
-                    _acc["ht_net"]    += _amt["ht"]
-        if ctx.calc_key is not None:
-            st.session_state["_oss_decl_cache_key"] = _oss_cache_key
-            st.session_state["_oss_decl_cache_val"] = _oss_country_totals
+        # OSS : source unique de vérité = aggregate_oss_results() (même
+        # fonction que celle utilisée par les exports Excel/CSV/XML OSS),
+        # avec reconversion BCE de clôture de période (art. 5 bis Règl.
+        # UE 2020/194). `summary.oss_by_country` (report.py) n'applique
+        # PAS cette reconversion et affichait donc un total légèrement
+        # différent de celui des exports pour les ventes en devise
+        # étrangère — on ne l'utilise plus ici pour éviter la divergence.
+        #
+        # Mémoïsation sur calc_key : contrairement à detail_ventes.py
+        # (@st.fragment) ou telechargements.py (cache _dl_cache_key),
+        # ce recalcul (aggregate_oss_results + reconversion BCE) tournait
+        # à chaque rerun de la page, même pour une interaction sans rapport
+        # (sidebar, autre onglet). On ne le relance que si le contenu réel
+        # des résultats a changé (calc_key) ou si la période affichée change.
+        _oss_cache_key = (ctx.calc_key, period_label)
+        if ctx.calc_key is not None and st.session_state.get("_oss_decl_cache_key") == _oss_cache_key:
+            _oss_country_totals = st.session_state["_oss_decl_cache_val"]
+        else:
+            _oss_period_agg = aggregate_oss_results(results + (refund_results or []), period=period_label)
+            _oss_country_totals = {}
+            for _dep, _dests in _oss_period_agg.items():
+                for _arr, _rates in _dests.items():
+                    _acc = _oss_country_totals.setdefault(_arr, {
+                        "tva_vente": _ZERO, "tva_remb": _ZERO, "tva_net": _ZERO,
+                        "ht_vente": _ZERO, "ht_remb": _ZERO, "ht_net": _ZERO
+                    })
+                    for _rate, _amt in _rates.items():
+                        _acc["tva_vente"] += _amt["tva_vente"]
+                        _acc["tva_remb"]  += _amt["tva_remb"]
+                        _acc["tva_net"]   += _amt["tva"]
+                        _acc["ht_vente"]  += _amt["ht_vente"]
+                        _acc["ht_remb"]   += _amt["ht_remb"]
+                        _acc["ht_net"]    += _amt["ht"]
+            if ctx.calc_key is not None:
+                st.session_state["_oss_decl_cache_key"] = _oss_cache_key
+                st.session_state["_oss_decl_cache_val"] = _oss_country_totals
 
-    _oss_tva_vente_total = sum((v["tva_vente"] for v in _oss_country_totals.values()), _ZERO)
-    _oss_tva_remb_total  = sum((v["tva_remb"]  for v in _oss_country_totals.values()), _ZERO)
-    _oss_tva_net_total   = sum((v["tva_net"]   for v in _oss_country_totals.values()), _ZERO)
-    _oss_ht_vente_total  = sum((v["ht_vente"]  for v in _oss_country_totals.values()), _ZERO)
-    _oss_ht_remb_total   = sum((v["ht_remb"]   for v in _oss_country_totals.values()), _ZERO)
-    _oss_ht_net_total    = sum((v["ht_net"]    for v in _oss_country_totals.values()), _ZERO)
+        _oss_tva_vente_total = sum((v["tva_vente"] for v in _oss_country_totals.values()), _ZERO)
+        _oss_tva_remb_total  = sum((v["tva_remb"]  for v in _oss_country_totals.values()), _ZERO)
+        _oss_tva_net_total   = sum((v["tva_net"]   for v in _oss_country_totals.values()), _ZERO)
+        _oss_ht_vente_total  = sum((v["ht_vente"]  for v in _oss_country_totals.values()), _ZERO)
+        _oss_ht_remb_total   = sum((v["ht_remb"]   for v in _oss_country_totals.values()), _ZERO)
+        _oss_ht_net_total    = sum((v["ht_net"]    for v in _oss_country_totals.values()), _ZERO)
 
-    # IOSS : même principe que le bloc OSS ci-dessus, avec
-    # aggregate_ioss_results() (pendant IOSS de aggregate_oss_results,
-    # même reconversion BCE de clôture art. 5 bis Règl. UE 2020/194).
-    #
-    # BUGFIX (voir README - évolution.md) : ce total utilisait auparavant
-    # une simple somme de r.sale.amount_ht / r.vat_amount (voir l'ancien
-    # bloc "ioss" de _aggregate_declarations_raw), c'est-à-dire les
-    # montants figés au taux BCE du JOUR DE LA VENTE — alors que l'OSS,
-    # juste au-dessus, est déjà recalculé au taux de CLÔTURE de période.
-    # Même non-conformité et même correctif que pour l'export Excel
-    # (voir excel_report.py::_ioss_period_totals).
-    #
-    # `period=""` volontairement : `period_label` ici est trimestriel
-    # (format OSS), non reconnu par get_ioss_rate_date (mensuel), qui
-    # retombe alors ligne à ligne sur la fin du MOIS de la transaction —
-    # toujours conforme art. 5 bis, faute de période IOSS mensuelle
-    # explicite disponible à cet écran.
-    _ioss_cache_key = (ctx.calc_key, period_label)
-    if ctx.calc_key is not None and st.session_state.get("_ioss_decl_cache_key") == _ioss_cache_key:
-        _ioss_totals = st.session_state["_ioss_decl_cache_val"]
-    else:
-        _ioss_period_agg = aggregate_ioss_results(results + (refund_results or []), period="")
-        _ioss_totals = {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO}
-        for _dep, _dests in _ioss_period_agg.items():
-            for _arr, _rates in _dests.items():
-                for _rate, _amt in _rates.items():
-                    _ioss_totals["ht_brut"] += _amt["ht_vente"]
-                    _ioss_totals["ht_remb"] += _amt["ht_remb"]
-                    _ioss_totals["tva_brute"] += _amt["tva_vente"]
-                    _ioss_totals["tva_remb"] += _amt["tva_remb"]
-        if ctx.calc_key is not None:
-            st.session_state["_ioss_decl_cache_key"] = _ioss_cache_key
-            st.session_state["_ioss_decl_cache_val"] = _ioss_totals
-    _ioss = _ioss_totals if (_ioss_totals["ht_brut"] or _ioss_totals["ht_remb"]) else None
+        # IOSS : même principe que le bloc OSS ci-dessus, avec
+        # aggregate_ioss_results() (pendant IOSS de aggregate_oss_results,
+        # même reconversion BCE de clôture art. 5 bis Règl. UE 2020/194).
+        #
+        # BUGFIX (voir README - évolution.md) : ce total utilisait auparavant
+        # une simple somme de r.sale.amount_ht / r.vat_amount (voir l'ancien
+        # bloc "ioss" de _aggregate_declarations_raw), c'est-à-dire les
+        # montants figés au taux BCE du JOUR DE LA VENTE — alors que l'OSS,
+        # juste au-dessus, est déjà recalculé au taux de CLÔTURE de période.
+        # Même non-conformité et même correctif que pour l'export Excel
+        # (voir excel_report.py::_ioss_period_totals).
+        #
+        # `period=""` volontairement : `period_label` ici est trimestriel
+        # (format OSS), non reconnu par get_ioss_rate_date (mensuel), qui
+        # retombe alors ligne à ligne sur la fin du MOIS de la transaction —
+        # toujours conforme art. 5 bis, faute de période IOSS mensuelle
+        # explicite disponible à cet écran.
+        _ioss_cache_key = (ctx.calc_key, period_label)
+        if ctx.calc_key is not None and st.session_state.get("_ioss_decl_cache_key") == _ioss_cache_key:
+            _ioss_totals = st.session_state["_ioss_decl_cache_val"]
+        else:
+            _ioss_period_agg = aggregate_ioss_results(results + (refund_results or []), period="")
+            _ioss_totals = {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO}
+            for _dep, _dests in _ioss_period_agg.items():
+                for _arr, _rates in _dests.items():
+                    for _rate, _amt in _rates.items():
+                        _ioss_totals["ht_brut"] += _amt["ht_vente"]
+                        _ioss_totals["ht_remb"] += _amt["ht_remb"]
+                        _ioss_totals["tva_brute"] += _amt["tva_vente"]
+                        _ioss_totals["tva_remb"] += _amt["tva_remb"]
+            if ctx.calc_key is not None:
+                st.session_state["_ioss_decl_cache_key"] = _ioss_cache_key
+                st.session_state["_ioss_decl_cache_val"] = _ioss_totals
+        _ioss = _ioss_totals if (_ioss_totals["ht_brut"] or _ioss_totals["ht_remb"]) else None
 
-    # Agrégats CA3/DDP/Local mis en cache par calc_key (voir
-    # _aggregate_declarations_raw plus haut) : un seul passage O(n) sur
-    # results/refund_results, refait uniquement quand les résultats sous-
-    # jacents changent réellement, pas à chaque rerun Streamlit.
-    _decl_agg = _aggregate_declarations_raw(results, refund_results or [], ctx.calc_key)
+        # Agrégats CA3/DDP/Local mis en cache par calc_key (voir
+        # _aggregate_declarations_raw plus haut) : un seul passage O(n) sur
+        # results/refund_results, refait uniquement quand les résultats sous-
+        # jacents changent réellement, pas à chaque rerun Streamlit.
+        _decl_agg = _aggregate_declarations_raw(results, refund_results or [], ctx.calc_key)
 
-    # Home Country declaration (ex-France CA3)
-    home_ht_brut = _decl_agg["home_ht_brut"]
-    home_ht_remb = _decl_agg["home_ht_remb"]
-
-    if home_country == "FR":
-        home_label = _("canal_vat_fr")
-    else:
-        # On utilise une version courte pour le tableau récap : "Déclaration [Pays]"
-        home_label = _("canal_decl_home", country=home_country)
-
-    recap_data = [
-        {
-            _("col_canal"): home_label,
-            _("col_ca_ht_brut"): float(home_ht_brut),
-            _("col_ca_ht_remb"): float(home_ht_remb) if home_ht_remb else None,
-            _("col_ca_ht_net"): float(home_ht_brut + home_ht_remb),
-            _("col_tva_brute"): float(summary.fr_domestic_vat),
-            _("col_tva_remb"): float(summary.refund_fr_domestic_vat) if summary.refund_count else None,
-            _("col_tva_nette"): float(summary.net_fr_domestic_vat)
-        },
-        {
-            _("col_canal"): _("canal_oss_total"),
-            _("col_ca_ht_brut"): float(_oss_ht_vente_total),
-            _("col_ca_ht_remb"): float(_oss_ht_remb_total) if _oss_ht_remb_total else None,
-            _("col_ca_ht_net"): float(_oss_ht_net_total),
-            _("col_tva_brute"): float(_oss_tva_vente_total),
-            _("col_tva_remb"): float(_oss_tva_remb_total) if summary.refund_count else None,
-            _("col_tva_nette"): float(_oss_tva_net_total)
-        },
-    ]
-    for country in sorted(_oss_country_totals):
-        _c = _oss_country_totals[country]
-        recap_data.append({
-            _("col_canal"): f"  → {country_label(country)} ({country})",
-            _("col_ca_ht_brut"): float(_c["ht_vente"]),
-            _("col_ca_ht_remb"): float(_c["ht_remb"]) if _c["ht_remb"] else None,
-            _("col_ca_ht_net"): float(_c["ht_net"]),
-            _("col_tva_brute"): float(_c["tva_vente"]),
-            _("col_tva_remb"): float(_c["tva_remb"]) if summary.refund_count else None,
-            _("col_tva_nette"): float(_c["tva_net"])
-        })
-
-    if _ioss is not None:
-        _ioss_tva_brute = _ioss["tva_brute"]
-        _ioss_tva_remb = _ioss["tva_remb"]
-        _ioss_ht_brut = _ioss["ht_brut"]
-        _ioss_ht_remb = _ioss["ht_remb"]
-        recap_data.append({
-            _("col_canal"): _("canal_ioss_vendeur"),
-            _("col_ca_ht_brut"): float(_ioss_ht_brut),
-            _("col_ca_ht_remb"): float(_ioss_ht_remb) if _ioss_ht_remb else None,
-            _("col_ca_ht_net"): float(_ioss_ht_brut + _ioss_ht_remb),
-            _("col_tva_brute"): float(_ioss_tva_brute),
-            _("col_tva_remb"): float(_ioss_tva_remb) if _ioss_tva_remb else None,
-            _("col_tva_nette"): float(_ioss_tva_brute + _ioss_tva_remb)
-        })
-
-    _ddp_agg = _decl_agg["ddp_agg"]
-    if _ddp_agg:
-        for _ccode, _vals in sorted(_ddp_agg.items()):
-            if _ccode == home_country:
-                _label = _("canal_ddp_fr") if home_country == "FR" else _("canal_ddp_home", country=home_country)
-            else:
-                _label = _("canal_ddp_local", country=country_label(_ccode))
-
-            recap_data.append({
-                _("col_canal"): f"📦 {_label}",
-                _("col_ca_ht_brut"): float(_vals["ht_brut"]),
-                _("col_ca_ht_remb"): float(_vals["ht_remb"]) if _vals["ht_remb"] else None,
-                _("col_ca_ht_net"): float(_vals["ht_brut"] + _vals["ht_remb"]),
-                _("col_tva_brute"): float(_vals["tva_brute"]),
-                _("col_tva_remb"): float(_vals["tva_remb"]) if _vals["tva_remb"] else None,
-                _("col_tva_nette"): float(_vals["tva_brute"] + _vals["tva_remb"])
-            })
-
-    # 5. Déclarations Locales (hors pays d'origine)
-    if summary.local_by_country:
-        local_ht_brut_by_country = _decl_agg["local_ht_brut_by_country"]
-        local_ht_remb_by_country = _decl_agg["local_ht_remb_by_country"]
-
-        _local_ht_brut_total = sum(local_ht_brut_by_country.values(), _ZERO)
-        _local_ht_remb_total = sum(local_ht_remb_by_country.values(), _ZERO)
-        _local_tva_brute_total = sum(summary.local_by_country.values(), _ZERO)
-        _local_tva_remb_total = sum(getattr(summary, "refund_local_by_country", {}).values(), _ZERO)
+        # Home Country declaration (ex-France CA3)
+        home_ht_brut = _decl_agg["home_ht_brut"]
+        home_ht_remb = _decl_agg["home_ht_remb"]
 
         if home_country == "FR":
-            local_label = _("canal_local_hors_fr")
+            home_label = _("canal_vat_fr")
         else:
-            # Clé paramétrée plutôt qu'un .replace("FR", home_country) sur le
-            # texte déjà traduit de "canal_local_hors_fr" — un .replace() sur
-            # une chaîne traduite est fragile dès que le mot "FR" apparaît
-            # ailleurs que comme code pays (ex. dans un futur texte anglais
-            # contenant "FR" par coïncidence). Nécessite la clé
-            # "canal_local_hors_country" (placeholder {country}) dans les 7
-            # fichiers TOML — voir tva_intracom/i18n/*.toml.
-            local_label = _("canal_local_hors_country", country=home_country)
+            # On utilise une version courte pour le tableau récap : "Déclaration [Pays]"
+            home_label = _("canal_decl_home", country=home_country)
 
-        recap_data.append({
-            _("col_canal"): local_label,
-            _("col_ca_ht_brut"): float(_local_ht_brut_total),
-            _("col_ca_ht_remb"): float(_local_ht_remb_total) if _local_ht_remb_total else None,
-            _("col_ca_ht_net"): float(_local_ht_brut_total + _local_ht_remb_total),
-            _("col_tva_brute"): float(_local_tva_brute_total),
-            _("col_tva_remb"): float(_local_tva_remb_total) if summary.refund_count else None,
-            _("col_tva_nette"): float(_local_tva_brute_total + _local_tva_remb_total)
-        })
-        for country in sorted(summary.local_by_country):
-            _ht_brut = local_ht_brut_by_country.get(country, _ZERO)
-            _ht_remb = local_ht_remb_by_country.get(country, _ZERO)
-            _tva_brute = summary.local_by_country[country]
-            _tva_remb = float(getattr(summary, "refund_local_by_country", {}).get(country, 0))
+        recap_data = [
+            {
+                _("col_canal"): home_label,
+                _("col_ca_ht_brut"): float(home_ht_brut),
+                _("col_ca_ht_remb"): float(home_ht_remb) if home_ht_remb else None,
+                _("col_ca_ht_net"): float(home_ht_brut + home_ht_remb),
+                _("col_tva_brute"): float(summary.fr_domestic_vat),
+                _("col_tva_remb"): float(summary.refund_fr_domestic_vat) if summary.refund_count else None,
+                _("col_tva_nette"): float(summary.net_fr_domestic_vat)
+            },
+            {
+                _("col_canal"): _("canal_oss_total"),
+                _("col_ca_ht_brut"): float(_oss_ht_vente_total),
+                _("col_ca_ht_remb"): float(_oss_ht_remb_total) if _oss_ht_remb_total else None,
+                _("col_ca_ht_net"): float(_oss_ht_net_total),
+                _("col_tva_brute"): float(_oss_tva_vente_total),
+                _("col_tva_remb"): float(_oss_tva_remb_total) if summary.refund_count else None,
+                _("col_tva_nette"): float(_oss_tva_net_total)
+            },
+        ]
+        for country in sorted(_oss_country_totals):
+            _c = _oss_country_totals[country]
             recap_data.append({
                 _("col_canal"): f"  → {country_label(country)} ({country})",
-                _("col_ca_ht_brut"): float(_ht_brut),
-                _("col_ca_ht_remb"): float(_ht_remb) if _ht_remb else None,
-                _("col_ca_ht_net"): float(_ht_brut + _ht_remb),
-                _("col_tva_brute"): float(_tva_brute),
-                _("col_tva_remb"): float(_tva_remb) if summary.refund_count else None,
-                _("col_tva_nette"): float(_tva_brute + Decimal(str(_tva_remb)))
+                _("col_ca_ht_brut"): float(_c["ht_vente"]),
+                _("col_ca_ht_remb"): float(_c["ht_remb"]) if _c["ht_remb"] else None,
+                _("col_ca_ht_net"): float(_c["ht_net"]),
+                _("col_tva_brute"): float(_c["tva_vente"]),
+                _("col_tva_remb"): float(_c["tva_remb"]) if summary.refund_count else None,
+                _("col_tva_nette"): float(_c["tva_net"])
             })
-    _recap_cols = [
-        _("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net"),
-        _("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")
-    ]
-    _recap_df = pd.DataFrame(recap_data)
-    _recap_cfg = _smart_money_df(
-        _recap_df,
-        money_cols=_recap_cols,
-    )
-    # Amélioration 3 : colonne Type pour distinguer totaux et sous-lignes
-    # pays — un "→" (OSS/local par pays) ou "📦" (DDP par pays) marque
-    # une ligne de détail par pays ; le reste (France CA3, OSS total,
-    # IOSS, Fisc local total) est une ligne agrégée.
-    _recap_df.insert(0, _("type_column_label"), _recap_df[_("col_canal")].apply(
-        lambda c: _("type_pays") if str(c).startswith("  →") or str(c).startswith("📦") else _("type_total")
-    ))
-    _recap_cfg[_("type_column_label")] = st.column_config.TextColumn(_("type_column_label"), width="small")
-    _recap_cfg[_("canal_column_label")] = st.column_config.TextColumn(_("canal_column_label"), width="large")
 
-    # Affichage du tableau (toujours complet pour cet onglet, comme demandé par l'utilisateur)
-    # L'aperçu restreint a été désactivé en commentaire pour ce tableau précis.
-    st.dataframe(_recap_df, width="stretch", hide_index=True,
-                 column_config=_recap_cfg)
+        if _ioss is not None:
+            _ioss_tva_brute = _ioss["tva_brute"]
+            _ioss_tva_remb = _ioss["tva_remb"]
+            _ioss_ht_brut = _ioss["ht_brut"]
+            _ioss_ht_remb = _ioss["ht_remb"]
+            recap_data.append({
+                _("col_canal"): _("canal_ioss_vendeur"),
+                _("col_ca_ht_brut"): float(_ioss_ht_brut),
+                _("col_ca_ht_remb"): float(_ioss_ht_remb) if _ioss_ht_remb else None,
+                _("col_ca_ht_net"): float(_ioss_ht_brut + _ioss_ht_remb),
+                _("col_tva_brute"): float(_ioss_tva_brute),
+                _("col_tva_remb"): float(_ioss_tva_remb) if _ioss_tva_remb else None,
+                _("col_tva_nette"): float(_ioss_tva_brute + _ioss_tva_remb)
+            })
 
-    # if _can_export:
-    #     st.dataframe(_recap_df, width="stretch", hide_index=True,
-    #                  column_config=_recap_cfg)
-    # else:
-    #     # Aperçu gratuit restreint :
-    #     # On utilise le même formateur que detail_ventes pour avoir un bel affichage
-    #     # même si les lignes sont partiellement masquées.
-    #     # On force le type object pour permettre le masquage par chaînes (cadenas).
-    #     # "object" en chaîne plutôt que le type Python object : comportement
-    #     # runtime identique, mais évite un échec de résolution des overloads
-    #     # pandas qui faisait retomber le type inféré sur `Never` (et donc
-    #     # tout accès ultérieur à `_recap_preview.columns` invisible pour l'IDE).
-    #     _recap_preview = _recap_df.copy().astype("object")
-    #     tva_cols = [_("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")]
-    #     ca_cols = [_("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net")]
-    #
-    #     # Formattage manuel avant conversion texte pour garder les espaces et €
-    #     for col in tva_cols + ca_cols:
-    #         if col in _recap_preview.columns:
-    #             _recap_preview[col] = _recap_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
-    #
-    #     # Masquage — message spécifique à la vraie raison du blocage (paiement,
-    #     # rattachement compte, SIREN, quota), pas seulement "premium" vs
-    #     # "rattachement" — voir billing_gate.preview_lock_message().
-    #     lock_msg = ctx.lock_message
-    #     for idx, row in _recap_preview.iterrows():
-    #         # CA est maintenant toujours visible (total et pays)
-    #         # Seule la TVA reste verrouillée partout
-    #         for col in tva_cols:
-    #             if col in _recap_preview.columns:
-    #                 _recap_preview.at[idx, col] = lock_msg
-    #
-    #     # Affichage propre via dataframe (TextColumn)
-    #     _prev_df = _recap_preview.drop(columns=[_("type_column_label")])
-    #     _prev_cfg = {c: st.column_config.TextColumn(c) for c in _prev_df.columns}
-    #     st.dataframe(_prev_df, width="stretch", hide_index=True, column_config=_prev_cfg)
-    #     st.caption(_("locked_preview_caption"))
+        _ddp_agg = _decl_agg["ddp_agg"]
+        if _ddp_agg:
+            for _ccode, _vals in sorted(_ddp_agg.items()):
+                if _ccode == home_country:
+                    _label = _("canal_ddp_fr") if home_country == "FR" else _("canal_ddp_home", country=home_country)
+                else:
+                    _label = _("canal_ddp_local", country=country_label(_ccode))
 
-    if summary.refund_count:
-        st.info(_("refund_summary_info", count=summary.refund_count, ht=_fmt(summary.refund_total_ht)))
+                recap_data.append({
+                    _("col_canal"): f"📦 {_label}",
+                    _("col_ca_ht_brut"): float(_vals["ht_brut"]),
+                    _("col_ca_ht_remb"): float(_vals["ht_remb"]) if _vals["ht_remb"] else None,
+                    _("col_ca_ht_net"): float(_vals["ht_brut"] + _vals["ht_remb"]),
+                    _("col_tva_brute"): float(_vals["tva_brute"]),
+                    _("col_tva_remb"): float(_vals["tva_remb"]) if _vals["tva_remb"] else None,
+                    _("col_tva_nette"): float(_vals["tva_brute"] + _vals["tva_remb"])
+                })
+
+        # 5. Déclarations Locales (hors pays d'origine)
+        if summary.local_by_country:
+            local_ht_brut_by_country = _decl_agg["local_ht_brut_by_country"]
+            local_ht_remb_by_country = _decl_agg["local_ht_remb_by_country"]
+
+            _local_ht_brut_total = sum(local_ht_brut_by_country.values(), _ZERO)
+            _local_ht_remb_total = sum(local_ht_remb_by_country.values(), _ZERO)
+            _local_tva_brute_total = sum(summary.local_by_country.values(), _ZERO)
+            _local_tva_remb_total = sum(getattr(summary, "refund_local_by_country", {}).values(), _ZERO)
+
+            if home_country == "FR":
+                local_label = _("canal_local_hors_fr")
+            else:
+                # Clé paramétrée plutôt qu'un .replace("FR", home_country) sur le
+                # texte déjà traduit de "canal_local_hors_fr" — un .replace() sur
+                # une chaîne traduite est fragile dès que le mot "FR" apparaît
+                # ailleurs que comme code pays (ex. dans un futur texte anglais
+                # contenant "FR" par coïncidence). Nécessite la clé
+                # "canal_local_hors_country" (placeholder {country}) dans les 7
+                # fichiers TOML — voir tva_intracom/i18n/*.toml.
+                local_label = _("canal_local_hors_country", country=home_country)
+
+            recap_data.append({
+                _("col_canal"): local_label,
+                _("col_ca_ht_brut"): float(_local_ht_brut_total),
+                _("col_ca_ht_remb"): float(_local_ht_remb_total) if _local_ht_remb_total else None,
+                _("col_ca_ht_net"): float(_local_ht_brut_total + _local_ht_remb_total),
+                _("col_tva_brute"): float(_local_tva_brute_total),
+                _("col_tva_remb"): float(_local_tva_remb_total) if summary.refund_count else None,
+                _("col_tva_nette"): float(_local_tva_brute_total + _local_tva_remb_total)
+            })
+            for country in sorted(summary.local_by_country):
+                _ht_brut = local_ht_brut_by_country.get(country, _ZERO)
+                _ht_remb = local_ht_remb_by_country.get(country, _ZERO)
+                _tva_brute = summary.local_by_country[country]
+                _tva_remb = float(getattr(summary, "refund_local_by_country", {}).get(country, 0))
+                recap_data.append({
+                    _("col_canal"): f"  → {country_label(country)} ({country})",
+                    _("col_ca_ht_brut"): float(_ht_brut),
+                    _("col_ca_ht_remb"): float(_ht_remb) if _ht_remb else None,
+                    _("col_ca_ht_net"): float(_ht_brut + _ht_remb),
+                    _("col_tva_brute"): float(_tva_brute),
+                    _("col_tva_remb"): float(_tva_remb) if summary.refund_count else None,
+                    _("col_tva_nette"): float(_tva_brute + Decimal(str(_tva_remb)))
+                })
+        _recap_cols = [
+            _("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net"),
+            _("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")
+        ]
+        _recap_df = pd.DataFrame(recap_data)
+        _recap_cfg = _smart_money_df(
+            _recap_df,
+            money_cols=_recap_cols,
+        )
+        # Amélioration 3 : colonne Type pour distinguer totaux et sous-lignes
+        # pays — un "→" (OSS/local par pays) ou "📦" (DDP par pays) marque
+        # une ligne de détail par pays ; le reste (France CA3, OSS total,
+        # IOSS, Fisc local total) est une ligne agrégée.
+        _recap_df.insert(0, _("type_column_label"), _recap_df[_("col_canal")].apply(
+            lambda c: _("type_pays") if str(c).startswith("  →") or str(c).startswith("📦") else _("type_total")
+        ))
+        _recap_cfg[_("type_column_label")] = st.column_config.TextColumn(_("type_column_label"), width="small")
+        _recap_cfg[_("canal_column_label")] = st.column_config.TextColumn(_("canal_column_label"), width="large")
+
+        # Affichage du tableau (toujours complet pour cet onglet, comme demandé par l'utilisateur)
+        # L'aperçu restreint a été désactivé en commentaire pour ce tableau précis.
+        st.dataframe(_recap_df, width="stretch", hide_index=True,
+                     column_config=_recap_cfg)
+
+        # if _can_export:
+        #     st.dataframe(_recap_df, width="stretch", hide_index=True,
+        #                  column_config=_recap_cfg)
+        # else:
+        #     # Aperçu gratuit restreint :
+        #     # On utilise le même formateur que detail_ventes pour avoir un bel affichage
+        #     # même si les lignes sont partiellement masquées.
+        #     # On force le type object pour permettre le masquage par chaînes (cadenas).
+        #     # "object" en chaîne plutôt que le type Python object : comportement
+        #     # runtime identique, mais évite un échec de résolution des overloads
+        #     # pandas qui faisait retomber le type inféré sur `Never` (et donc
+        #     # tout accès ultérieur à `_recap_preview.columns` invisible pour l'IDE).
+        #     _recap_preview = _recap_df.copy().astype("object")
+        #     tva_cols = [_("col_tva_brute"), _("col_tva_remb"), _("col_tva_nette")]
+        #     ca_cols = [_("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net")]
+        #
+        #     # Formattage manuel avant conversion texte pour garder les espaces et €
+        #     for col in tva_cols + ca_cols:
+        #         if col in _recap_preview.columns:
+        #             _recap_preview[col] = _recap_preview[col].apply(lambda x: _fmt(x) if pd.notna(x) else "—")
+        #
+        #     # Masquage — message spécifique à la vraie raison du blocage (paiement,
+        #     # rattachement compte, SIREN, quota), pas seulement "premium" vs
+        #     # "rattachement" — voir billing_gate.preview_lock_message().
+        #     lock_msg = ctx.lock_message
+        #     for idx, row in _recap_preview.iterrows():
+        #         # CA est maintenant toujours visible (total et pays)
+        #         # Seule la TVA reste verrouillée partout
+        #         for col in tva_cols:
+        #             if col in _recap_preview.columns:
+        #                 _recap_preview.at[idx, col] = lock_msg
+        #
+        #     # Affichage propre via dataframe (TextColumn)
+        #     _prev_df = _recap_preview.drop(columns=[_("type_column_label")])
+        #     _prev_cfg = {c: st.column_config.TextColumn(c) for c in _prev_df.columns}
+        #     st.dataframe(_prev_df, width="stretch", hide_index=True, column_config=_prev_cfg)
+        #     st.caption(_("locked_preview_caption"))
+
+        if summary.refund_count:
+            st.info(_("refund_summary_info", count=summary.refund_count, ht=_fmt(summary.refund_total_ht)))
 
     # ── Contrôle de Cohérence Comptable ─────────────────────────────
     _declared_net_ht = summary.total_ht + summary.refund_total_ht
