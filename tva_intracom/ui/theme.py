@@ -63,6 +63,15 @@ _PLATFORM_OPTIONS = [
 
 _CSS = """
 <style>
+/* Typographie de marque (refonte 2026-09-20 bis) : Space Grotesk pour les
+   titres (personnalité, casse le rendu "sans-serif système" par défaut de
+   Streamlit) + Inter pour le corps (lisibilité neutre). Chargées via
+   Google Fonts — hôte autorisé par la CSP des artifacts publiés et sans
+   impact sur le scale-to-zero : c'est le NAVIGATEUR du client qui fait
+   cette requête au chargement de la page, pas le process serveur
+   Streamlit (aucune connexion/thread/polling côté serveur). */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
 /* ══════════════════════════════════════════════════════════════════════
    1. VARIABLES DE THÈME
    Mode clair = valeurs par défaut sur :root.
@@ -115,15 +124,22 @@ _CSS = """
     --alert-info-border: #a5f3fc;
     --alert-info-text: #0891b2;
 
-    /* Ombres 4 niveaux pour profondeur */
+    /* Ombres 4 niveaux pour profondeur — teintées Teal (refonte 2026-09-20 bis) :
+       shadow-sm reste neutre (portée trop fine pour qu'une teinte se voie),
+       md/lg/hover mixent la teinte de marque à l'ombre neutre au lieu d'un
+       gris pur, pour une signature visuelle cohérente avec --brand-primary
+       plutôt qu'une ombre Bootstrap générique. */
     --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
-    --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.12);
-    --shadow-lg: 0 6px 20px rgba(15, 23, 42, 0.15);
-    --shadow-hover: 0 4px 14px rgba(15, 23, 42, 0.18);
+    --shadow-md: 0 2px 10px color-mix(in srgb, var(--brand-primary) 10%, rgba(15, 23, 42, 0.12));
+    --shadow-lg: 0 8px 24px color-mix(in srgb, var(--brand-primary) 12%, rgba(15, 23, 42, 0.15));
+    --shadow-hover: 0 6px 18px color-mix(in srgb, var(--brand-primary) 16%, rgba(15, 23, 42, 0.18));
 
-    /* Rayons de bordure */
+    /* Rayons de bordure — agrandis (refonte 2026-09-20 bis) pour un rendu
+       moins "carré/austère", plus fintech premium. radius-sm inchangé
+       (inputs/tags, doivent rester compacts). */
     --radius-sm: 6px;
-    --radius-md: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
 
     /* Tags multiselect - vert conservé pour cohérence (2026-09-18) */
     --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);
@@ -185,11 +201,11 @@ _CSS = """
         --alert-info-border: #1e4a5a;
         --alert-info-text: #67e8f9;
 
-        /* Ombres mode sombre */
+        /* Ombres mode sombre — teintées Teal cyan (refonte 2026-09-20 bis) */
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-        --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.5);
-        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
-        --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.65);
+        --shadow-md: 0 2px 10px color-mix(in srgb, var(--brand-primary) 14%, rgba(0, 0, 0, 0.5));
+        --shadow-lg: 0 8px 24px color-mix(in srgb, var(--brand-primary) 16%, rgba(0, 0, 0, 0.6));
+        --shadow-hover: 0 8px 24px color-mix(in srgb, var(--brand-primary) 22%, rgba(0, 0, 0, 0.65));
 
         /* Tags mode sombre */
         --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));
@@ -247,11 +263,11 @@ _CSS = """
     --alert-info-border: #1e4a5a;
     --alert-info-text: #67e8f9;
 
-    /* Ombres mode sombre */
+    /* Ombres mode sombre — teintées Teal cyan (refonte 2026-09-20 bis) */
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.5);
-    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
-    --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.65);
+    --shadow-md: 0 2px 10px color-mix(in srgb, var(--brand-primary) 14%, rgba(0, 0, 0, 0.5));
+    --shadow-lg: 0 8px 24px color-mix(in srgb, var(--brand-primary) 16%, rgba(0, 0, 0, 0.6));
+    --shadow-hover: 0 8px 24px color-mix(in srgb, var(--brand-primary) 22%, rgba(0, 0, 0, 0.65));
 
     /* Tags mode sombre */
     --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));
@@ -311,11 +327,11 @@ _CSS = """
     --alert-info-border: #a5f3fc;
     --alert-info-text: #0891b2;
 
-    /* Ombres 4 niveaux pour profondeur */
+    /* Ombres 4 niveaux pour profondeur — teintées Teal (refonte 2026-09-20 bis) */
     --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
-    --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.12);
-    --shadow-lg: 0 6px 20px rgba(15, 23, 42, 0.15);
-    --shadow-hover: 0 4px 14px rgba(15, 23, 42, 0.18);
+    --shadow-md: 0 2px 10px color-mix(in srgb, var(--brand-primary) 10%, rgba(15, 23, 42, 0.12));
+    --shadow-lg: 0 8px 24px color-mix(in srgb, var(--brand-primary) 12%, rgba(15, 23, 42, 0.15));
+    --shadow-hover: 0 6px 18px color-mix(in srgb, var(--brand-primary) 16%, rgba(15, 23, 42, 0.18));
 
     /* Tags multiselect - vert conservé pour cohérence (2026-09-18) */
     --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);
@@ -335,6 +351,7 @@ _CSS = """
    ══════════════════════════════════════════════════════════════════════ */
 .stApp {
     background-color: var(--bg-primary);
+    font-family: 'Inter', sans-serif; /* Corps de texte (refonte 2026-09-20 bis) */
 }
 .main, .block-container {
     background-color: var(--bg-primary);
@@ -349,16 +366,22 @@ _CSS = """
     line-height: 1.7; /* Amélioré pour lisibilité (2026-09-20) */
 }
 
+h1, h2, h3, h4,
+[data-testid="stMetricValue"],
+.kpi-value {
+    font-family: 'Space Grotesk', sans-serif; /* Titres/chiffres-clés (refonte 2026-09-20 bis) */
+}
+
 h1 {
     color: var(--text-primary);
     border-bottom: 3px solid var(--brand-primary);
     padding-bottom: 8px;
-    font-weight: 700;
+    font-weight: 800;
     letter-spacing: -0.01em;
 }
 h2, h3 {
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: -0.005em; /* Subtil amélioré (2026-09-20) */
 }
 h2 {
@@ -999,9 +1022,13 @@ div[data-testid="stVerticalBlock"] > div > div {
 
 /* KPIs (extrait de app.py, section KPIs) */
 .kpi-card {
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 14px 18px;
     background-color: var(--bg-secondary);
+    /* Dégradé Teal très discret (refonte 2026-09-20 bis) : exploite l'accent
+       de marque sur la surface elle-même plutôt que la seule bordure
+       gauche, sans nuire au contraste du texte (5% max, coin haut-droit). */
+    background-image: linear-gradient(135deg, var(--brand-soft) 0%, transparent 55%);
     border: 1px solid var(--border-medium);
     border-left: 4px solid var(--kpi-accent, var(--brand-primary)); /* Teal accent (2026-09-20) */
     box-shadow: var(--shadow-sm);
@@ -1136,9 +1163,10 @@ div[data-testid="stVerticalBlock"] > div > div {
 }
 .zero-state-card {
     flex: 1 1 220px;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 16px 18px;
     background-color: var(--bg-secondary);
+    background-image: linear-gradient(160deg, var(--brand-soft) 0%, transparent 60%); /* Dégradé discret (refonte 2026-09-20 bis) */
     border: 1px solid var(--border-medium);
     border-top: 3px solid var(--brand-primary); /* Teal accent (2026-09-20) */
     box-shadow: var(--shadow-sm);
@@ -1310,9 +1338,7 @@ def _sync_theme_attribute() -> None:
         </script>
         """,
         height=1,  # st.iframe n'accepte pas 0 (StreamlitInvalidHeightError :
-                   # entier positif, "stretch" ou "content" uniquement) —
-                   # contrairement à l'ancien components.v1.html. 1px reste
-                   # visuellement invisible.
+        # entier positif, "stretch" ou "content" uniquement) —
+        # contrairement à l'ancien components.v1.html. 1px reste
+        # visuellement invisible.
     )
-
-
