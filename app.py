@@ -63,6 +63,7 @@ from tva_intracom.ui.onboarding import (
     render_onboarding_banner,
     compute_pulse_target,
 )
+from tva_intracom.ui.glossary import render_glossary_dialog
 
 _ZERO = Decimal("0.00")
 
@@ -356,7 +357,7 @@ _status_file_value = (
     else _("status_bar_no_file")
 )
 
-_status_col_bar, _status_col_toggle = st.columns([3, 1])
+_status_col_bar, _status_col_toggle, _status_col_help = st.columns([3, 1, 0.5])
 with _status_col_bar:
     st.markdown(
         f"""
@@ -382,6 +383,9 @@ with _status_col_bar:
     )
 with _status_col_toggle:
     render_mode_toggle()
+with _status_col_help:
+    if st.button("❓", key="glossary_help_btn", help=_("glossary_help_tooltip")):
+        render_glossary_dialog()
 
 render_onboarding_banner(
     _current_user,

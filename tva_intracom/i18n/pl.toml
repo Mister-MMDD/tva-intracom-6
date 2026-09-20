@@ -1347,6 +1347,69 @@ audit_col_id = "ID"
 audit_col_stock_dest = "Magazyn→Cel"
 audit_col_dest = "Cel"
 audit_col_scenario = "Scenariusz"
+
+# Słownik VAT
+glossary_title = "Słownik VAT"
+glossary_intro = "Kluczowe pojęcia używane przez silnik."
+glossary_help_tooltip = "Zobacz słownik terminologii VAT"
+glossary_footer = "Więcej szczegółów znajdziesz w pełnej dokumentacji na naszej stronie internetowej."
+
+glossary_terms_oss_title = "OSS (One Stop Shop)"
+glossary_terms_oss_definition = "Jednolity punkt kontaktowy do deklarowania VAT dla sprzedaży B2C transgranicznej w UE. Zastępuje indywidualne rejestracje VAT w każdym państwie członkowskim dla sprzedaży na odległość."
+glossary_terms_oss_tooltip = "Jednolity punkt VAT dla sprzedaży B2C transgranicznej"
+
+glossary_terms_ioss_title = "IOSS"
+glossary_terms_ioss_definition = "Jednolity punkt kontaktowy dla importów o niskiej wartości (≤ 150 €) do konsumentów UE. Pozwala deklarować i płacić VAT importowy w jednym państwie członkowskim."
+glossary_terms_ioss_tooltip = "Jednolity punkt dla importów ≤ 150 €"
+
+glossary_terms_reverse_charge_title = "Reverse charge (odwrotne obciążenie)"
+glossary_terms_reverse_charge_definition = "Mechanizm, w którym kupujący deklaruje VAT zamiast sprzedawcy. Dotyczy dostaw B2B wewnątrz UE i w niektórych krajach sprzedaży B2B krajowej (art. 194)."
+glossary_terms_reverse_charge_tooltip = "Kupujący deklaruje VAT zamiast sprzedawcy"
+
+glossary_terms_deemed_supplier_title = "Deemed supplier"
+glossary_terms_deemed_supplier_definition = "Sytuacja, w której marketplace (np. Amazon) jest uznawany za poborcę VAT, a sprzedawca jest zwolniony. Amazon pobiera i odprowadza VAT dla sprzedaży B2C transgranicznej od lipca 2021."
+glossary_terms_deemed_supplier_tooltip = "Marketplace pobiera VAT w imieniu sprzedawcy"
+
+glossary_terms_ca3_title = "CA3"
+glossary_terms_ca3_definition = "Francuski formularz deklaracji VAT. Silnik generuje gotowe podsumowanie z liniami 08 (Nabycia wewnątrzwspólnotowe) i podziałami według stawek VAT."
+glossary_terms_ca3_tooltip = "Francuska deklaracja VAT"
+
+glossary_terms_oss_threshold_title = "Próg 10 000 € (Próg OSS)"
+glossary_terms_oss_threshold_definition = "Jednolity roczny próg obrotu dla całej sprzedaży B2C transgranicznej w UE. Poniżej tego progu można stosować VAT kraju pochodzenia. Powyżej OSS jest obowiązkowy."
+glossary_terms_oss_threshold_tooltip = "Jednolity próg 10 000 € dla sprzedaży B2C transgranicznej"
+
+glossary_terms_excluded_territories_title = "Terytorium wyłączone (Strefy art. 6)"
+glossary_terms_excluded_territories_definition = "Obszary geograficzne przypisane do państwa członkowskiego, ale wyłączone z terytorium podatkowego UE (np. Wyspy Kanaryjskie, DOM-TOM, Góra Athos). Przepły do tych obszarów są traktowane jako eksport."
+glossary_terms_excluded_territories_tooltip = "Obszary poza terytorium podatkowym UE (Wyspy Kanaryjskie, DOM-TOM...)"
+
+glossary_terms_amazon_formats_title = "Amazon V1-V5 (Formaty plików)"
+glossary_terms_amazon_formats_definition = "Różne wersje raportów podatkowych generowanych przez Amazon. Format V5 (szczegółowy VAT Transaction Report) jest najbardziej kompletny i zalecany do precyzyjnej klasyfikacji."
+glossary_terms_amazon_formats_tooltip = "Formaty raportów podatkowych Amazon"
+
+glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
+glossary_terms_emebi_intrastat_definition = "Miesięczne Badanie Obrotu Towarami Wewnątrz UE. Obowiązkowa deklaracja statystyczna powyżej określonych progów dla wysyłek lub przywozu towarów."
+glossary_terms_emebi_intrastat_tooltip = "Deklaracja statystyczna obrotu wewnątrz UE"
+
+glossary_terms_ecb_rates_title = "EBC (Kursy walut)"
+glossary_terms_ecb_rates_definition = "Europejski Bank Centralny. Nasz silnik synchronizuje się codziennie z ich kursami walut, aby precyzyjnie przeliczyć sprzedaż w różnych walutach na euro."
+glossary_terms_ecb_rates_tooltip = "Kursy walut Europejskiego Banku Centralnego"
+
+glossary_terms_vies_title = "VIES"
+glossary_terms_vies_definition = "Europejski System Wymiany Informacji o VAT. Pozwala weryfikować numery VAT dla zwolnień B2B."
+glossary_terms_vies_tooltip = "System walidacji numerów VAT wewnątrzwspólnotowych"
+
+glossary_terms_nif_title = "NIF (Numer Identyfikacji Podatkowej)"
+glossary_terms_nif_definition = "Krajowy identyfikator podatkowy (np. Codice Fiscale we Włoszech, NIF w Hiszpanii). Uwaga: NIF nie jest koniecznie ważnym numerem VAT wewnątrzwspólnotowym dla zwolnień B2B."
+glossary_terms_nif_tooltip = "Krajowy identyfikator podatkowy"
+
+glossary_terms_eori_title = "EORI (Economic Operator Registration and Identification)"
+glossary_terms_eori_definition = "Jednolity numer wspólnotowy wymagany do realizacji formalności celnych (import/eksport) w Europie."
+glossary_terms_eori_tooltip = "Numer wspólnotowy do formalności celnych"
+
+glossary_terms_incoterms_title = "Incoterm (DDP / DDU)"
+glossary_terms_incoterms_definition = "Warunki handlowe definiujące odpowiedzialności sprzedawcy i kupującego (opłaty, cło, VAT). DDP (Delivered Duty Paid): sprzedawca zajmuje się wszystkim. DDU/DAP: kupujący płaci podatki przy przyjeździe."
+glossary_terms_incoterms_tooltip = "Warunki handlowe definiujące odpowiedzialności sprzedawcy/kupującego"
+
 viz_data_ca_ht = "Przychody netto"
 viz_data_vat_due = "Należny VAT"
 viz_data_refund_ht = "Zwrot netto"

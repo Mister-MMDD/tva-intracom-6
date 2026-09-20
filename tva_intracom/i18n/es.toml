@@ -1347,6 +1347,69 @@ audit_col_id = "ID"
 audit_col_stock_dest = "Stock→Dest"
 audit_col_dest = "Dest"
 audit_col_scenario = "Escenario"
+
+# Glosario de IVA
+glossary_title = "Glosario de IVA"
+glossary_intro = "Conceptos clave utilizados por el motor."
+glossary_help_tooltip = "Ver glosario de terminología de IVA"
+glossary_footer = "Para más detalles, consulte la documentación completa en nuestro sitio web."
+
+glossary_terms_oss_title = "OSS (One Stop Shop)"
+glossary_terms_oss_definition = "Punto de contacto único para declarar el IVA de las ventas B2C transfronterizas dentro de la UE. Sustituye los registros individuales de IVA en cada Estado miembro para las ventas a distancia."
+glossary_terms_oss_tooltip = "Punto único de IVA para ventas B2C transfronterizas"
+
+glossary_terms_ioss_title = "IOSS"
+glossary_terms_ioss_definition = "Punto de contacto único para importaciones de bajo valor (≤ 150 €) a consumidores de la UE. Permite declarar y pagar el IVA de importación en un único Estado miembro."
+glossary_terms_ioss_tooltip = "Punto único para importaciones ≤ 150 €"
+
+glossary_terms_reverse_charge_title = "Reverse charge (autoliquidación)"
+glossary_terms_reverse_charge_definition = "Mecanismo por el cual el comprador declara el IVA debido en lugar del vendedor. Se aplica a las entregas B2B intracomunitarias y, en algunos países, a las ventas B2B nacionales (art. 194)."
+glossary_terms_reverse_charge_tooltip = "El comprador declara el IVA en lugar del vendedor"
+
+glossary_terms_deemed_supplier_title = "Deemed supplier"
+glossary_terms_deemed_supplier_definition = "Situación en la que el marketplace (ej. Amazon) se considera colector del IVA, quedando el vendedor exento. Amazon recauda y paga el IVA para las ventas B2C transfronterizas desde julio de 2021."
+glossary_terms_deemed_supplier_tooltip = "El marketplace recauda el IVA en nombre del vendedor"
+
+glossary_terms_ca3_title = "CA3"
+glossary_terms_ca3_definition = "Formulario de declaración de IVA francés. El motor genera un resumen listo a usar con las líneas 08 (Adquisiciones intracomunitarias) y desgloses por tipo de IVA."
+glossary_terms_ca3_tooltip = "Declaración de IVA francesa"
+
+glossary_terms_oss_threshold_title = "Umbral de 10 000 € (Umbral OSS)"
+glossary_terms_oss_threshold_definition = "Umbral único de facturación anual para todas las ventas B2C transfronterizas en la UE. Por debajo, puede aplicar el IVA de su país de origen. Por encima, el OSS es obligatorio."
+glossary_terms_oss_threshold_tooltip = "Umbral único de 10 000 € para ventas B2C transfronterizas"
+
+glossary_terms_excluded_territories_title = "Territorio excluido (Zonas Art. 6)"
+glossary_terms_excluded_territories_definition = "Áreas geográficas anexadas a un Estado miembro pero excluidas del territorio fiscal de la UE (ej. Canarias, DOM-TOM, Monte Athos). Los flujos a estas áreas se tratan como exportaciones."
+glossary_terms_excluded_territories_tooltip = "Áreas fuera del territorio fiscal de la UE (Canarias, DOM-TOM...)"
+
+glossary_terms_amazon_formats_title = "Amazon V1-V5 (Formatos de archivo)"
+glossary_terms_amazon_formats_definition = "Diferentes versiones de informes fiscales generados por Amazon. El formato V5 (VAT Transaction Report detallado) es el más completo y recomendado para una clasificación precisa."
+glossary_terms_amazon_formats_tooltip = "Formatos de informes fiscais de Amazon"
+
+glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
+glossary_terms_emebi_intrastat_definition = "Encuesta Mensual de Intercambio de Bienes Intra-UE. Declaración estadística obligatoria por encima de ciertos umbrales para expediciones o introducciones de mercancías."
+glossary_terms_emebi_intrastat_tooltip = "Declaración estadística de intercambios intra-UE"
+
+glossary_terms_ecb_rates_title = "BCE (Tipos de cambio)"
+glossary_terms_ecb_rates_definition = "Banco Central Europeo. Nuestro motor sincroniza diariamente sus tipos de cambio para convertir con precisión sus ventas en varias divisas a euros."
+glossary_terms_ecb_rates_tooltip = "Tipos de cambio del Banco Central Europeo"
+
+glossary_terms_vies_title = "VIES"
+glossary_terms_vies_definition = "Sistema europeo de intercambio de información sobre el IVA. Permite verificar la validez de los números de IVA para las exenciones B2B."
+glossary_terms_vies_tooltip = "Sistema de validación de números de IVA intracomunitarios"
+
+glossary_terms_nif_title = "NIF (Número de Identificación Fiscal)"
+glossary_terms_nif_definition = "Identificador fiscal nacional (ej. Codice Fiscale en Italia, NIF en España). Nota: un NIF no es necesariamente un número de IVA intracomunitario válido para la exención B2B."
+glossary_terms_nif_tooltip = "Identificador fiscal nacional"
+
+glossary_terms_eori_title = "EORI (Economic Operator Registration and Identification)"
+glossary_terms_eori_definition = "Número comunitario único necesario para completar formalidades aduaneras (importación/exportación) en Europa."
+glossary_terms_eori_tooltip = "Número comunitario para formalidades aduaneras"
+
+glossary_terms_incoterms_title = "Incoterm (DDP / DDU)"
+glossary_terms_incoterms_definition = "Términos comerciales que definen las responsabilidades del vendedor y el comprador (tarifas, aduanas, IVA). DDP (Delivered Duty Paid): el vendedor lo gestiona todo. DDU/DAP: el comprador paga los impuestos a la llegada."
+glossary_terms_incoterms_tooltip = "Términos comerciales que definen responsabilidades vendedor/comprador"
+
 viz_data_ca_ht = "BI"
 viz_data_vat_due = "IVA debido"
 viz_data_refund_ht = "Reembolso BI"
