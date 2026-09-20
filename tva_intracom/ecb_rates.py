@@ -35,6 +35,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
+import certifi
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
@@ -45,6 +46,16 @@ from .database import NonPoolingConnectionPool, get_shared_pool, has_shared_pool
 logger = logging.getLogger(__name__)
 
 ECB_BASE_URL = "https://data-api.ecb.europa.eu/service/data/EXR"
+
+# BUGFIX (2026-09-20, ralentissement massif gros fichiers) : urlopen() sans
+# context SSL explicite retombe sur le magasin CA du système
+# (/etc/ssl/certs/ca-certificates.crt), absent ou périmé sur certaines
+# images de conteneur (Railway inclus, constaté en production le 2026-09-20,
+# pas seulement en local) -> CERTIFICATE_VERIFY_FAILED systématique. On
+# force le bundle certifi (déjà en dépendance dans requirements.txt, mais
+# jusqu'ici jamais câblé sur les appels réseau) pour ne plus dépendre du
+# magasin CA de l'OS hôte/conteneur.
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 SUPPORTED_CURRENCIES = {
     "USD", "GBP", "JPY", "CHF", "SEK", "DKK", "NOK", "PLN", "CZK",
@@ -292,6 +303,42 @@ _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
 _FAILED_PAIR_TTL_SECONDS = 300  # 5 minutes
 _failed_pairs: dict[tuple[str, str, date], float] = {}  # (kind, ccy, date) -> timestamp échec
 
+# BUGFIX (2026-09-20) : drapeau global process — complémentaire à
+# _failed_pairs, pas un remplacement. _failed_pairs a un TTL de 5 min pensé
+# pour un aléa PONCTUEL (une devise injoignable ponctuellement) ; il ne
+# protège pas contre une panne SYSTÉMIQUE (magasin CA cassé pour tout le
+# process) sur un fichier dont le traitement dépasse ce TTL : chaque paire
+# (devise, date) réessaie alors individuellement une vraie requête HTTPS
+# (donc un handshake TLS, même voué à échouer) dès que son entrée expire —
+# observé en prod le 2026-09-20 sur un fichier de 100k lignes, effondrement
+# du débit après ~5 minutes de traitement. Dès qu'UNE erreur SSL de
+# certificat est constatée, on coupe tout appel réseau ECB pour le reste du
+# process (jamais de retry : le magasin CA ne se répare pas tout seul entre
+# deux requêtes séparées de quelques secondes ou de plusieurs minutes) — ne
+# se réinitialise qu'au redémarrage du process (redéploiement Railway),
+# comme c'est déjà le cas pour la sémantique "permanente" documentée sur
+# _is_permanent_ssl_error ci-dessous.
+_ssl_broken_lock = threading.Lock()
+_ssl_permanently_broken = False
+
+
+def _mark_ssl_broken() -> None:
+    global _ssl_permanently_broken
+    with _ssl_broken_lock:
+        _already_known = _ssl_permanently_broken
+        _ssl_permanently_broken = True
+    if not _already_known:
+        logger.warning(
+            "ECB API : certificat SSL non vérifiable — désactivation de TOUS "
+            "les appels ECB pour le reste de ce process (corrigez le magasin "
+            "CA de l'infra ; voir _SSL_CONTEXT/certifi dans ce fichier)."
+        )
+
+
+def _is_ssl_broken() -> bool:
+    with _ssl_broken_lock:
+        return _ssl_permanently_broken
+
 
 def _is_permanently_failed(kind: str, currency: str, target_date: date) -> bool:
     ts = _failed_pairs.get((kind, currency, target_date))
@@ -339,11 +386,21 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
     N'effectue PAS de retry sur les erreurs de certificat SSL
     (permanentes, voir _is_permanent_ssl_error) : échoue immédiatement,
     comme pour une réponse JSON malformée.
+
+    Court-circuite AVANT toute tentative réseau si _is_ssl_broken() (voir
+    BUGFIX 2026-09-20) : évite de payer un handshake TLS voué à l'échec pour
+    chaque nouvelle paire (devise, date) une fois le problème identifié.
     """
+    if _is_ssl_broken():
+        logger.debug(
+            "ECB API : appel ignoré (SSL déjà signalé indisponible pour ce "
+            "process) : %s", description,
+        )
+        return None
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15, context=_SSL_CONTEXT) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
             if _is_permanent_ssl_error(exc):
@@ -354,6 +411,7 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
                     "requête : %s",
                     description, exc,
                 )
+                _mark_ssl_broken()
                 return None
             is_last_attempt = attempt >= _FETCH_MAX_ATTEMPTS
             if is_last_attempt:

@@ -54,6 +54,7 @@ from decimal import Decimal
 from functools import lru_cache
 from typing import Optional
 
+import certifi
 import psycopg2
 import psycopg2.extras
 
@@ -66,6 +67,13 @@ from .rates import REDUCED_VAT_RATES as _STATIC_REDUCED_RATES
 logger = logging.getLogger(__name__)
 
 TEDB_ENDPOINT = "https://ec.europa.eu/taxation_customs/tedb/ws/VatRetrievalService"
+
+# BUGFIX (2026-09-20, voir ecb_rates.py — même correctif dupliqué ici pour
+# la même raison que _is_permanent_ssl_error, cf. son docstring) : urlopen()
+# sans context SSL explicite dépend du magasin CA système, absent/périmé sur
+# certaines images de conteneur -> CERTIFICATE_VERIFY_FAILED systématique,
+# y compris en production. On force le bundle certifi.
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 TEDB_SOAP_ACTION = "urn:ec.europa.eu:taxud:tedb:services:v1:VatRetrievalService/RetrieveVatRates"
 
 # Codes ISO couverts par TEDB (27 États membres + XI = Irlande du Nord).
@@ -395,6 +403,34 @@ _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s
 _FAILED_PAIR_TTL_SECONDS = 300
 _failed_pairs: dict[tuple[str, date], float] = {}
 
+# BUGFIX (2026-09-20, voir ecb_rates.py pour le diagnostic complet) :
+# drapeau global process, complémentaire à _failed_pairs (TTL 5 min pensé
+# pour un aléa ponctuel, pas pour une panne SSL systémique sur un fichier
+# dont le traitement dépasse ce TTL). Dès qu'une erreur SSL de certificat
+# est constatée une fois, on coupe tout appel réseau TEDB pour le reste du
+# process.
+_ssl_broken_lock = threading.Lock()
+_ssl_permanently_broken = False
+
+
+def _mark_ssl_broken() -> None:
+    global _ssl_permanently_broken
+    with _ssl_broken_lock:
+        _already_known = _ssl_permanently_broken
+        _ssl_permanently_broken = True
+    if not _already_known:
+        logger.warning(
+            "[VAT_RATES] TEDB API : certificat SSL non vérifiable — "
+            "désactivation de TOUS les appels TEDB pour le reste de ce "
+            "process (corrigez le magasin CA de l'infra ; voir "
+            "_SSL_CONTEXT/certifi dans ce fichier)."
+        )
+
+
+def _is_ssl_broken() -> bool:
+    with _ssl_broken_lock:
+        return _ssl_permanently_broken
+
 
 def _is_permanently_failed(country: str, target_date: date) -> bool:
     ts = _failed_pairs.get((country, target_date))
@@ -455,6 +491,12 @@ def _build_soap_request(tedb_iso: str, target_date: date) -> bytes:
 
 def _request_tedb(tedb_iso: str, target_date: date) -> Optional[tuple[ET.Element, bytes]]:
     description = f"{tedb_iso} au {target_date}"
+    if _is_ssl_broken():
+        logger.debug(
+            "[VAT_RATES] TEDB API : appel ignoré (SSL déjà signalé "
+            "indisponible pour ce process) : %s", description,
+        )
+        return None
     body = _build_soap_request(tedb_iso, target_date)
     req = urllib.request.Request(
         TEDB_ENDPOINT,
@@ -467,7 +509,7 @@ def _request_tedb(tedb_iso: str, target_date: date) -> Optional[tuple[ET.Element
     )
     for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15, context=_SSL_CONTEXT) as resp:
                 raw = resp.read()
             return ET.fromstring(raw), raw
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
@@ -477,6 +519,7 @@ def _request_tedb(tedb_iso: str, target_date: date) -> Optional[tuple[ET.Element
                     "aucune nouvelle tentative pour cette requête : %s",
                     description, exc,
                 )
+                _mark_ssl_broken()
                 return None
             is_last_attempt = attempt >= _FETCH_MAX_ATTEMPTS
             if is_last_attempt:
