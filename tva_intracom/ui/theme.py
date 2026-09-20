@@ -93,9 +93,9 @@ _CSS = """
     --brand-blue-soft: var(--brand-soft);
 
     /* Fond très clair inspiré du site web (slate-50) pour mode clair - 2026-09-20 */
-    --bg-primary: #f8fafc;
+    --bg-primary: #f0f5fc; /* Lavis bleu tva-site 4% (harmonisation 2026-09-20 ter) */
     --bg-secondary: #ffffff;
-    --bg-tertiary: #f1f5f9;
+    --bg-tertiary: #e8eff9; /* Lavis bleu tva-site 5% (harmonisation 2026-09-20 ter) */
 
     /* Texte optimisé pour lisibilité (contraste WCAG AA) */
     --text-primary: #0f172a;
@@ -143,11 +143,11 @@ _CSS = """
 
     /* Tags multiselect - vert conservé pour cohérence (2026-09-18) */
     --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);
-    --tag-text: #2e7d32;
+    --tag-text: #047857; /* Emeraude tva-site --success, ajusté contraste AA (harmonisation 2026-09-20 ter) */
     --accent-green: var(--tag-text);
-    --slider-fill-hue: 135.5deg;
-    --slider-fill-sat: 0.54;
-    --slider-fill-bri: 1.041;
+    --slider-fill-hue: 161.0538deg; /* Recalculé pour cibler #047857 (harmonisation 2026-09-20 ter) */
+    --slider-fill-sat: 0.7407;
+    --slider-fill-bri: 0.8197;
 
     /* Variable native Streamlit - adaptée à Teal (2026-09-20) */
     --primary-color: #0891b2;
@@ -209,11 +209,11 @@ _CSS = """
 
         /* Tags mode sombre */
         --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));
-        --tag-text: #7cd992;
+        --tag-text: #34d399; /* Emeraude tva-site --success, variante sombre (harmonisation 2026-09-20 ter) */
         --accent-green: var(--tag-text);
-        --slider-fill-hue: 137.5deg;
-        --slider-fill-sat: 0.44;
-        --slider-fill-bri: 1.4046;
+        --slider-fill-hue: 155.4919deg; /* Recalculé pour cibler #34d399 (harmonisation 2026-09-20 ter) */
+        --slider-fill-sat: 0.5474;
+        --slider-fill-bri: 1.5258;
 
         /* Variable native Streamlit mode sombre */
         --primary-color: #22d3ee;
@@ -271,11 +271,11 @@ _CSS = """
 
     /* Tags mode sombre */
     --tag-bg: color-mix(in srgb, var(--accent-green) 24%, var(--bg-secondary));
-    --tag-text: #7cd992;
+    --tag-text: #34d399; /* Emeraude tva-site --success, variante sombre (harmonisation 2026-09-20 ter) */
     --accent-green: var(--tag-text);
-    --slider-fill-hue: 137.5deg;
-    --slider-fill-sat: 0.44;
-    --slider-fill-bri: 1.4046;
+    --slider-fill-hue: 155.4919deg; /* Recalculé pour cibler #34d399 (harmonisation 2026-09-20 ter) */
+    --slider-fill-sat: 0.5474;
+    --slider-fill-bri: 1.5258;
 
     /* Variable native Streamlit mode sombre */
     --primary-color: #22d3ee;
@@ -296,9 +296,9 @@ _CSS = """
     --brand-blue-soft: var(--brand-soft);
 
     /* Fond très clair inspiré du site web (slate-50) pour mode clair - 2026-09-20 */
-    --bg-primary: #f8fafc;
+    --bg-primary: #f0f5fc; /* Lavis bleu tva-site 4% (harmonisation 2026-09-20 ter) */
     --bg-secondary: #ffffff;
-    --bg-tertiary: #f1f5f9;
+    --bg-tertiary: #e8eff9; /* Lavis bleu tva-site 5% (harmonisation 2026-09-20 ter) */
 
     /* Texte optimisé pour lisibilité (contraste WCAG AA) */
     --text-primary: #0f172a;
@@ -335,11 +335,11 @@ _CSS = """
 
     /* Tags multiselect - vert conservé pour cohérence (2026-09-18) */
     --tag-bg: color-mix(in srgb, var(--accent-green) 18%, #ffffff);
-    --tag-text: #2e7d32;
+    --tag-text: #047857; /* Emeraude tva-site --success, ajusté contraste AA (harmonisation 2026-09-20 ter) */
     --accent-green: var(--tag-text);
-    --slider-fill-hue: 135.5deg;
-    --slider-fill-sat: 0.54;
-    --slider-fill-bri: 1.041;
+    --slider-fill-hue: 161.0538deg; /* Recalculé pour cibler #047857 (harmonisation 2026-09-20 ter) */
+    --slider-fill-sat: 0.7407;
+    --slider-fill-bri: 0.8197;
 
     /* Variable native Streamlit - adaptée à Teal (2026-09-20) */
     --primary-color: #0891b2;
