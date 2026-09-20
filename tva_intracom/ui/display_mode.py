@@ -25,7 +25,6 @@ import logging
 import streamlit as st
 
 from tva_intracom.i18n import _
-from tva_intracom.ui.rerun_utils import preserve_upload_rerun
 
 logger = logging.getLogger(__name__)
 
@@ -75,16 +74,29 @@ def render_mode_toggle() -> None:
     """
     ensure_display_mode()
     _mode_options = [_("display_mode_simple"), _("display_mode_detailed")]
-    if _WIDGET_KEY not in st.session_state:
+    # 1. Initialisation ou restauration si l'utilisateur a tenté de désélectionner (valeur None)
+    # Ce bloc doit s'exécuter AVANT st.segmented_control pour éviter l'erreur de modification post-instanciation.
+    if _WIDGET_KEY not in st.session_state or st.session_state.get(_WIDGET_KEY) is None:
         st.session_state[_WIDGET_KEY] = _mode_options[1] if is_detailed() else _mode_options[0]
-    _mode_choice = st.segmented_control(
+
+    def _handle_change():
+        # Signale à app.py de préserver les fichiers (le rerun est automatique en callback)
+        st.session_state["_preserve_upload_on_rerun"] = True
+        
+        val = st.session_state.get(_WIDGET_KEY)
+        if val is not None:
+            # Changement effectif : on met à jour le point de vérité (_SS_KEY)
+            new_mode = "detaille" if val == _mode_options[1] else "simple"
+            st.session_state[_SS_KEY] = new_mode
+        # Si val est None, on ne fait rien ici : le bloc d'initialisation au début 
+        # du prochain run détectera le None et restaurera la valeur précédente 
+        # AVANT que st.segmented_control ne soit appelé, évitant l'erreur 
+        # "cannot be modified after instantiation".
+
+    st.segmented_control(
         _("display_mode_label"),
         _mode_options,
         key=_WIDGET_KEY,
         label_visibility="collapsed",
+        on_change=_handle_change
     )
-    _new_mode = "detaille" if _mode_choice == _mode_options[1] else "simple"
-    if _new_mode != st.session_state[_SS_KEY]:
-        logger.info("MODE_TOGGLE changement de mode d'affichage : %s -> %s", st.session_state[_SS_KEY], _new_mode)
-        st.session_state[_SS_KEY] = _new_mode
-        preserve_upload_rerun()
