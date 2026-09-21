@@ -27,9 +27,11 @@ Usage dans app.py :
 
 from __future__ import annotations
 
+import base64
 import json
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -49,6 +51,49 @@ from tva_intracom.vies_engine import (
     purge_expired_cache,
     set_cache_ttl,
 )
+
+# Logo de marque affiché en tête de sidebar (render_sidebar(), lot 7
+# 2026-09-20) — encodé une seule fois à l'import du module (fichier statique,
+# jamais modifié à l'exécution) plutôt qu'à chaque rerun Streamlit. Chemin
+# calculé depuis __file__ (tva_intracom/ui/sidebar.py -> racine du repo)
+# pour rester correct quel que soit le cwd du process au déploiement.
+_LOGO_SVG_B64 = base64.b64encode(
+    (Path(__file__).resolve().parent.parent.parent / "logo" / "logo.svg").read_bytes()
+).decode("ascii")
+
+
+def render_sidebar_brand() -> None:
+    """Bloc marque (logo + nom + accroche) en tête de sidebar.
+
+    Extrait de render_sidebar() au lot 10 (2026-09-21) et appelé
+    directement depuis app.py, AVANT language_selector() et donc avant
+    l'authentification — demande explicite de Matthieu : le logo/nom
+    doivent être tout en haut de la sidebar, au-dessus du sélecteur de
+    langue, y compris sur l'écran de connexion. render_sidebar() (qui ne
+    s'exécute qu'après authentification) n'appelle plus ce bloc lui-même
+    pour éviter un doublon.
+
+    Logo réel du projet (logo/logo.svg, déjà utilisé sur tva-site),
+    embarqué en data URI base64 (voir _LOGO_SVG_B64 ci-dessus) pour un
+    rendu fiable indépendant de la version de Streamlit, cohérent avec les
+    autres composants HTML maison de la sidebar (sidebar-support-card,
+    account-badge...). Accroche = clé i18n "sidebar_brand_tagline", texte
+    provisoire à valider/ajuster par Matthieu (aucune accroche officielle
+    trouvée sur tva-site au moment de ce lot).
+    """
+    with st.sidebar:
+        st.markdown(
+            f"""
+            <div class="sidebar-brand">
+                <img src="data:image/svg+xml;base64,{_LOGO_SVG_B64}" alt="TVAcalculator" class="sidebar-brand-logo" />
+                <div class="sidebar-brand-text">
+                    <div class="sidebar-brand-name">TVAcalculator</div>
+                    <div class="sidebar-brand-tagline">{_("sidebar_brand_tagline")}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -547,64 +592,79 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         st.header(_("options_header"))
 
 
-        # ── Pays d'origine (établissement du vendeur) ──────────────────
-        # Réglage GLOBAL au compte (pas par SIREN) — conditionne la
-        # classification domestique/locale du moteur fiscal (engine.py,
-        # sale.seller_country) et l'ordre d'affichage des déclarations
-        # (déclaration du pays d'origine en premier, reste en "local").
-        # Persisté en base (tva_users.home_country), voir auth.py.
-        _home_countries = sorted(EU_COUNTRIES)
-        _current_home = getattr(_current_user, "home_country", "FR") or "FR"
-        try:
-            _home_index = _home_countries.index(_current_home)
-        except ValueError:
-            _home_index = _home_countries.index("FR") if "FR" in _home_countries else 0
-        home_country = st.selectbox(
-            _("home_country_label"),
-            options=_home_countries,
-            index=_home_index,
-            format_func=lambda c: f"{country_label(c)} ({c})",
-            key="home_country_select",
-            help=_("home_country_help"),
-        )
-        if home_country != _current_home:
-            tva_auth.set_home_country(_current_user.id, home_country)
-            _current_user.home_country = home_country
-            preserve_upload_rerun()
+        # ── Pays d'origine (établissement du vendeur) + Devise d'affichage
+        # regroupés dans un unique menu déroulant (st.popover) — refonte
+        # graphique lot 7 (2026-09-20), demande explicite de Matthieu.
+        # NOTE : le sélecteur de LANGUE (language_selector(), app.py L.129)
+        # n'est PAS regroupé ici : il doit rester utilisable AVANT
+        # l'authentification (écran de connexion compris, voir commentaire
+        # à son appel dans app.py), alors que ce bloc ne s'exécute qu'une
+        # fois l'utilisateur connecté (render_sidebar() est appelé après
+        # run_auth_flow()). Le fusionner créerait soit un doublon de
+        # sélecteur (langue affichée deux fois, une fois hors popover pour
+        # l'écran de connexion, une fois dans ce popover), soit ferait
+        # disparaître le choix de langue de l'écran de connexion — les deux
+        # sont des régressions. À valider avec Matthieu si un autre
+        # compromis est souhaité.
+        with st.popover(_("sidebar_regional_settings_label"), width="stretch"):
+            # ── Pays d'origine (établissement du vendeur) ──────────────────
+            # Réglage GLOBAL au compte (pas par SIREN) — conditionne la
+            # classification domestique/locale du moteur fiscal (engine.py,
+            # sale.seller_country) et l'ordre d'affichage des déclarations
+            # (déclaration du pays d'origine en premier, reste en "local").
+            # Persisté en base (tva_users.home_country), voir auth.py.
+            _home_countries = sorted(EU_COUNTRIES)
+            _current_home = getattr(_current_user, "home_country", "FR") or "FR"
+            try:
+                _home_index = _home_countries.index(_current_home)
+            except ValueError:
+                _home_index = _home_countries.index("FR") if "FR" in _home_countries else 0
+            home_country = st.selectbox(
+                _("home_country_label"),
+                options=_home_countries,
+                index=_home_index,
+                format_func=lambda c: f"{country_label(c)} ({c})",
+                key="home_country_select",
+                help=_("home_country_help"),
+            )
+            if home_country != _current_home:
+                tva_auth.set_home_country(_current_user.id, home_country)
+                _current_user.home_country = home_country
+                preserve_upload_rerun()
 
-        # ── Devise d'affichage ──────────────────────────────────────────
-        # Indépendante du pays d'origine : par défaut, l'affichage utilise la
-        # devise du pays d'origine choisi ci-dessus (FR -> EUR, PL -> PLN...),
-        # mais l'utilisateur peut choisir n'importe quelle devise UE (+ GBP)
-        # pour la présentation, sans que cela n'affecte la classification
-        # fiscale ni les déclarations légales (toujours en EUR, voir README
-        # section "Devise d'affichage locale"). Persisté en base
-        # (tva_users.display_currency), comme `home_country`.
-        _currency_options = ["DEFAULT"] + sorted(set(COUNTRY_CURRENCIES.values()))
-        _current_display_choice = getattr(_current_user, "display_currency", "DEFAULT") or "DEFAULT"
-        try:
-            _cur_idx = _currency_options.index(_current_display_choice)
-        except ValueError:
-            _cur_idx = 0
+            # ── Devise d'affichage ──────────────────────────────────────────
+            # Indépendante du pays d'origine : par défaut, l'affichage utilise la
+            # devise du pays d'origine choisi ci-dessus (FR -> EUR, PL -> PLN...),
+            # mais l'utilisateur peut choisir n'importe quelle devise UE (+ GBP)
+            # pour la présentation, sans que cela n'affecte la classification
+            # fiscale ni les déclarations légales (toujours en EUR, voir README
+            # section "Devise d'affichage locale"). Persisté en base
+            # (tva_users.display_currency), comme `home_country`.
+            _currency_options = ["DEFAULT"] + sorted(set(COUNTRY_CURRENCIES.values()))
+            _current_display_choice = getattr(_current_user, "display_currency", "DEFAULT") or "DEFAULT"
+            try:
+                _cur_idx = _currency_options.index(_current_display_choice)
+            except ValueError:
+                _cur_idx = 0
 
-        def _currency_option_label(code: str, _home=home_country) -> str:
-            if code == "DEFAULT":
-                _home_cur = COUNTRY_CURRENCIES.get((_home or "FR").upper(), "EUR")
-                return _("display_currency_default_label", currency=_home_cur)
-            return f"{code} ({CURRENCY_SYMBOLS.get(code, code)})"
+            def _currency_option_label(code: str, _home=home_country) -> str:
+                if code == "DEFAULT":
+                    _home_cur = COUNTRY_CURRENCIES.get((_home or "FR").upper(), "EUR")
+                    return _("display_currency_default_label", currency=_home_cur)
+                return f"{code} ({CURRENCY_SYMBOLS.get(code, code)})"
 
-        display_currency = st.selectbox(
-            _("display_currency_label"),
-            options=_currency_options,
-            index=_cur_idx,
-            format_func=_currency_option_label,
-            key="display_currency_select",
-            help=_("display_currency_help"),
-        )
-        if display_currency != _current_display_choice:
-            tva_auth.set_display_currency(_current_user.id, display_currency)
-            _current_user.display_currency = display_currency
-        st.session_state["display_currency_choice"] = display_currency
+            display_currency = st.selectbox(
+                _("display_currency_label"),
+                options=_currency_options,
+                index=_cur_idx,
+                format_func=_currency_option_label,
+                key="display_currency_select",
+                help=_("display_currency_help"),
+            )
+            if display_currency != _current_display_choice:
+                tva_auth.set_display_currency(_current_user.id, display_currency)
+                _current_user.display_currency = display_currency
+            st.session_state["display_currency_choice"] = display_currency
 
         # Rappel pour le thème si l'utilisateur ne le trouve plus
         st.caption(_("theme_caption"))

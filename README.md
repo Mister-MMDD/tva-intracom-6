@@ -142,6 +142,7 @@ tva-intracom/
 │   │   ├── files.py                  Cache compressé des fichiers uploadés (signature MD5).
 │   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
 │   │   │                             _gated_preview_table, _fec_period_end_date…)
+│   │   ├── glossary.py               Gestion du glossaire TVA, définitions multilingues et tooltips d'aide.
 │   │   ├── onboarding.py             Stepper guidé d'onboarding avec guidage visuel Lighthouse.
 │   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
 │   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, Facturation Stripe).

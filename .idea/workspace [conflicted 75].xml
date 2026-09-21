@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="ee181a82-5bfe-4051-b0ab-f4e62b15c228" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/README - evolution.md" beforeDir="false" afterPath="$PROJECT_DIR$/README - evolution.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/documentation.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/documentation.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/src/pages/documentation.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/src/pages/documentation.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/clean_glossary.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/clean_glossary2.py" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "dev"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <servers />
+  </component>
+</project>

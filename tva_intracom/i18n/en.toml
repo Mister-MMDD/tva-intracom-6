@@ -302,6 +302,23 @@ kpi_vat_restituted = "Restituted VAT"
 processing_error = "An error occurred during processing: {error}"
 recapitulatif_header = "📊 Summary"
 
+# Dashboard context header (graphic refresh, batch 6)
+dashboard_eyebrow = "{platform} · INTRA-EU VAT"
+dashboard_breadcrumb = "Workspace  ›  Dashboard"
+
+# "Your filings at a glance" panel (horizontal bars, batch 6)
+viz_decl_overview_title = "Your filings, at a glance"
+viz_decl_overview_xaxis = "Net VAT"
+
+# Origin country & currency dropdown + brand tagline (batch 7)
+sidebar_regional_settings_label = "🌍 Origin country & currency"
+sidebar_brand_tagline = "Your intra-EU VAT, simplified"
+
+# Imported file cards + "Advanced details" panel (batch 8)
+file_card_details_button = "Details"
+advanced_details_button = "🔍 Advanced details"
+advanced_details_totals_title = "Total transactions by type"
+
 # Declarations tab strings
 what_you_must_remit = "What you must remit"
 bucket_ioss_vendeur = "IOSS Window (seller)"

@@ -302,6 +302,23 @@ kpi_vat_restituted = "Zwrócony VAT"
 processing_error = "Wystąpił błąd podczas przetwarzania: {error}"
 recapitulatif_header = "📊 Podsumowanie"
 
+# Nagłówek kontekstowy panelu (odświeżenie graficzne, pakiet 6)
+dashboard_eyebrow = "{platform} · VAT WEWNĄTRZWSPÓLNOTOWY"
+dashboard_breadcrumb = "Przestrzeń robocza  ›  Panel"
+
+# Panel „Twoje deklaracje w skrócie" (poziome paski, pakiet 6)
+viz_decl_overview_title = "Twoje deklaracje w skrócie"
+viz_decl_overview_xaxis = "VAT netto"
+
+# Rozwijane menu Kraj pochodzenia i waluta + hasło marki (pakiet 7)
+sidebar_regional_settings_label = "🌍 Kraj pochodzenia i waluta"
+sidebar_brand_tagline = "Twój VAT wewnątrzwspólnotowy, uproszczony"
+
+# Karty importowanego pliku + panel „Szczegóły zaawansowane" (pakiet 8)
+file_card_details_button = "Szczegóły"
+advanced_details_button = "🔍 Szczegóły zaawansowane"
+advanced_details_totals_title = "Suma transakcji według typu"
+
 # Declarations tab strings
 what_you_must_remit = "Co musisz odprowadzić"
 bucket_ioss_vendeur = "Okienko IOSS (sprzedawca)"

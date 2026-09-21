@@ -303,6 +303,23 @@ kpi_vat_restituted = "TVA restituée"
 processing_error = "Une erreur est survenue lors du traitement : {error}"
 recapitulatif_header = "📊 Récapitulatif"
 
+# Bandeau contextuel du tableau de bord (refonte graphique, lot 6)
+dashboard_eyebrow = "{platform} · TVA INTRACOMMUNAUTAIRE"
+dashboard_breadcrumb = "Espace de travail  ›  Tableau de bord"
+
+# Panneau "Vos déclarations, en un coup d'œil" (barres horizontales, lot 6)
+viz_decl_overview_title = "Vos déclarations, en un coup d'œil"
+viz_decl_overview_xaxis = "TVA nette"
+
+# Menu déroulant Pays d'origine & Devise + accroche de marque (lot 7)
+sidebar_regional_settings_label = "🌍 Pays d'origine & devise"
+sidebar_brand_tagline = "Votre TVA intracommunautaire, simplifiée"
+
+# Cards fichier importé + panneau "Détails avancés" (lot 8)
+file_card_details_button = "Détails"
+advanced_details_button = "🔍 Détails avancés"
+advanced_details_totals_title = "Total des transactions par type"
+
 # Declarations tab strings
 what_you_must_remit = "Ce que vous devez reverser"
 bucket_ioss_vendeur = "Guichet IOSS (vendeur)"

@@ -54,7 +54,7 @@ from tva_intracom import vies_engine as _tva_vies_engine
 from tva_intracom import vat_rates_db as _tva_vat_rates
 from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
-from tva_intracom.ui.sidebar import render_sidebar, _invalidate_db_cache
+from tva_intracom.ui.sidebar import render_sidebar, render_sidebar_brand, _invalidate_db_cache
 from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig, sniff_upload_rejection_reason
 from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.display_mode import ensure_display_mode, is_detailed, render_mode_toggle
@@ -121,6 +121,13 @@ for _close_fn in (
 apply_theme()
 
 cookie_manager = ensure_cookie_manager()
+
+# Bloc marque (logo + nom + accroche) tout en haut de la sidebar, AU-DESSUS
+# du sélecteur de langue — demande explicite de Matthieu (lot 10,
+# 2026-09-21). Doit s'afficher même sur l'écran de connexion, donc appelé
+# ici, avant language_selector()/run_auth_flow(), comme language_selector()
+# lui-même (voir commentaire juste en dessous).
+render_sidebar_brand()
 
 # Le sélecteur de langue doit être utilisable AVANT la connexion (écran de
 # lien magique compris) — appelé ici, avant run_auth_flow()/st.stop(),
@@ -398,21 +405,35 @@ render_onboarding_banner(
 # =============================================================================
 # UPLOAD
 # =============================================================================
-if _onboarding_pulse_target == "upload":
-    with st.container(key="onb_pulse_upload"):
-        pass
-uploaded_files = st.file_uploader(
-    _("upload_label"),
-    type=["csv","tsv","txt"],
-    accept_multiple_files=True,
-    help=_("upload_help"),
-    # Clé stable et indépendante de la langue : sans elle, l'identité du
-    # widget est dérivée de son label — qui change de texte selon la langue
-    # (i18n). Streamlit traitait alors un changement de langue comme un
-    # NOUVEAU widget et vidait les fichiers déjà chargés. Avec une clé fixe,
-    # les fichiers restent chargés quelle que soit la langue affichée.
-    key="main_file_uploader",
-)
+# Zone de dépôt + bouton "Détails" côte à côte (st.columns) — refonte
+# graphique lot 11 (2026-09-21), demande explicite de Matthieu : le widget
+# natif st.file_uploader affiche déjà nom + poids de chaque fichier dans sa
+# propre zone (chips avec croix de suppression) — les cards HTML custom
+# ajoutées au lot 8/9 étaient donc redondantes et ont été entièrement
+# retirées. Le bouton "Détails" (voir plus bas, section "DÉTAILS AVANCÉS")
+# est positionné ICI, À DROITE de la zone de dépôt (st.empty() réservant sa
+# position, car son contenu dépend de `results`, calculé bien plus loin
+# dans le script — voir commentaire détaillé sur `_details_btn_ph` porté
+# jusqu'au lot précédent).
+_up_col, _up_btn_col = st.columns([5, 1])
+with _up_col:
+    if _onboarding_pulse_target == "upload":
+        with st.container(key="onb_pulse_upload"):
+            pass
+    uploaded_files = st.file_uploader(
+        _("upload_label"),
+        type=["csv","tsv","txt"],
+        accept_multiple_files=True,
+        help=_("upload_help"),
+        # Clé stable et indépendante de la langue : sans elle, l'identité du
+        # widget est dérivée de son label — qui change de texte selon la langue
+        # (i18n). Streamlit traitait alors un changement de langue comme un
+        # NOUVEAU widget et vidait les fichiers déjà chargés. Avec une clé fixe,
+        # les fichiers restent chargés quelle que soit la langue affichée.
+        key="main_file_uploader",
+    )
+with _up_btn_col:
+    _details_btn_ph = st.empty()
 
 # Cache/signature des fichiers uploadés (_CachedUploadedFile, _upload_sig) :
 # voir tva_intracom/ui/files.py pour le détail (extrait de app.py, aucune
@@ -1067,20 +1088,20 @@ if uploaded_files:
     # bas dans ce même bloc.
     _is_detailed = is_detailed()
 
-    if len(uploaded_files) == 1:
-        fs = file_summaries[0]
-        if _is_detailed:
-            st.info(_("import_summary_single", platform=platform_name, sales=fs[_('col_sales')], refunds=fs[_('col_refunds')], fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part))
-    else:
-        if _is_detailed:
-            st.success(_("import_summary_multi", count=len(uploaded_files), sales=len(all_sales), refunds=len(all_refunds), fc=len(all_fc_transfers), returns=_return_part, invoices=_invoice_part, credits=_credit_part, skipped=_skip_part, total_rows=total_rows_sum))
-            with st.expander(_("file_detail_expander", count=len(uploaded_files))):
-                st.table(file_summaries)
-            if len(unique_platforms) > 1:
-                st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
-    if all_warnings and _is_detailed:
-        with st.expander(_("import_warnings_header", count=len(all_warnings))):
-            for w in all_warnings: st.text(w)
+    # =====================================================================
+    # Cards HTML custom entièrement retirées au lot 11 (2026-09-21) — le
+    # widget natif st.file_uploader (voir section UPLOAD plus haut) affiche
+    # déjà chaque fichier (nom + poids + croix de suppression), les rendre
+    # une seconde fois ici était redondant (retour Matthieu). Le bouton
+    # "Détails" est désormais créé à côté de la zone de dépôt elle-même
+    # (`_details_btn_ph`, voir plus haut) et rempli plus bas, une fois
+    # `results` disponible (voir section "DÉTAILS AVANCÉS").
+    if _is_detailed:
+        if len(unique_platforms) > 1:
+            st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
+        if all_warnings:
+            with st.expander(_("import_warnings_header", count=len(all_warnings))):
+                for w in all_warnings: st.text(w)
 
     all_period_mismatches = []
     for pr in _parse_results:
@@ -1385,11 +1406,6 @@ if uploaded_files:
             st.session_state[_ECARTS_KPI_CACHE_VAL_SS] = _ecarts_autres_sum
         total_ecarts_autres = st.session_state[_ECARTS_KPI_CACHE_VAL_SS]
 
-        # =====================================================================
-        # ALERTES — toujours en haut, conditionnelles
-        # =====================================================================
-        if _is_detailed:
-            render_historical_rates_alert(results, calc_key=_cache_key)
 
         # PERF (2026-09-03) : même rationnel que ci-dessus — mémoïsé par
         # `_cache_key` plutôt que rescanné à chaque rerun.
@@ -1442,66 +1458,109 @@ if uploaded_files:
         # part dans app.py — conservée en commentaire.
         # _get_payg_checkout_url = _gate.get_payg_checkout_url
 
-        # Taux BCE de clôture de période réellement utilisés pour la
-        # conversion OSS (Règl. UE 2020/194, art. 5 bis) — affiche les taux
-        # par devise et par date de clôture si la période est multiple.
-        if convert_fx and _fx_currencies_used and _is_detailed:
-            from tva_intracom.ecb_rates import get_oss_rate_date
-            _used_rates_info = set()
-            for _r in results:
-                if _r.sale.original_currency and _r.sale.original_currency != "EUR":
-                    try:
-                        _tx_date = datetime.fromisoformat((_r.sale.transaction_date or "")[:10])
-                        # On utilise la date de clôture OSS correspondante à la transaction
-                        _rate_date = get_oss_rate_date(period_label, _tx_date)
-                        _used_rates_info.add((_r.sale.original_currency.upper(), _rate_date))
-                    except Exception:
-                        pass
+        # =====================================================================
+        # "DÉTAILS AVANCÉS" — refonte graphique lot 9 (2026-09-21). Contenu
+        # ouvert via une modale (st.dialog), déclenchée par le bouton
+        # "Détails" positionné plus haut à droite de la zone fichiers (voir
+        # `_details_btn_ph = st.empty()` dans le bloc des cards fichier) —
+        # demande explicite de Matthieu, même pattern visuel que "Compte &
+        # Confidentialité" (sidebar.py::_render_account_dialog). Regroupe
+        # les totaux globaux par type de transaction, les changements de
+        # taux TVA récents et les taux BCE. Contenu et calculs INCHANGÉS par
+        # rapport à leur ancien emplacement, seule la présentation change.
+        #
+        # Construit ICI (et pas au niveau des cards fichier) car c'est le
+        # premier point du script où toutes les données nécessaires
+        # existent simultanément : `results` (taux historiques, taux BCE)
+        # ET `period_label`/`_gate` (bornes de la période, pour le libellé
+        # des taux BCE). Le bouton lui-même est rendu ici, DANS le
+        # placeholder réservé plus haut (st.empty().container()), pour que
+        # bouton et st.dialog restent au même endroit du script — nécessaire
+        # pour que la modale se comporte correctement d'un rerun à l'autre
+        # (voir commentaire détaillé sur _details_btn_ph plus haut).
+        if _is_detailed:
+            with _details_btn_ph.container():
+                if st.button(_("file_card_details_button"), key="btn_open_import_details_dialog", width="stretch"):
+                    @st.dialog(title=_("advanced_details_button"))
+                    def _import_details_dialog() -> None:
+                        st.markdown(f"**{_('advanced_details_totals_title')}**")
+                        st.markdown(f"- {_('col_sales')} : {len(all_sales)}")
+                        st.markdown(f"- {_('col_refunds')} : {len(all_refunds)}")
+                        st.markdown(f"- {_('col_fba_trans')} : {len(all_fc_transfers)}")
+                        if _total_returns: st.markdown(f"- {_return_part}")
+                        if _total_invoice: st.markdown(f"- {_invoice_part}")
+                        if _total_credit_note: st.markdown(f"- {_credit_part}")
+                        if _total_skipped: st.markdown(f"- {_skip_part}")
+                        if len(unique_platforms) > 1:
+                            st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
 
-            if _used_rates_info:
-                _all_dates = sorted({d for c, d in _used_rates_info})
-                with st.expander(_("bce_rates_title", count=len(_used_rates_info))):
-                    if len(_all_dates) == 1:
-                        st.caption(_("bce_rates_oss_disclaimer", date=_all_dates[0].isoformat()))
-                    elif "_" in period_label:
-                        _p_parts = period_label.split("_")
-                        _p_start = _p_parts[0]
-                        _p_end = _p_parts[-1]
-                        if not "-" in _p_end and "-" in _p_start:
-                            # Cas "2026-Q1_Q3" -> "2026-Q1" à "2026-Q3"
-                            _p_year = _p_start.split("-")[0]
-                            _p_end = f"{_p_year}-{_p_end}"
-                        st.caption(_("bce_rates_oss_disclaimer_range", start=_p_start, end=_p_end))
-                    else:
-                        st.caption(_("bce_rates_oss_disclaimer", date=f"{_all_dates[0].isoformat()} → {_all_dates[-1].isoformat()}"))
+                        render_historical_rates_alert(results, calc_key=_cache_key)
 
-                    # Rendu en tableau (au lieu d'une liste de st.caption sans
-                    # séparation visuelle entre les lignes, cf. retour Matthieu
-                    # 2026-09-18) — logique de calcul des taux inchangée,
-                    # seule la présentation change. Classe dédiée dans
-                    # theme.py plutôt que de réutiliser .stTable, pour ne pas
-                    # affecter d'autres tableaux natifs Streamlit.
-                    _rows_html = []
-                    for _ccy, _d in sorted(_used_rates_info):
-                        try:
-                            _oss_rate = _ecb_get_rate(_ccy, _d)
-                        except Exception:
-                            _oss_rate = None
+                        # Taux BCE de clôture de période réellement utilisés pour la
+                        # conversion OSS (Règl. UE 2020/194, art. 5 bis) — affiche les
+                        # taux par devise et par date de clôture si la période est
+                        # multiple. Logique de calcul INCHANGÉE (déplacée telle
+                        # quelle depuis son ancien emplacement).
+                        if convert_fx and _fx_currencies_used:
+                            from tva_intracom.ecb_rates import get_oss_rate_date
+                            _used_rates_info = set()
+                            for _r in results:
+                                if _r.sale.original_currency and _r.sale.original_currency != "EUR":
+                                    try:
+                                        _tx_date = datetime.fromisoformat((_r.sale.transaction_date or "")[:10])
+                                        # On utilise la date de clôture OSS correspondante à la transaction
+                                        _rate_date = get_oss_rate_date(period_label, _tx_date)
+                                        _used_rates_info.add((_r.sale.original_currency.upper(), _rate_date))
+                                    except Exception:
+                                        pass
 
-                        _date_suffix = _d.strftime("%d/%m/%Y") if len(_all_dates) > 1 else ""
-                        if _oss_rate is not None:
-                            _rate_cell = f"1 EUR = {float(_oss_rate):.4f} {_ccy}"
-                        else:
-                            _rate_cell = _("bce_rates_oss_unavailable")
-                        _rows_html.append(
-                            f"<tr><td>{_ccy}</td><td>{_rate_cell}</td><td>{_date_suffix}</td></tr>"
-                        )
-                    st.markdown(
-                        '<table class="bce-rates-table"><tbody>'
-                        + "".join(_rows_html)
-                        + "</tbody></table>",
-                        unsafe_allow_html=True,
-                    )
+                        if _used_rates_info:
+                            _all_dates = sorted({d for c, d in _used_rates_info})
+                            st.divider()
+                            st.markdown(f"**{_('bce_rates_title', count=len(_used_rates_info))}**")
+                            if len(_all_dates) == 1:
+                                st.caption(_("bce_rates_oss_disclaimer", date=_all_dates[0].isoformat()))
+                            elif "_" in period_label:
+                                _p_parts = period_label.split("_")
+                                _p_start = _p_parts[0]
+                                _p_end = _p_parts[-1]
+                                if not "-" in _p_end and "-" in _p_start:
+                                    # Cas "2026-Q1_Q3" -> "2026-Q1" à "2026-Q3"
+                                    _p_year = _p_start.split("-")[0]
+                                    _p_end = f"{_p_year}-{_p_end}"
+                                st.caption(_("bce_rates_oss_disclaimer_range", start=_p_start, end=_p_end))
+                            else:
+                                st.caption(_("bce_rates_oss_disclaimer", date=f"{_all_dates[0].isoformat()} → {_all_dates[-1].isoformat()}"))
+
+                            # Rendu en tableau (au lieu d'une liste de st.caption sans
+                            # séparation visuelle entre les lignes, cf. retour Matthieu
+                            # 2026-09-18) — logique de calcul des taux inchangée,
+                            # seule la présentation change. Classe dédiée dans
+                            # theme.py plutôt que de réutiliser .stTable, pour ne pas
+                            # affecter d'autres tableaux natifs Streamlit.
+                            _rows_html = []
+                            for _ccy, _d in sorted(_used_rates_info):
+                                try:
+                                    _oss_rate = _ecb_get_rate(_ccy, _d)
+                                except Exception:
+                                    _oss_rate = None
+
+                                _date_suffix = _d.strftime("%d/%m/%Y") if len(_all_dates) > 1 else ""
+                                if _oss_rate is not None:
+                                    _rate_cell = f"1 EUR = {float(_oss_rate):.4f} {_ccy}"
+                                else:
+                                    _rate_cell = _("bce_rates_oss_unavailable")
+                                _rows_html.append(
+                                    f"<tr><td>{_ccy}</td><td>{_rate_cell}</td><td>{_date_suffix}</td></tr>"
+                                )
+                            st.markdown(
+                                '<table class="bce-rates-table"><tbody>'
+                                + "".join(_rows_html)
+                                + "</tbody></table>",
+                                unsafe_allow_html=True,
+                            )
+
+                    _import_details_dialog()
 
         # Immatriculations requises
         # BUGFIX : un stock situé hors UE (US, GB post-Brexit, CH, CN, un
@@ -1577,6 +1636,15 @@ if uploaded_files:
         # TABLEAU DE BORD
         # =====================================================================
         with st.container():
+            # Bandeau contextuel (eyebrow + fil d'Ariane) — refonte
+            # graphique lot 6 (2026-09-20), aligné sur la maquette fournie
+            # par Matthieu. Pur habillage CSS (voir theme.py), aucune
+            # donnée métier calculée ici.
+            st.markdown(
+                f'<div class="dashboard-breadcrumb">{_("dashboard_breadcrumb")}</div>'
+                f'<div class="dashboard-eyebrow">{_("dashboard_eyebrow", platform=platform_name)}</div>',
+                unsafe_allow_html=True,
+            )
             # Toggle Simple/Détaillé déplacé dans la barre de statut
             # persistante (voir render_mode_toggle(), tête de app.py).
             st.header(_("recapitulatif_header"))

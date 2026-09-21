@@ -302,6 +302,23 @@ kpi_vat_restituted = "IVA Restituita"
 processing_error = "Si è verificato un errore durante l'elaborazione: {error}"
 recapitulatif_header = "📊 Riepilogo"
 
+# Intestazione contestuale della dashboard (restyling grafico, lotto 6)
+dashboard_eyebrow = "{platform} · IVA INTRACOMUNITARIA"
+dashboard_breadcrumb = "Area di lavoro  ›  Dashboard"
+
+# Pannello "Le tue dichiarazioni, in un colpo d'occhio" (barre orizzontali, lotto 6)
+viz_decl_overview_title = "Le tue dichiarazioni, in un colpo d'occhio"
+viz_decl_overview_xaxis = "IVA netta"
+
+# Menu a tendina Paese d'origine & Valuta + slogan del marchio (lotto 7)
+sidebar_regional_settings_label = "🌍 Paese d'origine e valuta"
+sidebar_brand_tagline = "La tua IVA intracomunitaria, semplificata"
+
+# Card file importato + pannello "Dettagli avanzati" (lotto 8)
+file_card_details_button = "Dettagli"
+advanced_details_button = "🔍 Dettagli avanzati"
+advanced_details_totals_title = "Totale transazioni per tipo"
+
 # Declarations tab strings
 what_you_must_remit = "Ciò che devi versare"
 bucket_ioss_vendeur = "Regime IOSS (venditore)"

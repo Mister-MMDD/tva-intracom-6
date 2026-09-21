@@ -302,6 +302,23 @@ kpi_vat_restituted = "Erstattete MwSt"
 processing_error = "Ein Fehler ist beim Verarbeiten aufgetreten: {error}"
 recapitulatif_header = "📊 Zusammenfassung"
 
+# Kontext-Header des Dashboards (Grafik-Überarbeitung, Los 6)
+dashboard_eyebrow = "{platform} · INNERGEMEINSCHAFTLICHE MWST"
+dashboard_breadcrumb = "Arbeitsbereich  ›  Dashboard"
+
+# Panel „Ihre Meldungen auf einen Blick" (horizontale Balken, Los 6)
+viz_decl_overview_title = "Ihre Meldungen auf einen Blick"
+viz_decl_overview_xaxis = "Netto-MwSt."
+
+# Dropdown Herkunftsland & Währung + Marken-Slogan (Los 7)
+sidebar_regional_settings_label = "🌍 Herkunftsland & Währung"
+sidebar_brand_tagline = "Ihre innergemeinschaftliche MwSt., vereinfacht"
+
+# Karten „Importierte Datei" + Panel „Erweiterte Details" (Los 8)
+file_card_details_button = "Details"
+advanced_details_button = "🔍 Erweiterte Details"
+advanced_details_totals_title = "Transaktionen insgesamt nach Typ"
+
 # Declarations tab strings
 what_you_must_remit = "Was Sie abführen müssen"
 bucket_ioss_vendeur = "IOSS (Verkäufer)"

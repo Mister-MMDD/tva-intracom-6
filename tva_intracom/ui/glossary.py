@@ -17,22 +17,22 @@ from tva_intracom.i18n import _
 GLOSSARY_TERM_KEYS = [
     "oss",
     "ioss",
+    "incoterms",  # DDP / DDU
+    "ca3",
+    "vies",
     "reverse_charge",
     "deemed_supplier",
-    "ca3",
     "oss_threshold",
+    "distance_selling",
+    "b2b_b2c",
+    "vat_number",
+    "nif",
+    "eori",
+    "import_150",
     "excluded_territories",
     "amazon_formats",
     "emebi_intrastat",
     "ecb_rates",
-    "vies",
-    "nif",
-    "eori",
-    "incoterms",
-    "import_150",
-    "b2b_b2c",
-    "distance_selling",
-    "vat_number",
 ]
 
 
@@ -108,5 +108,5 @@ def render_inline_tooltip(term_key: str, label: str | None = None) -> str:
 
 def render_glossary_help_button() -> None:
     """Affiche un bouton d'aide dans la barre de statut."""
-    if st.button("❓", key="glossary_help_btn", help=_("glossary_help_tooltip")):
+    if st.button("❓ Glossaire", key="glossary_help_btn", help=_("glossary_help_tooltip")):
         render_glossary_dialog()

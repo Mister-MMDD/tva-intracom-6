@@ -662,6 +662,28 @@ button[data-testid="stBaseButton-secondary"]:hover {
     color: var(--brand-blue) !important;
 }
 
+/* Bouton déclencheur d'un st.popover (ex. menu "Pays d'origine & devise",
+   sidebar.py, lot 7) — Streamlit ne semble pas lui appliquer les mêmes
+   variables de thème que les boutons "secondary" classiques ci-dessus en
+   mode sombre (retour Matthieu 2026-09-20 : rendu noir au lieu du fond/
+   bordure teal attendus). Règle dédiée, plus spécifique et en !important,
+   en plus de button[kind="secondary"] ci-dessus (pas à sa place : les deux
+   coexistent au cas où seule l'une des deux sélectionne effectivement le
+   bouton selon la structure DOM réelle du popover). Non vérifié
+   visuellement (pas d'app exécutable dans l'environnement de dev) — à
+   confirmer par Matthieu après déploiement.*/
+div[data-testid="stPopover"] > button,
+div[data-testid="stPopover"] button[kind="secondary"] {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-medium) !important;
+    color: var(--text-primary) !important;
+}
+div[data-testid="stPopover"] > button:hover,
+div[data-testid="stPopover"] button[kind="secondary"]:hover {
+    border-color: var(--brand-primary) !important;
+    color: var(--brand-primary) !important;
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    5. INPUTS / FORMULAIRES
    Améliorations (2026-09-20) : focus rings teal, transitions modérées
@@ -1089,6 +1111,24 @@ div[data-testid="stVerticalBlock"] > div > div {
     color: #7c5cd4;
 }
 
+/* Bandeau contextuel en tête de tableau de bord (eyebrow + fil d'Ariane)
+   — refonte graphique lot 6 (2026-09-20), aligné sur la maquette fournie
+   par Matthieu. Injecté par app.py juste avant le st.header() existant
+   (recapitulatif_header) : pur habillage, aucune donnée métier. */
+.dashboard-breadcrumb {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.dashboard-eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--brand-primary);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
 /* KPIs (extrait de app.py, section KPIs) — refonte 2026-09-20 quater,
    alignée sur la maquette fournie par Matthieu : bordure d'accent en haut
    (plus proche du modèle "carte produit" que le liseré latéral précédent),
@@ -1286,6 +1326,38 @@ div[data-testid="stVerticalBlock"] > div > div {
     font-size: 0.82rem;
     color: var(--text-secondary);
     margin: 0;
+}
+
+/* Bloc marque (logo + nom + accroche) en tête de sidebar — refonte
+   graphique lot 7 (2026-09-20), aligné sur la maquette fournie par
+   Matthieu. Injecté par sidebar.py juste avant le st.header("Options"). */
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-light);
+}
+.sidebar-brand-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+.sidebar-brand-name {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 750;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+.sidebar-brand-tagline {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
 }
 
 /* Pied de sidebar (support/site web) — carte blanche cohérente avec les

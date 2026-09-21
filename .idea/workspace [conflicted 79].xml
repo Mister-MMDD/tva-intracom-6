@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="66cf108a-4002-4391-b57b-d077f58fae47" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/README - evolution.md" beforeDir="false" afterPath="$PROJECT_DIR$/README - evolution.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/documentation.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/documentation.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva-site/src/pages/documentation.html" beforeDir="false" afterPath="$PROJECT_DIR$/tva-site/src/pages/documentation.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/clean_glossary.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/clean_glossary2.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/de.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/de.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/en.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/en.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/es.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/es.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/fr.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/fr.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/it.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/it.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/pl.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/pl.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/pt.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/pt.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/glossary.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/glossary.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/sidebar.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/sidebar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/tabs/declarations.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/tabs/declarations.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/theme.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/theme.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "dev"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <servers />
+  </component>
+</project>
