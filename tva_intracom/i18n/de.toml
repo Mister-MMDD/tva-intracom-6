@@ -1168,6 +1168,7 @@ vies_manual_class_race_error = "Eine oder mehrere dieser Nummern wurden in der Z
 vies_manual_class_reset_btn = "↩️ Zurücksetzen"
 vies_reverify_btn = "🔄 Fehlerhafte MIAS-Nummern erneut prüfen"
 vies_retry_in_progress = "⏳ Neuer Versuch im Hintergrund läuft…"
+vies_retry_iteration_status = "Versuch {iter}/{total_iter} — {count} verbleibende ungeprüfte Nummer(n)"
 vies_retry_progress_label = "Automatischer MIAS-Wiederholungsversuch"
 vies_retry_done_title = "MIAS-Validierung"
 vies_retry_done_info = "✅ {count} zusätzliche Nummer(n) im Hintergrund validiert. Klicken, um die Berechnung zu aktualisieren."

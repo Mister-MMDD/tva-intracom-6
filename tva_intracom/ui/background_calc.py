@@ -553,9 +553,16 @@ def start_vies_retry_loop(scope_id: str, vat_ids: list[str]) -> str:
 
         while remaining and iteration < _VIES_RETRY_MAX_ITERATIONS:
             iteration += 1
+            from .. import i18n as _tva_i18n
+            _translate = _tva_i18n._
             report(
                 iteration / (_VIES_RETRY_MAX_ITERATIONS + 1),
-                f"Tentative {iteration}/{_VIES_RETRY_MAX_ITERATIONS} — {len(remaining)} numéro(s)",
+                _translate(
+                    "vies_retry_iteration_status",
+                    iter=iteration,
+                    total_iter=_VIES_RETRY_MAX_ITERATIONS,
+                    count=len(remaining)
+                ),
             )
             results = _tva_vies_engine.retry_vats_batch(scope_id, remaining)
             new_remaining = [

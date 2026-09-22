@@ -311,7 +311,7 @@ def render_vies(ctx: TabContext) -> None:
         _vies_rec = sum((r.vat_avoided for r in vies_summary.reclassifications if not getattr(r, "is_national_tax_id", False)), Decimal("0.00"))
         _nif_rec = sum((r.vat_avoided for r in vies_summary.reclassifications if getattr(r, "is_national_tax_id", False)), Decimal("0.00"))
 
-        v1, v2, v3, v4, v5 = st.columns(5)
+        v1, v2, v3, v4, v5 = st.columns([1.0, 0.7, 0.7, 1.0, 1.6])
         v1.metric(_("vies_kpi_verified_nums"), f"{vies_summary.total_checked} / {vies_summary.national_id_count}")
         v2.metric(_("vies_kpi_valid"), vies_summary.total_valid, help=str(_("vies_kpi_nif_tooltip")))
         v3.metric(_("vies_kpi_invalid"), vies_summary.total_invalid, help=str(_("vies_kpi_nif_tooltip")))

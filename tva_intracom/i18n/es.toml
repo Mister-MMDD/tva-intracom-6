@@ -1169,6 +1169,7 @@ vies_manual_class_race_error = "Uno o varios de estos números ya han sido clasi
 vies_manual_class_reset_btn = "↩️ Restablecer"
 vies_reverify_btn = "🔄 Volver a verificar números VIES con error"
 vies_retry_in_progress = "⏳ Nuevo intento en curso en segundo plano…"
+vies_retry_iteration_status = "Intento {iter}/{total_iter} — {count} número(s) no verificado(s) restante(s)"
 vies_retry_progress_label = "Reintento automático VIES"
 vies_retry_done_title = "Validación VIES"
 vies_retry_done_info = "✅ {count} número(s) adicional(es) validado(s) en segundo plano. Haga clic para actualizar el cálculo."
