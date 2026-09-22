@@ -153,18 +153,20 @@ def validate_mime_type(file_name: str, file_head: bytes) -> tuple[bool, str]:
     - is_valid: True si le type MIME est autorisé, False sinon
     - error_message: Message d'erreur si non valide, chaîne vide sinon
     
-    Utilise python-magic pour détecter le type MIME réel du fichier,
-    indépendamment de l'extension. Si python-magic n'est pas disponible,
-    utilise la validation basée sur l'extension + signatures magiques.
+    Utilise python-magic-bin (Windows) ou python-magic (Linux/Mac) pour détecter
+    le type MIME réel du fichier, indépendamment de l'extension.
+    Si python-magic n'est pas disponible, utilise la validation basée sur
+    l'extension + signatures magiques.
     
     Args:
         file_name: Nom du fichier (pour l'extension)
         file_head: Premiers octets du fichier (pour les signatures magiques)
     """
     try:
+        # Essayer python-magic-bin d'abord (Windows compatible)
         import magic
     except ImportError:
-        logger.warning("python-magic non installé, validation MIME basée sur l'extension + signatures magiques")
+        logger.warning("python-magic/python-magic-bin non installé, validation MIME basée sur l'extension + signatures magiques")
         # Fallback: validation basée sur l'extension + signatures magiques
         return _validate_mime_by_extension_and_signatures(file_name, file_head)
     

@@ -21,19 +21,19 @@ Jinja2==3.1.6
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 MarkupSafe==3.0.3
-narwhals==2.22.1
-numpy==2.4.6
+narwhals
+numpy
 openpyxl==3.1.5
 packaging==26.2
 pandas==3.0.3
 pillow==12.2.0
 plotly==6.8.0
 pluggy==1.6.0
-polars==1.17.1
+polars
 protobuf==7.35.0
-psycopg2-binary==2.9.10
+psycopg2-binary
 pyarrow==24.0.0
-pydantic==2.10.6
+pydantic
 pydeck==0.9.2
 Pygments==2.20.0
 pytest==9.1.0
@@ -43,7 +43,7 @@ email-validator>=2.0.0
 referencing==0.37.0
 reportlab==4.2.5
 requests==2.34.2
-rpds-py==2026.5.1
+rpds-py
 six==1.17.0
 smmap==5.0.3
 starlette==1.2.1
@@ -51,7 +51,7 @@ streamlit==1.58.0
 stripe>=15.5.1
 tenacity==9.1.4
 toml==0.10.2
-python-magic>=0.4.27
+python-magic-bin>=0.4.14
 lxml>=4.9.0
 # Editable Git install with no remote (tva-intracom==0.1.0)
 typing_extensions==4.15.0
