@@ -172,6 +172,7 @@ import_summary_multi = "✅ **{count} files** analyzed: {sales} sales, {refunds}
 file_detail_expander = "File details ({count})"
 import_warnings_header = "⚠️ Import warnings ({count})"
 different_sources_warning = "⚠️ **Warning**: You are mixing multiple sources ({sources}). Check if this is intentional."
+ecb_fallback_warning = "⚠️ **ECB exchange rate unavailable**: Amazon's own rate was used as a fallback for {count} sale(s) ({currencies}). Check the connection to the ECB API if this count is high or recurring."
 period_mismatch_title = "⚠️ Period mismatches ({count})"
 period_mismatch_caption = "These sales were ordered in one month but shipped in another. They are reported at the shipment date."
 period_mismatch_col_id = "Sale ID"

@@ -172,6 +172,7 @@ import_summary_multi = "✅ Przeanalizowano **{count} plików**: {sales} sprzeda
 file_detail_expander = "Szczegóły pliku ({count})"
 import_warnings_header = "⚠️ Ostrzeżenia dotyczące importu ({count})"
 different_sources_warning = "⚠️ **Ostrzeżenie**: Mieszasz wiele źródeł ({sources}). Sprawdź, czy to celowe."
+ecb_fallback_warning = "⚠️ **Kurs wymiany EBC niedostępny**: dla {count} sprzedaży ({currencies}) zastosowano zastępczo kurs podany przez Amazon. Sprawdź połączenie z API EBC, jeśli ta liczba jest wysoka lub się powtarza."
 period_mismatch_title = "⚠️ Niezgodności okresów ({count})"
 period_mismatch_caption = "Ta sprzedaż została zamówiona w jednym miesiącu, ale wysłana w innym. Jest raportowana według daty wysyłki."
 period_mismatch_col_id = "ID sprzedaży"

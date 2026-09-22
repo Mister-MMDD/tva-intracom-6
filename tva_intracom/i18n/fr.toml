@@ -172,6 +172,7 @@ import_summary_multi = "✅ **{count} fichiers** analysés : {sales} ventes, {re
 file_detail_expander = "Détail par fichier ({count})"
 import_warnings_header = "⚠️ Avertissements d'import ({count})"
 different_sources_warning = "⚠️ **Attention** : Vous mélangez plusieurs sources ({sources}). Vérifiez que c'est intentionnel."
+ecb_fallback_warning = "⚠️ **Taux de change BCE indisponible** : le taux fourni par Amazon a été utilisé en repli pour {count} vente(s) ({currencies}). Vérifiez la connexion vers l'API de la BCE si ce nombre est élevé ou récurrent."
 period_mismatch_title = "⚠️ Décalages de période ({count})"
 period_mismatch_caption = "Ces ventes ont été commandées sur un mois mais expédiées sur un autre. Elles sont déclarées à la date d'expédition."
 period_mismatch_col_id = "ID Vente"

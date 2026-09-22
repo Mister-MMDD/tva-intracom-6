@@ -1074,6 +1074,17 @@ if uploaded_files:
     _total_credit_note  = sum(getattr(pr, "credit_note_rows", 0) for pr in _parse_results)
     _total_skipped      = sum(getattr(pr, "skipped_rows", 0) for pr in _parse_results)
 
+    # BUGFIX (2026-09-22, absence d'alerte UI) : fusion des compteurs
+    # `ecb_fallback_counts` (par devise) de chaque fichier importé — absent
+    # (getattr) pour les parsers autres qu'Amazon, qui n'exposent pas ce
+    # champ. Sert au st.warning() TOUJOURS visible plus bas (y compris en
+    # mode Simple, volontairement — voir sa note dans ce même bloc).
+    _ecb_fallback_by_currency: dict[str, int] = {}
+    for _pr in _parse_results:
+        for _ccy, _n in getattr(_pr, "ecb_fallback_counts", {}).items():
+            _ecb_fallback_by_currency[_ccy] = _ecb_fallback_by_currency.get(_ccy, 0) + _n
+    _total_ecb_fallback = sum(_ecb_fallback_by_currency.values())
+
     # Résumé import
     _return_part  = _("summary_part_returns", count=_total_returns) if _total_returns else ""
     _invoice_part = _("summary_part_invoices", count=_total_invoice) if _total_invoice else ""
@@ -1100,6 +1111,20 @@ if uploaded_files:
     # "Détails" est désormais créé à côté de la zone de dépôt elle-même
     # (`_details_btn_ph`, voir plus haut) et rempli plus bas, une fois
     # `results` disponible (voir section "DÉTAILS AVANCÉS").
+    # BUGFIX (2026-09-22, absence d'alerte UI) : contrairement aux autres
+    # avertissements d'import (expander ci-dessous, mode Détaillé
+    # uniquement), la panne de l'API BCE est jugée assez critique pour ne
+    # JAMAIS être masquée par le mode d'affichage — demande explicite de
+    # Matthieu, 2026-09-22. Placé AVANT le `if _is_detailed:` volontairement.
+    if _total_ecb_fallback:
+        st.warning(_(
+            "ecb_fallback_warning",
+            count=_total_ecb_fallback,
+            currencies=", ".join(
+                f"{ccy} ({n})" for ccy, n in sorted(_ecb_fallback_by_currency.items())
+            ),
+        ))
+
     if _is_detailed:
         if len(unique_platforms) > 1:
             st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))

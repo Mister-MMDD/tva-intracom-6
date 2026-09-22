@@ -172,6 +172,7 @@ import_summary_multi = "✅ **{count} Dateien** analysiert: {sales} Verkäufe, {
 file_detail_expander = "Dateidetails ({count})"
 import_warnings_header = "⚠️ Import-Warnungen ({count})"
 different_sources_warning = "⚠️ **Warnung**: Sie mischen mehrere Quellen ({sources}). Bitte prüfen Sie, ob dies beabsichtigt ist."
+ecb_fallback_warning = "⚠️ **EZB-Wechselkurs nicht verfügbar**: Für {count} Verkauf/Verkäufe ({currencies}) wurde ersatzweise der von Amazon gelieferte Kurs verwendet. Prüfen Sie die Verbindung zur EZB-API, falls diese Zahl hoch oder wiederkehrend ist."
 period_mismatch_title = "⚠️ Zeitraum-Abweichungen ({count})"
 period_mismatch_caption = "Diese Verkäufe wurden in einem Monat bestellt, aber in einem anderen versendet. Sie werden zum Versanddatum gemeldet."
 period_mismatch_col_id = "Verkaufs-ID"

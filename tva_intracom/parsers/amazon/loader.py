@@ -113,6 +113,17 @@ class AmazonImportResult:
     # observée), pas la source de vérité du calcul.
     product_tax_code_counts: "Counter[str]" = field(default_factory=Counter)
     commodity_code_counts: "Counter[str]" = field(default_factory=Counter)
+    # BUGFIX (2026-09-22, absence d'alerte UI) : nombre de ventes par devise
+    # où le taux BCE était indisponible et où le taux fourni par Amazon
+    # (INVOICE_LEVEL_EXCHANGE_RATE / EXCHANGE_RATE) a été utilisé en repli
+    # (voir CurrencyResult.exchange_rate_source == "fallback" dans
+    # classify.py). Champ structuré plutôt qu'un simple texte dans
+    # `warnings` : app.py s'en sert pour afficher un st.warning() TOUJOURS
+    # visible (y compris en mode d'affichage Simple, contrairement à
+    # `warnings` qui ne s'affiche qu'en mode Détaillé) — la fiabilité du
+    # taux de change est jugée suffisamment critique pour ne jamais être
+    # masquée par le mode d'affichage.
+    ecb_fallback_counts: "Counter[str]" = field(default_factory=Counter)
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +398,8 @@ def _process_rows(
             )
             if not fx.date_was_fallback and fx.transaction_date_used is not None:
                 _last_valid_tx_date = fx.transaction_date_used
+            if fx.exchange_rate_source.startswith("fallback"):
+                result.ecb_fallback_counts[currency] += 1
         except ValueError as exc:
             result.warnings.append(
                 f"Ligne {line_no} : conversion {currency}→{target_currency} impossible ({exc}). "
@@ -470,6 +483,23 @@ def _process_rows(
             result.sales.append(sale)
         else:
             result.refunds.append(sale)
+
+    # --- Alerte agrégée : taux BCE indisponible, repli sur le taux Amazon ---
+    # (texte pour l'expander "avertissements d'import", mode Détaillé
+    # uniquement — voir aussi le st.warning() TOUJOURS visible dans app.py,
+    # basé lui sur result.ecb_fallback_counts directement, pas ce texte.)
+    if result.ecb_fallback_counts:
+        _total_fallback = sum(result.ecb_fallback_counts.values())
+        _detail = ", ".join(
+            f"{ccy} ({n})" for ccy, n in sorted(result.ecb_fallback_counts.items())
+        )
+        result.warnings.append(
+            f"⚠ Taux de change BCE indisponible pour {_total_fallback} vente(s) — "
+            f"le taux de change fourni par Amazon a été utilisé en repli : {_detail}. "
+            "Les montants restent fiables (taux Amazon), mais vérifiez la "
+            "connexion vers l'API de la BCE (data-api.ecb.europa.eu) si ce "
+            "nombre est élevé ou récurrent."
+        )
 
 
 # ---------------------------------------------------------------------------
