@@ -1395,17 +1395,9 @@ glossary_terms_excluded_territories_title = "Territorio excluido (Zonas Art. 6)"
 glossary_terms_excluded_territories_definition = "Áreas geográficas anexadas a un Estado miembro pero excluidas del territorio fiscal de la UE (ej. Canarias, DOM-TOM, Monte Athos). Los flujos a estas áreas se tratan como exportaciones."
 glossary_terms_excluded_territories_tooltip = "Áreas fuera del territorio fiscal de la UE (Canarias, DOM-TOM...)"
 
-glossary_terms_amazon_formats_title = "Amazon V1-V5 (Formatos de archivo)"
-glossary_terms_amazon_formats_definition = "Diferentes versiones de informes fiscales generados por Amazon. El formato V5 (VAT Transaction Report detallado) es el más completo y recomendado para una clasificación precisa."
-glossary_terms_amazon_formats_tooltip = "Formatos de informes fiscais de Amazon"
-
 glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
 glossary_terms_emebi_intrastat_definition = "Encuesta Mensual de Intercambio de Bienes Intra-UE. Declaración estadística obligatoria por encima de ciertos umbrales para expediciones o introducciones de mercancías."
 glossary_terms_emebi_intrastat_tooltip = "Declaración estadística de intercambios intra-UE"
-
-glossary_terms_ecb_rates_title = "BCE (Tipos de cambio)"
-glossary_terms_ecb_rates_definition = "Banco Central Europeo. Nuestro motor sincroniza diariamente sus tipos de cambio para convertir con precisión sus ventas en varias divisas a euros."
-glossary_terms_ecb_rates_tooltip = "Tipos de cambio del Banco Central Europeo"
 
 glossary_terms_vies_title = "VIES"
 glossary_terms_vies_definition = "Sistema europeo de intercambio de información sobre el IVA. Permite verificar la validez de los números de IVA para las exenciones B2B."
@@ -1426,10 +1418,6 @@ glossary_terms_incoterms_tooltip = "Términos comerciales que definen responsabi
 glossary_terms_import_150_title = "Franquicia de 150 € (Importación)"
 glossary_terms_import_150_definition = "Umbral por debajo del cual no se aplican derechos de aduana a las importaciones en la UE. El IVA sigue siendo debido y puede recaudarse a través del IOSS o por el transportista. Por encima de 150 €, se aplican derechos de aduana además del IVA."
 glossary_terms_import_150_tooltip = "Umbral de franquicia aduanera para las importaciones"
-
-glossary_terms_b2b_b2c_title = "B2B vs B2C"
-glossary_terms_b2b_b2c_definition = "**B2B (Business to Business)**: Venta a una empresa con un número de IVA válido (a menudo exenta mediante inversión del sujeto pasivo). **B2C (Business to Consumer)**: Venta a un particular (IVA del país de destino debido a través del OSS)."
-glossary_terms_b2b_b2c_tooltip = "Ventas a empresas (B2B) frente a particulares (B2C)"
 
 glossary_terms_distance_selling_title = "Venta a distancia"
 glossary_terms_distance_selling_definition = "Venta de bienes enviados desde un país de la UE a un particular en otro país de la UE. Estas ventas están sujetas a las normas del OSS por encima del umbral de 10.000 €."

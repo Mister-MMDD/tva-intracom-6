@@ -1408,17 +1408,9 @@ glossary_terms_excluded_territories_title = "Territoire exclu (Zones Art. 6)"
 glossary_terms_excluded_territories_definition = "Zones géographiques rattachées à un État membre mais exclues du territoire fiscal de l'UE (ex: Canaries, DOM-TOM, Mont Athos). Les flux vers ces zones sont traités comme des exportations."
 glossary_terms_excluded_territories_tooltip = "Zones hors territoire fiscal UE (Canaries, DOM-TOM...)"
 
-glossary_terms_amazon_formats_title = "Amazon V1-V5 (Formats de fichiers)"
-glossary_terms_amazon_formats_definition = "Différentes versions de rapports fiscaux générés par Amazon. Le format V5 (VAT Transaction Report détaillé) est le plus complet et recommandé pour une classification précise."
-glossary_terms_amazon_formats_tooltip = "Formats de rapports fiscaux Amazon"
-
 glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
 glossary_terms_emebi_intrastat_definition = "Enquête Mensuelle sur les Échanges de Biens Intra-UE. Déclaration statistique obligatoire au-delà de certains seuils d'expédition ou d'introduction de marchandises."
 glossary_terms_emebi_intrastat_tooltip = "Déclaration statistique des échanges intra-UE"
-
-glossary_terms_ecb_rates_title = "BCE (Taux de change)"
-glossary_terms_ecb_rates_definition = "Banque Centrale Européenne. Notre moteur synchronise quotidiennement ses taux de change pour convertir précisément vos ventes multi-devises en euros."
-glossary_terms_ecb_rates_tooltip = "Taux de change de la Banque Centrale Européenne"
 
 glossary_terms_vies_title = "VIES"
 glossary_terms_vies_definition = "Système européen de validation des numéros de TVA intracommunautaires. Permet de vérifier la validité des numéros de TVA pour les exonérations B2B."
@@ -1439,10 +1431,6 @@ glossary_terms_incoterms_tooltip = "Termes commerciaux définissant les responsa
 glossary_terms_import_150_title = "Franchise 150€ (Import)"
 glossary_terms_import_150_definition = "Seuil en dessous duquel aucune taxe de douane n'est appliquée pour les importations dans l'UE. La TVA reste due et peut être collectée via l'IOSS ou par le transporteur. Au-delà de 150€, des droits de douane s'appliquent en plus de la TVA."
 glossary_terms_import_150_tooltip = "Seuil de franchise de droits de douane pour les imports"
-
-glossary_terms_b2b_b2c_title = "B2B vs B2C"
-glossary_terms_b2b_b2c_definition = "**B2B (Business to Business)** : Vente à une entreprise disposant d'un numéro de TVA valide (souvent exonérée via l'autoliquidation). **B2C (Business to Consumer)** : Vente à un particulier (TVA du pays de destination due via l'OSS)."
-glossary_terms_b2b_b2c_tooltip = "Ventes aux entreprises (B2B) vs particuliers (B2C)"
 
 glossary_terms_distance_selling_title = "Vente à distance"
 glossary_terms_distance_selling_definition = "Vente de biens expédiés d'un pays de l'UE vers un particulier dans un autre pays de l'UE. Ces ventes sont soumises aux règles de l'OSS au-delà du seuil de 10 000 €."

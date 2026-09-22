@@ -24,15 +24,12 @@ GLOSSARY_TERM_KEYS = [
     "deemed_supplier",
     "oss_threshold",
     "distance_selling",
-    "b2b_b2c",
     "vat_number",
     "nif",
     "eori",
     "import_150",
     "excluded_territories",
-    "amazon_formats",
     "emebi_intrastat",
-    "ecb_rates",
 ]
 
 

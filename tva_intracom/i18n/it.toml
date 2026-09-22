@@ -1395,17 +1395,9 @@ glossary_terms_excluded_territories_title = "Territorio escluso (Zone Art. 6)"
 glossary_terms_excluded_territories_definition = "Aree geografiche annesse a uno Stato membro ma escluse dal territorio fiscale dell'UE (es. Canarie, DOM-TOM, Monte Athos). I flussi verso queste aree sono trattati come esportazioni."
 glossary_terms_excluded_territories_tooltip = "Aree fuori dal territorio fiscale UE (Canarie, DOM-TOM...)"
 
-glossary_terms_amazon_formats_title = "Amazon V1-V5 (Formati file)"
-glossary_terms_amazon_formats_definition = "Diverse versioni di report fiscali generati da Amazon. Il formato V5 (VAT Transaction Report dettagliato) è il più completo e raccomandato per una classificazione precisa."
-glossary_terms_amazon_formats_tooltip = "Formati report fiscali Amazon"
-
 glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
 glossary_terms_emebi_intrastat_definition = "Indagine Mensile sugli Scambi Intra-UE di Beni. Dichiarazione statistica obbligatoria oltre certe soglie per spedizioni o introduzioni di merci."
 glossary_terms_emebi_intrastat_tooltip = "Dichiarazione statistica scambi intra-UE"
-
-glossary_terms_ecb_rates_title = "BCE (Tassi di cambio)"
-glossary_terms_ecb_rates_definition = "Banca Centrale Europea. Il nostro motore sincronizza quotidianamente i loro tassi di cambio per convertire con precisione le vendite in più valute in euro."
-glossary_terms_ecb_rates_tooltip = "Tassi di cambio della Banca Centrale Europea"
 
 glossary_terms_vies_title = "VIES"
 glossary_terms_vies_definition = "Sistema europeo di scambio di informazioni sull'IVA. Permette di verificare la validità dei numeri IVA per le esenzioni B2B."
@@ -1426,10 +1418,6 @@ glossary_terms_incoterms_tooltip = "Termini commerciali che definiscono responsa
 glossary_terms_import_150_title = "Franchigia di 150 € (Importazione)"
 glossary_terms_import_150_definition = "Soglia al di sotto della quale non si applicano dazi doganali per le importazioni nell'UE. L'IVA resta dovuta e può essere riscossa tramite l'IOSS o dal vettore. Oltre i 150 €, si applicano dazi doganali in aggiunta all'IVA."
 glossary_terms_import_150_tooltip = "Soglia di franchigia doganale per le importazioni"
-
-glossary_terms_b2b_b2c_title = "B2B vs B2C"
-glossary_terms_b2b_b2c_definition = "**B2B (Business to Business)**: vendita a un'impresa con un numero di partita IVA valido (spesso esente tramite reverse charge). **B2C (Business to Consumer)**: vendita a un privato (IVA del paese di destinazione dovuta tramite l'OSS)."
-glossary_terms_b2b_b2c_tooltip = "Vendite alle imprese (B2B) rispetto ai privati (B2C)"
 
 glossary_terms_distance_selling_title = "Vendita a distanza"
 glossary_terms_distance_selling_definition = "Vendita di beni spediti da un paese UE a un privato in un altro paese UE. Queste vendite sono soggette alle regole dell'OSS oltre la soglia di 10.000 €."

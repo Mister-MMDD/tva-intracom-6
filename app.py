@@ -135,7 +135,12 @@ render_sidebar_brand()
 # invisible tant que l'utilisateur n'était pas connecté.
 language_selector()
 
-st.title(f"🇪🇺 {_('title')}")
+_title_col1, _title_col2 = st.columns([0.85, 0.15], vertical_alignment="bottom")
+with _title_col1:
+    st.title(f"🇪🇺 {_('title')}")
+with _title_col2:
+    if st.button("❓ Glossaire", key="glossary_help_btn", help=_("glossary_help_tooltip"), use_container_width=True):
+        render_glossary_dialog()
 
 # Section Donation - Boutons officiels Stripe & PayPal
 # Version 2026-09-20 : Utilisation de logos en haute définition via URLs stables certifiées.
@@ -364,7 +369,7 @@ _status_file_value = (
     else _("status_bar_no_file")
 )
 
-_status_col_bar, _status_col_toggle, _status_col_help = st.columns([3, 1, 0.5])
+_status_col_bar, _status_col_toggle = st.columns([3.5, 1])
 with _status_col_bar:
     st.markdown(
         f"""
@@ -390,9 +395,6 @@ with _status_col_bar:
     )
 with _status_col_toggle:
     render_mode_toggle()
-with _status_col_help:
-    if st.button("❓", key="glossary_help_btn", help=_("glossary_help_tooltip")):
-        render_glossary_dialog()
 
 render_onboarding_banner(
     _current_user,

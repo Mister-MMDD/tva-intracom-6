@@ -1395,17 +1395,9 @@ glossary_terms_excluded_territories_title = "Terytorium wyłączone (Strefy art.
 glossary_terms_excluded_territories_definition = "Obszary geograficzne przypisane do państwa członkowskiego, ale wyłączone z terytorium podatkowego UE (np. Wyspy Kanaryjskie, DOM-TOM, Góra Athos). Przepły do tych obszarów są traktowane jako eksport."
 glossary_terms_excluded_territories_tooltip = "Obszary poza terytorium podatkowym UE (Wyspy Kanaryjskie, DOM-TOM...)"
 
-glossary_terms_amazon_formats_title = "Amazon V1-V5 (Formaty plików)"
-glossary_terms_amazon_formats_definition = "Różne wersje raportów podatkowych generowanych przez Amazon. Format V5 (szczegółowy VAT Transaction Report) jest najbardziej kompletny i zalecany do precyzyjnej klasyfikacji."
-glossary_terms_amazon_formats_tooltip = "Formaty raportów podatkowych Amazon"
-
 glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
 glossary_terms_emebi_intrastat_definition = "Miesięczne Badanie Obrotu Towarami Wewnątrz UE. Obowiązkowa deklaracja statystyczna powyżej określonych progów dla wysyłek lub przywozu towarów."
 glossary_terms_emebi_intrastat_tooltip = "Deklaracja statystyczna obrotu wewnątrz UE"
-
-glossary_terms_ecb_rates_title = "EBC (Kursy walut)"
-glossary_terms_ecb_rates_definition = "Europejski Bank Centralny. Nasz silnik synchronizuje się codziennie z ich kursami walut, aby precyzyjnie przeliczyć sprzedaż w różnych walutach na euro."
-glossary_terms_ecb_rates_tooltip = "Kursy walut Europejskiego Banku Centralnego"
 
 glossary_terms_vies_title = "VIES"
 glossary_terms_vies_definition = "Europejski System Wymiany Informacji o VAT. Pozwala weryfikować numery VAT dla zwolnień B2B."
@@ -1426,10 +1418,6 @@ glossary_terms_incoterms_tooltip = "Warunki handlowe definiujące odpowiedzialno
 glossary_terms_import_150_title = "Próg 150 € (import)"
 glossary_terms_import_150_definition = "Próg, poniżej którego nie stosuje się ceł przy imporcie do UE. VAT nadal jest należny i może być pobierany za pośrednictwem IOSS lub przez przewoźnika. Powyżej 150 € oprócz VAT stosowane są cła."
 glossary_terms_import_150_tooltip = "Próg zwolnienia celnego dla importu"
-
-glossary_terms_b2b_b2c_title = "B2B kontra B2C"
-glossary_terms_b2b_b2c_definition = "**B2B (Business to Business)**: sprzedaż na rzecz firmy posiadającej ważny numer VAT (często zwolniona dzięki mechanizmowi odwrotnego obciążenia). **B2C (Business to Consumer)**: sprzedaż na rzecz osoby prywatnej (VAT kraju przeznaczenia należny w ramach OSS)."
-glossary_terms_b2b_b2c_tooltip = "Sprzedaż dla firm (B2B) w porównaniu ze sprzedażą dla osób prywatnych (B2C)"
 
 glossary_terms_distance_selling_title = "Sprzedaż na odległość"
 glossary_terms_distance_selling_definition = "Sprzedaż towarów wysyłanych z jednego kraju UE do osoby prywatnej w innym kraju UE. Sprzedaż ta podlega zasadom OSS powyżej progu 10 000 €."

@@ -1394,17 +1394,9 @@ glossary_terms_excluded_territories_title = "Ausgeschlossenes Gebiet (Art. 6-Geb
 glossary_terms_excluded_territories_definition = "Geografische Gebiete, die einem Mitgliedstaat zugeordnet sind, aber vom MwSt.-Gebiet der EU ausgeschlossen sind (z. B. Kanarische Inseln, DOM-TOM, Athos). Ströme in diese Gebiete werden als Exporte behandelt."
 glossary_terms_excluded_territories_tooltip = "Gebiete außerhalb des EU-MwSt.-Gebiets (Kanarische Inseln, DOM-TOM...)"
 
-glossary_terms_amazon_formats_title = "Amazon V1-V5 (Dateiformate)"
-glossary_terms_amazon_formats_definition = "Verschiedene Versionen der von Amazon generierten Steuerberichte. Das V5-Format (detaillierter VAT Transaction Report) ist am vollständigsten und für eine genaue Klassifizierung empfohlen."
-glossary_terms_amazon_formats_tooltip = "Amazon-Steuerberichtformate"
-
 glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
 glossary_terms_emebi_intrastat_definition = "Monatliche Erhebung über den innergemeinschaftlichen Warenverkehr. Obligatorische statistische Meldung ab bestimmten Schwellenwerten für Versendungen oder Eingänge von Waren."
 glossary_terms_emebi_intrastat_tooltip = "Statistische Meldung des innergemeinschaftlichen Warenverkehrs"
-
-glossary_terms_ecb_rates_title = "EZB (Wechselkurse)"
-glossary_terms_ecb_rates_definition = "Europäische Zentralbank. Unsere Engine synchronisiert täglich mit deren Wechselkursen, um Ihre Multiwährungsverkäufe präzis in Euro umzurechnen."
-glossary_terms_ecb_rates_tooltip = "Wechselkurse der Europäischen Zentralbank"
 
 glossary_terms_vies_title = "VIES"
 glossary_terms_vies_definition = "Europäisches System zum Austausch von MwSt.-Informationen. Ermöglicht die Überprüfung von MwSt.-Nummern für B2B-Befreiungen."
@@ -1425,10 +1417,6 @@ glossary_terms_incoterms_tooltip = "Handelsbedingungen definieren Verkäufer-/K�
 glossary_terms_import_150_title = "150-€-Freigrenze (Einfuhr)"
 glossary_terms_import_150_definition = "Schwelle, unterhalb derer bei Einfuhren in die EU keine Zölle erhoben werden. Die Umsatzsteuer bleibt geschuldet und kann über den IOSS oder durch den Beförderer erhoben werden. Oberhalb von 150 € fallen zusätzlich zur Umsatzsteuer Zölle an."
 glossary_terms_import_150_tooltip = "Zollfreigrenze für Einfuhren"
-
-glossary_terms_b2b_b2c_title = "B2B vs. B2C"
-glossary_terms_b2b_b2c_definition = "**B2B (Business to Business)**: Verkauf an ein Unternehmen mit gültiger USt-IdNr. (häufig steuerfrei durch das Reverse-Charge-Verfahren). **B2C (Business to Consumer)**: Verkauf an eine Privatperson (Umsatzsteuer des Bestimmungslandes über den OSS geschuldet)."
-glossary_terms_b2b_b2c_tooltip = "Verkäufe an Unternehmen (B2B) im Vergleich zu Privatpersonen (B2C)"
 
 glossary_terms_distance_selling_title = "Fernverkauf"
 glossary_terms_distance_selling_definition = "Verkauf von Waren, die von einem EU-Land an eine Privatperson in einem anderen EU-Land versandt werden. Diese Verkäufe unterliegen oberhalb der Schwelle von 10.000 € den OSS-Regeln."

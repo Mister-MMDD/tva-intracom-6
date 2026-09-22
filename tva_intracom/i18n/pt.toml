@@ -1395,17 +1395,9 @@ glossary_terms_excluded_territories_title = "Território excluído (Zonas Art. 6
 glossary_terms_excluded_territories_definition = "Áreas geográficas anexadas a um Estado-Membro mas excluídas do território fiscal da UE (ex. Canárias, DOM-TOM, Monte Athos). Os fluxos para estas áreas são tratados como exportações."
 glossary_terms_excluded_territories_tooltip = "Áreas fora do território fiscal da UE (Canárias, DOM-TOM...)"
 
-glossary_terms_amazon_formats_title = "Amazon V1-V5 (Formatos de ficheiro)"
-glossary_terms_amazon_formats_definition = "Diferentes versões de relatórios fiscais gerados pela Amazon. O formato V5 (VAT Transaction Report detalhado) é o mais completo e recomendado para uma classificação precisa."
-glossary_terms_amazon_formats_tooltip = "Formatos de relatórios fiscais da Amazon"
-
 glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
 glossary_terms_emebi_intrastat_definition = "Inquérito Mensual sobre o Comércio de Bens Intra-UE. Declaração estatística obrigatória acima de certos limiares para expedições ou introduções de mercadorias."
 glossary_terms_emebi_intrastat_tooltip = "Declaração estatística de comércio intra-UE"
-
-glossary_terms_ecb_rates_title = "BCE (Taxas de câmbio)"
-glossary_terms_ecb_rates_definition = "Banco Central Europeu. O nosso motor sincroniza diariamente as suas taxas de câmbio para converter com precisão as suas vendas em várias moedas para euros."
-glossary_terms_ecb_rates_tooltip = "Taxas de câmbio do Banco Central Europeu"
 
 glossary_terms_vies_title = "VIES"
 glossary_terms_vies_definition = "Sistema europeu de intercâmbio de informações sobre IVA. Permite verificar a validade de números de IVA para isenções B2B."
@@ -1426,10 +1418,6 @@ glossary_terms_incoterms_tooltip = "Termos comerciais que definem responsabilida
 glossary_terms_import_150_title = "Franquia de 150 € (Importação)"
 glossary_terms_import_150_definition = "Limiar abaixo do qual não são aplicados direitos aduaneiros às importações na UE. O IVA continua devido e pode ser cobrado através do IOSS ou pelo transportador. Acima de 150 €, aplicam-se direitos aduaneiros para além do IVA."
 glossary_terms_import_150_tooltip = "Limiar de franquia aduaneira para importações"
-
-glossary_terms_b2b_b2c_title = "B2B vs B2C"
-glossary_terms_b2b_b2c_definition = "**B2B (Business to Business)**: venda a uma empresa com um número de IVA válido (frequentemente isenta através da inversão do sujeito passivo). **B2C (Business to Consumer)**: venda a um particular (IVA do país de destino devido através do OSS)."
-glossary_terms_b2b_b2c_tooltip = "Vendas a empresas (B2B) versus particulares (B2C)"
 
 glossary_terms_distance_selling_title = "Venda à distância"
 glossary_terms_distance_selling_definition = "Venda de bens expedidos de um país da UE para um particular noutro país da UE. Estas vendas estão sujeitas às regras do OSS acima do limiar de 10.000 €."
