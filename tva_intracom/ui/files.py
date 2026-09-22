@@ -184,10 +184,14 @@ def validate_mime_type(file_name: str, file_head: bytes) -> tuple[bool, str]:
         if detected_mime in _ALLOWED_MIME_TYPES:
             return True, ""
         
-        # Cas particulier: certains fichiers CSV sont détectés comme "text/plain"
-        # ce qui est acceptable pour notre usage
-        if detected_mime == "text/plain" and file_name.endswith((".csv", ".tsv", ".txt")):
-            return True, ""
+        # Cas particulier: sous Windows (python-magic-bin), certains fichiers textuels valides
+        # (ex: exports Amazon, fichiers texte avec accents) sont détectés comme "application/octet-stream"
+        # ou sous un type de code source spécifique (ex: text/x-pascal). Tant que l'extension est
+        # valide (.csv, .tsv, .txt), on accepte ces types "application/octet-stream" ou "text/*"
+        # car un contrôle de contenu binaire strict a déjà été effectué par sniff_upload_rejection_reason.
+        if file_name.lower().endswith((".csv", ".tsv", ".txt")):
+            if detected_mime == "application/octet-stream" or detected_mime.startswith("text/"):
+                return True, ""
         
         # Cas particulier: fichiers avec BOM UTF-8
         if "utf-8" in detected_mime or "charset=utf-8" in detected_mime:
