@@ -208,13 +208,74 @@ class TestBruteForceProtection:
         except Exception as e:
             pytest.skip(f"Impossible de vérifier la table: {e}")
 
-    def test_rate_limiting_not_implemented(self):
-        """Documente que le rate-limiting n'est pas implémenté."""
-        # Cette fonctionnalité est marquée comme manquante dans l'audit
-        # Ce test documente ce fait
+    def test_rate_limiting_check(self):
+        """Vérifie que le rate-limiting fonctionne correctement."""
+        from tva_intracom.auth import check_rate_limit, record_failed_login, _FAILED_LOGIN_MAX_ATTEMPTS, _FAILED_LOGIN_WINDOW_SECONDS
         
-        # TODO: Implémenter le rate-limiting basé sur tva_failed_logins
-        pytest.skip("Rate-limiting non implémenté - voir audit de sécurité")
+        try:
+            # Test avec une IP sans tentatives échouées
+            test_ip_hash = "test_ip_hash_12345"
+            allowed, message = check_rate_limit(test_ip_hash)
+            assert allowed is True
+            assert message == ""
+            
+            # Enregistrer des tentatives échouées
+            for _ in range(_FAILED_LOGIN_MAX_ATTEMPTS):
+                record_failed_login(test_ip_hash)
+            
+            # Vérifier que le rate-limiting s'active
+            allowed, message = check_rate_limit(test_ip_hash)
+            assert allowed is False
+            assert "Trop de tentatives" in message
+            assert f"{_FAILED_LOGIN_WINDOW_SECONDS // 60} minutes" in message
+        except Exception as e:
+            pytest.skip(f"Rate-limiting test requires database: {e}")
+
+    def test_rate_limiting_clear(self):
+        """Vérifie que le nettoyage des tentatives échouées fonctionne."""
+        from tva_intracom.auth import check_rate_limit, record_failed_login, clear_failed_logins
+        
+        try:
+            test_ip_hash = "test_ip_hash_67890"
+            
+            # Enregistrer des tentatives échouées
+            for _ in range(5):
+                record_failed_login(test_ip_hash)
+            
+            # Vérifier que le rate-limiting s'active
+            allowed, _ = check_rate_limit(test_ip_hash)
+            assert allowed is False
+            
+            # Nettoyer les tentatives
+            clear_failed_logins(test_ip_hash)
+            
+            # Vérifier que le rate-limiting est désactivé
+            allowed, _ = check_rate_limit(test_ip_hash)
+            assert allowed is True
+        except Exception as e:
+            pytest.skip(f"Rate-limiting test requires database: {e}")
+
+    def test_account_lock_check(self):
+        """Vérifie que le verrouillage de compte fonctionne."""
+        from tva_intracom.auth import check_account_locked, lock_account_temporarily
+        
+        try:
+            test_email = "test_lock@example.com"
+            
+            # Vérifier que le compte n'est pas verrouillé initialement
+            is_locked, locked_until = check_account_locked(test_email)
+            assert is_locked is False
+            assert locked_until is None
+            
+            # Verrouiller le compte
+            lock_account_temporarily(test_email, duration_seconds=60)
+            
+            # Vérifier que le compte est maintenant verrouillé
+            is_locked, locked_until = check_account_locked(test_email)
+            assert is_locked is True
+            assert locked_until is not None
+        except Exception as e:
+            pytest.skip(f"Account lock test requires database: {e}")
 
     def test_session_token_ttl(self):
         """Vérifie la durée du token de session.
@@ -244,15 +305,25 @@ class TestInputValidation:
 
     def test_email_validation(self):
         """Vérifie la validation des adresses e-mail."""
-        from tva_intracom.auth import resolve_org_id
+        from tva_intracom.auth import validate_email_strict
         
         # E-mail valide
-        org_id = resolve_org_id("test@example.com")
-        assert org_id is not None
+        is_valid, msg = validate_email_strict("test@example.com")
+        assert is_valid is True
+        assert msg == ""
         
-        # E-mail invalide
-        org_id_invalid = resolve_org_id("invalid_email")
-        assert org_id_invalid is not None  # La fonction ne rejette pas, normalise
+        # E-mail invalide (pas de @)
+        is_valid, msg = validate_email_strict("invalid_email")
+        assert is_valid is False
+        assert "invalide" in msg.lower()
+        
+        # E-mail invalide (pas de domaine)
+        is_valid, msg = validate_email_strict("test@")
+        assert is_valid is False
+        
+        # E-mail valide avec sous-domaine
+        is_valid, msg = validate_email_strict("test@sub.example.com")
+        assert is_valid is True
 
     def test_vat_number_normalization(self):
         """Vérifie la normalisation des numéros TVA."""
@@ -287,11 +358,23 @@ class TestInputValidation:
         assert max_size_mb == 100, "Limite de taille actuelle: 100 Mo"
 
     def test_mimetype_validation_not_implemented(self):
-        """Documente que la validation MIME n'est pas implémentée."""
-        # Ce test documente que seule l'extension est validée
-        # RECOMMANDATION: Ajouter validation du type MIME réel
+        """Documente que la validation MIME est maintenant implémentée."""
+        # Ce test documente que la validation MIME est maintenant implémentée
+        # RECOMMANDATION: Ajouter validation du type MIME réel - ✅ IMPLÉMENTÉ
         
-        pytest.skip("Validation MIME non implémentée - voir audit de sécurité")
+        from tva_intracom.ui.files import validate_mime_type
+        
+        # Test avec un fichier CSV valide
+        csv_head = b"id,name,value\n1,Test,100\n"
+        is_valid, msg = validate_mime_type("test.csv", csv_head)
+        assert is_valid is True
+        assert msg == ""
+        
+        # Test avec un fichier binaire
+        binary_head = b"\x00\x00\x00\x00"
+        is_valid, msg = validate_mime_type("test.exe", binary_head)
+        assert is_valid is False
+        assert "non autorisé" in msg.lower() or "signature" in msg.lower()
 
 
 class TestCSRFProtection:

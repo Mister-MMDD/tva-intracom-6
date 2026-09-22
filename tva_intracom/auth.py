@@ -14,6 +14,7 @@ Dépendance ajoutée à requirements.txt : psycopg2-binary
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 import threading
@@ -137,6 +138,10 @@ def _init_schema(pool: NonPoolingConnectionPool) -> None:
             )
             cur.execute(
                 "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'"
+            )
+            # Verrouillage de compte après échecs multiples (audit sécurité 2026-09-22, ÉLEVÉ #8)
+            cur.execute(
+                "ALTER TABLE tva_users ADD COLUMN IF NOT EXISTS locked_until DOUBLE PRECISION"
             )
             cur.execute(
                 """
@@ -271,6 +276,35 @@ def is_solo_org(org_id: str) -> bool:
     return org_id.startswith("solo:")
 
 
+def validate_email_strict(email: str) -> tuple[bool, Optional[str]]:
+    """Valide strictement le format de l'e-mail.
+    
+    Retourne (is_valid, error_message) où:
+    - is_valid: True si l'e-mail est valide, False sinon
+    - error_message: Message d'erreur si non valide, chaîne vide sinon
+    
+    Utilise email-validator pour une validation stricte selon RFC 5322.
+    Si email-validator n'est pas disponible, utilise une validation regex
+    basique comme fallback.
+    """
+    email = (email or "").strip().lower()
+    
+    try:
+        from email_validator import validate_email, EmailNotValidError
+        try:
+            validate_email(email)
+            return True, ""
+        except EmailNotValidError as e:
+            return False, str(e)
+    except ImportError:
+        # Fallback: validation regex basique
+        import re
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(pattern, email):
+            return False, "Format d'e-mail invalide"
+        return True, ""
+
+
 def can_signup(email: str) -> tuple[bool, Optional[str]]:
     """Contrôle SANS effet de bord (aucune écriture) si cet e-mail peut créer
     un compte MAINTENANT : à appeler par l'UI avant de déclencher l'envoi
@@ -280,6 +314,12 @@ def can_signup(email: str) -> tuple[bool, Optional[str]]:
     reste la vérification faisant foi). Retourne (True, None) si autorisé,
     (False, message) sinon."""
     email = (email or "").strip().lower()
+    
+    # Validation stricte de l'e-mail (audit sécurité 2026-09-22, ÉLEVÉ #5)
+    is_valid, error_msg = validate_email_strict(email)
+    if not is_valid:
+        return False, f"Format d'e-mail invalide : {error_msg}"
+    
     org_id = resolve_org_id(email)
 
     def _fn(conn, cur):
@@ -325,6 +365,12 @@ def get_or_create_user(email: str) -> User:
       de son propre compte (organisation "solo").
     """
     email = email.strip().lower()
+    
+    # Validation stricte de l'e-mail (audit sécurité 2026-09-22, ÉLEVÉ #5)
+    is_valid, error_msg = validate_email_strict(email)
+    if not is_valid:
+        raise ValueError(f"Format d'e-mail invalide : {error_msg}")
+    
     org_id = resolve_org_id(email)
     logger.info("[auth] get_or_create_user")
 
@@ -526,6 +572,190 @@ def add_allowed_email(org_id: str, email: str, role: str, added_by: str) -> None
     _run(_fn)
 
 
+# ---------------------------------------------------------------------------
+# Protection brute-force (rate-limiting)
+# ---------------------------------------------------------------------------
+
+# Configuration du rate-limiting
+_FAILED_LOGIN_MAX_ATTEMPTS = 5  # Max 5 tentatives
+_FAILED_LOGIN_WINDOW_SECONDS = 900  # Fenêtre de 15 minutes
+
+
+def _get_client_ip_hash() -> str:
+    """Génère un hash de l'IP du client pour le rate-limiting.
+    
+    Note: Dans un environnement Streamlit, l'IP réelle n'est pas directement accessible.
+    On utilise une combinaison de l'IP (si disponible via headers) et d'un identifiant
+    de session pour limiter les abus.
+    """
+    import streamlit as st
+    import hashlib
+    
+    # Essayer de récupérer l'IP depuis les headers (si derrière un reverse proxy)
+    ip = st.context.headers.get("X-Forwarded-For", st.context.headers.get("X-Real-IP", "unknown"))
+    
+    # Si l'IP n'est pas disponible, utiliser un identifiant de session
+    if ip == "unknown":
+        ip = f"session:{st.session_state.get('session_id', 'anonymous')}"
+    
+    # Hasher l'IP pour éviter de stocker l'IP en clair
+    return hashlib.sha256(ip.encode()).hexdigest()
+
+
+def check_rate_limit(ip_hash: str) -> tuple[bool, str]:
+    """Vérifie si l'IP a dépassé la limite de tentatives de connexion.
+    
+    Retourne (allowed, message) où:
+    - allowed: True si l'IP est autorisée à continuer, False sinon
+    - message: Message d'erreur si non autorisé, chaîne vide sinon
+    """
+    def _fn(conn, cur):
+        # Compter les tentatives dans la fenêtre de temps
+        cur.execute("""
+            SELECT COUNT(*) FROM tva_failed_logins
+            WHERE ip_hash=%s AND attempt_at > %s
+        """, (ip_hash, time.time() - _FAILED_LOGIN_WINDOW_SECONDS))
+        count = cur.fetchone()[0]
+        
+        if count >= _FAILED_LOGIN_MAX_ATTEMPTS:
+            return False, f"Trop de tentatives de connexion. Réessayez dans {_FAILED_LOGIN_WINDOW_SECONDS // 60} minutes."
+        return True, ""
+    
+    return _run(_fn)
+
+
+def record_failed_login(ip_hash: str) -> None:
+    """Enregistre une tentative de connexion échouée."""
+    def _fn(conn, cur):
+        cur.execute(
+            "INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)",
+            (ip_hash, time.time())
+        )
+        conn.commit()
+    
+    _run(_fn)
+
+
+def clear_failed_logins(ip_hash: str) -> None:
+    """Nettoie les tentatives échouées pour une IP après une connexion réussie."""
+    def _fn(conn, cur):
+        cur.execute(
+            "DELETE FROM tva_failed_logins WHERE ip_hash=%s",
+            (ip_hash,)
+        )
+        conn.commit()
+    
+    _run(_fn)
+
+
+def cleanup_old_failed_logins() -> None:
+    """Nettoie les anciennes entrées de tentatives échouées (plus de 24h).
+    
+    Cette fonction devrait être appelée périodiquement (ex: via un job cron)
+    pour éviter que la table ne grossisse indéfiniment.
+    """
+    def _fn(conn, cur):
+        cur.execute(
+            "DELETE FROM tva_failed_logins WHERE attempt_at < %s",
+            (time.time() - 86400,)  # 24 heures
+        )
+        conn.commit()
+    
+    _run(_fn)
+
+
+# ---------------------------------------------------------------------------
+# Verrouillage de compte après échecs multiples
+# ---------------------------------------------------------------------------
+
+_ACCOUNT_LOCK_DURATION_SECONDS = 3600  # 1 heure de verrouillage
+_ACCOUNT_LOCK_THRESHOLD = 10  # Verrouiller après 10 échecs
+
+
+def check_account_locked(email: str) -> tuple[bool, Optional[float]]:
+    """Vérifie si un compte est verrouillé.
+    
+    Retourne (is_locked, locked_until) où:
+    - is_locked: True si le compte est verrouillé, False sinon
+    - locked_until: Timestamp du déverrouillage si verrouillé, None sinon
+    """
+    def _fn(conn, cur):
+        cur.execute(
+            "SELECT locked_until FROM tva_users WHERE email=%s",
+            (email,)
+        )
+        row = cur.fetchone()
+        if not row or row[0] is None:
+            return False, None
+        
+        locked_until = row[0]
+        if time.time() < locked_until:
+            return True, locked_until
+        
+        # Le verrouillage a expiré, on le nettoie
+        cur.execute(
+            "UPDATE tva_users SET locked_until=NULL WHERE email=%s",
+            (email,)
+        )
+        conn.commit()
+        return False, None
+    
+    return _run(_fn)
+
+
+def lock_account_temporarily(email: str, duration_seconds: int = _ACCOUNT_LOCK_DURATION_SECONDS) -> None:
+    """Verrouille temporairement un compte après échecs multiples.
+    
+    Args:
+        email: Adresse e-mail du compte à verrouiller
+        duration_seconds: Durée du verrouillage en secondes (défaut: 1 heure)
+    """
+    def _fn(conn, cur):
+        cur.execute(
+            "UPDATE tva_users SET locked_until=%s WHERE email=%s",
+            (time.time() + duration_seconds, email)
+        )
+        conn.commit()
+    
+    _run(_fn)
+
+
+def increment_failed_login_count(email: str) -> int:
+    """Incrémente le compteur d'échecs de connexion pour un e-mail.
+    
+    Retourne le nombre total d'échecs après incrémentation.
+    Si le seuil est atteint, verrouille le compte temporairement.
+    
+    Cette fonction utilise la table tva_failed_logins existante mais avec
+    un scope par e-mail plutôt que par IP pour le verrouillage de compte.
+    """
+    email_hash = hashlib.sha256(email.encode()).hexdigest()
+    
+    def _fn(conn, cur):
+        # Compter les échecs pour cet e-mail dans la dernière heure
+        cur.execute(
+            "SELECT COUNT(*) FROM tva_failed_logins WHERE ip_hash=%s AND attempt_at > %s",
+            (email_hash, time.time() - 3600)
+        )
+        count = cur.fetchone()[0]
+        
+        # Enregistrer cet échec
+        cur.execute(
+            "INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)",
+            (email_hash, time.time())
+        )
+        conn.commit()
+        
+        # Vérifier si on doit verrouiller le compte
+        if count >= _ACCOUNT_LOCK_THRESHOLD:
+            lock_account_temporarily(email)
+            logger.warning(f"[auth] Compte verrouillé pour {email} après {count + 1} échecs")
+        
+        return count + 1
+    
+    return _run(_fn)
+
+
 def remove_allowed_email(org_id: str, email: str, acting_user_id: str | None = None) -> None:
     """Retire une adresse de la liste des e-mails autorisés à créer un
     compte pour cette organisation.
@@ -714,22 +944,18 @@ def send_magic_link_email(email: str, login_url: str) -> None:
 
 def consume_magic_link(token: str, ip_address: str = "unknown") -> Optional[User]:
     """Valide un jeton de connexion. Retourne None si invalide, expiré, ou déjà utilisé.
-    Inclut une protection brute-force (DPP Amazon)."""
+    Inclut une protection brute-force (DPP Amazon) avec rate-limiting."""
     import hashlib
     ip_hash = hashlib.sha256(ip_address.encode()).hexdigest()
 
-    def _fn(conn, cur):
-        # 1. Vérifier le brute-force : max 5 échecs en 5 minutes pour cet IP hash
-        cutoff = time.time() - 300
-        cur.execute(
-            "SELECT COUNT(*) FROM tva_failed_logins WHERE ip_hash=%s AND attempt_at > %s",
-            (ip_hash, cutoff)
-        )
-        failed_count = cur.fetchone()[0]
-        if failed_count >= 5:
-            return "rate_limited"
+    # Vérifier le rate-limiting
+    allowed, message = check_rate_limit(ip_hash)
+    if not allowed:
+        logger.warning("[auth] Rate-limit activé pour IP hash %s", ip_hash)
+        raise PermissionError(message)
 
-        # 2. Vérifier le token
+    def _fn(conn, cur):
+        # Vérifier le token
         cur.execute(
             "SELECT email, created_at, consumed FROM tva_magic_links WHERE token=%s",
             (token,),
@@ -737,25 +963,30 @@ def consume_magic_link(token: str, ip_address: str = "unknown") -> Optional[User
         row = cur.fetchone()
 
         if not row:
-            # Enregistrer l'échec
-            cur.execute("INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)", (ip_hash, time.time()))
-            conn.commit()
+            # Enregistrer l'échec (IP + email pour le verrouillage de compte)
+            record_failed_login(ip_hash)
             return None
 
         email, created_at, consumed = row
         if consumed or (time.time() - created_at) > MAGIC_LINK_TTL_SECONDS:
-            cur.execute("INSERT INTO tva_failed_logins (ip_hash, attempt_at) VALUES (%s, %s)", (ip_hash, time.time()))
-            conn.commit()
+            # Enregistrer l'échec et incrémenter le compteur pour l'e-mail
+            record_failed_login(ip_hash)
+            increment_failed_login_count(email)
+            return None
+
+        # Vérifier si le compte est verrouillé
+        is_locked, locked_until = check_account_locked(email)
+        if is_locked:
+            logger.warning("[auth] Compte verrouillé pour %s jusqu'à %s", email, locked_until)
             return None
 
         # Succès : on nettoie les anciens échecs pour cet IP et on marque consommé
-        cur.execute("DELETE FROM tva_failed_logins WHERE ip_hash=%s", (ip_hash,))
+        clear_failed_logins(ip_hash)
         cur.execute("UPDATE tva_magic_links SET consumed=TRUE WHERE token=%s", (token,))
+        conn.commit()
         return email
 
     res = _run(_fn)
-    if res == "rate_limited":
-        raise PermissionError("Trop de tentatives de connexion. Réessayez dans 5 minutes.")
     if not res:
         return None
     return get_or_create_user(res)

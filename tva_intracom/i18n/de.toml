@@ -4,6 +4,7 @@ upload_help = "CSV-, TSV- oder TXT-Dateien (max. 100 MB pro Datei). Mehrere Date
 duplicate_files_warning = "⚠️ **{count} duplizierte Datei(en) ignoriert** : {files}"
 files_too_large_error = "⚠️ **Datei(en) zu groß**: {files}. Die maximal zulässige Größe beträgt {max_mb} MB pro Datei."
 files_invalid_content_error = "🚫 **Datei(en) abgelehnt**: {files}. Der Inhalt entspricht keiner gültigen Textdatei (CSV/TSV/TXT) — prüfen Sie, ob sie von einem anderen Format umbenannt wurde."
+files_invalid_mime_error = "🚫 **Datei(en) abgelehnt**: {files}. Der MIME-Typ der Datei ist nicht zulässig. Nur CSV-, TSV- und TXT-Dateien werden akzeptiert."
 language = "Sprache"
 contact_support = "Support kontaktieren"
 website_label = "Webseite"

@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ── Filet de sécurité : widget vide mais fichiers déjà chargés en session ───
@@ -132,6 +135,97 @@ _BINARY_MAGIC_SIGNATURES: tuple[bytes, ...] = (
 # en cp1252/latin-1, pas seulement en UTF-8) — voir _file_encoding_choice
 # dans app.py, qui gère déjà ce choix côté parsing.
 _TEXT_DECODE_CANDIDATES: tuple[str, ...] = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
+
+# Types MIME autorisés pour les fichiers uploadés
+_ALLOWED_MIME_TYPES: set[str] = {
+    "text/plain",
+    "text/csv",
+    "text/tab-separated-values",
+    "application/csv",
+    "application/vnd.ms-excel",  # Pour les fichiers CSV exportés par Excel
+}
+
+
+def validate_mime_type(file_name: str, file_head: bytes) -> tuple[bool, str]:
+    """Valide le type MIME du fichier.
+    
+    Retourne (is_valid, error_message) où:
+    - is_valid: True si le type MIME est autorisé, False sinon
+    - error_message: Message d'erreur si non valide, chaîne vide sinon
+    
+    Utilise python-magic pour détecter le type MIME réel du fichier,
+    indépendamment de l'extension. Si python-magic n'est pas disponible,
+    utilise la validation basée sur l'extension + signatures magiques.
+    
+    Args:
+        file_name: Nom du fichier (pour l'extension)
+        file_head: Premiers octets du fichier (pour les signatures magiques)
+    """
+    try:
+        import magic
+    except ImportError:
+        logger.warning("python-magic non installé, validation MIME basée sur l'extension + signatures magiques")
+        # Fallback: validation basée sur l'extension + signatures magiques
+        return _validate_mime_by_extension_and_signatures(file_name, file_head)
+    
+    try:
+        # Utiliser magic pour détecter le type MIME réel depuis les octets
+        mime = magic.Magic(mime=True)
+        detected_mime = mime.from_buffer(file_head)
+        
+        logger.debug(f"Type MIME détecté pour {file_name}: {detected_mime}")
+        
+        # Normaliser le type MIME (certains systèmes retournent des variantes)
+        detected_mime = detected_mime.lower()
+        
+        # Vérifier si le type MIME est autorisé
+        if detected_mime in _ALLOWED_MIME_TYPES:
+            return True, ""
+        
+        # Cas particulier: certains fichiers CSV sont détectés comme "text/plain"
+        # ce qui est acceptable pour notre usage
+        if detected_mime == "text/plain" and file_name.endswith((".csv", ".tsv", ".txt")):
+            return True, ""
+        
+        # Cas particulier: fichiers avec BOM UTF-8
+        if "utf-8" in detected_mime or "charset=utf-8" in detected_mime:
+            return True, ""
+        
+        error_msg = f"Type MIME non autorisé: {detected_mime}. Types autorisés: {', '.join(sorted(_ALLOWED_MIME_TYPES))}"
+        logger.warning(f"Validation MIME échouée pour {file_name}: {error_msg}")
+        return False, error_msg
+        
+    except Exception as e:
+        logger.error(f"Erreur lors de la validation MIME pour {file_name}: {e}")
+        # En cas d'erreur, on utilise le fallback basé sur l'extension + signatures
+        return _validate_mime_by_extension_and_signatures(file_name, file_head)
+
+
+def _validate_mime_by_extension_and_signatures(file_name: str, file_head: bytes) -> tuple[bool, str]:
+    """Validation de fallback basée sur l'extension + signatures magiques."""
+    allowed_extensions = {".csv", ".tsv", ".txt"}
+    file_ext = file_name.lower().rsplit(".", 1)[-1] if "." in file_name else ""
+    
+    # Vérifier l'extension
+    if f".{file_ext}" not in allowed_extensions:
+        error_msg = f"Extension non autorisée: .{file_ext}. Extensions autorisées: {', '.join(allowed_extensions)}"
+        logger.warning(f"Validation par extension échouée pour {file_name}: {error_msg}")
+        return False, error_msg
+    
+    # Vérifier les signatures magiques (déjà fait par sniff_upload_rejection_reason)
+    # mais on double-check ici pour être sûr
+    if b"\x00" in file_head:
+        error_msg = "Contenu binaire détecté, fichier texte attendu"
+        logger.warning(f"Validation par signature échouée pour {file_name}: {error_msg}")
+        return False, error_msg
+    
+    for sig in _BINARY_MAGIC_SIGNATURES:
+        if file_head.startswith(sig):
+            error_msg = "Signature binaire détectée, fichier texte attendu"
+            logger.warning(f"Validation par signature échouée pour {file_name}: {error_msg}")
+            return False, error_msg
+    
+    return True, ""
 
 
 def sniff_upload_rejection_reason(file_head: bytes) -> str | None:

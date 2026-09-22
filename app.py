@@ -55,7 +55,7 @@ from tva_intracom import vat_rates_db as _tva_vat_rates
 from tva_intracom.ui.auth_flow import ensure_cookie_manager, run_auth_flow
 from tva_intracom.ui.rerun_utils import preserve_upload_rerun, consume_preserve_flag
 from tva_intracom.ui.sidebar import render_sidebar, render_sidebar_brand, _invalidate_db_cache
-from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig, sniff_upload_rejection_reason
+from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig, sniff_upload_rejection_reason, validate_mime_type
 from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.display_mode import ensure_display_mode, is_detailed, render_mode_toggle
 from tva_intracom.ui.onboarding import (
@@ -460,14 +460,33 @@ if uploaded_files:
     # getvalue(), pour ne pas forcer la lecture complète d'un fichier de
     # 100 Mo rien que pour ce contrôle). Voir sniff_upload_rejection_reason.
     _INVALID_CONTENT = []
+    _INVALID_MIME = []
     for _f in uploaded_files:
         _f.seek(0)
         _head = _f.read(4096)
         _f.seek(0)
+        
+        # Contrôle de contenu binaire
         if sniff_upload_rejection_reason(_head):
             _INVALID_CONTENT.append(_f.name)
+        
+        # Validation du type MIME (audit sécurité 2026-09-22, ÉLEVÉ #4)
+        # Validation basée sur l'extension + signatures magiques
+        try:
+            is_valid, error_msg = validate_mime_type(_f.name, _head)
+            if not is_valid:
+                _INVALID_MIME.append(_f.name)
+                logger.warning(f"Validation MIME échouée pour {_f.name}: {error_msg}")
+        except Exception as e:
+            logger.error(f"Erreur lors de la validation MIME pour {_f.name}: {e}")
+            # En cas d'erreur, on continue pour ne pas bloquer l'application
+    
     if _INVALID_CONTENT:
         st.error(_("files_invalid_content_error", files=", ".join(f"`{n}`" for n in _INVALID_CONTENT)))
+        st.stop()
+    
+    if _INVALID_MIME:
+        st.error(_("files_invalid_mime_error", files=", ".join(f"`{n}`" for n in _INVALID_MIME)))
         st.stop()
 
     # On ne recompresse que si le jeu de fichiers a réellement changé

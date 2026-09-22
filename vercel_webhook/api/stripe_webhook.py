@@ -22,6 +22,9 @@ Réglages Vercel nécessaires :
       repo), sinon includeFiles ne pourra pas remonter jusqu'à tva_intracom/.
     - Variables d'environnement : STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
       SUPABASE_DB_URL.
+    - Variables d'environnement OPTIONNELLES pour la sécurité (audit 2026-09-22) :
+      * WEBHOOK_API_KEY : Clé secrète pour l'authentification applicative
+      * WEBHOOK_IP_WHITELIST : Liste d'IPs autorisées (séparées par virgules)
 """
 import importlib.util
 import json
@@ -40,6 +43,12 @@ from pathlib import Path
 # si STRIPE_WEBHOOK_DEBUG_LOGS=1 est explicitement défini (à réserver à un
 # environnement de test/staging Vercel, jamais en production).
 _DEBUG_LOGS = os.environ.get("STRIPE_WEBHOOK_DEBUG_LOGS") == "1"
+
+# SÉCURITÉ (audit 2026-09-22, ÉLEVÉ #9) : Authentification applicative supplémentaire
+# pour le webhook Stripe. En plus de la vérification de la signature Stripe,
+# on vérifie une API key secrète pour ajouter une couche de protection.
+_WEBHOOK_API_KEY = os.environ.get("WEBHOOK_API_KEY")
+_WEBHOOK_IP_WHITELIST = os.environ.get("WEBHOOK_IP_WHITELIST", "").split(",") if os.environ.get("WEBHOOK_IP_WHITELIST") else []
 
 # api/stripe_webhook.py -> vercel_webhook/ -> racine du repo -> tva_intracom/billing.py
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -77,8 +86,47 @@ _spec.loader.exec_module(_billing)
 handle_stripe_webhook_event = _billing.handle_stripe_webhook_event
 
 
+def _verify_webhook_auth(headers: dict) -> bool:
+    """Vérifie l'authentification du webhook.
+    
+    Retourne True si l'authentification est valide, False sinon.
+    
+    Vérifie:
+    1. API key secrète (WEBHOOK_API_KEY)
+    2. IP whitelist (WEBHOOK_IP_WHITELIST) si configurée
+    """
+    # Vérification de l'API key
+    if _WEBHOOK_API_KEY:
+        api_key = headers.get("X-Webhook-API-Key", "")
+        if api_key != _WEBHOOK_API_KEY:
+            print("[stripe_webhook] Auth failed: Invalid API key", file=sys.stderr)
+            return False
+    
+    # Vérification de l'IP whitelist
+    if _WEBHOOK_IP_WHITELIST:
+        # Récupérer l'IP réelle (peut être dans X-Forwarded-For derrière un proxy)
+        client_ip = headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        if not client_ip:
+            client_ip = headers.get("X-Real-IP", "")
+        
+        if client_ip not in _WEBHOOK_IP_WHITELIST:
+            print(f"[stripe_webhook] Auth failed: IP not in whitelist: {client_ip}", file=sys.stderr)
+            return False
+    
+    return True
+
+
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        # SÉCURITÉ (audit 2026-09-22, ÉLEVÉ #9) : Vérification de l'authentification
+        # avant de traiter le webhook Stripe
+        if not _verify_webhook_auth(self.headers):
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"error": "unauthorized"}')
+            return
+        
         content_length = int(self.headers.get("Content-Length", 0))
         payload = self.rfile.read(content_length)
         sig_header = self.headers.get("Stripe-Signature", "")

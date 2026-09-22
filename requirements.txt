@@ -6,7 +6,7 @@ cachetools==7.1.4
 certifi==2026.5.20
 charset-normalizer==3.4.7
 click==8.4.1
-cryptography==49.0.0
+cryptography>=50.0.0
 colorama==0.4.6
 et_xmlfile==2.0.0
 extra-streamlit-components==0.1.71
@@ -39,6 +39,7 @@ Pygments==2.20.0
 pytest==9.1.0
 python-dateutil==2.9.0.post0
 python-multipart==0.0.32
+email-validator>=2.0.0
 referencing==0.37.0
 reportlab==4.2.5
 requests==2.34.2
@@ -47,9 +48,10 @@ six==1.17.0
 smmap==5.0.3
 starlette==1.2.1
 streamlit==1.58.0
-stripe==11.6.0
+stripe>=15.5.1
 tenacity==9.1.4
 toml==0.10.2
+python-magic>=0.4.27
 lxml>=4.9.0
 # Editable Git install with no remote (tva-intracom==0.1.0)
 typing_extensions==4.15.0
