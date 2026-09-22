@@ -666,8 +666,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 _current_user.display_currency = display_currency
             st.session_state["display_currency_choice"] = display_currency
 
-        # Rappel pour le thème si l'utilisateur ne le trouve plus
-        st.caption(_("theme_caption"))
+
         # Sélecteur de plateforme masqué : seul Amazon est géré pour le
         # moment (voir _PLATFORM_OPTIONS, ui/theme.py). On fixe la valeur
         # directement plutôt que d'afficher un choix à une seule option.

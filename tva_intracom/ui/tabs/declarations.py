@@ -14,7 +14,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pandas as pd
-import plotly.graph_objects as go
+
 import streamlit as st
 
 from tva_intracom.i18n import _, country_label
@@ -344,44 +344,7 @@ def render_declarations(ctx: TabContext) -> None:
         st.dataframe(_recap_df, width="stretch", hide_index=True,
                      column_config=_recap_cfg)
 
-        # ── "Vos déclarations, en un coup d'œil" (barres horizontales) ──
-        # Refonte graphique lot 6 (2026-09-20), aligné sur la maquette
-        # fournie par Matthieu. Réutilise EXACTEMENT les valeurs déjà
-        # calculées et affichées dans le tableau ci-dessus (`recap_data`,
-        # colonne col_tva_nette) : aucune nouvelle agrégation fiscale
-        # n'est faite ici, uniquement une mise en forme visuelle des
-        # totaux déjà validés. On ne garde que les lignes de TOTAL (pas
-        # les sous-lignes par pays "  →"/"📦", même filtre que la colonne
-        # Type ci-dessus) pour rester au niveau "par régime" de la
-        # maquette (France, OSS, TVA locale étrangère...), pas un
-        # cumul par pays de destination toutes régimes confondues — un
-        # tel cumul croiserait OSS/local/DDP pour un même pays et n'a pas
-        # été validé.
-        _overview_rows = [
-            row for row in recap_data
-            if not str(row[_("col_canal")]).startswith("  →")
-            and not str(row[_("col_canal")]).startswith("📦")
-            and row[_("col_tva_nette")]
-        ]
-        if _overview_rows:
-            _overview_rows = sorted(_overview_rows, key=lambda r: -r[_("col_tva_nette")])
-            _fig_overview = go.Figure(go.Bar(
-                x=[r[_("col_tva_nette")] for r in _overview_rows],
-                y=[r[_("col_canal")] for r in _overview_rows],
-                orientation="h",
-                marker_color="#0891b2",  # --brand-primary (theme.py)
-                text=[_fmt(r[_("col_tva_nette")]) for r in _overview_rows],
-                textposition="auto",
-            ))
-            _fig_overview.update_layout(
-                title=_("viz_decl_overview_title"),
-                xaxis_title=_("viz_decl_overview_xaxis"),
-                height=max(200, 60 * len(_overview_rows)),
-                margin=dict(t=40, b=20, l=10, r=10),
-                font=dict(family="DM Sans, sans-serif"),
-                yaxis=dict(autorange="reversed"),
-            )
-            st.plotly_chart(_fig_overview, width="stretch")
+
 
         # if _can_export:
         #     st.dataframe(_recap_df, width="stretch", hide_index=True,

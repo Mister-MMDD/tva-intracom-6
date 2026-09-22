@@ -80,7 +80,7 @@ home_country_help = "Kraj, w którym Twoja firma ma siedzibę i jest głównie z
 display_currency_label = "Waluta wyświetlania"
 display_currency_default_label = "Domyślna (waluta kraju pochodzenia: {currency})"
 display_currency_help = "Waluta używana do wyświetlania kwot (KPI, tabele, wykresy, strona podsumowania Excel). Nie wpływa na obliczenia podatkowe (zawsze w EUR) ani na deklaracje prawne (CA3, XML OSS, eksporty lokalne — zawsze w EUR). Domyślnie używana jest waluta kraju pochodzenia."
-theme_caption = "🎨 **Motyw**: Dostępny przez menu `⋮` > `Ustawienia` > `Motyw`."
+
 
 
 
@@ -302,13 +302,9 @@ kpi_vat_restituted = "Zwrócony VAT"
 processing_error = "Wystąpił błąd podczas przetwarzania: {error}"
 recapitulatif_header = "📊 Podsumowanie"
 
-# Nagłówek kontekstowy panelu (odświeżenie graficzne, pakiet 6)
-dashboard_eyebrow = "{platform} · VAT WEWNĄTRZWSPÓLNOTOWY"
-dashboard_breadcrumb = "Przestrzeń robocza  ›  Panel"
 
-# Panel „Twoje deklaracje w skrócie" (poziome paski, pakiet 6)
-viz_decl_overview_title = "Twoje deklaracje w skrócie"
-viz_decl_overview_xaxis = "VAT netto"
+
+
 
 # Rozwijane menu Kraj pochodzenia i waluta + hasło marki (pakiet 7)
 sidebar_regional_settings_label = "🌍 Kraj pochodzenia i waluta"
@@ -1426,6 +1422,22 @@ glossary_terms_eori_tooltip = "Numer wspólnotowy do formalności celnych"
 glossary_terms_incoterms_title = "Incoterm (DDP / DDU)"
 glossary_terms_incoterms_definition = "Warunki handlowe definiujące odpowiedzialności sprzedawcy i kupującego (opłaty, cło, VAT). DDP (Delivered Duty Paid): sprzedawca zajmuje się wszystkim. DDU/DAP: kupujący płaci podatki przy przyjeździe."
 glossary_terms_incoterms_tooltip = "Warunki handlowe definiujące odpowiedzialności sprzedawcy/kupującego"
+
+glossary_terms_import_150_title = "Próg 150 € (import)"
+glossary_terms_import_150_definition = "Próg, poniżej którego nie stosuje się ceł przy imporcie do UE. VAT nadal jest należny i może być pobierany za pośrednictwem IOSS lub przez przewoźnika. Powyżej 150 € oprócz VAT stosowane są cła."
+glossary_terms_import_150_tooltip = "Próg zwolnienia celnego dla importu"
+
+glossary_terms_b2b_b2c_title = "B2B kontra B2C"
+glossary_terms_b2b_b2c_definition = "**B2B (Business to Business)**: sprzedaż na rzecz firmy posiadającej ważny numer VAT (często zwolniona dzięki mechanizmowi odwrotnego obciążenia). **B2C (Business to Consumer)**: sprzedaż na rzecz osoby prywatnej (VAT kraju przeznaczenia należny w ramach OSS)."
+glossary_terms_b2b_b2c_tooltip = "Sprzedaż dla firm (B2B) w porównaniu ze sprzedażą dla osób prywatnych (B2C)"
+
+glossary_terms_distance_selling_title = "Sprzedaż na odległość"
+glossary_terms_distance_selling_definition = "Sprzedaż towarów wysyłanych z jednego kraju UE do osoby prywatnej w innym kraju UE. Sprzedaż ta podlega zasadom OSS powyżej progu 10 000 €."
+glossary_terms_distance_selling_tooltip = "Sprzedaż transgraniczna na rzecz osób prywatnych"
+
+glossary_terms_vat_number_title = "Numer VAT"
+glossary_terms_vat_number_definition = "Unikalny identyfikator nadawany przez administrację podatkową. W przypadku sprzedaży wewnątrzwspólnotowej musi być poprzedzony kodem kraju (np. FR123456789) i zweryfikowany w systemie VIES, aby umożliwić zwolnienie B2B."
+glossary_terms_vat_number_tooltip = "Identyfikator podatkowy VAT"
 
 viz_data_ca_ht = "Przychody netto"
 viz_data_vat_due = "Należny VAT"

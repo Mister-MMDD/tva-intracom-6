@@ -80,7 +80,7 @@ home_country_help = "Country where your company is established and primarily VAT
 display_currency_label = "Display currency"
 display_currency_default_label = "Default (home country currency: {currency})"
 display_currency_help = "Currency used for displaying amounts (KPIs, tables, charts, Excel summary page). Does not affect the tax calculation (always in EUR) or legal filings (CA3, OSS XML, local exports — always in EUR). By default, the home country's currency is used."
-theme_caption = "🎨 **Theme**: Accessible via `⋮` > `Settings` > `Theme` menu."
+
 
 
 
@@ -302,13 +302,9 @@ kpi_vat_restituted = "Restituted VAT"
 processing_error = "An error occurred during processing: {error}"
 recapitulatif_header = "📊 Summary"
 
-# Dashboard context header (graphic refresh, batch 6)
-dashboard_eyebrow = "{platform} · INTRA-EU VAT"
-dashboard_breadcrumb = "Workspace  ›  Dashboard"
 
-# "Your filings at a glance" panel (horizontal bars, batch 6)
-viz_decl_overview_title = "Your filings, at a glance"
-viz_decl_overview_xaxis = "Net VAT"
+
+
 
 # Origin country & currency dropdown + brand tagline (batch 7)
 sidebar_regional_settings_label = "🌍 Origin country & currency"

@@ -80,7 +80,7 @@ home_country_help = "País donde su empresa está establecida y registrada princ
 display_currency_label = "Moneda de visualización"
 display_currency_default_label = "Por defecto (moneda del país de origen: {currency})"
 display_currency_help = "Moneda utilizada para mostrar los importes (KPIs, tablas, gráficos, página de resumen de Excel). No afecta al cálculo fiscal (siempre en EUR) ni a las declaraciones legales (CA3, XML OSS, exportaciones locales — siempre en EUR). Por defecto, se utiliza la moneda del país de origen."
-theme_caption = "🎨 **Tema**: Accesible a través del menú `⋮` > `Settings` > `Theme`."
+
 
 
 
@@ -302,13 +302,9 @@ kpi_vat_restituted = "IVA Devuelto"
 processing_error = "Ocurrió un error durante el procesamiento: {error}"
 recapitulatif_header = "📊 Resumen"
 
-# Cabecera contextual del panel (rediseño gráfico, lote 6)
-dashboard_eyebrow = "{platform} · IVA INTRACOMUNITARIO"
-dashboard_breadcrumb = "Espacio de trabajo  ›  Panel"
 
-# Panel "Sus declaraciones, de un vistazo" (barras horizontales, lote 6)
-viz_decl_overview_title = "Sus declaraciones, de un vistazo"
-viz_decl_overview_xaxis = "IVA neto"
+
+
 
 # Menú desplegable País de origen & Divisa + eslogan de marca (lote 7)
 sidebar_regional_settings_label = "🌍 País de origen y divisa"
@@ -1426,6 +1422,22 @@ glossary_terms_eori_tooltip = "Número comunitario para formalidades aduaneras"
 glossary_terms_incoterms_title = "Incoterm (DDP / DDU)"
 glossary_terms_incoterms_definition = "Términos comerciales que definen las responsabilidades del vendedor y el comprador (tarifas, aduanas, IVA). DDP (Delivered Duty Paid): el vendedor lo gestiona todo. DDU/DAP: el comprador paga los impuestos a la llegada."
 glossary_terms_incoterms_tooltip = "Términos comerciales que definen responsabilidades vendedor/comprador"
+
+glossary_terms_import_150_title = "Franquicia de 150 € (Importación)"
+glossary_terms_import_150_definition = "Umbral por debajo del cual no se aplican derechos de aduana a las importaciones en la UE. El IVA sigue siendo debido y puede recaudarse a través del IOSS o por el transportista. Por encima de 150 €, se aplican derechos de aduana además del IVA."
+glossary_terms_import_150_tooltip = "Umbral de franquicia aduanera para las importaciones"
+
+glossary_terms_b2b_b2c_title = "B2B vs B2C"
+glossary_terms_b2b_b2c_definition = "**B2B (Business to Business)**: Venta a una empresa con un número de IVA válido (a menudo exenta mediante inversión del sujeto pasivo). **B2C (Business to Consumer)**: Venta a un particular (IVA del país de destino debido a través del OSS)."
+glossary_terms_b2b_b2c_tooltip = "Ventas a empresas (B2B) frente a particulares (B2C)"
+
+glossary_terms_distance_selling_title = "Venta a distancia"
+glossary_terms_distance_selling_definition = "Venta de bienes enviados desde un país de la UE a un particular en otro país de la UE. Estas ventas están sujetas a las normas del OSS por encima del umbral de 10.000 €."
+glossary_terms_distance_selling_tooltip = "Ventas transfronterizas a particulares"
+
+glossary_terms_vat_number_title = "Número de IVA"
+glossary_terms_vat_number_definition = "Identificador único asignado por la administración fiscal. Para las ventas intracomunitarias, debe llevar el prefijo del código de país (ej.: FR123456789) y estar validado en el sistema VIES para permitir la exención B2B."
+glossary_terms_vat_number_tooltip = "Identificador fiscal del IVA"
 
 viz_data_ca_ht = "BI"
 viz_data_vat_due = "IVA debido"

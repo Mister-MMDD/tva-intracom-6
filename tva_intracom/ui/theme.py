@@ -508,7 +508,33 @@ section[data-testid="stSidebar"] [role="switch"] {
 }
 
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
-    gap: 0.5rem;
+    gap: 0.5rem !important;
+}
+/* CORRECTIF (2026-09-21, retour Matthieu "trop d'espace vide dans la
+   sidebar") : la règle ci-dessus était neutralisée par les règles
+   GLOBALES de la section "9. ESPACEMENT GÉNÉRAL" plus bas dans ce
+   fichier (`div[data-testid="stVerticalBlock"] > div { gap: 16px
+   !important }`, `.stVerticalBlock { gap: 20px !important }` et le
+   margin-bottom de 12px sur les blocs imbriqués) : ces trois règles
+   portent `!important` et s'appliquaient AUSSI dans la sidebar (elles ne
+   sont pas scopées au contenu principal), l'emportant sur le
+   `gap: 0.5rem` ci-dessus malgré sa sélectivité plus grande — d'où les
+   grands espaces verticaux entre chaque toggle/slider/checkbox de la
+   sidebar (ex. captures Matthieu : bloc "Paramètres fiscaux", "Cache
+   VIES"). Les 3 règles suivantes neutralisent spécifiquement ces 3
+   règles globales à l'intérieur de la sidebar (sélecteur plus
+   spécifique + `!important`, qui l'emporte en cas d'égalité entre deux
+   règles `!important`), sans toucher à l'espacement plus généreux du
+   contenu principal. */
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div > div {
+    margin-bottom: 0 !important;
+}
+section[data-testid="stSidebar"] .stVerticalBlock {
+    gap: 0.5rem !important;
+}
+section[data-testid="stSidebar"] .stVerticalBlock > div[data-testid="stVerticalBlock"] {
+    margin-top: 4px !important;
+    margin-bottom: 4px !important;
 }
 
 /* Toggles / checkboxes "coché" — vert au lieu du rouge natif Streamlit.
@@ -678,6 +704,40 @@ div[data-testid="stPopover"] button[kind="secondary"] {
     border: 1px solid var(--border-medium) !important;
     color: var(--text-primary) !important;
 }
+/* Corps du popover (le menu qui s'ouvre) — on lui donne un fond
+   cohérent avec les cartes/sidebar (2026-09-22) */
+div[data-testid="stPopoverBody"] {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-medium) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-lg) !important;
+}
+/* On force le fond transparent sur les sous-blocs pour éviter le noir 
+   sans rajouter de bordures (2026-09-22) */
+div[data-testid="stPopoverBody"] > div,
+div[data-testid="stPopoverBody"] [data-testid="stVerticalBlock"] {
+    background-color: transparent !important;
+    border: none !important;
+}
+
+/* Menus déroulants (BaseWeb/Select) — on évite le noir par défaut (2026-09-22) */
+div[data-baseweb="menu"],
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] > div {
+    background-color: var(--bg-secondary) !important;
+    border: none !important;
+    color: var(--text-primary) !important;
+}
+
+/* Champs à l'intérieur des popovers (selectbox de la sidebar, lot 13)
+   On force le fond tertiaire (bleu plus clair) pour le contraste. */
+div[data-testid="stPopoverBody"] div[data-baseweb="select"] > div,
+div[data-testid="stPopoverBody"] div[data-baseweb="base-input"],
+div[data-testid="stPopoverBody"] div[data-baseweb="input"] {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
 div[data-testid="stPopover"] > button:hover,
 div[data-testid="stPopover"] button[kind="secondary"]:hover {
     border-color: var(--brand-primary) !important;
@@ -811,6 +871,13 @@ div[data-testid="stSliderTickBar"] p {
 [data-testid="stFileUploaderDropzone"]:hover {
     border-color: var(--brand-primary) !important; /* Hover teal (2026-09-20) */
     background-color: var(--bg-tertiary);
+}
+
+/* Bouton "Détails" à droite de l'uploader (lot 13)
+   On lui donne la même hauteur que la dropzone de l'uploader (80px)
+   pour un alignement parfait. */
+.st-key-btn_open_import_details_dialog button {
+    height: 80px !important;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -1111,23 +1178,7 @@ div[data-testid="stVerticalBlock"] > div > div {
     color: #7c5cd4;
 }
 
-/* Bandeau contextuel en tête de tableau de bord (eyebrow + fil d'Ariane)
-   — refonte graphique lot 6 (2026-09-20), aligné sur la maquette fournie
-   par Matthieu. Injecté par app.py juste avant le st.header() existant
-   (recapitulatif_header) : pur habillage, aucune donnée métier. */
-.dashboard-breadcrumb {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    margin-bottom: 6px;
-}
-.dashboard-eyebrow {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    color: var(--brand-primary);
-    text-transform: uppercase;
-    margin-bottom: 4px;
-}
+
 
 /* KPIs (extrait de app.py, section KPIs) — refonte 2026-09-20 quater,
    alignée sur la maquette fournie par Matthieu : bordure d'accent en haut
