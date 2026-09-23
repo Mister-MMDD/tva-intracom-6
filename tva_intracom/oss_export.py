@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date as _date
 from decimal import Decimal, ROUND_HALF_UP
@@ -45,6 +46,39 @@ _ZERO = Decimal("0.00")
 # Type : départ → arrivée → taux → {ht, tva, nb}
 OssAggType = dict  # dict[str, dict[str, dict[Decimal, dict[str, Decimal | int]]]]
 
+# ---------------------------------------------------------------------------
+# BUGFIX (2026-09-22, repli silencieux taux de clôture OSS/IOSS) : compteur
+# process-global (mémoire, jamais persisté — même pattern que
+# `_rate_cache`/`_failed_pairs` dans ecb_rates.py, compatible scale-to-zero)
+# des cas où le taux de CLÔTURE BCE (Règl. UE 2020/194 art. 5 bis) était
+# indisponible et où `convert_ht_tva_for_oss_period` est retombée sur le
+# taux du jour de la transaction (déjà connu depuis l'import). Ce repli
+# produit un montant fiable (le taux du jour de vente reste correct pour la
+# vente elle-même) mais NON CONFORME pour une déclaration OSS/IOSS, qui doit
+# légalement utiliser le taux de clôture de période — d'où l'alerte.
+#
+# Les deux chemins de repli de `convert_ht_tva_for_oss_period` (source_info
+# commençant par "fallback" ET `except ValueError: pass`) produisent
+# exactement le même résultat numérique (voir sa docstring et celle de
+# `convert_to_currency_for_oss`), d'où un compteur unique.
+# ---------------------------------------------------------------------------
+_oss_rate_fallback_counts: "Counter[str]" = Counter()
+
+
+def reset_oss_rate_fallback_stats() -> None:
+    """Remet à zéro le compteur de replis taux de clôture BCE → taux du jour
+    de vente. À appeler avant tout `aggregate_oss_results`/
+    `aggregate_ioss_results`/`build_oss_excel`/`build_ioss_excel` dont on
+    veut isoler le résultat via `get_oss_rate_fallback_stats()` juste après.
+    """
+    _oss_rate_fallback_counts.clear()
+
+
+def get_oss_rate_fallback_stats() -> "Counter[str]":
+    """Retourne le compteur courant de replis {devise: nb} (copie)."""
+    return _oss_rate_fallback_counts.copy()
+
+
 
 def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal, Decimal]:
     """Retourne (ht, tva) d'un VatResult OSS, reconverti au besoin au taux BCE
@@ -52,6 +86,10 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
 
     Si `period` est vide/non reconnu, ou si la vente est déjà dans la devise cible, on
     retombe sur `res.sale.amount_ht` / `res.vat_amount` tels quels.
+
+    Effet de bord : incrémente `_oss_rate_fallback_counts` (voir
+    `get_oss_rate_fallback_stats()`) quand le taux de clôture BCE était
+    indisponible et qu'on est retombé sur le taux du jour de la vente.
     """
     ht  = res.sale.amount_ht
     tva = res.vat_amount
@@ -101,6 +139,8 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
                 fallback_rate=res.sale.exchange_rate or None,
                 rate_date_fn=_rate_date_fn,
             )
+            if _src.startswith("fallback"):
+                _oss_rate_fallback_counts[res.sale.original_currency] += 1
             ht = sign * new_ht_abs
             tva = (ht * (res.vat_rate / Decimal("100"))).quantize(_CENT, rounding=ROUND_HALF_UP)
         except ValueError:
@@ -114,7 +154,7 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
             # ecb_rates.py) — voir sa note "PRÉCISION (audit du 2026-08-19)"
             # pour le détail de ce partage de responsabilité entre les deux
             # fonctions.
-            pass
+            _oss_rate_fallback_counts[res.sale.original_currency] += 1
 
     return ht, tva
 

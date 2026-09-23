@@ -20,7 +20,10 @@ import streamlit as st
 from tva_intracom.i18n import _, country_label
 from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.models import Channel
-from tva_intracom.oss_export import aggregate_oss_results, aggregate_ioss_results
+from tva_intracom.oss_export import (
+    aggregate_oss_results, aggregate_ioss_results,
+    reset_oss_rate_fallback_stats, get_oss_rate_fallback_stats,
+)
 from tva_intracom.ui.formatting import _gated_preview_table, _money_col, \
     _smart_money_df, _fmt
 from tva_intracom.ui.tabs.context import TabContext
@@ -132,8 +135,16 @@ def render_declarations(ctx: TabContext) -> None:
         _oss_cache_key = (ctx.calc_key, period_label)
         if ctx.calc_key is not None and st.session_state.get("_oss_decl_cache_key") == _oss_cache_key:
             _oss_country_totals = st.session_state["_oss_decl_cache_val"]
+            # BUGFIX (2026-09-22, repli silencieux taux de clôture) : sur un
+            # cache hit, aggregate_oss_results() n'est PAS rappelée, donc le
+            # compteur process-global de oss_export.py ne serait pas
+            # réalimenté pour ce bloc — on relit le compteur figé lors du
+            # calcul original plutôt que de perdre l'information.
+            _oss_fallback = st.session_state.get("_oss_decl_fallback_val", {})
         else:
+            reset_oss_rate_fallback_stats()
             _oss_period_agg = aggregate_oss_results(results + (refund_results or []), period=period_label)
+            _oss_fallback = get_oss_rate_fallback_stats()
             _oss_country_totals = {}
             for _dep, _dests in _oss_period_agg.items():
                 for _arr, _rates in _dests.items():
@@ -151,6 +162,7 @@ def render_declarations(ctx: TabContext) -> None:
             if ctx.calc_key is not None:
                 st.session_state["_oss_decl_cache_key"] = _oss_cache_key
                 st.session_state["_oss_decl_cache_val"] = _oss_country_totals
+                st.session_state["_oss_decl_fallback_val"] = _oss_fallback
 
         _oss_tva_vente_total = sum((v["tva_vente"] for v in _oss_country_totals.values()), _ZERO)
         _oss_tva_remb_total  = sum((v["tva_remb"]  for v in _oss_country_totals.values()), _ZERO)
@@ -179,8 +191,11 @@ def render_declarations(ctx: TabContext) -> None:
         _ioss_cache_key = (ctx.calc_key, period_label)
         if ctx.calc_key is not None and st.session_state.get("_ioss_decl_cache_key") == _ioss_cache_key:
             _ioss_totals = st.session_state["_ioss_decl_cache_val"]
+            _ioss_fallback = st.session_state.get("_ioss_decl_fallback_val", {})
         else:
+            reset_oss_rate_fallback_stats()
             _ioss_period_agg = aggregate_ioss_results(results + (refund_results or []), period="")
+            _ioss_fallback = get_oss_rate_fallback_stats()
             _ioss_totals = {"ht_brut": _ZERO, "ht_remb": _ZERO, "tva_brute": _ZERO, "tva_remb": _ZERO}
             for _dep, _dests in _ioss_period_agg.items():
                 for _arr, _rates in _dests.items():
@@ -192,7 +207,30 @@ def render_declarations(ctx: TabContext) -> None:
             if ctx.calc_key is not None:
                 st.session_state["_ioss_decl_cache_key"] = _ioss_cache_key
                 st.session_state["_ioss_decl_cache_val"] = _ioss_totals
+                st.session_state["_ioss_decl_fallback_val"] = _ioss_fallback
         _ioss = _ioss_totals if (_ioss_totals["ht_brut"] or _ioss_totals["ht_remb"]) else None
+
+        # BUGFIX (2026-09-22, repli silencieux taux de clôture OSS/IOSS) :
+        # alerte TOUJOURS visible (comme l'alerte BCE import Amazon dans
+        # app.py — même exigence de Matthieu, la fiabilité du taux de
+        # change étant jugée critique) dès qu'au moins une vente OSS/IOSS a
+        # dû retomber sur le taux du jour de vente faute de taux de clôture
+        # BCE disponible. Ce recap est de toute façon affiché intégralement
+        # (jamais restreint par le gating don libre — voir
+        # learnings-and-constraints.md).
+        _oss_ioss_fallback_total: dict = {}
+        for _ccy, _n in _oss_fallback.items():
+            _oss_ioss_fallback_total[_ccy] = _oss_ioss_fallback_total.get(_ccy, 0) + _n
+        for _ccy, _n in _ioss_fallback.items():
+            _oss_ioss_fallback_total[_ccy] = _oss_ioss_fallback_total.get(_ccy, 0) + _n
+        if _oss_ioss_fallback_total:
+            st.warning(_(
+                "oss_closing_rate_fallback_warning",
+                count=sum(_oss_ioss_fallback_total.values()),
+                currencies=", ".join(
+                    f"{ccy} ({n})" for ccy, n in sorted(_oss_ioss_fallback_total.items())
+                ),
+            ))
 
         # Agrégats CA3/DDP/Local mis en cache par calc_key (voir
         # _aggregate_declarations_raw plus haut) : un seul passage O(n) sur

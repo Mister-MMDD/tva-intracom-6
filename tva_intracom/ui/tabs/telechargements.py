@@ -30,6 +30,8 @@ from tva_intracom.oss_export import (
     build_ioss_excel,
     build_oss_excel,
     find_oss_negative_buckets,
+    reset_oss_rate_fallback_stats,
+    get_oss_rate_fallback_stats,
 )
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
@@ -202,6 +204,14 @@ def render_telechargements() -> None:
 
         def _build_main_xlsx():
             xlsx_path = None
+            # BUGFIX (2026-09-22, repli silencieux taux de clôture OSS/IOSS) :
+            # export_xlsx() agrège aussi les totaux OSS/IOSS via
+            # aggregate_oss_results/aggregate_ioss_results (oss_export.py),
+            # donc soumis au même repli taux de clôture BCE → taux du jour
+            # de vente que le recap de l'onglet Déclarations. On isole ici
+            # le compteur pour CETTE génération précise (reset avant, lu et
+            # affiché après — voir la fin de cette fonction).
+            reset_oss_rate_fallback_stats()
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as xlsx_tmp:
                     xlsx_path = xlsx_tmp.name
@@ -213,6 +223,13 @@ def render_telechargements() -> None:
                             period=period_label, seller_country=home_country,
                             display_currency=ctx.target_currency,
                             invoice_credit_notes=all_invoice_credit_notes)
+                _fallback = get_oss_rate_fallback_stats()
+                if _fallback:
+                    st.warning(_(
+                        "oss_closing_rate_fallback_warning",
+                        count=sum(_fallback.values()),
+                        currencies=", ".join(f"{c} ({n})" for c, n in sorted(_fallback.items())),
+                    ))
                 with open(xlsx_path, "rb") as f:
                     return f.read()
             finally:
@@ -307,12 +324,25 @@ def render_telechargements() -> None:
 
             def _build_oss_xml():
                 _res_net = _get_results_net()
+                # BUGFIX (2026-09-22, repli silencieux taux de clôture OSS) :
+                # generate_oss_xml() alimente le document OFFICIELLEMENT
+                # déclaré au portail OSS — c'est ici que le repli sur le
+                # taux du jour de vente (faute de taux de clôture BCE, Règl.
+                # UE 2020/194 art. 5 bis) importe le plus.
+                reset_oss_rate_fallback_stats()
                 try:
                     _xml_bytes = generate_oss_xml(results=_res_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
                 except ValueError as _exc:
                     st.session_state[_oss_xml_error_key] = str(_exc)
                     return None
                 st.session_state.pop(_oss_xml_error_key, None)
+                _fallback = get_oss_rate_fallback_stats()
+                if _fallback:
+                    st.warning(_(
+                        "oss_closing_rate_fallback_warning",
+                        count=sum(_fallback.values()),
+                        currencies=", ".join(f"{c} ({n})" for c, n in sorted(_fallback.items())),
+                    ))
                 return _xml_bytes
 
             # On inclut _confirm_corrections dans la clé de cache car le XML change selon cette option
@@ -330,10 +360,18 @@ def render_telechargements() -> None:
             # Ligne Excel (Détail)
             def _build_oss_xlsx():
                 oss_xlsx_path = None
+                reset_oss_rate_fallback_stats()
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as oss_tmp:
                         oss_xlsx_path = oss_tmp.name
                     build_oss_excel(_get_results_net(), oss_xlsx_path, period=period_label)
+                    _fallback = get_oss_rate_fallback_stats()
+                    if _fallback:
+                        st.warning(_(
+                            "oss_closing_rate_fallback_warning",
+                            count=sum(_fallback.values()),
+                            currencies=", ".join(f"{c} ({n})" for c, n in sorted(_fallback.items())),
+                        ))
                     with open(oss_xlsx_path, "rb") as f:
                         return f.read()
                 finally:
@@ -372,10 +410,18 @@ def render_telechargements() -> None:
 
                 def _build_ioss_xlsx():
                     ioss_xlsx_path = None
+                    reset_oss_rate_fallback_stats()
                     try:
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as ioss_tmp:
                             ioss_xlsx_path = ioss_tmp.name
                         build_ioss_excel(_get_results_net(), ioss_xlsx_path, period=period_label)
+                        _fallback = get_oss_rate_fallback_stats()
+                        if _fallback:
+                            st.warning(_(
+                                "oss_closing_rate_fallback_warning",
+                                count=sum(_fallback.values()),
+                                currencies=", ".join(f"{c} ({n})" for c, n in sorted(_fallback.items())),
+                            ))
                         with open(ioss_xlsx_path, "rb") as f:
                             return f.read()
                     finally:
