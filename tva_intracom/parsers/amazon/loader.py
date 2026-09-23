@@ -576,7 +576,7 @@ def _read_and_prepare_rows(
             # dans le chemin de lecture principal (polars).
             df = pl.read_csv(
                 handle, separator=sep, infer_schema_length=0, encoding=encoding,
-                missing_utf8_is_empty_string=True,
+                empty_string_is_null=True,
             )
             df = df.rename({c: normalize_header(c) for c in df.columns})
             full_headers = set(df.columns)

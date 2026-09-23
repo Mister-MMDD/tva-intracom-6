@@ -292,10 +292,10 @@ def validate_email_strict(email: str) -> tuple[bool, Optional[str]]:
     try:
         from email_validator import validate_email, EmailNotValidError
         try:
-            validate_email(email)
+            validate_email(email, check_deliverability=False)
             return True, ""
         except EmailNotValidError as e:
-            return False, str(e)
+            return False, f"Format d'e-mail invalide ({e})"
     except ImportError:
         # Fallback: validation regex basique
         import re

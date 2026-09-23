@@ -1338,7 +1338,7 @@ hist_col_rate = "Applied rate"
 hist_col_sales = "Affected sales"
 hist_sales_format = "{count} sale(s)"
 hist_source = "Source: European Commission (Taxes in Europe Database). Scope: changes detected since the year preceding your sales per country."
-today = "today"
+today = "Today"
 
 csv_header_base_ht = "Net Base"
 csv_header_rate_pct = "Rate (%)"
