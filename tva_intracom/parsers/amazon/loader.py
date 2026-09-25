@@ -547,10 +547,14 @@ def _read_and_prepare_rows(
         try:
             import polars as pl
             # On lit tout en string pour garder la cohérence avec le reste du moteur
-            # Lecture polars avec empty_string_is_null=True pour convertir les cellules vides en "" :
+            # Lecture polars avec empty_string_is_null=False pour convertir les
+            # cellules vides en "" plutôt qu'en None (équivalent de l'ancien
+            # paramètre déprécié missing_utf8_is_empty_string=True — le reste
+            # du moteur suppose partout des chaînes, jamais None, voir
+            # classify.py / parsers/ / loader.py).
             df = pl.read_csv(
                 handle, separator=sep, infer_schema_length=0, encoding=encoding,
-                empty_string_is_null=True,
+                empty_string_is_null=False,
             )
             df = df.rename({c: normalize_header(c) for c in df.columns})
             full_headers = set(df.columns)
@@ -774,8 +778,9 @@ def load_amazon_report(
     # Traitement principal (hors contexte fichier : fichier fermé proprement)
     # Devise de calcul interne EUR : la devise de calcul interne du moteur
     # fiscal DOIT toujours rester l'EUR, quel que soit le pays d'origine
-    # (home_country) choisi par l'utilisateur.
-    # excel_report.py), jamais ici.
+    # (home_country) choisi par l'utilisateur. La conversion vers une devise
+    # d'affichage locale se fait uniquement en couche présentation (voir
+    # tva_intracom/ui/formatting.py, report.py, excel_report.py), jamais ici.
     _requested_target_currency = target_currency
     target_currency = "EUR"
     if _requested_target_currency and _requested_target_currency.upper() != "EUR":

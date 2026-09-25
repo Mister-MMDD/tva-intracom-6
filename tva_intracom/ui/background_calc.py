@@ -100,8 +100,8 @@ _active_jobs_count = 0
 # sur une instance Railway plus musclée sans risque d'OOM.
 MAX_CONCURRENT_BIG_JOBS = 1
 
-# Plafond de jobs simultanés et file d'attente FIFO.
-MAX_CONCURRENT_BIG_JOBS = 1
+# File d'attente FIFO des jobs en attente d'un slot (_waiting_queue) et
+# horodatage de réservation (_reserved_at), pour détecter et
 # libérer une réservation orpheline (onglet fermé entre la réservation du
 # slot — dans le fragment de file d'attente, qui tourne dans un thread de
 # script Streamlit, PAS le thread de calcul lui-même — et le démarrage réel

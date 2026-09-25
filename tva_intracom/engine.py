@@ -961,7 +961,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     classée.
 
     `already_crossed` : Règle d'irréversibilité du seuil franchi —
-    le cumul `cumulative` transmitted ici est NET (ventes+avoirs,
+    le cumul `cumulative` transmis ici est NET (ventes+avoirs,
     voir `_run_oss_loop`). Un gros avoir peut donc faire redescendre ce
     cumul net sous 10 000 € en cours d'année. Le seuil de l'art. 59 ter
     Dir. 2006/112/CE (transposé art. 259 D CGI), une fois franchi, reste

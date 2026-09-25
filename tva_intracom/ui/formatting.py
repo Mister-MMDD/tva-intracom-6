@@ -143,7 +143,15 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
             st.session_state.pop(f"dest_{key_suffix}", None)
             st.session_state.pop(f"canal_{key_suffix}", None)
             st.session_state.pop(f"scen_{key_suffix}", None)
-            st.rerun(scope="fragment")
+            # _render_filter_bar est appelée à la fois depuis des fragments
+            # (detail_ventes.py, audit.py) et depuis render_vies() dans
+            # vies_ui.py, qui n'est PAS un fragment — scope="fragment" y
+            # lèverait StreamlitAPIException (voir doc st.rerun). Repli sur
+            # un rerun complet quand on n'est pas dans un fragment.
+            try:
+                st.rerun(scope="fragment")
+            except st.errors.StreamlitAPIException:
+                st.rerun()
 
     df_filt = df # On évite la copie systématique ici
     
