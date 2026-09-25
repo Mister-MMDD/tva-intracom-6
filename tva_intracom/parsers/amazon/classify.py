@@ -170,10 +170,7 @@ def convert_currency(
     # Amazon donne généralement le taux CCY/EUR.
     if fmt == 5:
         # Format 5 : INVOICE_LEVEL_EXCHANGE_RATE (plus précis, lié à la facture)
-        # BUGFIX (2026-09-06) : `row.get(col, "")` ne retombe sur "" QUE si la
-        # clé est absente, jamais si sa valeur vaut None (cellule CSV vide
-        # mal normalisée en amont) — `or ""` couvre aussi ce cas. Défense en
-        # profondeur : la cause racine (polars) est corrigée dans loader.py.
+        # Normalisation de la cellule vide (`or ""`) :
         raw_fx = (row.get("invoice_level_exchange_rate") or "").strip()
         amazon_rate = safe_decimal(raw_fx) if raw_fx else None
         if amazon_rate and amazon_rate == Decimal("0"):

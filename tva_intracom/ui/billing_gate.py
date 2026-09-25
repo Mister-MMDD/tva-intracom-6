@@ -118,15 +118,10 @@ class BillingGate:
     # distinct de account_link_blocked (rattachement compte Amazon<->SIREN) :
     # ici c'est le SIREN lui-même qui n'est pas reconnu. Les deux forcent
     # can_export=False mais doivent afficher un message différent de celui
-    # du paywall Stripe dans gated_download() — voir BUGFIX ci-dessous.
+    # du paywall Stripe dans gated_download().
     siren_mismatch: bool = False
 
-    # BUGFIX (2026-09-04) : un compte gratuit ayant fait un achat PAYG sans
-    # avoir renseigné de SIREN passait `can_export=True` sans jamais être
-    # bloqué par le gate SIREN ci-dessus (qui ne s'exécute que `if
-    # siren_entreprise` — donc sauté si vide). Un export payant nécessite
-    # désormais toujours un SIREN. Distinct de `siren_mismatch` (SIREN saisi
-    # mais non reconnu) pour un message dédié dans gated_download().
+    # SIREN requis pour tout export payant :
     siren_missing: bool = False
 
     # Abonnement actif OU crédit ponctuel — indépendant des gates de
@@ -158,7 +153,7 @@ class BillingGate:
         return None
         # if not tva_auth.is_admin(self.current_user):
         #     return None
-        # # BUGFIX (2026-09-04) : la clé de cache incluait seulement la période,
+        # # Note (2026-09-04) : la clé de cache incluait seulement la période,
         # # pas le SIREN — en changeant de SIREN sélectionné dans la même
         # # session (période identique), le lien Stripe déjà en cache aurait
         # # été réutilisé tel quel, avec le SIREN de la 1ère création dans sa
@@ -194,11 +189,7 @@ class BillingGate:
                 st.info(_("gate_payment_pending_info"))
                 return
 
-            # BUGFIX (priorité) : le paywall Stripe doit toujours primer
-            # pour un compte non-abonné / non-débloqué, avant de parler de
-            # quota ou de conformité. `billing_ok` est calculé plus haut,
-            # AVANT les gates de conformité, précisément pour permettre
-            # cette distinction.
+            # Paywall Stripe prioritaire pour les comptes non-abonnés.
             if not self.billing_ok:
                 pass  # tombe directement dans le paywall Stripe ci-dessous
 
@@ -291,7 +282,7 @@ class BillingGate:
             #
             # _url = self.get_payg_checkout_url()
             # if _url:
-            #     # BUGFIX : un <a> HTML brut (unsafe_allow_html) ne sort pas de
+            #     # Note : un <a> HTML brut (unsafe_allow_html) ne sort pas de
             #     # l'iframe Streamlit Cloud au clic (survol OK, clic sans effet
             #     # — même incident que les boutons OAuth, cf. auth_flow.py).
             #     # st.link_button utilise le mécanisme de navigation propre à
@@ -357,11 +348,7 @@ def preview_lock_message(gate: "BillingGate") -> str:
     `can_export` est False, donc au moins une des conditions ci-dessous est
     vraie."""
     if gate.sub_status == "incomplete":
-        # BUGFIX (2026-09-06) : paiement par virement/prélèvement SEPA en
-        # cours de traitement (délai bancaire normal, voir
-        # gate_payment_pending_info dans gated_download()) — l'utilisateur A
-        # payé, il ne faut donc jamais lui montrer le même message que
-        # "non abonné" (locked_premium) sur les tableaux/métriques masqués.
+        # Paiement par virement/prélèvement SEPA en cours de traitement :
         return _("locked_payment_pending")
     if not gate.billing_ok:
         return "🔒 " + _("locked_premium")
@@ -469,15 +456,7 @@ def build_billing_gate(
 
     quota_status = siren_quota_status
 
-    # ── Gate SIREN obligatoire ────────────────────────────────────────────
-    # BUGFIX (2026-09-04) : un compte sans SIREN renseigné (typiquement un
-    # compte gratuit qui vient de faire un achat PAYG à l'unité sans jamais
-    # avoir enregistré de SIREN, celui-ci n'étant pas requis pour créer le
-    # compte) débloquait quand même l'affichage premium — le gate SIREN
-    # historique juste en dessous ne s'exécute que si `siren_entreprise` est
-    # renseigné, donc était silencieusement sauté. Un export payant doit
-    # toujours être rattaché à un SIREN (c'est d'ailleurs la clé du crédit
-    # PAYG désormais, voir has_export_credit) : on bloque explicitement ici.
+    # Gate SIREN obligatoire (export payant rattaché à un SIREN).
     siren_missing = False
     if can_export and not siren_entreprise:
         can_export = False
@@ -515,13 +494,7 @@ def build_billing_gate(
               over=quota_status.over_quota_by)
         )
 
-    # ── Gate Conformité (TVA & IOSS) ──────────────────────────────────────
-    # BUGFIX : un stock situé hors UE (pays non listé dans rates.EU_COUNTRIES)
-    # ne crée aucune obligation d'immatriculation TVA intracommunautaire — il
-    # ne doit donc jamais réclamer un numéro de TVA local ni bloquer le
-    # téléchargement. `all_stock_countries` n'était pas filtré à l'UE, et
-    # l'exclusion du pays "domestique" était figée sur "FR" au lieu du pays
-    # d'origine choisi (home_country).
+    # Gate Conformité (TVA & IOSS) - filtré sur les pays de l'UE.
     missing_vats = []
     required_local_vats = {c for c in all_stock_countries if c and is_eu(c)} | pay_eu
     if seller_is_importer:
@@ -625,13 +598,9 @@ def build_billing_gate(
 
 @st.fragment
 def _render_unlinked_identifiers_fragment(gate: "BillingGate") -> None:
-    """Isolé en fragment : BUGFIX — cocher la case de confirmation ne fait
-    que révéler le bouton "Confirmer" juste en dessous, ça ne doit surtout
-    pas redessiner toute la page (les 6 onglets, tableaux et graphiques déjà
-    affichés) à chaque coche. Seul le clic sur "Confirmer" a besoin d'un
-    rerun complet (st.rerun() par défaut, hors fragment) puisqu'il faut que
-    build_billing_gate() soit ré-évalué en amont pour faire disparaître ce
-    panneau et débloquer les téléchargements."""
+    """Isolé en fragment : évite les reruns de toute la page lors du coche
+    de la case de confirmation.
+    """
     for _identifier in gate.unlinked_identifiers:
         st.markdown(
             _("account_link_new_title", identifier=_identifier)
@@ -695,12 +664,6 @@ def render_account_link_panel(gate: BillingGate) -> None:
             st.caption(_("account_link_conflict_text", other_label=_other_label, current_label=_current_label))
             if st.button(_("account_link_switch_btn", other_label=_other_label),
                          key=f"btn_switch_{gate.vies_scope_id}_{_identifier}"):
-                # BUGFIX : le widget `siren_select_box` est déjà instancié à ce
-                # stade du script (render_sidebar() tourne avant ce panneau,
-                # voir app.py) — y écrire directement lève StreamlitAPIException
-                # ("cannot be modified after the widget ... is instantiated").
-                # On dépose l'intention dans un tampon consommé en tout début de
-                # render_sidebar() (avant l'instanciation du selectbox), au run
-                # suivant déclenché par ce rerun.
+                # Tampon de bascule SIREN pour le run suivant (évite StreamlitAPIException).
                 st.session_state["_pending_siren_switch"] = _other_siren
                 st.rerun()

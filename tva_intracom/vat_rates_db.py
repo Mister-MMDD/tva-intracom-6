@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 TEDB_ENDPOINT = "https://ec.europa.eu/taxation_customs/tedb/ws/VatRetrievalService"
 
-# BUGFIX (2026-09-20, voir ecb_rates.py — même correctif dupliqué ici pour
+# Note (2026-09-20, voir ecb_rates.py — même correctif dupliqué ici pour
 # la même raison que _is_permanent_ssl_error, cf. son docstring) : urlopen()
 # sans context SSL explicite dépend du magasin CA système, absent/périmé sur
 # certaines images de conteneur -> CERTIFICATE_VERIFY_FAILED systématique,
@@ -403,7 +403,7 @@ _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s
 _FAILED_PAIR_TTL_SECONDS = 300
 _failed_pairs: dict[tuple[str, date], float] = {}
 
-# BUGFIX (2026-09-20, voir ecb_rates.py pour le diagnostic complet) :
+# Note (2026-09-20, voir ecb_rates.py pour le diagnostic complet) :
 # drapeau global process, complémentaire à _failed_pairs (TTL 5 min pensé
 # pour un aléa ponctuel, pas pour une panne SSL systémique sur un fichier
 # dont le traitement dépasse ce TTL). Dès qu'une erreur SSL de certificat

@@ -238,16 +238,15 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # pour que les deux puissent appliquer un taux historique correct — ex:
     # changement de taux FR au fil du temps).
     #
-    # BUGFIX (2026-09-10, taux historique erroné sur avoir à cheval sur 2
-    # années) : pour un avoir/remboursement (amount_ht < 0), `transaction_date`
-    # porte la date de LA LIGNE D'AVOIR elle-même (ex: 2026), pas celle de la
-    # vente d'origine qu'il rembourse (ex: 2025). Si le taux du pays a changé
-    # entre les deux, le taux 2026 était appliqué à tort à un avoir 2025. Le
-    # loader Amazon (`parsers/amazon/loader.py`) remplit `order_date` avec la
-    # date de la commande d'origine UNIQUEMENT quand elle diffère de
-    # `transaction_date` (voir son commentaire) — c'est donc le signal fiable
-    # qu'on est sur un avoir différé. On préfère `order_date` à
-    # `transaction_date` dans ce cas précis pour résoudre le taux historique.
+    # Taux historique sur avoirs différés (2026-09-10) : pour un avoir/remboursement
+    # (amount_ht < 0), `transaction_date` porte la date de LA LIGNE D'AVOIR elle-même
+    # (ex: 2026), pas celle de la vente d'origine qu'il rembourse (ex: 2025). Si le
+    # taux du pays a changé entre les deux, le taux 2026 était appliqué à tort à
+    # un avoir 2025. Le loader Amazon (`parsers/amazon/loader.py`) remplit `order_date`
+    # avec la date de la commande d'origine UNIQUEMENT quand elle diffère de
+    # `transaction_date` (voir son commentaire) — c'est donc le signal fiable qu'on
+    # est sur un avoir différé. On préfère `order_date` à `transaction_date` dans
+    # ce cas précis pour résoudre le taux historique.
     _tx_date: _date | None = tx_date
     if _tx_date is None:
         _date_str = sale.transaction_date
@@ -366,8 +365,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 ),
             )
         elif is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None):
-            # BUGFIX fiscal (audit 2026-09-13, bug non listé, trouvé via
-            # tests/test_fiscal_monaco.py::test_monaco_stock_monaco_buyer_germany_b2b_valid_vat) :
+            # Note fiscale (audit 2026-09-13, stock Monaco & acheteur B2B validé) :
             # ce branchement spécifique "stock == MC" renvoyait toujours
             # OSS_B2C, y compris pour un acheteur B2B avec n° de TVA
             # intracommunautaire valide — contrairement au "Cas 3" général
@@ -609,7 +607,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # Cas 1bis : vente B2C transfrontalière (stock ≠ acheteur) MAIS dont la
     # destination est le pays d'ÉTABLISSEMENT du vendeur (sale.seller_country).
     #
-    # BUGFIX (voir README - évolution.md) : l'art. 59 ter Directive 2006/112/CE
+    # Note : l'art. 59 ter Directive 2006/112/CE
     # (régime OSS / seuil 10 000 €) ne s'applique qu'aux ventes à distance
     # EXPÉDIÉES DEPUIS le pays d'établissement du vendeur VERS un autre État
     # membre. Une vente expédiée depuis un stock étranger (ex: DE) mais reçue
@@ -693,7 +691,7 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
                 or (sale.buyer_type == BuyerType.B2C and bool(sale.buyer_vat_number))
         )
         if is_b2b_domestic and not is_fr and sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
-            # BUGFIX (2026-09-09) : channel=EXONERATION rendait ces ventes
+            # Note (autoliquidation locale) : channel=EXONERATION rendait ces ventes
             # totalement invisibles des rapports locaux (local_vat_report.py
             # ne filtre que sur LOCAL/FR_DOMESTIC) alors qu'elles sont
             # obligatoires pour les déclarations et états récapitulatifs
@@ -812,32 +810,31 @@ def _oss_eligible(sale: Sale) -> bool:
         taxée au pays de départ — correctement hors OSS.
       - stock ET acheteur dans l'UE
       - vente cross-border (stock_country ≠ buyer_country, comparaison sur
-        les pays fiscalement équivalents — voir BUGFIX Monaco ci-dessous)
+        les pays fiscalement équivalents — voir note Monaco ci-dessous)
       - expédiée depuis le pays d'établissement (fiscal) du vendeur (voir
-        BUGFIX "origine du stock" ci-dessous)
-      - destination ≠ pays d'établissement du vendeur (voir BUGFIX ci-dessous)
+        note "origine du stock" ci-dessous)
+      - destination ≠ pays d'établissement du vendeur (voir note ci-dessous)
     Les avoirs (amount_ht < 0) sont éligibles et réduisent le cumul.
 
-    BUGFIX (voir README - évolution.md, même correctif que le "Cas 1bis" de
-    compute_vat) : l'art. 59 ter ne comptabilise dans le seuil des 10 000 €
+    Note : l'art. 59 ter ne comptabilise dans le seuil des 10 000 €
     que les ventes à distance expédiées depuis le pays d'établissement du
     vendeur vers un AUTRE État membre. Une vente cross-border dont la
     destination est le pays d'établissement du vendeur lui-même (stock
     étranger → acheteur "à la maison") n'est pas une vente à distance au
     sens de cet article — elle ne doit donc jamais alimenter ce cumul.
 
-    BUGFIX (2026-09-10, origine du stock, art. 59 ter (1.b) dir.
-    2006/112/CE) : le seuil des 10 000 € ne s'applique QU'aux ventes à
+    Règle d'origine du stock (art. 59 ter (1.b) dir. 2006/112/CE) :
+    le seuil des 10 000 € ne s'applique QU'aux ventes à
     distance expédiées depuis l'État membre d'ÉTABLISSEMENT du vendeur.
     Une vente cross-border dont le stock part d'un AUTRE État membre que
     celui d'établissement (ex: vendeur établi en FR, stock en DE, vente
     DE→IT) n'est pas couverte par ce seuil : elle est taxée au pays de
     destination dès le premier euro et ne doit jamais alimenter le cumul
     de l'État d'établissement. Avant ce correctif, seule la destination
-    était exclue (BUGFIX précédent), pas l'origine — une vente DE→IT pour
+    était exclue (correctif précédent), pas l'origine — une vente DE→IT pour
     un vendeur FR gonflait à tort le cumul FR.
 
-    BUGFIX (2026-09-10, Monaco) : les comparaisons ci-dessus utilisaient
+    Équivalence Monaco : les comparaisons ci-dessus utilisaient
     des codes pays bruts. Une vente FR → MC ("FR" != "MC") était donc
     comptée comme une vente à distance éligible OSS, alors que Monaco est
     fiscalement la France (convention fiscale franco-monégasque du 18 mai
@@ -949,10 +946,9 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     top-level de ce module, pas besoin d'import local.
 
     `is_refund` : True si `sale` est un avoir (montant négatif), pas une
-    vente. BUGFIX (confirmé par test de reproduction, voir README -
-    évolution.md, point #3) : un avoir qui fait lui-même repasser le cumul
-    OSS net SOUS 10 000 € (ex. cumul à 10 500 € après une vente, un gros
-    avoir sur cette même vente ramène le cumul à 9 800 €) était auparavant
+    vente. Note sur le traitement des avoirs : un avoir qui fait lui-même
+    repasser le cumul OSS net SOUS 10 000 € (ex. cumul à 10 500 € après une vente,
+    un gros avoir sur cette même vente ramène le cumul à 9 800 €) était auparavant
     testé sur `cumulative` — le cumul APRÈS l'avoir — et donc reclassé à
     tort en régime domestique (taux du pays vendeur), alors que la vente
     qu'il annule avait été taxée au pays de destination (régime OSS, cumul
@@ -964,8 +960,8 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
     "franchit" jamais le seuil, il ne fait qu'annuler une vente déjà
     classée.
 
-    `already_crossed` : BUGFIX (2026-09-10, seuil OSS définitivement
-    franchi) — le cumul `cumulative` transmis ici est NET (ventes+avoirs,
+    `already_crossed` : Règle d'irréversibilité du seuil franchi —
+    le cumul `cumulative` transmitted ici est NET (ventes+avoirs,
     voir `_run_oss_loop`). Un gros avoir peut donc faire redescendre ce
     cumul net sous 10 000 € en cours d'année. Le seuil de l'art. 59 ter
     Dir. 2006/112/CE (transposé art. 259 D CGI), une fois franchi, reste
@@ -1020,7 +1016,7 @@ def _build_oss_note(res: VatResult, cumulative: Decimal, limit: Decimal,
         )
     elif not is_refund and not already_crossed and prev_cumul <= Decimal("10000.00"):
         # Cette vente est celle qui franchit le seuil : alerte. Jamais pour
-        # un avoir (voir docstring ci-dessus, BUGFIX point #3) — il retombe
+        # un avoir (voir docstring ci-dessus) — il retombe
         # alors dans le `return res` final, conservant le régime OSS déjà
         # calculé par compute_vat, cohérent avec la vente qu'il annule.
         return VatResult._new_unchecked(
@@ -1109,35 +1105,22 @@ def _run_oss_loop(
     barre latérale, voir sidebar.py / billing.py) — indique que le seuil
     OSS de 10 000 € a déjà été dépassé l'année civile précédente.
 
-    BUGFIX (voir README - évolution.md) : ce réglage était stocké en base
-    (tva_siren_registrations) et lu côté UI, mais n'était JAMAIS transmis
-    au moteur de calcul — il ne servait qu'à désactiver le toggle
-    `apply_fr_under_threshold` dans la barre latérale si les deux étaient
-    cochés simultanément, ce qui ne change rien pour un utilisateur restant
-    sur la valeur par défaut (apply_fr_under_threshold=False). Or,
-    fiscalement, un dépassement l'année précédente impose la taxation à
-    destination (OSS) dès la 1ère vente de l'année en cours, sans attendre
-    un nouveau franchissement du cumul cette année — ce que l'ancien code
-    ne faisait jamais respecter. Le paramètre est maintenant utilisé pour
-    "pré-charger" le cumul de la toute première année rencontrée dans le
-    fichier (au-dessus du seuil), forçant l'éligibilité OSS dès la
-    première vente cross-border de cette année.
+    Prise en compte du dépassement de seuil de l'exercice précédent :
+    ce réglage était stocké en base (tva_siren_registrations) et lu côté UI,
+    mais n'était JAMAIS transmis au moteur de calcul dans les anciennes versions —
+    il ne servait qu'à désactiver le toggle `apply_fr_under_threshold` dans
+    la barre latérale. Or, fiscalement, un dépassement l'année précédente impose
+    la taxation à destination (OSS) dès la 1ère vente de l'année en cours.
+    Le paramètre pré-charge désormais le cumul de la première année du fichier.
 
     Traite ventes ET avoirs en une seule passe (voir compute_all_with_vies).
 
-    BUGFIX (fiabilité fiscale, voir README - évolution.md) : les avoirs
-    utilisaient auparavant un cumul dédié (`refund_cumulative_oss_ht`)
-    reconstruit uniquement à partir des avoirs (donc toujours négatif ou
-    nul, jamais > 10 000 €). Cela reclassait systématiquement tout avoir en
-    régime DOMESTIC (FR) dès que `apply_fr_under_threshold` était actif,
-    y compris pour annuler une vente OSS (taxée à destination) déjà passée
-    au-dessus du seuil — l'avoir était alors indûment déduit de la TVA
-    française sur la CA3 au lieu de venir en déduction du pays de
-    destination réel de la vente qu'il annule.
-
-    Un seul cumul est maintenant suivi : `cumulative_oss_ht`, cumul NET
-    partagé ventes+avoirs (un avoir réduit bien le cumul), reset annuel.
-    Il alimente à la fois `oss_summary` (seuil net, art. 59 ter) ET la note
+    Gestion du cumul net (ventes + avoirs) :
+    les avoirs utilisaient auparavant un cumul dédié (`refund_cumulative_oss_ht`)
+    reconstruit uniquement à partir des avoirs (donc toujours négatif ou nul).
+    Cela reclassait systématiquement tout avoir en régime DOMESTIC (FR) dès que
+    `apply_fr_under_threshold` était actif. Un seul cumul est maintenant suivi :
+    `cumulative_oss_ht`, cumul NET partagé ventes+avoirs.
     affichée pour les ventes ET pour les avoirs — un avoir suit donc la
     même classification de seuil que la vente qu'il annule, comme
     attendu.
@@ -1208,29 +1191,18 @@ def _run_oss_loop(
     # fichier de plusieurs dizaines de milliers de lignes.
     _OSS_PROGRESS_TICK_EVERY = 500
 
-    # BUGFIX (2026-09-10, seuil OSS définitivement franchi, voir docstring
-    # de `_build_oss_note` / `already_crossed`) : drapeau monotone par
-    # année civile, jamais remis à False par un avoir (contrairement au
-    # cumul net `cumulative_oss_ht` lui-même) — seulement au changement
-    # d'année. Repart forcément à True dès la 1ère ligne d'une année si
-    # `oss_threshold_exceeded_prev_year` a préchargé le cumul au-dessus du
-    # seuil (voir bloc de changement d'année ci-dessous).
+    # Suivi du franchissement de seuil au cours de l'exercice
+    # (voir docstring de `_build_oss_note` / `already_crossed`) : drapeau
+    # monotone par année civile, jamais remis à False par un avoir
+    # (contrairement au cumul net `cumulative_oss_ht` lui-même).
     _oss_threshold_crossed_this_year = False
 
-    # BUGFIX (2026-09-10, propagation du franchissement entre années DANS
-    # UN MÊME traitement multi-années) : `oss_threshold_exceeded_prev_year`
-    # (paramètre externe, précharge le tout premier changement d'année
-    # rencontré dans le fichier) ne couvrait que la frontière avant/premier
-    # exercice du fichier. Si le fichier trié couvre plusieurs années
-    # civiles et que le seuil est franchi en cours de route (ex. franchi en
-    # 2025 dans CE MÊME batch), l'ancienne logique remettait à zéro le
-    # cumul ET le drapeau au passage à 2026 (`oss_ht_by_year.get(2026, 0)`
-    # = 0 par défaut), alors que l'art. 59 ter §2 impose l'OSS dès le 1er
-    # euro pour TOUTE année suivant un franchissement, sans nouveau test de
-    # seuil. `_oss_ever_crossed_in_run` mémorise — une fois pour toutes,
-    # sans jamais redescendre — qu'un franchissement a eu lieu (import
-    # externe OU constaté en interne), et est réappliqué à CHAQUE
-    # changement d'année du batch, pas seulement au premier.
+    # Propagation du franchissement entre exercices dans un même traitement :
+    # `oss_threshold_exceeded_prev_year` précharge le tout premier changement
+    # d'année. Si le fichier trié couvre plusieurs années civiles et que le
+    # seuil est franchi en cours de route, l'art. 59 ter §2 impose l'OSS
+    # dès le 1er euro pour toute année suivant un franchissement.
+    # `_oss_ever_crossed_in_run` mémorise qu'un franchissement a eu lieu.
     _oss_ever_crossed_in_run = bool(oss_threshold_exceeded_prev_year)
 
     for _idx, sale in enumerate(sorted_items, start=1):
@@ -1280,16 +1252,10 @@ def _run_oss_loop(
                 _last_tx_date_raw = _raw_tx_date
                 _last_tx_date_parsed = _sale_tx_date
 
-        # BUGFIX (2026-09-10, taux historique erroné sur avoir à cheval sur
-        # 2 années — voir docstring de compute_vat) : `_sale_tx_date`
-        # ci-dessus reste la date de LA LIGNE (transaction_date), utilisée
-        # telle quelle pour `_build_oss_note` (le seuil OSS et la période de
-        # déclaration se basent bien sur la date réelle de l'avoir, pas sur
-        # la vente d'origine). Pour la résolution du TAUX de TVA en
-        # revanche, un avoir doit utiliser la date de la vente d'origine
-        # quand elle diffère (order_date, rempli par le loader Amazon
-        # uniquement dans ce cas) — calcul séparé, sans impacter
-        # `_sale_tx_date` partagé avec `_build_oss_note`.
+        # Taux historique sur avoirs différés (voir docstring de compute_vat) :
+        # `_sale_tx_date` ci-dessus reste la date de LA LIGNE (transaction_date).
+        # Pour la résolution du TAUX de TVA en revanche, un avoir utilise la date
+        # de la vente d'origine (order_date) lorsqu'elle diffère.
         _vat_rate_tx_date = _sale_tx_date
         if effective_sale.amount_ht < 0 and effective_sale.order_date:
             try:
@@ -1303,7 +1269,7 @@ def _run_oss_loop(
         if _oss_eligible(effective_sale):
             # Cumul net partagé (ventes+avoirs) : un avoir réduit bien le
             # seuil net, et un avoir est désormais classé selon CE MÊME
-            # cumul (voir BUGFIX dans la docstring de la fonction) au lieu
+            # cumul (voir note dans la docstring de la fonction) au lieu
             # d'un cumul dédié qui restait toujours sous le seuil.
             _already_crossed_before = _oss_threshold_crossed_this_year
             cumulative_oss_ht += effective_sale.amount_ht
@@ -1485,7 +1451,7 @@ def compute_all_with_vies(
         suspect détecté côté vies_engine (numéro précédemment VALIDE devenu
         impossible à reconfirmer depuis l'expiration du TTL — voir
         check_vat_raw / validate_vat_numbers_parallel, _is_downgrade).
-        BUGFIX (2026-09-08) : `stale_fallback` n'était vérifié nulle part
+        # Note : `stale_fallback` est vérifié.
         avant ce correctif, alors que le champ existe précisément pour ça
         (voir sa docstring dans vies_engine.py) — un tel numéro restait donc
         traité comme VALIDE indéfiniment (`getattr(vr, "valid", False)`
@@ -1656,36 +1622,17 @@ def compute_all_with_vies(
     vies_summary.total_checked = len(vat_seen)
     for fv, vr in checked_vats.items():
         if getattr(vr, "is_manual_override", False):
-            # BUGFIX 2026-08-17 : `manual_override_count` n'existe pas comme
-            # champ sur ViesValidationSummary (slots=True) — cette ligne
-            # levait AttributeError au premier override manuel rencontré.
-            # `total_manual_override` (property, models.py) fait déjà la
-            # somme manual_valid_count + manual_invalid_count ci-dessous,
-            # aucun champ dédié n'est nécessaire.
-            # `manual_override_count` seul ne distinguait pas les overrides
-            # "valide" des "invalide" : `manual_valid_count`/
-            # `manual_invalid_count` (voir models.py, ViesValidationSummary)
-            # n'étaient jamais incrémentés, ce qui faisait toujours renvoyer
-            # 0 à `total_manual_override` (= leur somme) et faussait le taux
-            # de fiabilité affiché (`total_checked_or_covered`,
-            # `automatic_reliability_rate`, qui en dépendent). Le
-            # SimpleNamespace construit plus haut porte déjà `valid=_is_valid`
-            # (l'état choisi par l'utilisateur au moment de l'override) : on
-            # l'utilise pour ventiler correctement, sans changer le sens de
-            # `manual_override_count` qui reste le total des deux.
+            # Override manuel VIES : `total_manual_override` fait la somme
+            # manual_valid_count + manual_invalid_count.
             if getattr(vr, "valid", False):
                 vies_summary.manual_valid_count += 1
             else:
                 vies_summary.manual_invalid_count += 1
         elif getattr(vr, "stale_fallback", False):
-            # BUGFIX (2026-09-08) : ce cas DOIT être testé avant `vr.valid`
-            # (ci-dessous) — un résultat stale_fallback conserve `valid=True`
-            # (dernier statut automatique connu, affiché à l'utilisateur)
-            # mais ne doit PLUS être compté/traité comme une vérification
-            # automatique fiable : voir docstring de ViesResult.stale_fallback
-            # et de _is_uncertain ci-dessus. `stale_fallback_count` existe
-            # déjà sur ViesValidationSummary (models.py) mais n'était jamais
-            # incrémenté nulle part avant ce correctif.
+            # Note stale_fallback : ce cas DOIT être testé avant `vr.valid`
+            # — un résultat stale_fallback conserve `valid=True` (dernier
+            # statut automatique connu) mais ne doit PLUS être compté comme
+            # une vérification automatique fiable.
             vies_summary.stale_fallback_count += 1
             vies_summary.inconclusive_vats.append(fv)
             vies_summary.inconclusive_vat_details.append({
@@ -1781,10 +1728,9 @@ def compute_all_with_vies(
         vies_res = checked_vats.get(full_vat) if full_vat else None
 
         # Un résultat VIES n'est valide que si valid=True ET qu'il ne s'agit
-        # pas d'un repli sur cache périmé (stale_fallback) — voir BUGFIX
-        # 2026-09-08 : un stale_fallback conserve vr.valid=True (dernier
-        # statut automatique connu, à but informatif uniquement) mais ne doit
-        # plus déclencher l'autoliquidation B2B tant qu'il n'a pas été
+        # pas d'un repli sur cache périmé (stale_fallback) : un stale_fallback
+        # conserve vr.valid=True (dernier statut automatique connu) mais ne
+        # doit plus déclencher l'autoliquidation B2B tant qu'il n'a pas été
         # reconfirmé par VIES ou classifié manuellement.
         _is_stale = bool(getattr(vies_res, "stale_fallback", False)) if vies_res else False
         is_valid = bool(getattr(vies_res, "valid", False)) and not _is_stale if vies_res else False

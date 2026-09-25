@@ -78,7 +78,7 @@ class TestMonacoScenarios:
     def test_monaco_stock_monaco_buyer_germany_b2b_valid_vat(self):
         """Vente avec stock Monaco et acheteur Allemagne B2B avec TVA valide.
 
-        BUGFIX (audit sécurité 2026-09-13) : ce cas était traité à tort en
+        Note (audit sécurité 2026-09-13) : ce cas était traité à tort en
         OSS_B2C — le branchement spécifique "stock == MC" ne testait jamais
         `buyer_type == B2B`, contrairement au cas général (engine.py, ~L454).
         Corrigé : une livraison B2B intracommunautaire au départ de Monaco

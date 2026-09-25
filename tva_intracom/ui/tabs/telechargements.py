@@ -35,7 +35,7 @@ from tva_intracom.oss_export import (
 )
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
-from tva_intracom.ui.formatting import _fec_period_end_date, _fmt
+from tva_intracom.ui.formatting import _fec_period_end_date, _fmt, _fmt_bytes_size
 from tva_intracom.ui.tabs.context import TabContext
 from tva_intracom.ui.display_mode import is_detailed
 
@@ -96,9 +96,7 @@ def render_telechargements() -> None:
         ctx.target_currency,
     )
 
-    # BUGFIX (RAM) : Si la clé de cache change, on supprime immédiatement les
-    # anciens artefacts binaires du session_state pour libérer la mémoire,
-    # sinon ils restent stockés tant que l'utilisateur ne regénère pas tout.
+    # Invalidation automatique du cache RAM si la clé de cache globale change.
     if st.session_state.get("_dl_active_cache_key") != _dl_cache_key:
         for k in list(st.session_state.keys()):
             if k.startswith("_dl_artifact_") or k.startswith("_oss_preview_"):
@@ -106,7 +104,7 @@ def render_telechargements() -> None:
         st.session_state["_dl_active_cache_key"] = _dl_cache_key
 
     # ── Génération paresseuse (à la demande) des exports coûteux ───────────
-    # BUGFIX (perf) : auparavant, TOUS les exports (Excel principal, OSS
+    # Note (perf) : auparavant, TOUS les exports (Excel principal, OSS
     # XML+Excel, CA3/local HTML, B2B, FEC) étaient construits en RAM à CHAQUE
     # calcul, y compris pour les comptes gratuits/non débloqués qui ne
     # peuvent de toute façon rien télécharger depuis cet onglet (seul le
@@ -135,17 +133,7 @@ def render_telechargements() -> None:
             with st.spinner(spinner_label or _("dl_generating_generic")):
                 _value = builder()
             st.session_state[_skey] = (_dl_cache_key, _value)
-            # BUGFIX (bouton "Générer" qui ne disparaît pas toujours) :
-            # `st.button()` a déjà été rendu à l'écran AVANT qu'on sache ici
-            # qu'il a été cliqué. Sans rerun, ce même passage de script
-            # affiche donc à la fois le bouton "Générer" (déjà dessiné) ET,
-            # juste en dessous, le bouton de téléchargement nouvellement
-            # disponible — le bouton "Générer" ne disparaissait qu'au
-            # prochain rerun (autre interaction). On force ici un rerun
-            # immédiat, cantonné à ce fragment (`scope="fragment"`, sans
-            # impact sur le reste de la page), pour que ce même passage
-            # relise le cache et n'affiche plus que le bouton de
-            # téléchargement dès ce clic.
+            # Rerun du fragment pour mettre à jour immédiatement l'affichage du bouton.
             st.rerun(scope="fragment")
         return None
 
@@ -156,26 +144,7 @@ def render_telechargements() -> None:
     if _period_detected_range:
         st.info(_("period_detected_info", period=period_label, start=_period_detected_range[0], end=_period_detected_range[1]))
 
-    # BUGFIX : ce warning est le message du paywall Stripe (déblocage
-    # période via achat/abonnement) — il ne doit apparaître QUE quand c'est
-    # réellement la raison du blocage (`not _billing_ok`), pas dès que
-    # `_can_export` est False pour n'importe quelle autre raison (quota,
-    # rattachement compte, SIREN non reconnu/manquant, conformité TVA/IOSS
-    # manquante...). Avant ce correctif, un compte déjà abonné (`billing_ok`
-    # True) mais bloqué par la conformité voyait quand même s'afficher ce
-    # message de paiement Stripe, en plus du message d'erreur de conformité
-    # affiché séparément par gated_download() — même priorité que
-    # BillingGate.gated_download() (voir son commentaire "Priorité 0") et
-    # billing_gate.preview_lock_message().
-    #
-    # BUGFIX (2026-09-06) : `_billing_ok` est également False quand un
-    # paiement par virement/prélèvement SEPA est simplement en cours de
-    # traitement (`sub_status == "incomplete"`, délai bancaire normal, voir
-    # gate_payment_pending_info dans gated_download()) — l'utilisateur A payé
-    # dans ce cas, il ne faut donc jamais lui montrer le message "abonnez-
-    # vous / payez via Stripe" (`period_gated_warning`). On lui montre à la
-    # place le même message d'attente que celui déjà affiché sur chaque
-    # bouton de téléchargement individuel par gated_download().
+    # Message du paywall Stripe ou statut de paiement.
     if _sub_status == "incomplete" and period_label:
         st.info(_("gate_payment_pending_info"))
     elif not _can_export and not _billing_ok and period_label:
@@ -204,7 +173,7 @@ def render_telechargements() -> None:
 
         def _build_main_xlsx():
             xlsx_path = None
-            # BUGFIX (2026-09-22, repli silencieux taux de clôture OSS/IOSS) :
+            # Note (2026-09-22, repli silencieux taux de clôture OSS/IOSS) :
             # export_xlsx() agrège aussi les totaux OSS/IOSS via
             # aggregate_oss_results/aggregate_ioss_results (oss_export.py),
             # donc soumis au même repli taux de clôture BCE → taux du jour
@@ -261,6 +230,7 @@ def render_telechargements() -> None:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         elif xlsx_bytes is not None:
+            st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(xlsx_bytes))})")
             _gated_download(
                 _("dl_main_report_btn"), data=xlsx_bytes,
                 file_name=_("dl_main_report_filename", company=nom_entreprise, period=period_label),
@@ -306,29 +276,11 @@ def render_telechargements() -> None:
                                 st.markdown(_("dl_oss_negative_unmatched", label=_lbl, count=s.unmatched_count, ht=f"{float(s.unmatched_ht):,.2f}"))
                         _confirm_corrections = st.checkbox(_("dl_oss_confirm_corrections"), key="confirm_oss_corrections")
 
-            # BUGFIX (fiabilité fiscale) : auparavant, une ValueError levée par
-            # generate_oss_xml() pour solde négatif non résolu (voir garde-fou
-            # dans oss_xml.py) était capturée silencieusement et l'appel était
-            # immédiatement relancé avec ignore_negatives=True. Le XML produit
-            # contenait alors des montants négatifs dans le corps principal de
-            # la déclaration (TaxableAmount/VatAmountIssued) — techniquement
-            # généré, mais fiscalement invalide et rejeté par le portail OSS —
-            # sans que l'utilisateur soit informé qu'une correction avait été
-            # ignorée. Nouveau comportement : ignore_negatives n'est plus
-            # jamais utilisé depuis l'UI. Si des soldes négatifs restent
-            # bloquants après tentative de rattachement automatique, AUCUN XML
-            # n'est généré et l'erreur détaillée (pays/taux/montants concernés)
-            # est affichée en clair et reste visible tant que le point n'est
-            # pas résolu (rattachement complété, ou avoirs corrigés en amont).
             _oss_xml_error_key = "_dl_artifact_oss_xml_error"
 
             def _build_oss_xml():
                 _res_net = _get_results_net()
-                # BUGFIX (2026-09-22, repli silencieux taux de clôture OSS) :
-                # generate_oss_xml() alimente le document OFFICIELLEMENT
-                # déclaré au portail OSS — c'est ici que le repli sur le
-                # taux du jour de vente (faute de taux de clôture BCE, Règl.
-                # UE 2020/194 art. 5 bis) importe le plus.
+                # Isolement des statistiques de repli pour la génération XML.
                 reset_oss_rate_fallback_stats()
                 try:
                     _xml_bytes = generate_oss_xml(results=_res_net, seller_vat=tva_fr, period=period_label, local_vat_numbers=local_vat_numbers, confirm_corrections=_confirm_corrections)
@@ -355,6 +307,7 @@ def render_telechargements() -> None:
             if not _can_export:
                 _gated_download(_("dl_xml_oss_btn"), data=b"", file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml")
             elif oss_xml_bytes:
+                st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(oss_xml_bytes))})")
                 _gated_download(_("dl_xml_oss_btn"), data=oss_xml_bytes, file_name=_("dl_xml_oss_filename", company=nom_entreprise, period=period_label), mime="application/xml")
 
             # Ligne Excel (Détail)
@@ -386,6 +339,7 @@ def render_telechargements() -> None:
             if not _can_export:
                 _gated_download(_("dl_xlsx_oss_btn"), data=b"", file_name=_("dl_xlsx_oss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             elif oss_xlsx_bytes is not None:
+                st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(oss_xlsx_bytes))})")
                 _gated_download(_("dl_xlsx_oss_btn"), data=oss_xlsx_bytes, file_name=_("dl_xlsx_oss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             st.info(_("no_oss_sales_info"))
@@ -436,6 +390,7 @@ def render_telechargements() -> None:
                 if not _can_export:
                     _gated_download(_("dl_xlsx_ioss_btn"), data=b"", file_name=_("dl_xlsx_ioss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 elif ioss_xlsx_bytes is not None:
+                    st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(ioss_xlsx_bytes))})")
                     _gated_download(_("dl_xlsx_ioss_btn"), data=ioss_xlsx_bytes, file_name=_("dl_xlsx_ioss_filename", company=nom_entreprise, period=period_label), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             else:
                 st.info(_("no_ioss_sales_info"))
@@ -460,6 +415,7 @@ def render_telechargements() -> None:
             if not _can_export:
                 _gated_download(_("dl_ca3_html_btn"), data=b"", file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html")
             elif ca3_html_bytes is not None:
+                st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(ca3_html_bytes))})")
                 _gated_download(_("dl_ca3_html_btn"), data=ca3_html_bytes, file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html")
         else:
             st.markdown(_("home_country_declaration_header", country=country_label(home_country)))
@@ -477,6 +433,7 @@ def render_telechargements() -> None:
             if not _can_export:
                 _gated_download(_home_label, data=b"", file_name=_home_filename, mime="text/html")
             elif _home_html_bytes is not None:
+                st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(_home_html_bytes))})")
                 _gated_download(_home_label, data=_home_html_bytes, file_name=_home_filename, mime="text/html")
 
         # 4. Livraisons B2B — section "avancée" : masquée en mode Simple si
@@ -507,6 +464,7 @@ def render_telechargements() -> None:
                 if not _can_export:
                     _gated_download(_("dl_xlsx_b2b_btn"), data=b"", file_name=_b2b_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 elif b2b_xlsx_bytes is not None:
+                    st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(b2b_xlsx_bytes))})")
                     _gated_download(_("dl_xlsx_b2b_btn"), data=b2b_xlsx_bytes, file_name=_b2b_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             else:
                 st.info(_("no_b2b_sales_info"))
@@ -584,15 +542,7 @@ def render_telechargements() -> None:
                     country_vat = float(summary.net_local_by_country.get(export_country, 0))
 
                 m1, m2 = st.columns(2)
-                # BUGFIX : ce montant (TVA due pour le pays sélectionné) était
-                # affiché en clair même pour un compte non premium/non débloqué
-                # pour cette période — alors que le même chiffre est masqué dans
-                # l'onglet Déclarations (voir declarations.py, `locked_premium`).
-                # On applique le même masquage ici, par cohérence : la valeur ne
-                # doit être visible qu'une fois l'export réellement débloqué.
-                # Message spécifique à la vraie raison du blocage (paiement,
-                # rattachement compte, SIREN, quota) — voir
-                # billing_gate.preview_lock_message().
+                # Masquage de la métrique pour les comptes non autorisés.
                 _lock_msg = ctx.lock_message
                 m1.metric(_("dl_local_vat_due_metric", country=country_label(export_country)),
                           _fmt(country_vat) if _can_export else _lock_msg)
@@ -608,6 +558,7 @@ def render_telechargements() -> None:
                     if not _can_export:
                         _gated_download(_local_csv_label, data=b"", file_name=_local_csv_filename, mime="text/csv")
                     elif csv_bytes is not None:
+                        st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(csv_bytes))})")
                         _gated_download(_local_csv_label, data=csv_bytes, file_name=_local_csv_filename, mime="text/csv")
                 with c2:
                     if export_country != home_country:
@@ -628,6 +579,7 @@ def render_telechargements() -> None:
                         if not _can_export:
                             _gated_download(_local_html_label, data=b"", file_name=_local_html_filename, mime="text/html")
                         elif html_bytes is not None:
+                            st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(html_bytes))})")
                             _gated_download(_local_html_label, data=html_bytes, file_name=_local_html_filename, mime="text/html")
 
         st.divider()
@@ -643,4 +595,5 @@ def render_telechargements() -> None:
         if not _can_export:
             _gated_download(_("dl_fec_btn"), data=b"", file_name=_fec_filename, mime="text/plain")
         elif fec_bytes is not None:
+            st.caption(f"✅ {_('dl_status_ready')} ({_fmt_bytes_size(len(fec_bytes))})")
             _gated_download(_("dl_fec_btn"), data=fec_bytes, file_name=_fec_filename, mime="text/plain")

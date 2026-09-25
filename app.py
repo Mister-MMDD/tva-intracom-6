@@ -180,13 +180,8 @@ _stripe_cancel_url = _auth_ctx.stripe_cancel_url
 # que render_sidebar() (juste en dessous) ne lise le statut d'abonnement.
 if st.query_params.get("export_ok") == "1":
     _tva_billing.get_subscription_status.clear()
-    # BUGFIX (2026-09-09) : le clear() ci-dessus ne vide QUE le cache
-    # st.cache_data global de get_subscription_status. Mais billing_gate.py
-    # relit ce même statut via `_cached_db_read("sub_status_{org_id}", ...)`
-    # (ui/sidebar.py), qui mémoïse SA PROPRE copie en session_state pendant
-    # jusqu'à _DB_CACHE_TTL_SECONDS (20s). On invalide explicitement toutes
-    # les clés de cache session_state liées aux droits et quotas pour une
-    # réactivité immédiate après paiement.
+    # Invalidation du cache de session après paiement :
+    # invalide les clés session_state liées aux droits et quotas pour une réactivité immédiate.
     _oid = _current_user.org_id
     for _key in [f"sub_status_{_oid}", f"siren_quota_{_oid}", f"sirens_{_oid}", f"credits_{_oid}", f"account_status_{_oid}"]:
         _invalidate_db_cache(_key)
@@ -265,14 +260,7 @@ else:
             )
 
 
-# BUGFIX : la sidebar (rendue ci-dessous) affiche `_period_label` tel qu'il
-# était à LA FIN DU RUN PRÉCÉDENT (upload/retrait de fichier/calcul n'ont pas
-# encore eu lieu à ce stade). On mémorise cette valeur "affichée" pour pouvoir
-# la comparer, en toute fin de run, à la valeur réellement à jour — et ne
-# forcer qu'UN SEUL rerun de synchro si elles diffèrent (voir plus bas). Sans
-# ça, un simple changement d'onglet Streamlit (qui ne déclenche aucun rerun
-# Python) laissait la sidebar bloquée indéfiniment sur l'ancien état, tout
-# comme un retrait de fichier sans interaction serveur ultérieure.
+# Mémorisation de la période affichée dans la sidebar pour synchro en fin de run.
 _period_label_shown_by_sidebar = st.session_state.get("_period_label", "")
 
 # Cible du guidage visuel "Lighthouse" (voir ui/onboarding.py::compute_pulse_target) :
@@ -541,15 +529,7 @@ else:
         if _stale_key not in _WHITELIST:
             st.session_state.pop(_stale_key, None)
 
-    # BUGFIX (voir README - évolution.md) : `release_memory()` (gc.collect()
-    # x2 + purge jemalloc/malloc_trim(0), toutes opérations synchrones et
-    # coûteuses) ne doit s'exécuter que sur la TRANSITION réelle "avait des
-    # fichiers -> n'en a plus" (retrait effectif par l'utilisateur), pas à
-    # chaque rerun où le widget est simplement vide -- ce qui était le cas
-    # avant ce correctif pour TOUTE session n'ayant jamais uploadé de
-    # fichier : chaque rerun (poll, navigation...) déclenchait ces appels
-    # bloquants, y compris pour des sessions inactives, en concurrence avec
-    # un éventuel job lourd sur le même vCPU partagé.
+    # Libération de la mémoire lors de la transition d'état "fichiers présents -> retirés".
     if _had_files_before:
         from tva_intracom.mem_utils import release_memory
         release_memory()
@@ -669,22 +649,7 @@ if uploaded_files:
     _gate_combined = _needs_reparse and _upload_total_bytes > _PARSE_SIZE_THRESHOLD_BYTES
 
     if _gate_combined:
-        # parser_amazon déjà importé en tête de ce bloc `if uploaded_files:`.
-        #
-        # BUGFIX (voir README - évolution.md, correctif "report de l'écriture
-        # tant qu'aucun slot n'est disponible") : l'écriture des fichiers
-        # temporaires (copie de `uploaded_file.getvalue()` sur disque) se
-        # faisait auparavant ICI, immédiatement, pour TOUTE session entrant
-        # dans ce chemin fusionné — y compris celles qui allaient ensuite
-        # attendre plusieurs minutes en file d'attente. Reportée maintenant
-        # à l'obtention effective d'un slot (voir `_write_combined_tmp_files`
-        # plus bas, appelée uniquement dans les branches `reserve_or_enqueue`/
-        # `try_advance_queue` retournant True) : une session qui attend en
-        # file ne duplique plus inutilement le contenu du fichier sur disque
-        # pendant l'attente (Streamlit garde de toute façon les octets bruts
-        # de l'upload en mémoire côté widget — hors de notre contrôle — mais
-        # on évite au moins d'ajouter notre propre copie par-dessus tant que
-        # rien ne peut encore être traité).
+        # Écriture différée des fichiers temporaires après obtention d'un slot disponible.
         _combined_tmp_paths: list = []
         _combined_file_specs: list = []
 
@@ -804,14 +769,7 @@ if uploaded_files:
             for _pr in _p_parse_results:
                 _pr.sales = []; _pr.refunds = []; _pr.fc_transfers = []
 
-            # BUGFIX (voir README - évolution.md) : suppression des fichiers
-            # temporaires ICI, dans le thread de fond -- il garde, via
-            # fermeture, la référence correcte à _combined_tmp_paths quel
-            # que soit le nombre de reruns Streamlit écoulés côté script
-            # principal pendant que ce thread tournait (une variable locale
-            # à un rerun donné du script principal serait, elle, vide sur le
-            # rerun où ce thread se termine). Le contenu n'est plus
-            # nécessaire : tous les fichiers ont déjà été lus ci-dessus.
+            # Suppression des fichiers temporaires en fin de traitement du thread de fond.
             for _tmp_path in _combined_tmp_paths:
                 _tmp_path.unlink(missing_ok=True)
 
@@ -876,25 +834,7 @@ if uploaded_files:
             _calc_data = (_results, _vies_summary, _oss_summary, _refund_results, _summary)
             return _parse_data, _calc_data
 
-        # BUGFIX (voir README - évolution.md, diagnostic du 2026-08-29) :
-        # `_parse_cache_key` ne dépend QUE du
-        # fichier (nom+taille) et des réglages -- jamais de l'identité de
-        # l'utilisateur. Deux comptes différents uploadant un fichier de
-        # même nom et même taille (ex. un même fichier de test réutilisé
-        # sur plusieurs comptes) obtenaient donc EXACTEMENT le même
-        # `_job_id`, alors que `_active_jobs_count`/`_waiting_queue`/
-        # `_reserved_at` sont des structures GLOBALES partagées entre
-        # TOUTES les sessions (par conception, pour limiter le nombre de
-        # gros calculs simultanés tous comptes confondus). Deux sessions
-        # se disputaient alors la même entrée de file, l'une pouvant
-        # "voler" la réservation de l'autre -- observé concrètement : un
-        # même job_id réservé (True) puis remis en file (False) quelques
-        # secondes après, ce qu'une seule session ne ferait jamais. Un
-        # compte pouvait ainsi rester bloqué indéfiniment (son
-        # `st.session_state` propre n'étant jamais celui qui reçoit le
-        # résultat). `_current_user.id` inclus explicitement pour rendre
-        # toute collision impossible entre comptes, même à fichier
-        # strictement identique.
+        # Clé de job unique par utilisateur (_current_user.id inclus) pour éviter les collisions.
         _job_id = "parsecalc_" + str(abs(hash((_current_user.id, _parse_cache_key))))
         _QUEUED_PARSECALC_TRACKER_KEY = "_bgjob_queued_parsecalc_job_id"
         _combined_progress_ph = st.empty()
@@ -911,13 +851,7 @@ if uploaded_files:
                 # slot confirmé disponible, on peut maintenant copier le
                 # contenu du fichier sur disque avant de lancer le thread.
                 _write_combined_tmp_files()
-                # BUGFIX (voir README - évolution.md, retour en arrière du
-                # 2026-08-29) : `hold_slot_for_render=True` (slot tenu
-                # jusqu'à la fin du rendu des résultats, pas seulement du
-                # calcul) causait une dégradation nette du débit global sur
-                # un test réel à 4 comptes (filet de sécurité 90s déclenché,
-                # test total passé à plus de 10 minutes) -- retour à la
-                # libération immédiate en fin de calcul.
+                # Libération du slot immédiatement en fin de calcul.
                 start_background_job(_job_id, _run_parse_and_calc)
             else:
                 with _combined_progress_ph.container():
@@ -1029,14 +963,7 @@ if uploaded_files:
                 elif "AliExpress" in file_format:
                     parse_result = parser_aliexpress.parse(tmp_path, seller_country=home_country, encoding=encoding, convert_currencies=convert_fx)
                 if parse_result is not None:
-                    # BUGFIX (2026-08-25) : parse_result.platform est
-                    # désormais "amazon" en minuscule en interne (cohérent
-                    # avec cli.py et les autres parsers — voir
-                    # parsers/amazon/loader.py). Ce champ atterrit
-                    # directement dans l'UI (col_source, KPI "kpi_vat_amazon",
-                    # onglet "tab_amazon_audit" via platform_name plus bas) :
-                    # on le capitalise ICI, au seul point de construction,
-                    # pour l'affichage — sans toucher à la valeur interne.
+                    # Normalisation de la plateforme pour l'affichage UI :
                     platform = (parse_result.platform or file_format.split("(")[0].strip()).capitalize()
                     all_sales.extend(parse_result.sales); all_refunds.extend(parse_result.refunds)
                     all_fc_transfers.extend(parse_result.fc_transfers)
@@ -1093,11 +1020,7 @@ if uploaded_files:
     _total_credit_note  = sum(getattr(pr, "credit_note_rows", 0) for pr in _parse_results)
     _total_skipped      = sum(getattr(pr, "skipped_rows", 0) for pr in _parse_results)
 
-    # BUGFIX (2026-09-22, absence d'alerte UI) : fusion des compteurs
-    # `ecb_fallback_counts` (par devise) de chaque fichier importé — absent
-    # (getattr) pour les parsers autres qu'Amazon, qui n'exposent pas ce
-    # champ. Sert au st.warning() TOUJOURS visible plus bas (y compris en
-    # mode Simple, volontairement — voir sa note dans ce même bloc).
+    # Consolidation des compteurs de repli BCE par devise.
     _ecb_fallback_by_currency: dict[str, int] = {}
     for _pr in _parse_results:
         for _ccy, _n in getattr(_pr, "ecb_fallback_counts", {}).items():
@@ -1110,31 +1033,9 @@ if uploaded_files:
     _credit_part  = _("summary_part_credits", count=_total_credit_note) if _total_credit_note else ""
     _skip_part    = _("summary_part_skipped", count=_total_skipped) if _total_skipped else ""
 
-    # =====================================================================
-    # MODE D'AFFICHAGE (Simple / Détaillé) — n'affecte QUE la présentation.
-    # Stocké dans session_state, jamais inclus dans _parse_cache_key ni
-    # _cache_key (voir plus bas) : basculer de mode ne redéclenche AUCUN
-    # recalcul, seule la partie affichage est reparcourue au rerun.
-    # =====================================================================
-    # Initialisation déplacée en tête de script (voir ensure_display_mode(),
-    # appelée avant la barre de statut) — conservé ici comme alias local
-    # `_is_detailed` pour ne pas devoir toucher chacun de ses usages plus
-    # bas dans ce même bloc.
     _is_detailed = is_detailed()
 
-    # =====================================================================
-    # Cards HTML custom entièrement retirées au lot 11 (2026-09-21) — le
-    # widget natif st.file_uploader (voir section UPLOAD plus haut) affiche
-    # déjà chaque fichier (nom + poids + croix de suppression), les rendre
-    # une seconde fois ici était redondant (retour Matthieu). Le bouton
-    # "Détails" est désormais créé à côté de la zone de dépôt elle-même
-    # (`_details_btn_ph`, voir plus haut) et rempli plus bas, une fois
-    # `results` disponible (voir section "DÉTAILS AVANCÉS").
-    # BUGFIX (2026-09-22, absence d'alerte UI) : contrairement aux autres
-    # avertissements d'import (expander ci-dessous, mode Détaillé
-    # uniquement), la panne de l'API BCE est jugée assez critique pour ne
-    # JAMAIS être masquée par le mode d'affichage — demande explicite de
-    # Matthieu, 2026-09-22. Placé AVANT le `if _is_detailed:` volontairement.
+    # Avertissement BCE inconditionnel (toujours affiché en cas de repli de taux).
     if _total_ecb_fallback:
         st.warning(_(
             "ecb_fallback_warning",
@@ -1394,21 +1295,7 @@ if uploaded_files:
             vies_summary   = _calc_cache.vies_summary
             oss_summary    = _calc_cache.oss_summary
 
-        # BUGFIX (2026-09-13) : `vies_summary.total_inconclusive` (=
-        # `inconclusive_count`) NE COMPTE QUE les numéros sans aucun
-        # résultat exploitable (ni cache frais, ni override) — il exclut
-        # `stale_fallback_count` (repli sur un cache déjà expiré faute de
-        # réponse VIES), alors que CES DEUX catégories sont traitées à
-        # l'identique en aval (B2C par sécurité) et alimentent TOUTES LES
-        # DEUX `inconclusive_vats` (voir engine.py, ~L1568-L1600). Résultat
-        # observé : ce bandeau annonçait "1 numéro(s) non concluants" alors
-        # que l'onglet VIES (qui utilise déjà `len(inconclusive_vats)`)
-        # affichait à raison "17 numéro(s) non vérifiés" — et sur un compte
-        # où TOUS les non-vérifiés étaient des replis sur cache expiré
-        # (aucun `inconclusive_count`), ce bandeau n'apparaissait même pas
-        # du tout. On aligne donc sur `len(inconclusive_vats)`, la même
-        # source que l'onglet VIES et que la relance automatique — jamais
-        # sur `total_inconclusive` seul.
+        # Décompte total des numéros VIES non vérifiés (inconclusive + stale_fallback).
         _vies_total_unverified = len(vies_summary.inconclusive_vats) if vies_summary else 0
         if vies_summary and _vies_total_unverified > 0:
             st.error(_("vies_inconclusive_error", count=_vies_total_unverified))
@@ -1610,12 +1497,7 @@ if uploaded_files:
                 _import_details_dialog()
 
         # Immatriculations requises
-        # BUGFIX : un stock situé hors UE (US, GB post-Brexit, CH, CN, un
-        # entrepôt 3PL non-UE...) ne crée aucune obligation d'immatriculation
-        # TVA intracommunautaire — seul un stock dans un AUTRE État membre UE
-        # que le pays d'origine du compte le fait. `all_stock_countries` était
-        # utilisé tel quel, sans filtre UE, ce qui réclamait à tort un numéro
-        # de TVA local (et bloquait le téléchargement) pour du stock hors UE.
+        # Filtre des stocks hors UE : ne demande aucune immatriculation locale.
         unregistered = {
                            c for c in all_stock_countries if c and is_eu(c) and c != home_country
                        } - set(countries_with_vat)
@@ -1813,14 +1695,7 @@ if uploaded_files:
 
         pass
 
-        # BUGFIX : la sidebar a été dessinée en tout début de run avec
-        # `_period_label_shown_by_sidebar` (voir plus haut), potentiellement
-        # obsolète. À ce stade, tout le contenu principal (KPIs, onglets) est
-        # déjà rendu — un rerun ici ne fait donc plus disparaître les onglets
-        # (contrairement à l'ancien correctif, retiré, qui rerun-ait AVANT
-        # leur rendu). On ne le déclenche qu'UNE fois, seulement si la valeur
-        # a réellement changé, pour éviter toute boucle : au run suivant,
-        # `_period_label_shown_by_sidebar` capturera la valeur déjà à jour.
+        # Synchro sidebar en fin de run si la période a changé.
         if st.session_state.get("_period_label", "") != _period_label_shown_by_sidebar:
             preserve_upload_rerun()
 
@@ -1832,10 +1707,7 @@ if uploaded_files:
 
 else:
     st.session_state.pop("_period_label", None)
-    # BUGFIX (même logique qu'au-dessus) : après un vrai retrait de fichier,
-    # la sidebar avait déjà affiché l'ancienne période détectée avant que ce
-    # pop() n'ait lieu. Sans resynchronisation, elle restait affichée
-    # indéfiniment tant qu'aucune autre interaction serveur ne survenait.
+    # Synchro sidebar après retrait de fichier.
     if _period_label_shown_by_sidebar:
         preserve_upload_rerun()
 

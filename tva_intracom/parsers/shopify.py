@@ -215,7 +215,7 @@ def parse(
             # Conversion devise.
             original_amount = amount_ht
             exchange_rate = Decimal("1")
-            target_currency = "EUR"  # BUGFIX : la devise de calcul du moteur reste toujours EUR, meme si seller_country (home_country) differe ; voir tva_intracom/parsers/amazon/loader.py
+            target_currency = "EUR"  # Devise de calcul interne EUR (moteur fiscal)
             exchange_rate_source = target_currency.lower()
 
             if convert_currencies and currency != target_currency:

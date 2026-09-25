@@ -60,16 +60,7 @@ def _aggregate_declarations_raw(_results: list, _refund_results: list, calc_key)
     # + reconversion BCE de clôture, art. 5 bis Règl. UE 2020/194). Un
     # calcul spot ici referait doublon avec une source non conforme.
 
-    # BUGFIX (2026-09-09, double comptage) : une vente DDP requalifiée vers
-    # le pays d'ORIGINE (r.vat_country == r.sale.seller_country) reçoit déjà
-    # channel=FR_DOMESTIC côté moteur (engine.py) et est donc DÉJÀ comptée
-    # dans home_ht_brut ci-dessus (filtre sur Channel.FR_DOMESTIC, qui
-    # inclut sciemment ces ventes DDP-vers-origine — voir ca3_report.py).
-    # Sans cette exclusion, elle était comptée UNE SECONDE FOIS ici (ligne
-    # "TVA DDP {home_country}" du récapitulatif), doublant à tort le CA
-    # affiché. Les ventes DDP vers un pays tiers (pas l'origine) ne sont
-    # pas concernées : channel=LOCAL_REGISTRATION pour elles, jamais compté
-    # dans home_ht_brut.
+    # Exclusion des ventes DDP requalifiées vers l'origine pour éviter le double comptage.
     _ddp_results = [
         r for r in _results
         if r.scenario.value == "IMPORT_SELLER_AS_IMPORTER" and r.vat_country != r.sale.seller_country
@@ -135,11 +126,7 @@ def render_declarations(ctx: TabContext) -> None:
         _oss_cache_key = (ctx.calc_key, period_label)
         if ctx.calc_key is not None and st.session_state.get("_oss_decl_cache_key") == _oss_cache_key:
             _oss_country_totals = st.session_state["_oss_decl_cache_val"]
-            # BUGFIX (2026-09-22, repli silencieux taux de clôture) : sur un
-            # cache hit, aggregate_oss_results() n'est PAS rappelée, donc le
-            # compteur process-global de oss_export.py ne serait pas
-            # réalimenté pour ce bloc — on relit le compteur figé lors du
-            # calcul original plutôt que de perdre l'information.
+            # Lecture du compteur de repli fige lors du calcul original.
             _oss_fallback = st.session_state.get("_oss_decl_fallback_val", {})
         else:
             reset_oss_rate_fallback_stats()
@@ -171,23 +158,7 @@ def render_declarations(ctx: TabContext) -> None:
         _oss_ht_remb_total   = sum((v["ht_remb"]   for v in _oss_country_totals.values()), _ZERO)
         _oss_ht_net_total    = sum((v["ht_net"]    for v in _oss_country_totals.values()), _ZERO)
 
-        # IOSS : même principe que le bloc OSS ci-dessus, avec
-        # aggregate_ioss_results() (pendant IOSS de aggregate_oss_results,
-        # même reconversion BCE de clôture art. 5 bis Règl. UE 2020/194).
-        #
-        # BUGFIX (voir README - évolution.md) : ce total utilisait auparavant
-        # une simple somme de r.sale.amount_ht / r.vat_amount (voir l'ancien
-        # bloc "ioss" de _aggregate_declarations_raw), c'est-à-dire les
-        # montants figés au taux BCE du JOUR DE LA VENTE — alors que l'OSS,
-        # juste au-dessus, est déjà recalculé au taux de CLÔTURE de période.
-        # Même non-conformité et même correctif que pour l'export Excel
-        # (voir excel_report.py::_ioss_period_totals).
-        #
-        # `period=""` volontairement : `period_label` ici est trimestriel
-        # (format OSS), non reconnu par get_ioss_rate_date (mensuel), qui
-        # retombe alors ligne à ligne sur la fin du MOIS de la transaction —
-        # toujours conforme art. 5 bis, faute de période IOSS mensuelle
-        # explicite disponible à cet écran.
+        # IOSS : recalcul au taux BCE de clôture de période (art. 5 bis Règl. UE 2020/194).
         _ioss_cache_key = (ctx.calc_key, period_label)
         if ctx.calc_key is not None and st.session_state.get("_ioss_decl_cache_key") == _ioss_cache_key:
             _ioss_totals = st.session_state["_ioss_decl_cache_val"]
@@ -210,14 +181,7 @@ def render_declarations(ctx: TabContext) -> None:
                 st.session_state["_ioss_decl_fallback_val"] = _ioss_fallback
         _ioss = _ioss_totals if (_ioss_totals["ht_brut"] or _ioss_totals["ht_remb"]) else None
 
-        # BUGFIX (2026-09-22, repli silencieux taux de clôture OSS/IOSS) :
-        # alerte TOUJOURS visible (comme l'alerte BCE import Amazon dans
-        # app.py — même exigence de Matthieu, la fiabilité du taux de
-        # change étant jugée critique) dès qu'au moins une vente OSS/IOSS a
-        # dû retomber sur le taux du jour de vente faute de taux de clôture
-        # BCE disponible. Ce recap est de toute façon affiché intégralement
-        # (jamais restreint par le gating don libre — voir
-        # learnings-and-constraints.md).
+        # Alerte si au moins une vente OSS/IOSS est retombée sur le taux du jour.
         _oss_ioss_fallback_total: dict = {}
         for _ccy, _n in _oss_fallback.items():
             _oss_ioss_fallback_total[_ccy] = _oss_ioss_fallback_total.get(_ccy, 0) + _n

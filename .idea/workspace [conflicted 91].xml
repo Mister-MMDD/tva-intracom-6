@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="7572a492-66da-47b4-95ad-2f2a500d53d0" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/de.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/de.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/en.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/en.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/es.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/es.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/fr.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/fr.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/it.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/it.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/pl.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/pl.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/pt.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/pt.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/formatting.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/formatting.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/tabs/telechargements.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/tabs/telechargements.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "dev"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <servers />
+  </component>
+</project>

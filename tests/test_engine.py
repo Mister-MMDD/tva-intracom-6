@@ -614,7 +614,7 @@ class TestOssThreshold:
         assert "FRANCHISSEMENT" in s2_res.note.upper() or s2_res.channel == Channel.OSS
 
     def test_refund_crossing_back_under_threshold_keeps_sale_regime(self):
-        """BUGFIX (point #3, README - évolution.md) : un avoir qui fait
+        """Test de régression : un avoir qui fait
         lui-même repasser le cumul OSS net sous 10 000 € doit conserver le
         régime (pays/taux de TVA) de la vente qu'il annule, pas être
         reclassé en domestique sous prétexte que LE CUMUL APRÈS L'AVOIR est

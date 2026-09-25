@@ -359,16 +359,8 @@ def _ioss_period_totals(
     2020/194) plutôt qu'au taux du jour de vente figé sur
     `summary.ioss_ht` / `summary.ioss_vat`.
 
-    BUGFIX (voir README - évolution.md) : la page de synthèse recalculait
-    déjà l'OSS au taux de clôture via `_oss_period_totals`/
-    `aggregate_oss_results`, mais utilisait directement `summary.ioss_ht`/
-    `summary.refund_ioss_ht`/`summary.ioss_vat`/`summary.refund_ioss_vat`
-    pour l'IOSS — des montants figés au taux BCE du jour de la vente
-    (`ReportSummary`), en violation de l'art. 5 bis (taux de clôture
-    obligatoire pour l'IOSS comme pour l'OSS). Utilise désormais
-    `aggregate_ioss_results()`, déjà utilisée par le XML IOSS et l'export
-    Excel/CSV IOSS dédié (`oss_export.py`), pour que les trois sorties
-    (dashboard, récap Excel, XML/CSV IOSS) restent cohérentes entre elles.
+    Recalcul IOSS au taux BCE de clôture (art. 5 bis Règl. UE 2020/194) :
+    cohérence d'affichage entre les trois sorties (dashboard, récap Excel, XML/CSV IOSS).
 
     `ioss_agg` : agrégat déjà produit par `aggregate_ioss_results()`, à
     passer quand l'appelant (`export_xlsx`) l'a déjà calculé une fois pour
@@ -454,15 +446,7 @@ def _write_recap(
         oss_ht_brut, oss_ht_remb, oss_vat_brut, oss_vat_remb = _oss_period_totals(
             results, refund_results, period, oss_agg=oss_agg
         )
-        # BUGFIX (voir README - évolution.md) : IOSS recalculé au taux BCE
-        # de clôture au même titre que l'OSS ci-dessus (art. 5 bis Règl.
-        # UE 2020/194), au lieu de `summary.ioss_ht`/`summary.ioss_vat`
-        # figés au taux du jour de vente (voir docstring
-        # `_ioss_period_totals`). Le format de `period` (quarterly, ex.
-        # "2026-Q1") n'est pas reconnu par `get_ioss_rate_date` (mensuel) :
-        # celui-ci retombe alors, ligne à ligne, sur la fin du MOIS de
-        # chaque transaction — toujours conforme à l'art. 5 bis, faute de
-        # période IOSS mensuelle explicite disponible à cet écran.
+        # Recalcul IOSS au taux BCE de clôture :
         ioss_ht_brut, ioss_ht_remb, ioss_vat_brut, ioss_vat_remb = _ioss_period_totals(
             results, refund_results, "", ioss_agg=ioss_agg
         )
@@ -549,12 +533,7 @@ def _write_recap(
     ws.append([])
     current_row += 1
 
-    # BUGFIX (voir README - évolution.md) : la ligne "Guichet IOSS" était
-    # absente de ce tableau (et donc du total ci-dessous), alors que
-    # summary.ioss_vat / ReportSummary.total_you_owe l'intègrent déjà
-    # correctement côté modèle — seul l'export Excel était en décalage.
-    # N'affecte ni l'onglet Détail des ventes (qui liste chaque VatResult
-    # sans filtre par scénario) ni le calcul fiscal lui-même.
+    # Ajout de la ligne Guichet IOSS dans le tableau de synthèse :
     _tva_brute_formula = f"=E{_row_ca3}+E{_row_oss}+E{_row_ioss}+E{_row_local}"
     _tva_remb_formula  = f"=F{_row_ca3}+F{_row_oss}+F{_row_ioss}+F{_row_local}"
 
@@ -1096,15 +1075,9 @@ _FRENCH_HOLIDAYS_CACHE: dict[int, set] = {}
 def _french_public_holidays(year: int) -> set:
     """Jours fériés légaux français (métropole) pour une année civile donnée.
 
-    BUGFIX (2026-09-10, délai EMEBI) : le calcul du 10e jour ouvré du mois
-    suivant (`_deadline_intrastat` ci-dessous) ne retirait auparavant que
-    les samedis/dimanches (`weekday() < 5`), jamais les jours fériés. Un
-    jour férié en semaine (1er mai, 8 mai, 14 juillet en semaine, etc.)
-    décale la vraie échéance légale (art. 7 Règl. UE 2019/2152 — la douane
-    ne compte que les jours OUVRÉS, fériés exclus) sans que le calendrier
-    généré ne s'en aperçoive, exposant l'utilisateur à une pénalité de
-    dépôt tardif s'il s'y fie aveuglément. Résultat mis en cache par année
-    (appelé potentiellement plusieurs fois par mois de flux Intrastat)."""
+    Exclusion des jours fériés légaux français (art. 7 Règl. UE 2019/2152) :
+    le calcul du 10e jour ouvré du mois suivant exclut les jours fériés.
+    """
     if year in _FRENCH_HOLIDAYS_CACHE:
         return _FRENCH_HOLIDAYS_CACHE[year]
     easter = _easter_sunday(year)
@@ -1217,17 +1190,8 @@ def _write_calendar_tab(
         m_month = _re.fullmatch(r"(\d{4})-(\d{2})", p)
         m_yr_range = _re.fullmatch(r"(\d{4})-(\d{4})", p)
         yr_m = _re.fullmatch(r"(\d{4})", p)
-        # BUGFIX (2026-09-10, périodes multi-trimestres/semestres/mois/
-        # multi-années ignorées) : seuls les formats "AAAA-QN" (trimestre
-        # unique) et "AAAA" (année pleine) étaient reconnus. Or
-        # `billing_gate.detect_period_label()` génère aussi "AAAA-QN_QM"
-        # (plage de trimestres), "AAAA-S1"/"AAAA-S2" (semestre), "AAAA-MM"
-        # (mois unique) et "AAAA1-AAAA2" (plage d'années) — tous tombaient
-        # dans le filet de secours (reconstruction depuis les dates de
-        # vente RÉELLES), qui masque le problème SAUF si un trimestre de la
-        # plage n'a aucune vente OSS_B2C (auquel cas son échéance — y
-        # compris une NIL obligatoire — disparaissait silencieusement du
-        # calendrier). Reconnaissance explicite de tous ces formats.
+        # Formats de périodes pris en compte :
+        # "AAAA-QN", "AAAA-QN_QM", "AAAA-S1"/"AAAA-S2", "AAAA-MM", "AAAA1-AAAA2"
         if m:
             oss_quarters = [(int(m.group(1)), int(m.group(2)))]
         elif m_range:
@@ -1326,8 +1290,8 @@ def _write_calendar_tab(
     for yr, mo in sorted(intrastat_months):
         next_mo = mo + 1 if mo < 12 else 1
         next_yr = yr if mo < 12 else yr + 1
-        # 10e jour ouvré du mois suivant (BUGFIX 2026-09-10 : jours fériés
-        # français désormais exclus du décompte, voir _is_french_working_day)
+        # 10e jour ouvré du mois suivant (jours fériés français désormais exclus,
+        # voir _is_french_working_day)
         d_start  = _date(next_yr, next_mo, 1)
         ouvre    = 0
         d_limit  = d_start
@@ -1381,14 +1345,8 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
 
     Retourne (tx_id, date_str, asin, designation, dep, arr, qty).
 
-    BUGFIX (voir README - évolution.md) : le format V5 (`ship_from_country` /
-    `ship_to_country` / `transaction_id` / `quantity`, voir
-    `parsers/amazon/parsers.py` et `detect.py`) n'était couvert par aucun des
-    alias ci-dessous — dep/arr/tx_id retombaient systématiquement sur "",
-    et tous les transferts de stock FC des fichiers V5 étaient silencieusement
-    ignorés des rapports AIC et Intrastat/EMEBI (aucune erreur visible, juste
-    des montants et flux manquants). Les alias V5 sont désormais ajoutés en
-    complément des formats existants (1-4), sans rien retirer.
+    Compatibilité formats V5 Amazon : prise en compte des clés `ship_from_country` /
+    `ship_to_country` / `transaction_id` / `quantity`.
     """
     # Transaction ID
     tx_id = (
@@ -1397,7 +1355,8 @@ def _parse_fc_transfer(t: dict) -> tuple[str, str, str, str, str, str, int]:
             t.get("TRANSACTION_ID") or t.get("transaction_id") or ""
     )
     # Date
-    # BUGFIX : les exports Amazon (transferts FC) fournissent cette date au
+    # Normalisation date :
+    # conversion de "DD-MM-YYYY" vers ISO.
     # format "DD-MM-YYYY" (ex: "31-05-2026"), jamais ISO. Le code découpait
     # auparavant cette chaîne comme si elle était déjà "YYYY-MM-DD"
     # (`mois = date_str[:7]`, `annee = mois[:4]` dans _write_intrastat_tab),
@@ -1452,30 +1411,8 @@ def _build_asin_avg_price(results: list) -> dict[str, Decimal]:
     """Calcule le prix de vente HT moyen PAR UNITÉ, par ASIN, à partir des
     VatResult de ventes.
 
-    Utilisé comme approximation de la base imposable AIC/Intrastat (valeur
-    d'achat inconnue) : `base_aic = qty_transfert * avg_price`. Il est donc
-    impératif que `avg_price` soit bien un prix UNITAIRE (HT / quantité
-    d'articles), pas un prix moyen par LIGNE de vente.
-
-    BUGFIX (voir README - évolution.md) : la version précédente divisait
-    la somme des montants HT par le nombre de LIGNES (`prev_count + 1`),
-    pas par le nombre d'ARTICLES vendus (`sale.quantity`). Une ligne
-    contenant 10 unités pour 100 EUR HT (10 EUR/unité) comptait comme "1"
-    au dénominateur au lieu de "10" — le prix moyen calculé pouvait donc
-    être jusqu'à `quantity` fois trop élevé, faussant à la fois l'AIC et
-    l'Intrastat/EMEBI (tous deux réutilisent cette fonction, voir
-    `_write_fba_aic_tab` / `_write_intrastat_tab` / `ca3_report.py`).
-
-    Seules les ventes avec montant > 0 sont prises en compte (exclut
-    remboursements). `quantity` est garanti >= 1 par le loader Amazon
-    (defaut 1 si absent/illisible), mais on se protège quand même contre
-    une valeur <= 0 (donnée corrompue) en la ramenant à 1 pour ne jamais
-    diviser par zéro ni gonfler artificiellement le prix moyen.
-
-    Implémentation en (somme HT, somme quantités) plutôt qu'en liste de
-    Decimal par ASIN : évite de conserver un objet Decimal par vente en
-    mémoire (jusqu'à 100k objets superflus sur les gros volumes) juste
-    pour calculer une moyenne.
+    Prix unitaire HT : division par le nombre d'ARTICLES vendus (`sale.quantity`)
+    et non par le nombre de lignes.
     """
     totals: dict[str, tuple[Decimal, int]] = {}
     for r in results:
@@ -2077,14 +2014,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     """Onglet TVA locale par pays (immatriculation locale hors OSS) : mois par
     mois (net) puis Brut / Remboursements / Net (total période) et statut.
 
-    BUGFIX (2026-09-10, AIC FBA manquantes) : `results`/`all_fc_transfers`
-    (optionnels, rétro-compatibles) permettent d'ajouter deux colonnes AIC
-    (base estimée + TVA due) en FIN de tableau, calculées par pays via
-    `ca3_report._compute_aic_from_fc_transfers`. Ajout volontairement en
-    APPEND (nouvelles colonnes après "Statut", jamais insérées entre les
-    colonnes existantes) pour ne prendre aucun risque sur les formules
-    Excel de ce tableau, déjà documentées comme fragiles aux décalages de
-    colonnes/lignes (voir le BUGFIX #VALEUR! juste en-dessous)."""
+    Colonnes AIC FBA : ajout de colonnes AIC (base estimée + TVA due) en fin de tableau."""
     ws.title = i18n_("xl_tab_local")
     countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
     # Le pays d'origine est toujours considéré comme immatriculé
@@ -2117,10 +2047,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     all_countries = sorted(set(local) | set(refund_local))
     unregistered = [c for c in all_countries if c not in countries_with_vat]
 
-    # BUGFIX (2026-09-10, AIC FBA manquantes) : AIC entrante estimée par
-    # pays, calculée une seule fois ici pour toutes les lignes (voir
-    # docstring de la fonction). Silencieux et à 0 si results/all_fc_transfers
-    # non fournis (rétro-compatibilité totale des appels existants).
+    # Estimation AIC FBA : calculée par pays pour toutes les lignes.
     _aic_by_country: dict[str, tuple[Decimal, Decimal]] = {}
     if all_fc_transfers and results is not None:
         from .ca3_report import _compute_aic_from_fc_transfers
@@ -2141,16 +2068,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     months = sorted({m for per_country in by_country_month.values() for m in per_country})
 
-    # BUGFIX (#VALEUR! en colonne "TVA Nette") : cet onglet insère UNE ligne
-    # de plus que l'onglet OSS avant les en-têtes (l'avertissement "pays non
-    # immatriculé" OU une ligne vide de remplacement, voir juste en-dessous),
-    # ce qui décale la ligne d'en-têtes réelle à la ligne 5 (et non 4 comme
-    # dans _write_oss_tab, qui n'a pas cette ligne supplémentaire). `header_row`
-    # restait à 4 alors que la ligne physique des en-têtes est 5 : chaque
-    # formule `=E{row}+F{row}` référençait donc la ligne du DESSUS (en-tête ou
-    # pays précédent) au lieu de sa propre ligne, d'où des totaux décalés
-    # d'une ligne et un #VALEUR! sur la dernière ligne (qui se retrouvait à
-    # additionner la ligne "TOTAL LOCAL", du texte).
+    # Alignement de header_row sur la ligne d'en-tête réelle (ligne 5)
     header_row = 5
     if unregistered:
         ws.append([_wcell(ws, i18n_("xl_local_unregistered_warning", countries=", ".join(unregistered)),
@@ -2393,7 +2311,7 @@ def export_xlsx(
     if results is not None:
         _oss_agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
 
-    # Pendant IOSS de _oss_agg ci-dessus (voir BUGFIX _ioss_period_totals) :
+    # Pendant IOSS de _oss_agg ci-dessus (voir _ioss_period_totals) :
     # `period=""` volontairement — le `period` ici est trimestriel (OSS),
     # non reconnu par `get_ioss_rate_date` (mensuel), qui retombe alors sur
     # la fin de mois par transaction (toujours conforme art. 5 bis).

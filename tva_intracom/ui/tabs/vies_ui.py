@@ -22,27 +22,8 @@ from tva_intracom.ui.calc_cache import CalcCacheState
 
 def _render_vies_retry_done_dialog(count: int, jid: str, nonce: int) -> None:
     """Affiche une modale informant du succès du ré-essai VIES en arrière-plan.
-
-    BUGFIX (2026-09-11) : `@st.dialog(title=_("vies_retry_done_title"))`
-    évaluait `_(...)` UNE SEULE FOIS, à l'import du module — Python ne
-    ré-exécute jamais le corps d'un module déjà présent dans `sys.modules`,
-    et un décorateur est appliqué à la définition de la fonction, donc à
-    l'import. Sur Streamlit Cloud, plusieurs comptes/langues partagent le
-    même process (voir docstring de `resolve_scope_id` sur ce même
-    partage) : le titre de cette modale restait donc figé dans la langue
-    active lors du tout premier import de ce module dans le process
-    (typiquement la langue du tout premier visiteur après un redémarrage),
-    quelle que soit la langue réellement choisie ensuite par CHAQUE
-    utilisateur affichant cette modale — contrairement à tout le reste de
-    l'UI, où `_(...)` est appelé à chaque rendu et suit donc
-    `st.session_state["language"]` de la session courante.
-    Corrigé en construisant le dialog dynamiquement à chaque appel, avec le
-    titre résolu à cet instant précis (donc dans la langue de la session en
-    cours) — coût négligeable (une fonction interne recréée par appel,
-    st.dialog() lui-même conçu pour être utilisé ainsi via un appel
-    différé). Même bug latent, non corrigé ici (hors périmètre VIES),
-    repéré dans `ui/sidebar.py::_render_account_dialog` et
-    `ui/admin.py::render_admin_dialog` — voir `optimisations_en_attente.md`.
+    
+    Construction dynamique du dialogue pour respecter la langue de session courante.
     """
     @st.dialog(title=_("vies_retry_done_title"))
     def _dialog() -> None:
@@ -132,15 +113,7 @@ def render_manual_vies_classification() -> None:
         with _col_apply:
             if _pending and st.button(_("vies_manual_class_apply_btn"), type="primary"):
                 from tva_intracom.vies_engine import set_manual_override as _smo_apply
-                # BUGFIX (2026-08-25) : `_smo_apply` peut désormais lever
-                # PermissionError si, ENTRE le chargement de cette page et ce
-                # clic, un override a été créé entretemps pour un de ces
-                # numéros par quelqu'un d'autre (rare mais possible en
-                # cabinet multi-comptes) — un lecteur se retrouverait alors
-                # à modifier un override existant sans le savoir. Sans ce
-                # try/except, l'exception remontait non interceptée. On
-                # informe simplement l'utilisateur de retenter (le state
-                # `_vies_manual_overrides` n'est pas vidé, rien n'est perdu).
+                # Capture des exceptions de permissions en cas d'override concurrent.
                 try:
                     for _vat_key, _choice_val in _pending.items():
                         _smo_apply(_vies_scope_id, _vat_key, valid=(_choice_val == _("manual_valid")),
@@ -621,15 +594,7 @@ def render_vies(ctx: TabContext) -> None:
                     _nat_cfg = _smart_money_df(_nat_df,
                         money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
                         note_cols=[_("vies_col_national_id"), _("vies_col_id"), _("col_scenario"), _("vies_col_expl")])
-                    # BUGFIX (2026-08-16) : ce tableau des identifiants nationaux NIF
-                    # (non soumis à VIES) était affiché en clair via st.dataframe, sans
-                    # passer par _gated_preview_table — contrairement au tableau
-                    # "N° TVA rejeté" juste au-dessus (_can_export appliqué ligne 356).
-                    # Un compte gratuit avait donc accès complet à cette donnée
-                    # sensible (identifiant fiscal acheteur) alors que le reste de
-                    # l'audit VIES est bridé. Même pattern que partout ailleurs :
-                    # quelques lignes visibles, le reste verrouillé tant que la
-                    # période n'est pas débloquée.
+                    # Rendu via _gated_preview_table pour masquer les identifiants fiscaux si non débloqué.
                     _gated_preview_table(_nat_df, _can_export, column_config=_nat_cfg, total_count=len(_nat_df),
                                          exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")], lock_msg=ctx.lock_message)
 

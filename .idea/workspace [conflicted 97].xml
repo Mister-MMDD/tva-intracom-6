@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="4cb252f6-3a44-4a4e-8fae-c47022878f2a" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/planningMode.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/planningMode.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/auth.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/billing.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/billing.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ca3_report.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ca3_report.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ecb_rates.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ecb_rates.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/excel_report.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/excel_report.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/fec_export.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/fec_export.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/de.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/de.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/en.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/en.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/es.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/es.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/fr.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/fr.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/it.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/it.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/pl.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/pl.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/pt.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/pt.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/local_vat_report.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/local_vat_report.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/mem_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/mem_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/oss_export.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/oss_export.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/parsers/aliexpress.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/parsers/aliexpress.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/parsers/amazon/classify.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/parsers/amazon/classify.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/parsers/amazon/loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/parsers/amazon/loader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/report.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/report.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/admin.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/auth_flow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/auth_flow.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/background_calc.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/background_calc.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/billing_gate.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/billing_gate.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/display_mode.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/display_mode.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/files.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/files.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/formatting.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/formatting.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/onboarding.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/onboarding.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/sidebar.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/sidebar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/tabs/declarations.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/tabs/declarations.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/tabs/telechargements.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/tabs/telechargements.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/tabs/vies_ui.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/tabs/vies_ui.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/vat_rates_db.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/vat_rates_db.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/vies_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/vies_engine.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "git-widget-placeholder": "dev"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <servers />
+  </component>
+</project>

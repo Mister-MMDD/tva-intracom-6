@@ -47,7 +47,7 @@ def test_monaco_assimilated_to_fr():
     assert "Monaco" in res.note
 
     # Cas cross-border : DE -> MC, vendeur établi en FR (défaut make_sale).
-    # BUGFIX (2026-09-11) : la destination Monaco = France fiscalement
+    # Note (2026-09-11) : la destination Monaco = France fiscalement
     # coïncide avec le pays d'établissement du vendeur -> domestique (Art.
     # 59 ter Directive 2006/112/CE), et non OSS comme avant ce correctif
     # (voir aussi test_monaco_cross_border, tests/test_bugs_and_edge_cases.py,
@@ -234,7 +234,7 @@ def test_oss_returns_different_years():
     
     # En 2023, le seuil a été dépassé (12000 > 10000)
     assert summary.oss_ht_by_year["2023"] == Decimal("12000.00")
-    # En 2024 : le seuil a déjà été franchi en 2023 (même run) — BUGFIX
+    # En 2024 : le seuil a déjà été franchi en 2023 (même run) — correctif
     # (2026-09-10, point 3 de l'audit, voir _run_oss_loop) : la 2ème année
     # doit démarrer directement au-dessus du seuil (10000.01, comme le fait
     # déjà `oss_threshold_exceeded_prev_year` pour la toute première année

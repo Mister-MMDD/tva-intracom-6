@@ -100,19 +100,8 @@ _active_jobs_count = 0
 # sur une instance Railway plus musclée sans risque d'OOM.
 MAX_CONCURRENT_BIG_JOBS = 1
 
-# BUGFIX 2026-08-28 (voir README - évolution.md) : cette constante et
-# can_start_big_job() existaient déjà mais n'étaient appelées NULLE PART —
-# aucun garde-fou réel avant démarrage d'un job. Constaté par Matthieu suite
-# à un test 4 comptes où le plafond fixé à 1 n'avait aucun effet observable.
-# Introduction d'une vraie file d'attente FIFO ci-dessous, qui remplace
-# l'usage de can_start_big_job() (conservée pour compat/lisibilité mais
-# désormais un simple raccourci de lecture, plus jamais le seul garde-fou).
-#
-# _waiting_queue : liste FIFO des job_id en attente d'un slot, protégée par
-# le même verrou que _active_jobs_count (une seule source de vérité pour
-# éviter tout état incohérent entre compteur et file).
-#
-# _reserved_at : job_id -> horodatage de réservation, pour détecter et
+# Plafond de jobs simultanés et file d'attente FIFO.
+MAX_CONCURRENT_BIG_JOBS = 1
 # libérer une réservation orpheline (onglet fermé entre la réservation du
 # slot — dans le fragment de file d'attente, qui tourne dans un thread de
 # script Streamlit, PAS le thread de calcul lui-même — et le démarrage réel
@@ -430,14 +419,7 @@ def render_job_progress(job_id: str, label: str) -> None:
     pendant les calculs longs (le moment où le CPU est justement le plus
     sollicité) est le vrai bénéfice.
 
-    BUGFIX 2026-08-28 (voir README - évolution.md) : `label` (le message
-    statique initial, ex. "Interrogation VIES...") restait auparavant
-    TOUJOURS collé devant le texte dynamique du callback de progression
-    (ex. "⏳ Calcul TVA/OSS : ..."), donnant un message à rallonge trompeur
-    ("Interrogation VIES... — Calcul TVA/OSS..." même une fois la phase
-    VIES terminée depuis longtemps). `label` ne sert plus que de texte de
-    repli avant le tout premier tick du callback ; une fois `_text` reçu,
-    il s'affiche seul.
+    Rendu du message dynamique du callback de progression (rejoint par `_text` au 1er tick).
     """
     state = get_job_state(job_id)
     if state is None:
@@ -448,16 +430,7 @@ def render_job_progress(job_id: str, label: str) -> None:
         if _done and not _already_triggered:
             state.rerun_triggered = True
     if _done:
-        # BUGFIX (voir README - évolution.md, diagnostic du 2026-08-29) :
-        # avant ce correctif, rien n'était affiché ici -- l'ancien texte du
-        # DERNIER tick de progression (ex. "47 500 / 100 000 lignes lues")
-        # restait visible à l'écran jusqu'à ce que le `st.rerun()` complet
-        # ci-dessous ait réellement le temps de s'exécuter. Sur le vCPU
-        # partagé, ce rerun est en concurrence avec le thread du prochain
-        # job et les polls d'autres sessions -- son délai pouvait donner
-        # l'illusion trompeuse qu'un calcul tournait encore alors que le
-        # job était déjà terminé (observé concrètement : deux sessions
-        # affichant chacune un texte de progression, alors que les logs
+        # Message de fin de job affiché immédiatement avant rerun complet.
         # confirmaient un seul job actif à la fois). Un texte "terminé"
         # explicite, même bref, signale correctement la transition.
         st.progress(1.0, text=f"{_text or label} ✅")

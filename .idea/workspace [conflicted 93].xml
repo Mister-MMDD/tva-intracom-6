@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="0e1e982f-6603-42eb-bda6-c08242ca7b25" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/planningMode.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/planningMode.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ca3_report.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ca3_report.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ecb_rates.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ecb_rates.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/excel_report.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/excel_report.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/fec_export.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/fec_export.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/de.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/de.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/en.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/en.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/es.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/es.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/fr.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/fr.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/it.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/it.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/pl.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/pl.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/i18n/pt.toml" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/i18n/pt.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/local_vat_report.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/local_vat_report.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/oss_export.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/oss_export.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/report.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/report.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/formatting.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/formatting.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/ui/tabs/telechargements.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/ui/tabs/telechargements.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tva_intracom/vies_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/tva_intracom/vies_engine.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "dev"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <servers />
+  </component>
+</project>

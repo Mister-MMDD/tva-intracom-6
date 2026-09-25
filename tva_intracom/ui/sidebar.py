@@ -185,16 +185,8 @@ def _invalidate_db_cache(cache_key: str) -> None:
 def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: list[str]) -> None:
     """Formulaire de création d'un nouveau SIREN, isolé en fragment.
 
-    BUGFIX : avant, ce formulaire vivait directement dans le corps de
-    render_sidebar() — taper un caractère dans un champ, cocher une case ou
-    ajouter un pays à la liste déclenchait un rerun COMPLET de toute la page
-    (comportement Streamlit par défaut pour tout widget hors fragment),
-    redessinant au passage les 6 onglets déjà affichés (tableaux, graphiques)
-    même si aucune valeur enregistrée en base n'avait changé. Isolé ici, ces
-    interactions ne redessinent plus que ce formulaire. Seul le clic sur
-    "Enregistrer ce SIREN" déclenche un rerun complet (nécessaire pour
-    recharger la liste des SIREN enregistrés et faire passer ce compte dans
-    le cas "SIREN existant" au tour suivant).
+    Isolation fragment : empêche le re-rendu complet de la page
+    lors de la saisie utilisateur dans ce formulaire.
     """
     # RÔLES (2026-08-24) : `_is_reader_new` grise l'ensemble du formulaire de
     # création pour un compte lecteur, par cohérence avec la vue "SIREN
@@ -249,13 +241,7 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
     if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
         st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
         apply_fr_under_threshold = False
-        # BUGFIX (2026-09-10, désync toggle) : la variable Python locale
-        # était forcée à False ci-dessus, mais le widget st.toggle reste
-        # lié à st.session_state["oss_thr_new"] — sans mise à jour de cette
-        # clé, le bouton restait affiché "ON" au rerun suivant alors que le
-        # calcul utilisait bien apply_fr_under_threshold=False. On
-        # resynchronise explicitement l'état affiché avec l'état réellement
-        # appliqué.
+        # Resynchronisation du widget toggle avec la valeur de calcul :
         st.session_state["oss_thr_new"] = False
 
     if st.button(_("save_siren_btn"), key="btn_register_siren", disabled=(current_user.role == "reader")):
@@ -306,38 +292,10 @@ def _edit_siren_form_fragment(
 ) -> None:
     """Formulaire d'édition d'un SIREN déjà enregistré, isolé en fragment.
 
-    BUGFIX (2026-08-21) : les 4 toggles fiscaux (IOSS actif, DDP, seuil OSS,
-    OSS N-1) et le multiselect des pays TVA vivaient auparavant DANS ce
-    fragment. Un fragment isolé ne redessine QUE lui-même quand un de ses
-    widgets change — `render_sidebar()` ne se relance pas, donc les valeurs
-    "effectives" retournées par `SidebarResult` (et donc `_cache_key` dans
-    app.py) restaient celles de `match` (dernière sauvegarde en base) tant
-    que le bouton "Enregistrer les modifications" n'était pas cliqué :
-    cocher/décocher ces toggles n'avait AUCUN effet visible, aucun
-    recalcul. Ces widgets sont désormais rendus en LIVE dans le corps de
-    render_sidebar() (voir juste avant l'appel à cette fonction) : leur
-    valeur courante est passée ici en paramètre, déjà "vraie" pour le
-    calcul en cours.
+    Rendu des toggles fiscaux en LIVE dans le corps de render_sidebar()
+    pour que toute modification déclenche le recalcul immédiat.
 
-    BUGFIX (2026-08-23) : les champs de saisie des numéros de TVA pour les
-    pays nouvellement ajoutés vivaient aussi DANS ce fragment, très loin en
-    dessous du multiselect qui sélectionne ces mêmes pays (après IOSS/DDP/
-    seuil OSS) — perdu de vue par l'utilisateur. Ils sont désormais rendus
-    en LIVE juste après le multiselect (voir render_sidebar()), avec les
-    mêmes clés `vat_num_edit_{pays}` : ce fragment se contente de RELIRE
-    leur valeur courante via `st.session_state[key]` au moment de l'enregis-
-    trement, sans les redessiner (éviterait un conflit de clé). Cela ne
-    réintroduit PAS le bug ci-dessus : `st.session_state` est mis à jour de
-    façon synchrone par Streamlit dès l'interaction, avant toute exécution
-    de script — le lire ici, dans ce fragment exécuté après coup dans le
-    même run, donne toujours la valeur à jour, y compris lors d'un rerun
-    isolé à ce seul fragment (clic sur "Enregistrer").
-
-    Ce fragment ne conserve que ce qui bénéficie réellement de l'isolation
-    anti-rerun-par-frappe : la saisie du numéro IOSS non encore verrouillé
-    (`ioss_val` vide — n'entre pas dans `_cache_key`, donc taper ici ne
-    redessine plus que ce fragment sans déclencher de recalcul prématuré),
-    et le bouton de sauvegarde.
+    Lecture synchrone des numéros de TVA saisis via st.session_state.
     """
     # ⚠️ Verrouillage définitif : une fois un IOSS ou un numéro de TVA
     # enregistré pour ce SIREN, il n'est PLUS modifiable — seuls les champs
@@ -347,18 +305,7 @@ def _edit_siren_form_fragment(
     # (déclarations déjà potentiellement transmises avec ces valeurs) — les
     # modifier après coup serait risqué.
     #
-    # BUGFIX (2026-08-23) : le message se basait sur `not ioss_val`, donc
-    # restait affiché indéfiniment tant qu'aucun IOSS n'était renseigné —
-    # alors que l'IOSS est volontairement optionnel (beaucoup de comptes
-    # n'en auront jamais). Il ne doit s'afficher que s'il y a réellement
-    # quelque chose sur le point d'être verrouillé à CE prochain
-    # enregistrement : un nouveau pays de TVA pas encore verrouillé
-    # (`new_vat_countries`, déjà obligatoirement rempli avant sauvegarde,
-    # voir `at_least_one_vat_required`), ou un numéro IOSS en cours de
-    # frappe dans le champ ci-dessous (lu via `st.session_state["ioss_edit"]`
-    # avant même que ce widget ne soit redessiné ce run-ci : sûr, Streamlit
-    # synchronise session_state depuis l'interaction AVANT toute exécution
-    # de script, indépendamment de l'ordre des lignes).
+    # Message de verrouillage si un IOSS ou un numéro de TVA est en cours de saisie.
     _ioss_draft_typed = bool(not ioss_val and str(st.session_state.get(f"ioss_edit_{siren_entreprise}", "") or "").strip())
     if new_vat_countries or _ioss_draft_typed:
         st.warning(_("fiscal_fields_lock_warning"))
@@ -371,10 +318,7 @@ def _edit_siren_form_fragment(
         st.caption(f"🔒 IOSS : **{ioss_val}** — {_('fiscal_field_locked_note')}")
         _draft_ioss_number = ioss_val
     else:
-        # BUGFIX (2026-08-26) : clé scopée par SIREN (même raison que les
-        # autres champs ci-dessus) — un brouillon d'IOSS tapé pour un SIREN
-        # sans IOSS pouvait sinon réapparaître en changeant vers un autre
-        # SIREN sans IOSS non plus.
+    # Clé scopée par SIREN.
         _draft_ioss_number = st.text_input(_("ioss_number_label"),
                                            placeholder="ex: IM1234567890",
                                            key=f"ioss_edit_{siren_entreprise}",
@@ -383,9 +327,9 @@ def _edit_siren_form_fragment(
     # ── Numéros de TVA : les pays déjà enregistrés sont affichés en lecture
     # seule dans render_sidebar() ; les pays NOUVELLEMENT ajoutés (pas
     # encore verrouillés) y sont aussi saisis désormais (juste après le
-    # multiselect, voir BUGFIX 2026-08-23 ci-dessus) — on relit simplement
+    # multiselect, voir Note 2026-08-23 ci-dessus) — on relit simplement
     # leur valeur courante ici via st.session_state, sans les redessiner.
-    # BUGFIX (2026-08-26) : clé alignée avec le scoping par SIREN du widget
+    # Note (2026-08-26) : clé alignée avec le scoping par SIREN du widget
     # correspondant (voir render_sidebar(), `vat_num_edit_{siren}_{pays}`).
     _draft_local_vat_numbers = dict(existing_vats)
     _missing_vat_input = False
@@ -425,26 +369,7 @@ def _edit_siren_form_fragment(
 
 
 def _render_account_dialog(_current_user) -> None:
-    """Compte & Confidentialité, dans une modale plutôt que dans le corps de
-    la sidebar (voir appel dans render_sidebar). Contenu strictement
-    inchangé (mot de passe / export RGPD / suppression de compte), seul
-    l'emplacement change.
-
-    BUGFIX (2026-09-1x) : même bug que `vies_ui.py::_render_vies_retry_done_dialog`
-    (corrigé le 2026-09-11) et documenté dans `optimisations_en_attente.md`
-    point 8 — `@st.dialog(title=_("account_privacy_header"))` posé
-    directement sur une fonction module-level n'évalue `_(...)` qu'UNE
-    SEULE FOIS, à l'import du module (le décorateur s'applique à la
-    définition de la fonction, donc à l'import ; Python ne réexécute jamais
-    le corps d'un module déjà dans `sys.modules`). Sur Streamlit Cloud,
-    plusieurs comptes/langues partagent le même process : le titre de cette
-    modale restait donc figé dans la langue active lors du tout premier
-    import de ce module dans le process, quelle que soit la langue choisie
-    ensuite par CHAQUE utilisateur qui l'ouvre.
-    Corrigé en construisant le dialog dynamiquement à l'intérieur de cette
-    fonction, avec le titre résolu à l'instant de l'appel (donc dans la
-    langue de la session en cours).
-    """
+    """Compte & Confidentialité, dans une modale."""
     @st.dialog(title=_("account_privacy_header"))
     def _dialog() -> None:
         _render_account_dialog_body(_current_user)
@@ -568,16 +493,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                   purement décoratif, ne conditionne aucune valeur
                   retournée ni aucun calcul.
 
-    BUGFIX (bascule SIREN suite à conflit de rattachement compte Amazon) :
-    `st.session_state["siren_select_box"]` ne peut être écrit QUE avant que
-    le widget `st.selectbox(key="siren_select_box")` plus bas dans cette
-    fonction n'ait été instancié pour ce run — Streamlit lève
-    StreamlitAPIException sinon. `render_account_link_panel()` (appelé bien
-    après render_sidebar() dans app.py, une fois les résultats calculés) ne
-    peut donc pas écrire directement sur cette clé : il dépose son intention
-    dans `_pending_siren_switch`, puis demande un rerun. On consomme ce
-    tampon ici, tout en tout début de fonction — donc avant l'instanciation
-    du selectbox — ce qui rend l'écriture licite.
+    # Bascule SIREN suite à un conflit de rattachement.
     """
     _pending_siren_switch = st.session_state.pop("_pending_siren_switch", None)
     if _pending_siren_switch is not None:
@@ -852,23 +768,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 # ── Pays où la TVA locale est enregistrée : remonté juste
                 # sous l'identité, au-dessus d'IOSS/DDP/seuil OSS. Priorité
                 # fiscale : ces immatriculations locales priment sur le
-                # régime DDP et les autres réglages. Zone d'AJOUT, pas de
-                # gestion de stock (voir README - évolution.md) — les pays
-                # déjà verrouillés (numéro enregistré) sont résumés en une
-                # seule ligne compacte, le multiselect ne sert qu'à ajouter
-                # un nouveau pays pas encore enregistré (ou à en retirer un,
-                # verrouillé ou non, de la liste active).
-                # BUGFIX (2026-08-26) : la clé de ce widget était statique
-                # ("vat_countries_edit"), partagée par TOUS les SIREN. Une
-                # fois qu'une valeur existe dans st.session_state pour cette
-                # clé, Streamlit ignore `default=` aux runs suivants et
-                # réaffiche la valeur mémorisée — donc changer de SIREN (ou
-                # revenir d'une création de SIREN) réaffichait la liste de
-                # pays du SIREN précédemment actif au lieu de celle du SIREN
-                # sélectionné. La clé est désormais scopée par `_siren_choice`
-                # pour forcer Streamlit à traiter chaque SIREN comme un
-                # widget distinct, ce qui réapplique bien `default=` (donc
-                # les données réelles de CE SIREN) à chaque changement.
+                # Multiselect scopé par SIREN (`f"vat_countries_edit_{_siren_choice}"`)
+                # pour forcer la réinitialisation de `default=` lors du changement de SIREN.
                 countries_with_vat = st.multiselect(
                     _("local_vat_countries_label"),
                     options=sorted(list(EU_COUNTRIES)),
@@ -884,22 +785,8 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                         + f" — {_('fiscal_field_locked_note')}"
                     )
 
-                # Saisie des numéros de TVA pour les pays NOUVELLEMENT ajoutés
-                # (pas encore verrouillés) : rendue ICI, juste sous le
-                # multiselect, plutôt que dans `_edit_siren_form_fragment`
-                # (rendu bien plus bas, après IOSS/DDP/seuil OSS) — c'était la
-                # cause du champ "Numéro de TVA FR" retrouvé tout en bas de
-                # panneau alors que le pays est sélectionné ici. Ces champs
-                # restent des `st.text_input` normaux (hors fragment) : leur
-                # valeur est lue par `_edit_siren_form_fragment` via
-                # `st.session_state[key]` au moment de l'enregistrement (la
-                # clé du widget), donc aucune perte de saisie malgré le
-                # découplage — voir commentaire dans ce fragment.
-                # BUGFIX (2026-08-26) : clé scopée par SIREN pour la même
-                # raison que le multiselect ci-dessus — sinon un brouillon de
-                # numéro de TVA tapé pour le SIREN A pouvait réapparaître en
-                # changeant vers le SIREN B si celui-ci a le même pays à
-                # compléter.
+                # Saisie des numéros de TVA pour les pays nouvellement ajoutés :
+                # rendue en LIVE avec clé scopée par SIREN (`vat_num_edit_{siren}_{pays}`).
                 if _new_vat_countries:
                     st.caption(_("local_vat_numbers_caption"))
                     for _ccode in _new_vat_countries:
@@ -914,43 +801,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 st.markdown("---")
                 st.markdown(f"**{_('fiscal_params_title')}**")
 
-                # ── Toggles fiscaux : LIVE, hors fragment ──────────────────────
-                # BUGFIX (2026-08-21, voir README - évolution.md) : ces widgets
-                # vivaient auparavant dans _edit_siren_form_fragment (isolé).
-                # Un fragment ne redessinant que lui-même, cocher/décocher ici
-                # n'avait jamais d'effet sur `_cache_key` (app.py) tant que
-                # "Enregistrer les modifications" n'était pas cliqué : IOSS,
-                # DDP et seuil OSS semblaient ne "rien faire". Rendus ici, en
-                # dehors du fragment, leur valeur courante est immédiatement
-                # celle utilisée pour le calcul — un clic déclenche un rerun
-                # complet (coût attendu et voulu : ces réglages changent le
-                # résultat fiscal, contrairement à la frappe d'un nom ou d'un
-                # numéro de TVA, qui reste isolée dans le fragment).
-                # RÔLES (2026-08-24) : ces toggles sont LIVE (hors fragment,
-                # voir commentaire ci-dessus) — sans `disabled=_is_reader`,
-                # un compte lecteur pouvait les basculer et voir le calcul
-                # fiscal affiché changer immédiatement, sans passer par
-                # "Enregistrer" (lui-même déjà désactivé pour les lecteurs).
-                # Contrairement aux pays TVA locale (juste au-dessus, sans
-                # grand impact tant que non enregistré), CES réglages
-                # (IOSS/DDP/seuil OSS) changent directement le résultat
-                # fiscal affiché/exporté pendant la session — critique à
-                # verrouiller, pas seulement à la sauvegarde.
-                # BUGFIX (2026-08-26) : ces 4 toggles utilisaient des clés
-                # STATIQUES ("ioss_own_active_view", "ddp_view", "oss_thr_view",
-                # "oss_thr_prevyear_view"), partagées par tous les SIREN. Comme
-                # pour le multiselect ci-dessus, `value=` est ignoré par
-                # Streamlit dès qu'une valeur existe déjà en session_state
-                # pour cette clé — donc en changeant de SIREN, les toggles
-                # affichés pouvaient rester ceux du SIREN précédemment
-                # sélectionné au lieu de refléter `match` (l'état réel en base
-                # pour LE SIREN affiché). Impact critique signalé : un compte
-                # lecteur changeant de SIREN pouvait voir un DDP ou un seuil
-                # 10k€ qui ne correspondait pas au SIREN réellement affiché,
-                # sans qu'il y ait moyen de s'en rendre compte à l'écran.
-                # Les clés sont désormais scopées par `_siren_choice`, ce qui
-                # force Streamlit à réappliquer `value=` (donc l'état réel en
-                # base) à chaque changement de SIREN.
+                # Toggles fiscaux LIVE (hors fragment) et scopés par SIREN.
                 ioss_own_number_active = False
                 if _ioss_val:
                     ioss_own_number_active = st.toggle(
@@ -983,10 +834,6 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
                     st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
                     apply_fr_under_threshold = False
-                    # BUGFIX (2026-09-10, désync toggle) : même correctif
-                    # que le bloc "new SIREN" plus haut, adapté à la clé
-                    # scopée par SIREN de ce bloc (voir BUGFIX 2026-08-26
-                    # juste au-dessus sur le scoping par _siren_choice).
                     st.session_state[f"oss_thr_view_{_siren_choice}"] = False
 
                 _edit_siren_form_fragment(
@@ -1367,7 +1214,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         #                     st.caption(_("payg_detected_period_msg", period=_detected_period_for_payg))
         #                     if st.button(_("payg_buy_btn"), key="btn_payg_sidebar"):
         #                         try:
-        #                             # BUGFIX (2026-09-04) : la clé de cache incluait
+        #                             # Note (2026-09-04) : la clé de cache incluait
         #                             # seulement la période — voir même correctif dans
         #                             # ui/billing_gate.py::get_payg_checkout_url. Le
         #                             # SIREN doit aussi être scellé dans la metadata
@@ -1433,14 +1280,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         # regardent que l'administrateur de l'organisation. Un lecteur garde accès
         # au certificat VIES par fichier importé via l'onglet VIES (vies_ui.py).
         if tva_auth.is_admin(_current_user):
-            # BUGFIX (2026-08-22) : la durée de validité du cache VIES (slider
-            # TTL) est une donnée que l'utilisateur doit voir/régler dès la
-            # prise en main (checklist d'onboarding) — l'expander lui-même
-            # reste donc toujours visible, y compris en mode Simple. Seuls les
-            # réglages avancés (stats détaillées, purge, certificat PDF)
-            # restent réservés au mode Détaillé. N'alimente aucun champ de
-            # SidebarResult : masquage partiel sans risque de variable non
-            # définie plus bas.
+            # Slider TTL VIES et options avancées.
             if pulse_target == "vies_ttl":
                 with st.container(key="onb_pulse_vies"):
                     pass
@@ -1546,7 +1386,7 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         # "utf-8" couvre l'immense majorité des exports Amazon — réglage
         # avancé masqué en mode Simple.
         #
-        # BUGFIX (2026-08-21) : même classe de bug qu'avec l'ancien catalogue
+        # Note (2026-08-21) : même classe de bug qu'avec l'ancien catalogue
         # ASIN -> catégorie (supprimé, cf. chantier taux réduit dynamique CN/CPA) — `encoding` alimente `parse_key` (voir app.py) ; le
         # re-fixer à "utf-8" par défaut à chaque run où l'expander n'est
         # pas rendu aurait fait perdre un encodage explicitement choisi

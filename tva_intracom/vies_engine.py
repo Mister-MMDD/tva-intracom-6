@@ -99,32 +99,16 @@ DEFAULT_TIMEOUT = 10
 # toujours DEFAULT_CACHE_TTL_DAYS, non modifiable depuis l'UI.
 DEFAULT_CACHE_TTL_DAYS: int = 7
 
-# BUGFIX (2026-09-09, fuite mémoire) : _SCOPE_TTL_DAYS grossissait
-# indéfiniment (une entrée par scope_id/compte, jamais purgée) pendant toute
-# la durée de vie du process — sur Streamlit Cloud (process partagé entre
-# tous les comptes), ceci pouvait à terme saturer la RAM. Chaque entrée est
-# minuscule (str -> int), donc l'impact réel est lent, mais le principe
-# "aucune structure en mémoire ne doit croître sans borne" doit être
-# respecté. Borné à _SCOPE_TTL_MAX_ENTRIES via une éviction FIFO simple
-# (OrderedDict) : un TTL personnalisé évincé est simplement rechargé depuis
-# `vies_scope_settings` (source de vérité, voir _load_ttl_from_db) au
-# prochain appel — coût negligeable (une lecture DB occasionnelle) contre
-# une mémoire non bornée.
+# Borne mémoire TTL : _SCOPE_TTL_DAYS est borné à _SCOPE_TTL_MAX_ENTRIES
+# via une éviction FIFO simple (OrderedDict) pour éviter toute fuite mémoire.
 _SCOPE_TTL_MAX_ENTRIES = 2000
 _SCOPE_TTL_DAYS: "OrderedDict[str, int]" = OrderedDict()
 
 # PERF (voir README - évolution.md) : compilée une seule fois au chargement
-# du module plutôt qu'à chaque appel de _clean_vat_number (potentiellement
-# des dizaines de milliers d'appels sur un gros fichier). re.compile() est
-# techniquement déjà mise en cache par le module `re` (jusqu'à 512 patterns),
-# mais un objet Pattern dédié évite ce lookup de cache et documente l'usage.
+# du module plutôt qu'à chaque appel de _clean_vat_number.
 #
-# BUGFIX (2026-09-09) : les parenthèses n'étaient pas nettoyées. Un numéro
-# saisi "(FR)123456789" ne matchait que les espaces/points/tirets, laissant
-# "(FR)123456789" intact -> cleaned[:2] valait "(F" au lieu de "FR",
-# corrompant le préfixe pays et faisant échouer systématiquement la
-# validation VIES pour ce type de saisie. Ajout de `()` au jeu de
-# caractères supprimés.
+# Sanitisation des numéros : prend en compte les parenthèses `()` en plus des
+# espaces/points/tirets pour nettoyer correctement les saisies utilisateur.
 _VAT_CLEAN_RE = re.compile(r"[\s.\-()]")
 
 
@@ -615,13 +599,8 @@ def _row_to_result(row) -> ViesResult:
 
 
 def _db_get_scope(scope_id: str, vat_id: str) -> tuple[Optional[ViesResult], bool]:
-    # BUGFIX (2026-09-11) : contrairement à ecb_rates.py (dégradation propre
-    # en mode mémoire si SUPABASE_DB_URL absent), _get_pool() ici lève une
-    # RuntimeError, qui n'était pas capturée par les appelants (check_vat_raw,
-    # validate_vat_numbers_parallel) — plantage complet du thread au premier
-    # appel de cache au lieu d'un repli sur le mode "sans cache". On capture
-    # ici et on dégrade vers (None, False), comme un simple cache-miss :
-    # l'appelant retombe alors normalement sur l'appel API VIES direct.
+    # Dégradation propre DB : capture les erreurs d'absence de pool DB
+    # et dégrade vers un cache-miss (None, False), permettant le repli VIES direct.
     try:
         with _conn() as conn, conn.cursor() as cur:
             cur.execute(
@@ -1276,48 +1255,16 @@ def purge_malformed_entries(force: bool = False) -> int:
     supprime les entrées vat_id mal préfixées par un bug historique (double
     préfixe pays, ex. "DEIT123..." ou "FRFR123..." en cas de répétition du
     même préfixe). Opère sur les TROIS tables (scope + global + historique
-    d'audit) car le bug était antérieur à la scopisation.
+    d'audit).
 
-    BUGFIX (2026-09-10, piste d'audit oubliée, voir README - évolution.md) :
-    la purge ne touchait auparavant que `vies_global_cache` et
-    `vies_scope_cache`, jamais `vies_check_history`. Les entrées malformées
-    y survivaient donc indéfiniment (rétention 365 jours) et pouvaient
-    réapparaître dans un certificat PDF ou un export Excel d'historique,
-    en contradiction avec l'état pourtant nettoyé des caches — source de
-    confusion potentielle lors d'un contrôle fiscal.
+    Inclusion de la table d'audit `vies_check_history` pour éviter la persistance
+    des entrées malformées dans les exports et certificats.
 
-    BUGFIX (voir README - évolution.md) : la clause excluait auparavant le
-    cas où les deux préfixes détectés étaient identiques (ex. "FRFR..."),
-    laissant ces doublons non nettoyés par la procédure optimisée. Retirée :
-    tout vat_id dont les 4 premiers caractères forment deux codes pays UE
-    valides consécutifs est un doublon de préfixe, identiques ou non.
+    Exclusion ciblée des clés FR autorisées (ex: "FRDE123456789") pour éviter
+    de purger les numéros de TVA français valides dont la clé de contrôle
+    contient deux lettres.
 
-    BUGFIX 2 (faux positifs FR, voir README - évolution.md) : le format
-    français (FR + 2 caractères de clé de contrôle POUVANT être des lettres
-    + 9 chiffres SIREN, 13 caractères au total) autorise des numéros
-    parfaitement valides comme "FRDE123456789" ou "FRIT123456789" — la clé
-    de contrôle française coïncide alors par hasard avec un code pays UE.
-    L'ancienne requête les traitait à tort comme des doublons de préfixe et
-    les supprimait du cache. FR est désormais exclu comme PREMIER préfixe
-    de cette heuristique (mais reste détectable comme second préfixe, ex.
-    un authentique doublon "DEFR..." resterait purgé). Aucun autre pays UE
-    n'utilise de lettres dans ses 2 premiers caractères de corps de numéro
-    (positions 3-4), donc cette exclusion ciblée sur FR ne réintroduit pas
-    de faux négatifs ailleurs.
-
-    PERF (voir README - évolution.md) : deux correctifs par rapport à la
-    version précédente.
-      1. Un seul `DELETE ... WHERE` par table (comparaison d'ensemble via
-         `= ANY(%s)` sur les 2 préfixes pays) remplace le `SELECT DISTINCT`
-         suivi d'une boucle Python de `DELETE` ligne par ligne — coûteux
-         (un aller-retour réseau par ligne à supprimer) et qui grossissait
-         avec la taille du cache global mutualisé.
-      2. La purge réelle n'est plus tentée qu'au plus une fois par
-         `_MALFORMED_PURGE_MIN_INTERVAL_DAYS` (horodatage persisté en base,
-         table `vies_maintenance`), au lieu d'une fois par SESSION Streamlit
-         (le garde précédent vivait en `st.session_state`, donc s'exécutait
-         à nouveau à chaque nouvel onglet/utilisateur). `force=True` (tests,
-         CLI) ignore ce throttle.
+    Optimisation : un seul DELETE par table et throttlé par `_MALFORMED_PURGE_MIN_INTERVAL_DAYS`.
     """
     _EU_CC = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
               "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "XI"]
@@ -1483,22 +1430,7 @@ def _is_unreliable(res: ViesResult) -> bool:
 
 def _is_downgrade(previous: ViesResult, new_result: ViesResult) -> bool:
     """Détecte un downgrade SUSPECT : numéro précédemment VALIDE qui revient
-    soudainement VIDE sans erreur (dégradation serveur VIES sous charge) —
-    à distinguer d'une VRAIE invalidation, où VIES répond explicitement
-    `valid=False` accompagné du nom/adresse de l'entreprise (réponse
-    positive du serveur, juste avec un statut de validité négatif).
-
-    BUGFIX (voir README - évolution.md) : la condition précédente
-    (`previous.valid and not new_result.valid and not new_result.error`)
-    classait comme "suspect" TOUT passage valide -> invalide sans erreur
-    réseau, y compris une VRAIE désinscription/invalidation du numéro TVA
-    (VIES renvoie alors `valid=False` avec `name`/`address` renseignés,
-    preuve que le serveur a bien traité la requête). Une telle réponse ne
-    doit jamais être neutralisée en `stale_fallback` — c'est une
-    information fiscale réelle et exploitable, pas un artefact serveur.
-    Seule une réponse réellement VIDE (`valid=False` ET `name`/`address`
-    tous deux absents) — signature typique d'une dégradation VIES sous
-    charge (voir docstring ci-dessus) — doit être traitée comme suspecte.
+    soudainement VIDE sans erreur.
     """
     return (
             previous.valid
@@ -1647,15 +1579,8 @@ def check_vat(country_code: str, vat_number: str, timeout: int = DEFAULT_TIMEOUT
                     error=", ".join(codes) or "Erreur API inconnue (errorWrappers vide)",
                 )
 
-            # BUGFIX (voir README - évolution.md) : `res_data.get(clé, "")` ne
-            # retombe sur "" QUE si la clé est absente du JSON, jamais si sa
-            # valeur vaut explicitement `null` (`{"name": null, ...}`) — un
-            # cas réellement observé côté API VIES pour certains États
-            # membres. Sans le `or ""`, `result.name`/`result.address`
-            # valaient `None`, et `_is_empty_response()` (`res.name.strip()`)
-            # plantait le thread de calcul (`AttributeError`). Même
-            # anti-pattern déjà corrigé dans classify.py (BUGFIX 2026-09-06,
-            # `convert_currency`) — appliqué ici par cohérence.
+            # Gestion des réponses JSON contenant des clés à valeur null :
+            # `res_data.get(clé, "")` ou fallback pour éviter tout AttributeError.
             result = ViesResult(
                 valid=res_data.get("valid", res_data.get("isValid", False)) or False,
                 country_code=res_data.get("countryCode") or country_code,
@@ -1765,21 +1690,10 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
 
         if _is_unreliable(res):
             if cached is not None:
-                # BUGFIX (2026-09-09) : auparavant on renvoyait `res` (résultat
-                # brut non fiable) sans se soucier de `cached`, ce qui perdait
-                # le dernier statut automatique connu — le numéro apparaissait
-                # comme "jamais vérifié" dans render_manual_vies_classification
-                # alors qu'un historique de vérification existe bien en base
-                # (visible dans le certificat VIES téléchargeable). On applique
-                # ici exactement le même traitement que le cas "downgrade"
-                # ci-dessous : `stale_fallback=True` conserve `valid`/
-                # `checked_at` d'origine pour l'affichage, SANS jamais faire
-                # perdurer un statut VALIDE dans les calculs (engine.py traite
-                # stale_fallback comme un inconclusif classique — B2C par
-                # défaut / autoliquidation suspendue). La politique de
-                # sécurité "pas de repli sur cache périmé pour les calculs"
-                # (décision d'origine) reste donc intacte ; seule l'info
-                # affichée à l'utilisateur est restaurée.
+                # Maintien de l'historique d'affichage (stale_fallback) :
+                # `stale_fallback=True` conserve `valid`/`checked_at` d'origine
+                # pour l'affichage, SANS faire perdurer un statut VALIDE dans
+                # les calculs (engine.py traite stale_fallback comme inconclusif).
                 logger.warning(
                     "VIES : %s expiré (TTL dépassé) et service VIES "
                     "indisponible — reclassé en non-vérifié (stale_fallback), "
@@ -1787,9 +1701,6 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
                     "information.", norm,
                 )
                 return replace(cached, stale_fallback=True)
-            # Pas de cache du tout (numéro jamais vérifié) : on ne peut rien
-            # proposer de mieux que le résultat brut non fiable (sécurité B2C
-            # par défaut, comportement inchangé).
             return res
 
         if cached is not None and _is_downgrade(cached, res):
@@ -1798,18 +1709,6 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
                 "reclassé en non-vérifié (stale_fallback), dernière validation "
                 "automatique connue conservée pour information.", norm,
             )
-            # BUGFIX (2026-09-08) : on ne renvoie plus `cached` tel quel — cela
-            # faisait perdurer indéfiniment un statut VALIDE dans les calculs
-            # (autoliquidation B2B) alors que le numéro n'a plus pu être
-            # reconfirmé depuis l'expiration du TTL, SANS jamais remonter
-            # dans la liste "non vérifiés" ni permettre de classification
-            # manuelle. On renvoie une copie marquée `stale_fallback=True` :
-            # engine.py la traite alors comme un inconclusif classique (B2C
-            # par défaut / autoliquidation suspendue), elle apparaît dans
-            # `inconclusive_vats`, ET conserve `valid`/`checked_at` d'origine
-            # pour informer l'utilisateur du dernier statut automatique connu
-            # et de sa date, afin de faciliter sa décision de classification
-            # manuelle (voir render_manual_vies_classification).
             return replace(cached, stale_fallback=True)
 
         # Vérification automatique fiable → mutualisée dans le cache global
@@ -1895,10 +1794,8 @@ def validate_vat_numbers_parallel(
 
         global_entry = global_cache_map.get(norm)
         if global_entry is not None:
-            # BUGFIX : Si l'utilisateur a réduit son TTL (ex: 1 jour), on ne doit 
-            # pas utiliser une entrée du cache global qui a 6 jours (même si 
-            # elle est considérée "fraîche" par le défaut global de 7j).
-            # On vérifie la fraîcheur par rapport au TTL du SCOPE.
+            # Fraîcheur par rapport au TTL du scope : on vérifie la fraîcheur
+            # par rapport au TTL personnalisé du scope.
             if not _is_expired(global_entry[0].checked_at, scope_id):
                 results[vat_id] = global_entry[0]
                 to_copy_from_global.append((norm, global_entry[0]))
@@ -1965,27 +1862,7 @@ def validate_vat_numbers_parallel(
             orig_id = to_fetch[norm_id]
 
             if _is_unreliable(result):
-                # BUGFIX (2026-09-11, régression du correctif 2026-09-09) :
-                # `check_vat_raw` (voie unitaire) applique bien un repli
-                # `stale_fallback=True` sur le cache périmé (`cached`) quand
-                # VIES est indisponible après expiration du TTL — voir son
-                # commentaire "BUGFIX (2026-09-09)". Cette voie BATCH/
-                # PARALLÈLE (utilisée en priorité en production, voir
-                # `compute_all_with_vies` qui bascule sur la voie séquentielle
-                # uniquement si celle-ci échoue entièrement) ne l'a jamais
-                # reçu : elle écrasait systématiquement `fallback_cache`
-                # (l'entrée expirée, potentiellement déjà vérifiée avec
-                # succès par le passé) par un résultat vierge sans
-                # `checked_at` ni `valid` d'origine. Un numéro pourtant déjà
-                # vérifié (TTL simplement dépassé, service VIES indisponible
-                # au moment de la revalidation) réapparaissait donc comme
-                # "Jamais vérifié par le serveur" dans
-                # render_manual_vies_classification — exactement le
-                # symptôme corrigé pour la voie unitaire, jamais pour la
-                # voie batch. Même traitement ici : repli sur `fallback_cache`
-                # (scope expiré, sinon global) avec `stale_fallback=True` si
-                # une entrée existe, résultat brut non fiable sinon (numéro
-                # jamais vérifié, comportement inchangé dans ce cas précis).
+                # Voie BATCH/PARALLÈLE : repli stale_fallback sur cache périmé.
                 prev_unreliable = fallback_cache.get(norm_id)
                 if prev_unreliable is not None:
                     logger.warning(
@@ -2013,8 +1890,7 @@ def validate_vat_numbers_parallel(
                     "reclassé en non-vérifié (stale_fallback), dernière validation "
                     "automatique connue conservée pour information.", norm_id,
                 )
-                # BUGFIX (2026-09-08) : voir commentaire équivalent dans
-                # check_vat_raw — même correctif ici pour la voie batch.
+                # Repli stale_fallback sur downgrade en voie batch.
                 results[orig_id] = replace(prev, stale_fallback=True)
                 continue
 
@@ -2076,25 +1952,7 @@ def force_revalidate(scope_id: str, vat_ids: list[str]) -> None:
     N'affecte pas le cache global (un autre scope continuera de bénéficier
     de la valeur mutualisée tant qu'elle est fraîche).
 
-    BUGFIX (2026-09-12, suite retour terrain) : cette fonction supprimait
-    auparavant (DELETE) la ligne du cache scope. Or validate_vat_numbers_parallel
-    (appelée juste après par retry_vats_batch) construit son fallback_cache
-    EN LISANT ce même cache scope pour savoir quoi proposer si la
-    revérification échoue à nouveau (VIES indisponible) — voir son
-    commentaire "BUGFIX (2026-09-11, régression du correctif 2026-09-09)".
-    En supprimant la ligne avant cette lecture, on détruisait justement
-    l'historique ("dernier statut automatique connu") que ce mécanisme est
-    censé préserver : un numéro pourtant déjà vérifié avec succès (TTL
-    simplement dépassé) réapparaissait comme "Jamais vérifié par le
-    serveur" si la nouvelle tentative échouait — seul un hit du cache
-    GLOBAL mutualisé (non affecté par ce DELETE) pouvait compenser, ce qui
-    n'est pas garanti (numéro vérifié uniquement dans ce scope, ou déjà
-    expiré/purgé côté global).
-    On vieillit désormais la ligne (checked_at forcé dans le passé) au
-    lieu de la supprimer : elle est alors considérée expirée par
-    _is_expired() (donc bien revérifiée, comportement de "force" inchangé)
-    tout en restant disponible comme fallback_cache si VIES est encore
-    indisponible.
+    Rétention de l'historique lors de la revalidation : vieillit la ligne au lieu de DELETE.
     """
     with _conn() as conn, conn.cursor() as cur:
         for vat_id in vat_ids:
@@ -2115,27 +1973,9 @@ def force_revalidate(scope_id: str, vat_ids: list[str]) -> None:
 
 
 def is_inconclusive_result(res: ViesResult) -> bool:
-    """Version publique de la définition \"inconclusif\" utilisée par
-    check_vat_with_retry (_is_unreliable / _is_empty_response ci-dessus) —
-    exposée pour que background_calc.py puisse évaluer la progression de
-    retry_vats_batch() SANS redéfinir son propre critère (voir incident
-    Allemagne du 31/07/2026 documenté sur _is_empty_response : un critère
-    dupliqué et divergent ferait regresser silencieusement ce filet de
-    sécurité).
-
-    BUGFIX (2026-09-11) : manquait la vérification de `stale_fallback`,
-    déjà présente dans engine.py::_is_uncertain (voir docstring de
-    ViesResult.stale_fallback). Un repli sur cache périmé pendant une panne
-    VIES (validate_vat_numbers_parallel renvoie alors
-    `replace(prev_unreliable, stale_fallback=True)`, qui hérite de
-    l'ancien valid/name/address) échouait aussi bien à _is_unreliable
-    (pas d'erreur transitoire dans le résultat renvoyé) qu'à
-    _is_empty_response (valid/name/address hérités, donc pas \"vide\") :
-    le numéro était donc compté comme \"résolu\" par
-    start_vies_retry_loop alors qu'aucune vérification fraîche n'avait eu
-    lieu, déclenchant à tort la modale/le message vies_retry_done_info
-    (observé en pratique avec les numéros FR pendant une indisponibilité
-    du service national)."""
+    """Version publique de la définition inconclusif.
+    Vérification de `stale_fallback` incluse.
+    """
     return _is_unreliable(res) or _is_empty_response(res) or getattr(res, "stale_fallback", False)
 
 

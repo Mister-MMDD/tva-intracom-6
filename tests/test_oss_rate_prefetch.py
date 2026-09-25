@@ -11,7 +11,7 @@ clôture) nécessaires — pas une par ligne de `results`.
 
 MAJ (2026-09-09) : le taux de clôture OSS/IOSS est désormais résolu par
 ecb_rates.get_closing_rate() (recherche EN AVANT à partir de la date de
-clôture, conforme art. 5 bis Règl. UE 2020/194 — BUGFIX du même jour :
+clôture, conforme art. 5 bis Règl. UE 2020/194 — correctif du même jour :
 l'ancien get_rate() cherchait EN ARRIÈRE, ce qui donnait à tort le taux du
 vendredi pour une clôture tombant un dimanche au lieu du lundi suivant).
 Le pré-batch correspondant est donc désormais prefetch_closing_rates(),
@@ -73,16 +73,10 @@ def test_aggregate_oss_results_prefetches_rates_in_one_batch_call():
 
 
 def test_aggregate_oss_results_still_prefetches_and_converts_when_no_period():
-    """BUGFIX (2026-09-13) : `period=""` ne doit PLUS désactiver la
-    conversion de clôture. L'ancien comportement (aucun prefetch, aucune
-    conversion) était le bug lui-même : c'est précisément ce chemin
-    qu'emprunte l'IOSS dans excel_report.py::export_xlsx (appel volontaire
-    avec period=""), pour que get_ioss_rate_date retombe sur la fin du
-    MOIS de la transaction (fallback correct au regard de l'art. 5 bis
-    Règl. UE 2020/194) — un fallback qui, avant ce correctif, n'était en
-    réalité jamais atteint car la garde `if period` coupait la conversion
-    avant même d'appeler `_rate_date_fn`. Voir aussi le commentaire BUGFIX
-    dans convert_ht_tva_for_oss_period (oss_export.py)."""
+    """Test de régression (2026-09-13) : `period=""` ne doit PLUS désactiver la
+    conversion de clôture.
+    
+    Voir aussi le commentaire de correctif dans convert_ht_tva_for_oss_period (oss_export.py)."""
     results = compute_all_with_vies([_make_sale("s1", "GBP", "2026-01-15", "100")], scope_id="test-oss-prefetch")[0]
 
     with patch.object(oss_export, "prefetch_closing_rates") as mock_prefetch, \

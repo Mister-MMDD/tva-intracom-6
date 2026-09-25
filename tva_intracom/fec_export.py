@@ -100,16 +100,8 @@ def _vat_account_for(result: VatResult) -> str:
     """
     if result.collector != Collector.SELLER:
         return ""
-    # BUGFIX (2026-09-08) : `<= 0` confondait à tort les avoirs (montants
-    # négatifs, TVA bien due mais à recréditer) avec les cas où le vendeur
-    # ne doit réellement collecter aucune TVA (exonération, taux 0%), pour
-    # lesquels vat_amount vaut exactement 0. Un avoir isolé (vat_amount < 0)
-    # se voyait attribuer channel_account="" et atterrissait donc dans un
-    # bucket _AggKey différent de la vente correspondante (même période,
-    # scénario, pays, taux) au lieu de s'y compenser — sa ligne de TVA FEC
-    # (4457xxx) était alors purement omise (has_vat_line=False), rendant
-    # l'écriture déséquilibrée et empêchant la récupération de TVA sur les
-    # retours. Seul le montant exactement nul doit être exclu.
+    # Traitement des avoirs isolés (vat_amount < 0) : seul le montant
+    # exactement nul (exonération, taux 0%) ne déclenche pas de compte de TVA.
     if result.vat_amount == Decimal("0.00"):
         return ""
     if result.scenario == Scenario.IOSS_DIRECT:
@@ -286,18 +278,9 @@ def build_fec_rows(
         # Compte de vente spécifique par pays
         sale_account = _sale_account_for(key.vat_country)
 
-        # BUGFIX (2026-08-27) : le sens débit/crédit de CHAQUE ligne (vente,
-        # TVA) doit dépendre du signe de SA PROPRE valeur nette (net_ht,
-        # net_vat), pas d'un unique "flip" dérivé du signe du TOTAL combiné.
-        # En théorie net_ht et net_vat partagent toujours le même signe au
-        # sein d'un même bucket (même taux : vat_amount = round(amount_ht *
-        # rate/100)) — mais un cumul d'arrondis indépendants sur de
-        # nombreuses lignes (ventes + avoirs qui se neutralisent presque
-        # exactement) pourrait en théorie faire dériver le signe agrégé de
-        # l'un par rapport à l'autre de quelques centimes. Avec l'ancien
-        # code (un seul "flip" basé sur le signe du total combiné, appliqué
-        # aveuglément à abs_ht et abs_vat), un tel cas produirait une
-        # écriture déséquilibrée (Debit != Credit) sans qu'aucune alerte ne
+        # Sens débit/crédit par ligne (net_ht, net_vat) : déterminé
+        # individuellement par ligne pour garantir l'équilibrage parfait
+        # (Débit = Crédit) de l'écriture comptable FEC.
         # soit levée. On calcule donc le sens de chaque ligne indépendamment,
         # et le montant client comme la vraie somme algébrique (pas la somme
         # des valeurs absolues) — le débit client reste par construction égal

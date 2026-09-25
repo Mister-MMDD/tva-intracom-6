@@ -1,8 +1,7 @@
 """
-Script de migration manuelle — à lancer ponctuellement (pas dans l'app) pour
-resserrer les crédits PAYG achetés AVANT le rattachement d'un crédit à un
-SIREN précis (voir BUGFIX 2026-09-04 : colonne `siren` sur
-tva_export_credits, has_export_credit()).
+Script de migration manuelle — à lancer ponctuellement pour
+resserrer les crédits PAYG achetés avant le rattachement d'un crédit à un
+SIREN précis.
 
 Ces crédits "legacy" (siren='') restent valables pour n'importe quel SIREN
 de leur organisation — ils ne sont donc PAS bloquants en l'état, juste moins

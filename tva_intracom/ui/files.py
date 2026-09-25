@@ -92,15 +92,7 @@ def _upload_sig(f) -> tuple:
     """
     if isinstance(f, _CachedUploadedFile):
         return (f.name, f.size, f._content_hash)
-    # BUGFIX (fiabilité, voir README - évolution.md) : hasher uniquement les
-    # 128 premiers Ko ne détecte pas une modification tombant plus loin dans
-    # le fichier (ex. correction d'un montant sur la dernière ligne d'un CSV
-    # de 100 Mo) — l'app pouvait alors réutiliser silencieusement d'anciens
-    # résultats de parsing/calcul sur un fichier pourtant modifié. On ajoute
-    # le hash des 128 derniers Ko (bornes qui se chevauchent sans problème
-    # sur les petits fichiers, `getvalue()` n'étant appelé qu'une fois) —
-    # coût toujours borné (256 Ko max, pas le fichier entier) donc pas de
-    # régression sur le design (name, size) + hash partiel.
+    # Signature par hachage des 128 premiers et 128 derniers Ko du fichier.
     _content = f.getvalue()
     _head = _content[:131072]
     _tail = _content[-131072:] if len(_content) > 131072 else b""

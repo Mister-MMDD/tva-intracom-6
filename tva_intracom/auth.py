@@ -33,22 +33,8 @@ logger = logging.getLogger(__name__)
 
 MAGIC_LINK_TTL_SECONDS = 15 * 60
 
-# Jeton de session : distinct du lien magique. Contrairement à celui-ci
-# (usage unique, 15 min, consommé par create_magic_link/consume_magic_link),
-# ce jeton reste valable plusieurs jours et n'est PAS à usage unique — il sert
-# uniquement à restaurer la session (st.session_state) après une navigation
-# complète du navigateur (redirection Stripe post-paiement, F5), qui fait
-# perdre la session Streamlit en mémoire. Il est porté dans l'URL
-# (?session_token=...) et ne doit jamais être envoyé par e-mail.
-#
-# BUGFIX sécurité (audit 2026-09-13, ÉLEVÉ #3) : 30 jours fixes était trop
-# long pour une appli financière (fenêtre d'exploitation d'un jeton volé/
-# fuité par référent HTTP, historique navigateur, log serveur...). Ramené à
-# 7 jours, avec renouvellement glissant : `get_user_by_session_token()`
-# retarde `created_at` à chaque usage réussi (voir plus bas), donc un
-# utilisateur actif au moins une fois par semaine ne revoit jamais le lien
-# magique, mais un jeton inactif expire en 7 jours au lieu de 30 — pas
-# besoin d'une table de refresh-token séparée pour ça.
+# Durée du jeton de session (7 jours avec renouvellement glissant) :
+# `get_user_by_session_token()` retarde `created_at` à chaque usage réussi.
 SESSION_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 
 _pool_lock = threading.Lock()
@@ -1145,17 +1131,8 @@ def get_user_by_session_token(token: str) -> Optional[User]:
     """Retourne l'utilisateur associé à un jeton de session valide (non
     expiré), sans le consommer — il reste utilisable jusqu'à expiration.
 
-    BUGFIX sécurité (audit 2026-09-13, ÉLEVÉ #3) : renouvellement glissant.
-    `SESSION_TOKEN_TTL_SECONDS` est désormais de 7 jours (au lieu de 30) ;
-    pour qu'un utilisateur actif régulièrement ne soit pas déconnecté toutes
-    les semaines, chaque restauration réussie recule `created_at` à
-    maintenant — un jeton non réutilisé pendant 7 jours pleins expire bel et
-    bien (fenêtre d'exploitation courte pour un jeton volé/fuité), mais un
-    jeton utilisé au moins une fois par semaine reste valide indéfiniment,
-    exactement comme avant côté usage réel. Pas de nouvelle table de
-    refresh-token : un simple UPDATE, appelé uniquement à la restauration
-    de session (pleine navigation navigateur, pas à chaque rerun Streamlit
-    — voir auth_flow.py, gardé par `auth_user is None`)."""
+    Renouvellement glissant : chaque restauration réussie recule `created_at` à
+    maintenant. Un jeton non réutilisé pendant 7 jours pleins expire."""
     def _fetch_token(conn, cur):
         cur.execute(
             "SELECT user_id, created_at FROM tva_session_tokens WHERE token=%s",
@@ -1344,15 +1321,9 @@ def consume_latest_pkce_verifier_by_provider(provider: str, max_age_seconds: int
     Même logique idempotente que `consume_pkce_verifier` (fenêtre de grâce de
     30s pour tolérer un rerun/retry Streamlit).
 
-    BUGFIX (fiabilité, voir README - évolution.md et
-    `consume_latest_pkce_verifiers_by_provider` ci-dessous) : conservée pour
-    compatibilité (compat_shim), mais l'appelant (ui/auth_flow.py) utilise
-    désormais la version "cascade" ci-dessous, seule à même de résister à
-    deux demandes concurrentes (deux utilisateurs demandant un reset dans la
-    même fenêtre de 15 min) — voir docstring de la fonction cascade pour le
-    détail du problème corrigé. Ne PAS supprimer cette fonction historique
-    tant qu'aucun autre appelant n'en dépend, et ne pas réintroduire un appel
-    direct dessus dans un nouveau code "mot de passe oublié"."""
+    Fonction de compatibilité historique (compat_shim) : l'appelant direct
+    recommande d'utiliser la version cascade `consume_latest_pkce_verifiers_by_provider`.
+    """
     GRACE_SECONDS = 30
 
     def _fn(conn, cur):
@@ -1399,32 +1370,9 @@ def consume_latest_pkce_verifiers_by_provider(
     renvoie jusqu'à `limit` code_verifiers candidats (du plus récent au plus
     ancien), au lieu d'un seul.
 
-    BUGFIX (fiabilité de l'authentification, voir README - évolution.md) :
-    la fonction "dernier jeton" ci-dessus prend TOUJOURS la ligne la plus
-    récente en base, sans distinction d'utilisateur (impossible, voir
-    docstring ci-dessus — Supabase ne renvoie pas de nonce exploitable sur
-    ce lien). Si deux resets de mot de passe sont demandés à quelques
-    secondes/minutes d'intervalle par deux comptes différents, le second
-    clic sur SON lien récupérait le verifier de l'AUTRE demande (celle
-    devenue "la plus récente" entre-temps) → l'échange PKCE avec Supabase
-    échoue nécessairement (le verifier ne correspond pas au `code` reçu
-    dans l'URL — PKCE est conçu pour rejeter ce mismatch, donc ceci n'est
-    PAS une fuite de compte, seulement un échec réel malgré un lien valide).
-
-    Solution : plutôt que de se fier à un seul candidat, l'appelant
-    (ui/auth_flow.py) essaie l'échange PKCE avec CHAQUE candidat renvoyé
-    ici, du plus récent au plus ancien, jusqu'à ce qu'un échange réussisse.
-    Comme PKCE valide cryptographiquement le couple (code, verifier), au
-    plus un seul candidat peut réellement fonctionner pour un `code` donné
-    — essayer les autres ne présente aucun risque de sécurité, seulement un
-    aller-retour Supabase supplémentaire par candidat en trop (limite fixée
-    à 5 : au-delà, la probabilité de N demandes concurrentes dans la même
-    fenêtre de 15 min est jugée négligeable pour ce volume d'utilisateurs).
-
-    Chaque candidat retourné est marqué `consumed_at=now` (comme avant) —
-    cela ne casse pas le mécanisme de grâce de 30s pour les reruns
-    Streamlit du MÊME utilisateur, qui continuera de récupérer son propre
-    candidat tant qu'il reste dans la fenêtre de grâce."""
+    Résolution des demandes concurrentes : permet d'essayer l'échange PKCE
+    avec plusieurs verifiers candidats si plusieurs resets simultanés ont lieu.
+    """
     GRACE_SECONDS = 30
 
     def _fn(conn, cur):

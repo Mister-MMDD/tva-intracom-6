@@ -129,20 +129,13 @@ class ReportSummary:
 
     @property
     def net_ioss_vat(self) -> Decimal:
-        """TVA IOSS nette des remboursements (BUGFIX 2026-09-10, voir
-        README - évolution.md) : `ioss_vat` seul ignorait `refund_ioss_vat`
-        (négatif), ce qui sur-évaluait `total_you_owe` dès qu'il existait
-        des avoirs sur des ventes IOSS."""
+        """TVA IOSS nette des remboursements (TVA IOSS brute + remboursements IOSS)."""
         return self.ioss_vat + self.refund_ioss_vat
 
     @property
     def total_you_owe(self) -> Decimal:
-        """TVA totale nette a reverser (ventes - remboursements).
-
-        BUGFIX (2026-09-10, voir README - évolution.md) : utilisait
-        `self.ioss_vat` (brut, sans les remboursements) au lieu de
-        `net_ioss_vat` — sur-évaluait le total affiché dès qu'il existait
-        des avoirs IOSS.
+        """TVA totale nette à reverser (ventes - remboursements).
+        Utilise `net_ioss_vat` pour intégrer les remboursements IOSS.
         """
         return self.net_fr_domestic_vat + self.net_oss_total + self.net_local_total + self.net_ioss_vat
 
@@ -409,9 +402,7 @@ def render_report(summary: ReportSummary, seller_country: str = "FR") -> str:
         lines.append(f"    dont {country_label(country)} : {_f(net)}{suffix}")
 
     if summary.ioss_vat or summary.refund_ioss_vat:
-        # BUGFIX (2026-09-10, voir README - évolution.md) : affichait le
-        # montant IOSS brut (summary.ioss_vat), incohérent avec
-        # total_you_owe qui utilise désormais net_ioss_vat.
+        # Affichage du montant IOSS net (net_ioss_vat).
         lines.append(f"Fisc {country_label(seller_country)} - via guichet IOSS (Import vendeur) : {_f(summary.net_ioss_vat)}")
         if summary.refund_ioss_vat:
             lines.append(f"    dont remboursements : {_f(summary.refund_ioss_vat)}")

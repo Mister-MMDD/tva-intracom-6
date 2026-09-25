@@ -77,16 +77,9 @@ class AuthContext:
     def stripe_success_url(self, extra_qs: str = "") -> str:
         """URL de retour post-paiement Stripe.
 
-        BUGFIX (2026-09-09, sécurité) : embarquait auparavant le jeton de
-        session (`session_token`) en clair dans l'URL. Ce jeton transite
-        alors par le domaine Stripe (checkout.stripe.com), se retrouve dans
-        l'historique du navigateur et peut fuiter via les en-têtes Referer
-        ou les logs de journalisation tiers — exactement l'équivalent d'un
-        vol de session s'il est intercepté. Il est inutile : le cookie
-        `tva_session_token` (déjà posé, 30 jours, voir run_auth_flow) est
-        renvoyé automatiquement par le navigateur au retour sur ce domaine
-        et restaure la session (voir st.context.cookies, contrôlé EN
-        PREMIER avant tout repli sur un éventuel paramètre d'URL)."""
+        Utilise le cookie de session `tva_session_token` pour restaurer la session
+        sans exposer le jeton de session dans l'URL.
+        """
         return f"{self.app_base_url}/?{extra_qs}" if extra_qs else f"{self.app_base_url}/"
 
     def stripe_cancel_url(self) -> str:
@@ -316,16 +309,7 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             if _b0_cached and _b0_cached[0] == _sb_code:
                 _b0_access_token = _b0_cached[1]
             else:
-                # BUGFIX (fiabilité, voir README - évolution.md et docstring
-                # de consume_latest_pkce_verifiers_by_provider dans auth.py) :
-                # on essaie chaque candidat récent (du plus récent au plus
-                # ancien) au lieu d'un seul "dernier jeton" — nécessaire dès
-                # que deux resets de mot de passe se chevauchent dans la
-                # même fenêtre de 15 minutes. PKCE valide cryptographiquement
-                # le couple (code, verifier) côté Supabase : au plus un seul
-                # candidat peut réussir, essayer les autres n'introduit
-                # aucun risque de sécurité (juste des tentatives en trop en
-                # cas de collision).
+                # Essaye chaque candidat récent (cascade) pour la récupération de mot de passe.
                 _candidates = tva_auth.consume_latest_pkce_verifiers_by_provider("recovery")
                 _last_err = None
                 for _verifier in _candidates:

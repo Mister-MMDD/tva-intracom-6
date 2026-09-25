@@ -90,7 +90,7 @@ def test_month_end_date_parses_monthly_ioss_period():
 
 
 def test_get_ioss_rate_date_uses_month_end_not_quarter_end():
-    """BUGFIX : avant ce correctif, une période IOSS mensuelle non reconnue
+    """Test de régression : avant ce correctif, une période IOSS mensuelle non reconnue
     par quarter_end_date() retombait sur la fin du TRIMESTRE de la
     transaction. Doit désormais utiliser la fin du MOIS."""
     ioss_date = get_ioss_rate_date("2026-01", transaction_date=date(2026, 1, 15))

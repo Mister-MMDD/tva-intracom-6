@@ -1,4 +1,4 @@
-"""BUGFIX (point #6, README - évolution.md) : `suggest_negative_bucket_corrections`
+"""Test de régression (Monaco) : `suggest_negative_bucket_corrections`
 comparait `res.sale.stock_country` brut (ex. "MC") à des `neg_keys` construites
 avec des pays de départ déjà normalisés via `fiscal_equivalent_country()`
 (Monaco -> "FR"), ce qui excluait silencieusement toute vente/avoir à stock

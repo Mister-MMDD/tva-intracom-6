@@ -99,6 +99,16 @@ def _resolve_display_limit(selected_option, filtered_count: int) -> int:
     return int(selected_option)
 
 
+def _fmt_bytes_size(num_bytes: int) -> str:
+    """Formate une taille en octets de manière lisible (ex: 1.2 Mo, 450 Ko)."""
+    if num_bytes < 1024:
+        return f"{num_bytes} B"
+    elif num_bytes < 1024 * 1024:
+        return f"{num_bytes / 1024:.1f} Ko"
+    else:
+        return f"{num_bytes / (1024 * 1024):.1f} Mo"
+
+
 def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
     """Affiche une barre de filtres (Recherche, Destination, Scénario, Canal) 
     et retourne le DataFrame filtré. Utilisé uniformément sur tous les tableaux.
@@ -126,17 +136,20 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
         _scen_sel = st.multiselect(_("filter_scenario"), _scen_opts, key=f"scen_{key_suffix}", 
                                    placeholder=_("filter_scenario_placeholder"))
         
+    _has_active_filter = bool(_search or _dest_sel or _canal_sel or _scen_sel)
+    if _has_active_filter:
+        if st.button(_("filter_reset_btn"), key=f"reset_{key_suffix}", help=_("filter_reset_tooltip")):
+            st.session_state.pop(f"search_{key_suffix}", None)
+            st.session_state.pop(f"dest_{key_suffix}", None)
+            st.session_state.pop(f"canal_{key_suffix}", None)
+            st.session_state.pop(f"scen_{key_suffix}", None)
+            st.rerun(scope="fragment")
+
     df_filt = df # On évite la copie systématique ici
     
     if _search:
         _search_cols = [c for c in (_("vies_col_id"), _("col_note"), _("col_transaction")) if c in df_filt.columns]
         if _search_cols:
-            # Une seule colonne concaténée + un seul scan .str.contains(), au
-            # lieu d'une conversion .astype(str) et d'un scan par colonne
-            # (3x le travail sur un DataFrame identique). Le gain se voit
-            # surtout au-delà de 50k lignes. Le séparateur "\u0001" (non
-            # imprimable) évite qu'une recherche ne matche accidentellement
-            # à cheval sur deux colonnes concaténées.
             _search_index = df_filt[_search_cols[0]].fillna("").astype(str)
             for col in _search_cols[1:]:
                 _search_index = _search_index.str.cat(

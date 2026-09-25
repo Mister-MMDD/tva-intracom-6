@@ -142,22 +142,9 @@ def release_memory() -> None:
         "font le ménage par entrée)."
     )
 
-    # 2. (SUPPRIMÉ — BUGFIX point #7, README - évolution.md) : ce bloc
-    # appelait `load_translations.cache_clear()`, qui vidait un
-    # `@lru_cache(maxsize=None)` process-wide (tva_intracom/i18n/i18n.py) —
-    # partagé par TOUTES les sessions/utilisateurs, exactement le même
-    # anti-pattern que celui déjà identifié et corrigé juste au-dessus pour
-    # `heavy_cache_data` (step 1) et pour les caches billing/Stripe le
-    # 02/08/2026 : `release_memory()` est appelée sur un événement PAR
-    # UTILISATEUR (retrait de fichier, déconnexion), mais un `.cache_clear()`
-    # ici évinçait les 7 langues pour tout le monde, forçant chaque autre
-    # session active à reparser son fichier TOML depuis le disque au
-    # prochain rendu — une charge CPU/IO inutile et synchronisée pour les
-    # AUTRES utilisateurs, causée par le nettoyage d'UN SEUL compte. Les 7
-    # fichiers TOML (~1207 clés chacun) sont d'une taille négligeable face
-    # aux "gros objets" (DataFrames, résultats de calcul) que cette fonction
-    # cible réellement : aucune raison de les vider ici, tout comme il n'y
-    # en avait pas pour heavy_cache_data.
+    # Note (i18n cache) : load_translations.cache_clear() a été retiré de
+    # cette fonction car les traductions TOML sont partagées process-wide et
+    # de taille minime ; les supprimer impacterait inutilement les autres sessions.
 
     # 3. Force le ramasse-miettes (plusieurs passes pour les cycles)
     gc.collect()

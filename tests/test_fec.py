@@ -58,7 +58,7 @@ def test_build_fec_rows_balanced_full_refund_bucket():
 
 
 def test_build_fec_rows_vat_line_present_when_individual_vat_amount_negative():
-    """BUGFIX (2026-09-08) : un avoir isolé (vat_amount < 0, ex: remboursement
+    """Test de régression (2026-09-08) : un avoir isolé (vat_amount < 0, ex: remboursement
     d'une vente d'une période antérieure) doit obtenir le MÊME compte de TVA
     qu'une vente équivalente (_vat_account_for ne doit exclure que le montant
     exactement nul, pas tout montant <= 0). La ligne de TVA (4457100) doit

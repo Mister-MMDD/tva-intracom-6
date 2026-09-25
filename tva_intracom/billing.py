@@ -229,18 +229,8 @@ def _init_schema() -> None:
             )
             """
         )
-        # BUGFIX (2026-09-04) : un crédit PAYG n'était scellé qu'à (org_id,
-        # period_label) — aucune notion de SIREN. Deux fichiers de vente sur
-        # la même période mais rattachés à des SIREN différents (donc à des
-        # clients différents) débloquaient tous les deux l'export dès qu'UN
-        # SEUL crédit avait été acheté pour cette période, alors qu'un
-        # paiement à l'unité doit couvrir un SIREN précis. Colonne ajoutée
-        # avec défaut '' (chaîne vide, pas NULL — impossible dans une clé
-        # primaire) : les crédits déjà achetés avant ce correctif restent
-        # valables pour n'importe quel SIREN de l'org (voir has_export_credit),
-        # par rétrocompatibilité — seuls les nouveaux crédits sont scellés à
-        # un SIREN précis dès leur achat (voir create_payg_checkout_session /
-        # _fulfill_checkout_session).
+        # Scellement du crédit PAYG par SIREN : un crédit PAYG est scellé à (org_id,
+        # period_label, siren). Colonne ajoutée avec défaut '' pour rétrocompatibilité.
         cur.execute(
             "ALTER TABLE tva_export_credits ADD COLUMN IF NOT EXISTS siren TEXT NOT NULL DEFAULT ''"
         )
@@ -359,16 +349,8 @@ def _migrate_billing_to_org_id(cur) -> None:
     # contrainte pour rester idempotente sans tenter un DROP/ADD à chaque
     # démarrage.
     #
-    # BUGFIX (2026-09-04) : tva_export_credits est sorti de cette boucle
-    # générique. Sa PK a une 3e étape (org_pkey -> siren_pkey, voir juste en
-    # dessous) : au 2e démarrage après cette 3e étape, le test d'idempotence
-    # ci-dessous (qui ne connaît que new_pk="tva_export_credits_org_pkey")
-    # ne trouvait plus cette contrainte — remplacée entre-temps par
-    # siren_pkey — et retentait un ADD CONSTRAINT org_pkey en plus de la PK
-    # déjà en place, ce que Postgres refuse ("multiple primary keys for
-    # table ... are not allowed"). La migration complète de cette table est
-    # donc gérée dans un seul bloc dédié, qui connaît toute la chaîne des
-    # noms de contrainte possibles.
+    # Migration explicite tva_export_credits : gérée dans un bloc dédié
+    # pour garantir la bonne évolution des contraintes sans conflit.
     _pk_migrations = [
         ("tva_customers", "tva_customers_pkey", "tva_customers_org_pkey", "(org_id)"),
         ("tva_subscriptions", "tva_subscriptions_pkey", "tva_subscriptions_org_pkey", "(org_id)"),
@@ -640,15 +622,8 @@ def get_account_status(org_id: str) -> str:
 
 
 def has_export_credit(org_id: str, period_label: str, siren: str = "") -> bool:
-    """BUGFIX (2026-09-04) : un crédit PAYG doit être scellé à UN SIREN (donc
-    un seul client/compte Amazon), pas seulement à une période — sinon deux
-    fichiers de vente différents sur la même période mais rattachés à des
-    SIREN distincts se débloquaient tous les deux au premier achat. On
-    n'accepte donc qu'un crédit dont `siren` correspond exactement à celui
-    demandé, ou un crédit legacy (`siren=''`, acheté avant ce correctif) —
-    ces derniers restent valables pour n'importe quel SIREN de l'org, par
-    rétrocompatibilité pure ; tout nouvel achat est scellé au SIREN courant
-    (voir grant_export_credit / create_payg_checkout_session).
+    """Scellement au SIREN : un crédit PAYG est scellé à UN SIREN précis (ou
+    utilisable pour n'importe quel SIREN si `siren=''` par rétrocompatibilité).
     """
     if has_active_subscription_direct(org_id):
         return True
@@ -760,7 +735,8 @@ def _purge_expired_siren_removals(org_id: str) -> int:
     Retourne le nombre de lignes effectivement supprimées (0 si aucune) —
     utilisé par can_register_new_siren()/register_siren() pour savoir s'il
     faut invalider le cache `list_registered_sirens` avant de statuer sur le
-    quota (voir BUGFIX 2026-09-09 plus bas)."""
+    quota.
+    """
     def _fn(conn, cur):
         cur.execute(
             """
@@ -880,26 +856,11 @@ def can_register_new_siren(org_id: str) -> tuple[bool, str]:
     (celui-ci n'étant pas déjà dans sa liste). Ne s'applique pas à un SIREN
     déjà enregistré (mise à jour du nom/TVA toujours autorisée).
 
-    Best-effort, PAS transactionnel : sert au retour rapide côté UI (message
-    avant même de tenter l'enregistrement). Le garde-fou qui compte
-    réellement contre une course concurrente (deux membres du même cabinet
-    ajoutant chacun un SIREN au même instant) est le verrou avisé
-    (`pg_advisory_xact_lock`) + recomptage pris DANS register_siren() -- voir
-    BUGFIX point #4, README - évolution.md."""
-    # BUGFIX (2026-09-09, quota piégé) : list_registered_sirens() est
-    # @st.cache_data(ttl=60) et exécute la purge des retraits expirés
-    # *à l'intérieur* de son propre corps mis en cache — tant que ce cache
-    # n'a pas expiré (jusqu'à 60s), la purge ne s'exécute pas et un SIREN
-    # dont le retrait différé vient d'échoir continue de compter dans le
-    # quota, bloquant l'ajout d'un nouveau SIREN. On force ici une purge
-    # NON mise en cache avant de statuer sur le quota ; si elle a
-    # effectivement supprimé une ligne, on invalide list_registered_sirens
-    # pour ne pas resservir un décompte périmé dans le même appel.
-    # try/except défensif : cette purge n'est qu'une optimisation de
-    # fraîcheur — une erreur DB ici (pool indisponible, etc.) ne doit
-    # jamais empêcher la vérification de quota elle-même de s'exécuter
-    # (elle retombe alors sur l'état, éventuellement légèrement périmé, du
-    # cache existant).
+    Best-effort, PAS transactionnel : sert au retour rapide côté UI.
+    Le garde-fou transactionnel réel contre les courses concurrentes est le verrou
+    avisé (`pg_advisory_xact_lock`) dans register_siren()."""
+    # Purge non mise en cache avant vérification de quota :
+    # force la purge des retraits expirés pour ne pas impacter le quota.
     try:
         if _purge_expired_siren_removals(org_id) > 0:
             list_registered_sirens.clear()
@@ -982,36 +943,12 @@ def register_siren(
     """
     _require_write_access(acting_user_id)
 
-    # BUGFIX (point #4, README - évolution.md) : capturé AVANT la transaction
-    # verrouillée ci-dessous plutôt que rappelé via get_siren_quota() depuis
-    # l'intérieur de `_fn` — get_siren_quota() passe par _run() (donc un
-    # nouveau `with conn:`/commit sur la même connexion mise en cache par
-    # thread, voir database.py NonPoolingConnectionPool(cache_connection=True))
-    # qui commiterait prématurément la transaction verrouillée avant notre
-    # propre INSERT. Léger compromis accepté : le quota lu ici peut en
-    # théorie devenir obsolète entre cet appel et le verrou pris juste après
-    # (ex. changement de forfait Stripe concurrent, cas indépendant de la
-    # race ciblée ici) — négligeable comparé au problème résolu (deux AJOUTS
-    # de SIREN concurrents pour la MÊME organisation).
+    # Prise du quota avant transaction verrouillée :
     _quota_for_new_siren = get_siren_quota(org_id)
 
     def _fn(conn, cur):
-        # BUGFIX (point #4, README - évolution.md) : verrou avisé Postgres
-        # transactionnel scopé à org_id, même pattern que
-        # auth.lock_org_for_user (2026-08-26). Ferme la race TOCTOU
-        # documentée plus haut dans cette docstring et dans
-        # can_register_new_siren() : deux membres du même cabinet
-        # enregistrant chacun un SIREN DIFFÉRENT à quelques centaines de ms
-        # d'intervalle pouvaient tous deux passer can_register_new_siren()
-        # (lu AVANT cet appel, côté UI) avant que l'un des deux ne commit,
-        # faisant passer registered_count à quota+1. La deuxième transaction
-        # concurrente pour la même org_id attend ici que la première commit
-        # (et libère le verrou) avant de faire son propre COMPTAGE, qui la
-        # voit alors déjà à quota et bloque correctement. Verrou libéré
-        # automatiquement au commit/rollback, aucun UNLOCK explicite requis.
-        # Sans effet sur la simple mise à jour d'un SIREN déjà enregistré
-        # (le verrou est pris dans tous les cas, mais le comptage/blocage
-        # ci-dessous ne s'applique qu'à un NOUVEAU SIREN, voir is_new_siren).
+        # Verrou avisé Postgres transactionnel (pg_advisory_xact_lock) :
+        # empêche les courses d'enregistrement concurrentes sur une même organisation.
         cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (org_id,))
 
         cur.execute(
@@ -1020,16 +957,7 @@ def register_siren(
         )
         is_new_siren = cur.fetchone() is None
         if is_new_siren:
-            # BUGFIX (2026-09-09, quota piégé) : purge, DANS la même
-            # transaction verrouillée, les retraits expirés avant de
-            # compter — sans cela, un SIREN dont le retrait différé vient
-            # d'échoir mais n'a pas encore été supprimé (lazy deletion,
-            # normalement déclenchée par list_registered_sirens()) restait
-            # compté ici, bloquant à tort l'ajout d'un nouveau SIREN. Cette
-            # vérification est la garde-fou serveur définitif (voir
-            # can_register_new_siren, qui n'est qu'un pré-contrôle
-            # "best-effort" côté UI) — elle doit donc être exacte, pas
-            # dépendante du TTL de list_registered_sirens (@st.cache_data).
+            # Purge des retraits expirés sous verrou avant comptage :
             cur.execute(
                 """
                 DELETE FROM tva_siren_registrations
@@ -1909,14 +1837,7 @@ def _get_or_create_user_id_by_email(email: str) -> tuple[str, str]:
     l'app (donc avant qu'auth.get_or_create_user n'ait jamais tourné pour
     ce compte).
 
-    ORG_ID (2026-08-24) : BUGFIX — cette fonction insérait auparavant une
-    ligne tva_users SANS org_id (org_id restait NULL jusqu'à la première
-    connexion réelle), ce qui aurait empêché tout rattachement immédiat de
-    l'abonnement à une organisation. org_id est désormais calculé ici via
-    `auth.resolve_org_id` (même logique que la 1ère connexion), pour que
-    l'abonnement payé se retrouve immédiatement associé à la bonne
-    organisation, y compris pour un compte qui ne s'est encore jamais
-    connecté à l'app."""
+    ORG_ID : la fonction résout `org_id` via `auth.resolve_org_id` dès la création."""
     email = email.strip().lower()
 
     def _select(conn, cur):
@@ -2251,18 +2172,8 @@ def handle_stripe_webhook_event(payload: bytes, sig_header: str) -> None:
 
         if not org_id:
             return
-        # BUGFIX (2026-08-16) : `data["metadata"]["plan"]` est la metadata de
-        # la Subscription, posée UNE FOIS au Checkout initial — un changement
-        # de plan fait depuis le Portail client Stripe (upgrade/downgrade)
-        # modifie le price_id du SubscriptionItem mais NE MET JAMAIS À JOUR
-        # cette metadata. Résultat observé : passer de "business" (Pro) à
-        # "cabinet" via le portail met bien à jour la quantité (lue depuis
-        # l'item live) mais gardait l'ancien plan "business" en base. On
-        # dérive donc le plan en priorité depuis le price_id réellement actif
-        # sur l'abonnement (source de vérité), avec repli sur la metadata
-        # UNIQUEMENT si ce price_id ne correspond à aucun plan connu (ex.
-        # price legacy retiré de la config) — pour ne pas régresser le cas où
-        # l'inférence échouerait pour une raison imprévue.
+        # Dérivation du plan depuis le price_id actif (source de vérité)
+        # plutôt que depuis la metadata initiale du Checkout.
         _metadata_plan = _safe_get(_safe_get(data, "metadata") or {}, "plan", "unknown")
         plan = _plan_from_price_id(_first_item_price_id(data)) or _metadata_plan
         quantity, interval, period_end = _extract_subscription_item_details(data)

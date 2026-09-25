@@ -50,27 +50,8 @@ def is_detailed() -> bool:
 def render_mode_toggle() -> None:
     """Rendu du sélecteur Simple/Détaillé (st.segmented_control).
 
-    BUGFIX (2026-08-21, 1/2) : la version précédente passait `default=` à
-    CHAQUE run alors que la clé du widget (`_WIDGET_KEY`) existait déjà en
-    session_state dès le 2e rendu — combinaison que Streamlit désapprouve
-    explicitement une fois le widget créé. Pattern corrigé : la clé du
-    widget n'est initialisée qu'une seule fois par session (avant sa toute
-    première instanciation), jamais réécrite ensuite — le widget devient
-    seul maître de sa propre valeur entre deux clics, comme documenté par
-    Streamlit pour un widget à clé stable.
-
-    BUGFIX (2026-08-21, 2/2) — cause racine réelle du "bug d'affichage"
-    (tableaux/onglets qui disparaissaient à la bascule de mode, écran
-    ramené à "aucun fichier importé") : cette fonction appelait
-    `st.rerun()` directement lors d'un changement de mode. Or `app.py`
-    distingue un rerun interne d'un vrai retrait de fichier par
-    l'utilisateur via `preserve_upload_rerun()` (voir rerun_utils.py) —
-    sans ce marquage, son filet de sécurité traitait la bascule de mode
-    comme "l'utilisateur a retiré son fichier" et vidait tout
-    session_state (résultats, période...). Confirmé par logs de
-    diagnostic (retirés depuis) : le run consécutif au rerun montrait
-    `file_count=0` / `has_results=False` alors que le fichier était
-    toujours présent juste avant le clic.
+    Initialisation de la clé de widget une seule fois par session.
+    Utilisation de `preserve_upload_rerun()` pour préserver la session lors des reruns.
     """
     ensure_display_mode()
     _mode_options = [_("display_mode_simple"), _("display_mode_detailed")]

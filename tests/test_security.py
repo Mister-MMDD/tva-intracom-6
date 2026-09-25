@@ -280,7 +280,7 @@ class TestBruteForceProtection:
     def test_session_token_ttl(self):
         """Vérifie la durée du token de session.
 
-        BUGFIX (audit sécurité 2026-09-13, ÉLEVÉ #3) : ramené de 30 à 7
+        # Note (audit sécurité 2026-09-13, ÉLEVÉ #3) : ramené de 30 à 7
         jours, avec renouvellement glissant sur usage (voir
         auth.get_user_by_session_token) pour ne pas dégrader l'UX d'un
         utilisateur actif au moins une fois par semaine."""
@@ -339,7 +339,7 @@ class TestInputValidation:
         """Vérifie le nettoyage des préfixes."""
         from tva_intracom.vies_engine import normalize_full_vat
         
-        # Nettoyage des parenthèses (BUGFIX 2026-09-09)
+        # Nettoyage des parenthèses (2026-09-09)
         vat_with_parens = normalize_full_vat("FR", "(FR)123456789")
         vat_clean = normalize_full_vat("FR", "FR123456789")
         
