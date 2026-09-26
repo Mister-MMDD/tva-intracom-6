@@ -7,7 +7,7 @@ Couvre deux choses distinctes :
   - vat_rates_db.prefetch_standard_rates : dedup + fetch parallele + cache,
     reutilise deja teste indirectement par test_vat_rates_db.py pour le
     chemin get_vat_rate ; ici on teste specifiquement le comportement en
-    LOT (plusieurs pays/mois d'un coup, un seul appel reseau par couple
+    LOT (plusieurs pays/dates d'un coup, un seul appel reseau par couple
     distinct, jamais de doublon).
 """
 from __future__ import annotations
@@ -147,17 +147,38 @@ def _fake_request_tedb(iso_code, situation_date):
     return root, xml_str.encode("utf-8")
 
 
+def _fake_request_tedb_midmonth(iso_code, situation_date):
+    """Simule une baisse de taux effective au 15 mars 2026."""
+    import xml.etree.ElementTree as ET
+    rate = "20.0" if situation_date < date(2026, 3, 15) else "19.0"
+    xml_str = (
+        '<env:Envelope xmlns:env="http://schemas.xmlsoap.org/soap/envelope/">'
+        '<env:Body><ns0:retrieveVatRatesRespMsg '
+        'xmlns="urn:ec.europa.eu:taxud:tedb:services:v1:IVatRetrievalService:types" '
+        'xmlns:ns0="urn:ec.europa.eu:taxud:tedb:services:v1:IVatRetrievalService">'
+        f'<vatRateResults><memberState>{iso_code}</memberState><type>STANDARD</type>'
+        f'<rate><type>DEFAULT</type><value>{rate}</value></rate>'
+        f'<situationOn>{situation_date.isoformat()}</situationOn></vatRateResults>'
+        '</ns0:retrieveVatRatesRespMsg></env:Body></env:Envelope>'
+    )
+    root = ET.fromstring(xml_str)
+    return root, xml_str.encode("utf-8")
+
+
 def test_prefetch_dedupes_and_makes_one_call_per_distinct_pair(tedb_enabled_no_db):
     pairs = [
-        ("FR", date(2026, 3, 1)), ("FR", date(2026, 3, 15)), ("FR", date(2026, 3, 31)),
+        ("FR", date(2026, 3, 1)), ("FR", date(2026, 3, 1)),
+        ("FR", date(2026, 3, 15)), ("FR", date(2026, 3, 31)),
         ("DE", date(2026, 3, 5)),
     ]
-    with patch.object(m, "_request_tedb", side_effect=_fake_request_tedb) as mocked:
+    with patch.object(m, "_request_tedb", side_effect=_fake_request_tedb_midmonth) as mocked:
         m.prefetch_standard_rates(pairs)
 
-    assert mocked.call_count == 2  # (FR, mars) + (DE, mars), dedup des 3 dates FR
-    assert m.get_vat_rate("FR", "STANDARD", date(2026, 3, 20)) == Decimal("20.0")
-    assert m.get_vat_rate("DE", "STANDARD", date(2026, 3, 1)) == Decimal("20.0")
+    assert mocked.call_count == 4  # 4 couples distincts pays/date
+    assert m.get_vat_rate("FR", "STANDARD", date(2026, 3, 1)) == Decimal("20.0")
+    assert m.get_vat_rate("FR", "STANDARD", date(2026, 3, 15)) == Decimal("19.0")
+    assert m.get_vat_rate("FR", "STANDARD", date(2026, 3, 31)) == Decimal("19.0")
+    assert m.get_vat_rate("DE", "STANDARD", date(2026, 3, 5)) == Decimal("20.0")
 
 
 def test_prefetch_progress_callback_reaches_total(tedb_enabled_no_db):
@@ -191,13 +212,13 @@ def test_prefetch_noop_when_tedb_disabled():
 
 def test_prefetch_then_get_vat_rate_never_hits_network_again(tedb_enabled_no_db):
     """Le but meme de l'optimisation : apres un prefetch, get_vat_rate() ne
-    doit plus jamais appeler le reseau pour les couples deja charges,
-    quelle que soit la journee exacte demandee dans le mois."""
+    doit plus appeler le reseau pour les dates exactement préchargées."""
+    dates = (1, 10, 20, 28)
     with patch.object(m, "_request_tedb", side_effect=_fake_request_tedb):
-        m.prefetch_standard_rates([("FR", date(2026, 5, 1))])
+        m.prefetch_standard_rates([("FR", date(2026, 5, day)) for day in dates])
 
     with patch.object(m, "_request_tedb") as mocked_after:
-        for day in (1, 10, 20, 28):
+        for day in dates:
             assert m.get_vat_rate("FR", "STANDARD", date(2026, 5, day)) == Decimal("20.0")
     mocked_after.assert_not_called()
 
@@ -215,10 +236,10 @@ def test_prefetch_handles_partial_network_failure_gracefully(tedb_enabled_no_db,
         with caplog.at_level(logging.WARNING, logger="tva_intracom.vat_rates_db"):
             m.prefetch_standard_rates([("FR", date(2026, 1, 1)), ("IT", date(2026, 1, 1))])
 
-    assert m.get_vat_rate("FR", "STANDARD", date(2026, 1, 15)) == Decimal("20.0")
+    assert m.get_vat_rate("FR", "STANDARD", date(2026, 1, 1)) == Decimal("20.0")
     # IT : repli statique (le fetch a echoue), pas de crash
     from tva_intracom.rates import STANDARD_VAT_RATES
-    assert m.get_vat_rate("IT", "STANDARD", date(2026, 1, 15)) == STANDARD_VAT_RATES["IT"]
+    assert m.get_vat_rate("IT", "STANDARD", date(2026, 1, 1)) == STANDARD_VAT_RATES["IT"]
 
 
 def test_prefetch_empty_pairs_is_noop(tedb_enabled_no_db):

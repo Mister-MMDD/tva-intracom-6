@@ -154,13 +154,9 @@ _TEDB_CATEGORY_SAFE_COUNTRIES: dict[str, frozenset[str]] = {
     "CHILD_WEAR": frozenset({"LU"}),
 }
 
-# Extraction des catégories REDUCED (_CATEGORY_TO_TEDB ci-dessus) réactivée
-# le 2026-09-16 en même temps que _is_tedb_eligible() ci-dessous accepte
-# désormais des catégories autres que STANDARD (restriction du 2026-09-13
-# levée). Voir _TEDB_CATEGORY_SAFE_COUNTRIES pour le périmètre réel par
-# pays/catégorie — la désactivation n'était qu'un verrou temporaire, pas
-# une remise en cause de l'extraction elle-même.
-_PARSE_REDUCED_CATEGORIES = True
+# Les catégories REDUCED restent mappées à titre structurel, mais ne sont
+# pas utilisées dynamiquement : seul le taux STANDARD est activé.
+_PARSE_REDUCED_CATEGORIES = False
 
 # ------------------------------------------------------------------
 # Cache L1 (mémoire/process) + Verrou de thread
@@ -566,24 +562,10 @@ def _local_tag(tag: str) -> str:
 def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: Optional[date] = None) -> dict[str, Decimal]:
     """Extrait {catégorie interne: taux} depuis une réponse retrieveVatRatesRespMsg.
 
-    Ne garde que les catégories couvertes par _CATEGORY_TO_TEDB — le filtre
-    d'éligibilité réel (pays sûr ou non pour cette catégorie) est fait en
-    amont par _is_tedb_eligible(), pas ici. Jusqu'au 2026-09-16,
-    l'extraction des catégories REDUCED était désactivée en bloc
-    (_PARSE_REDUCED_CATEGORIES = False, restriction du 2026-09-13 au taux
-    STANDARD uniquement) car un seul appel SOAP TEDB renvoie TOUTES les
-    catégories d'un pays/date en une fois (~2000 lignes de XML avec tous
-    les codes CN) : parser puis comparer au statique des catégories qu'on
-    n'utilisait même pas gaspillait du CPU et — surtout — générait des
-    warnings de plausibilité (avec dump du XML brut COMPLET, parfois
-    plusieurs dizaines de Ko) pour des taux jamais consommés. Observé en
-    prod (Matthieu, 2026-09-13) : c'est cette pollution de logs qui
-    causait le ralentissement perçu, pas l'appel réseau lui-même. Réactivé
-    le 2026-09-16 en même temps que l'éligibilité TEDB (voir
-    _TEDB_CATEGORY_SAFE_COUNTRIES) — le risque de pollution de logs ne
-    revient pas puisque seules les catégories effectivement mappées dans
-    _CATEGORY_TO_TEDB sont retenues (le `if cat_id in tedb_to_category`
-    plus bas filtre déjà tout le reste).
+    Les catégories REDUCED restent décrites par _CATEGORY_TO_TEDB, mais ne
+    sont pas utilisées dynamiquement : seul le taux STANDARD est activé.
+    Ce filtre évite aussi de traiter des données de catégories qui ne
+    participent pas aux calculs.
 
     N'accepte une valeur que si rate.type == "DEFAULT", "REDUCED_RATE",
     "SUPER_REDUCED_RATE" ou "EXEMPTED" (les seules valeurs documentées
@@ -769,23 +751,11 @@ def _is_plausible(country: str, rate_type: str, value: Decimal) -> bool:
 
 
 def _is_tedb_eligible(country: str, rate_type: str) -> bool:
-    """STANDARD reste éligible sur tout _TEDB_SUPPORTED, comme depuis le
-    2026-09-13. Les catégories REDUCED (_CATEGORY_TO_TEDB) sont éligibles
-    UNIQUEMENT sur la safe-list par catégorie (_TEDB_CATEGORY_SAFE_COUNTRIES,
-    2026-09-16 — fin de la restriction STANDARD-only) : un pays absent de
-    la safe-list d'une catégorie n'est jamais interrogé en dynamique pour
-    cette catégorie, même s'il est dans _TEDB_SUPPORTED pour STANDARD —
-    retombe sur rates.py::REDUCED_VAT_RATES (repli statique déjà en
-    production), jamais de sous-déclaration."""
-    if not _dynamic_tedb_enabled():
+    """TEDB est utilisé dynamiquement uniquement pour les taux STANDARD."""
+    if rate_type != "STANDARD" or not _dynamic_tedb_enabled():
         return False
     tedb_iso = _ISO_TO_TEDB.get(country, country)
-    if rate_type == "STANDARD":
-        return tedb_iso in _TEDB_SUPPORTED
-    safe_countries = _TEDB_CATEGORY_SAFE_COUNTRIES.get(rate_type)
-    if safe_countries is None:
-        return False
-    return tedb_iso in safe_countries
+    return tedb_iso in _TEDB_SUPPORTED
 
 
 def _process_fetch_result(
@@ -816,7 +786,7 @@ def _process_fetch_result(
                 else _STATIC_REDUCED_RATES.get(country, {}).get(rt)
             )
             logger.warning(
-                "[VAT_RATES] TEDB : taux %s/%s au mois %s = %s%% rejeté (écart > %s points vs "
+                "[VAT_RATES] TEDB : taux %s/%s à la date %s = %s%% rejeté (écart > %s points vs "
                 "référence statique %s%%) — repli statique. Réponse XML brute "
                 "ci-dessous pour diagnostic :\n%s",
                 country, rt, situation_date, val, _PLAUSIBILITY_MAX_DEVIATION,
@@ -847,7 +817,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     Ordre de résolution :
       1. Cache L1 RAM (accès immédiat)
       2. Cache L2 Postgres (Supabase)
-      3. API TEDB (Commission européenne) — interrogation par (pays, date)
+      3. API TEDB (Commission européenne) — un appel par (pays, date),
+         pour le taux STANDARD
       4. Fallback statique local (rates.py) — utilisé aussi immédiatement,
          sans aucun appel réseau, si le (pays, catégorie) n'est pas
          couvert par TEDB (cf. _is_tedb_eligible).
@@ -924,12 +895,10 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         return fetched[rate_type]
     if result is not None:
         # Réponse TEDB obtenue mais catégorie absente/rejetée (cas
-        # ambigu, plausibilité, ou pays sans ce taux réduit) : fait
-        # fiscal stable pour ce (pays, mois) — sûr de mettre en cache
-        # L1, aucune raison qu'un nouvel appel donne un résultat
-        # différent dans la même session.
+        # ambigu, plausibilité, ou pays sans ce taux réduit) : le résultat
+        # de cette date est sûr de mettre en cache L1.
         logger.debug(
-            "[VAT_RATES] TEDB : réponse reçue pour %s au mois %s mais catégorie '%s' absente ou "
+            "[VAT_RATES] TEDB : réponse reçue pour %s à la date %s mais catégorie '%s' absente ou "
             "rejetée (pays sans taux réduit de ce type, ou anomalie) — repli statique.",
             country, situation_date, rate_type,
         )
@@ -969,10 +938,12 @@ def prefetch_standard_rates(
 
     Args:
         pairs: itérable de (country: str, target_date: date).
-            Un simple SUPERSET des couples réellement nécessaires est
-            parfaitement sûr à passer ici : les couples non éligibles TEDB
-            (_is_tedb_eligible) ou déjà en cache sont ignorés quasi
-            gratuitement, sans appel réseau.
+            Chaque date est conservée telle quelle (granularité
+            journalière, comme get_vat_rate), afin de gérer les changements
+            de taux en cours de mois. Un simple SUPERSET des couples
+            réellement nécessaires est parfaitement sûr à passer ici : les
+            couples non éligibles TEDB (_is_tedb_eligible) ou déjà en cache
+            sont ignorés quasi gratuitement, sans appel réseau.
         max_workers: nombre de requêtes SOAP TEDB menées en parallèle.
             Threads de courte durée, aucune connexion/pool persistant —
             même contrainte scale-to-zero que
