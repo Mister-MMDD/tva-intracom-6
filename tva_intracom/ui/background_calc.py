@@ -138,6 +138,16 @@ _RESERVATION_TIMEOUT_S = 45.0
 # job suivant, évitant une compétition CPU/RAM immédiate.
 _POST_CALC_SLOT_HOLD_S = 5.0
 
+# Garde-fous pour l'estimation ETA affichée par render_job_progress()
+# (2026-09-26, point 5 revue perf/UX) : en dessous de 5% de progression,
+# une extrapolation linéaire temps_écoulé*(1-p)/p est trop instable (une
+# petite variation de p fait exploser l'estimation) pour être affichée sans
+# induire en erreur ; au-delà d'1h, on considère l'estimation hors de tout
+# usage pratique (l'utilisateur a de toute façon la position de file et le
+# temps écoulé) et on la masque plutôt que d'afficher un chiffre absurde.
+_MIN_PROGRESS_FOR_ETA = 0.05
+_MAX_ETA_DISPLAY_SECONDS = 3600.0
+
 
 def _reap_stale_reservations_locked() -> None:
     """Libère les réservations de slot plus vieilles que
@@ -256,9 +266,9 @@ _ACTIVE_JOB_TRACKER_KEY = "_bgjob_active_job_id"
 
 
 def start_background_job(
-    job_id: str,
-    target_fn: Callable[[Callable[[float, str], None]], Any],
-    is_big_job: bool = True,
+        job_id: str,
+        target_fn: Callable[[Callable[[float, str], None]], Any],
+        is_big_job: bool = True,
 ) -> None:
     """Démarre `target_fn` dans un thread séparé pour ce `job_id`, sauf s'il
     est déjà en cours (ou terminé) dans la session courante — un rerun
@@ -446,7 +456,20 @@ def render_job_progress(job_id: str, label: str) -> None:
             st.rerun()
         return
     _elapsed = time.time() - state.started_at
-    _suffix = f" ({_elapsed:.0f}s)" if _elapsed >= 3 else ""
+    _eta_suffix = ""
+    # Estimation ETA par extrapolation linéaire simple (temps_écoulé *
+    # (1-progress)/progress) — volontairement PAS un vrai modèle par étape
+    # (les phases parse/VIES/TVA-OSS n'avancent pas à vitesse comparable,
+    # voir _vies_progress_cb/_vat_rate_progress_cb/_oss_progress_cb dans
+    # app.py), donc l'estimation dérive surtout en tout début de calcul.
+    # Garde-fous : _progress trop faible (< 5%) rend le calcul instable
+    # (division par un nombre proche de 0) ; borne haute à 1h pour ne
+    # jamais afficher une estimation absurde en cas de dérive.
+    if _elapsed >= 3 and _MIN_PROGRESS_FOR_ETA <= _progress < 1.0:
+        _eta = _elapsed * (1.0 - _progress) / _progress
+        if 0 <= _eta <= _MAX_ETA_DISPLAY_SECONDS:
+            _eta_suffix = f" → ~{_eta:.0f}s"
+    _suffix = f" ({_elapsed:.0f}s{_eta_suffix})" if _elapsed >= 3 else ""
     _display_text = _text if _text else label
     st.progress(_progress, text=f"{_display_text}{_suffix}")
 
@@ -536,7 +559,7 @@ def start_vies_retry_loop(scope_id: str, vat_ids: list[str]) -> str:
                     total_iter=_VIES_RETRY_MAX_ITERATIONS,
                     count=len(remaining)
                 ),
-            )
+                )
             results = _tva_vies_engine.retry_vats_batch(scope_id, remaining)
             new_remaining = [
                 vat_id for vat_id in remaining

@@ -269,13 +269,16 @@ def _db_upsert_batch(entries: list[tuple[str, date, Decimal]]) -> None:
 # Requête HTTP
 # ------------------------------------------------------------------
 
-# Backoff exponentiel sur erreurs réseau/HTTP transitoires (dont HTTP 429).
+# Retry/backoff et TTL des échecs réseau : constantes partagées avec
+# vat_rates_db.py, centralisées dans retry_config.py (2026-09-26). Alias
+# locaux conservés pour ne pas toucher aux usages ci-dessous.
 # Ne couvre PAS les réponses malformées (JSON invalide, structure inattendue) :
 # une réponse mal formée n'est pas transitoire, la retenter ne change rien.
 # Ne couvre PAS non plus les erreurs SSL de vérification de certificat
 # (ssl.SSLCertVerificationError) : voir _is_permanent_ssl_error ci-dessous.
-_FETCH_MAX_ATTEMPTS = 3
-_FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
+from .retry_config import FETCH_MAX_ATTEMPTS as _FETCH_MAX_ATTEMPTS
+from .retry_config import FETCH_BACKOFF_BASE_SECONDS as _FETCH_BACKOFF_BASE_SECONDS
+from .retry_config import FAILED_PAIR_TTL_SECONDS as _FAILED_PAIR_TTL_SECONDS
 
 # Optimization de résilience réseau et gestion des erreurs SSL : deux angles
 # morts combinés ralentissaient les exécutions en local sans réseau :
@@ -287,7 +290,6 @@ _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
 #
 # _failed_pairs mémorise, par process, les paires (devise, date) ayant déjà
 # échoué avec un TTL court pour éviter les retentatives répétées sur un même run.
-_FAILED_PAIR_TTL_SECONDS = 300  # 5 minutes
 _failed_pairs: dict[tuple[str, str, date], float] = {}  # (kind, ccy, date) -> timestamp échec
 
 # Drapeau global process pour les erreurs SSL permanentes : dès qu'UNE

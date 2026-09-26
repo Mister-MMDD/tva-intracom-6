@@ -411,8 +411,12 @@ def _db_upsert_batch(entries: list[tuple[str, str, date, Decimal]]) -> None:
 # Requête SOAP TEDB
 # ------------------------------------------------------------------
 
-_FETCH_MAX_ATTEMPTS = 3
-_FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s
+# Retry/backoff et TTL des échecs réseau : constantes partagées avec
+# ecb_rates.py, centralisées dans retry_config.py (2026-09-26). Alias
+# locaux conservés pour ne pas toucher aux usages ci-dessous.
+from .retry_config import FETCH_MAX_ATTEMPTS as _FETCH_MAX_ATTEMPTS
+from .retry_config import FETCH_BACKOFF_BASE_SECONDS as _FETCH_BACKOFF_BASE_SECONDS
+from .retry_config import FAILED_PAIR_TTL_SECONDS as _FAILED_PAIR_TTL_SECONDS
 
 # Mémorise, par process, les paires (pays, date) ayant déjà échoué côté
 # réseau — évite de re-tenter (avec 3 essais + backoff) pour CHAQUE ligne
@@ -420,7 +424,6 @@ _FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s
 # TEDB est injoignable. TTL court : au cas où la panne serait transitoire.
 # Purement un cache de performance process — aucun impact scale-to-zero
 # (dict mémoire, aucun thread/connexion persistant).
-_FAILED_PAIR_TTL_SECONDS = 300
 _failed_pairs: dict[tuple[str, date], float] = {}
 
 # Note (2026-09-20, voir ecb_rates.py pour le diagnostic complet) :
