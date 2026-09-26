@@ -165,9 +165,13 @@ tva-intracom/
 │                                     construction du contexte, appel des modules tva_intracom/ui/)
 ├── debug_can_export.py               Script de diagnostic manuel : rejoue la logique can_export
 │                                     pour un compte donné (aide au support/debug billing)
+├── HISTORIQUE_BUGFIXES.md           Archive des commentaires de bugfix historiques
+├── optimisations_en_attente.md       Suivi des optimisations et chantiers en attente
 ├── Procfile                          Processus de démarrage pour déploiement cloud
 ├── pyproject.toml
 ├── railway.toml                      Config spécifique Railway
+├── RAPPORT_AUDIT_SECURITE.md         Rapport d'audit de sécurité
+├── README - evolution.md             Journal détaillé des évolutions, audits et correctifs
 ├── README.md
 ├── requirements.txt
 └── vercel.json                       Config Vercel
@@ -417,6 +421,7 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
 ## Optimisations de performance & UX (Mises à jour récentes)
 
 ### Performance & Réactivité
+- **Taux de TVA dynamiques TEDB & Préchargement (`vat_rates_db.py`)** : Récupération dynamique des taux de TVA via l'API SOAP TEDB de la Commission européenne (cache L1 RAM + L2 Postgres, coupe-circuit `VAT_DYNAMIC_TEDB_ENABLED`), préchargement parallélisé par couples (pays, mois) (`prefetch_standard_rates`), requêtes sur milestones historiques pour les changements en cours de mois, et safe-list de 11 catégories pour taux réduits CN/CPA.
 - **Optimisations CPU (Audit 09/2026)** :
   - Remplacement de `st.tabs` par des sélecteurs radio conditionnels pour n'exécuter que l'onglet actif (gain massif sur le vCPU partagé).
   - Mémoïsation des boucles O(n) du thread principal via `calc_key` (KPIs, alertes, devises).
@@ -424,12 +429,15 @@ xml_bytes = generate_oss_xml(results=res, seller_vat="FR...", period="2026-Q1")
   - Arrondi des données Plotly pour une sérialisation JSON plus légère vers le navigateur.
 - **File d'attente (Gros uploads)** : Slot unique tenu du début du parsing jusqu'à la fin du calcul pour les fichiers volumineux (> 10 Mo). Inclut un timeout de réservation sécurisé (45s) et une réincrémentation défensive du compteur de slots.
 - **Respiration CPU** : Points de respiration (`time.sleep(0)`) dans `_process_rows` et `_run_oss_loop` pour garantir la fluidité de l'interface sur vCPU partagé.
-- **Optimisation de la RAM** : String Interning (ASIN, TVA, pays) et gestion fine des caches (suppression des `cache_clear()` globaux impactant les autres sessions).
+- **Optimisation de la RAM & Algorithmes** : Générateur de paires pour le préchargement TEDB (suppression de la liste intermédiaire en RAM), cache mémoire des dates d'historique par pays, recherche dichotomique (`bisect_left`) sur les taux BCE, correction de la clé de cache LRU pour les taux du jour, String Interning (ASIN, TVA, pays) et gestion fine des caches.
+- **Typage statique & Mypy 0 erreur** : Correction de 37 erreurs de typage, retrait complet des 13 `ignore_errors` internes dans `pyproject.toml`, fiabilisation des imports (ex. `DEFAULT_CACHE_TTL_DAYS` VIES) et typage strict via `TypedDict` (`local_vat_report.py`).
 - **Fragments Streamlit** : Utilisation intensive de `@st.fragment` pour isoler le rendu et éviter les reruns complets lors d'interactions locales.
 - **Cache intelligent** : Mise en cache des parsers, du catalogue et des exports via signatures MD5 (128 Ko start/end).
 - **Réactivité post-paiement** : Rafraîchissement instantané du statut d'abonnement lors du retour de Checkout Stripe (via `export_ok=1`) pour supprimer la latence du cache.
 
 ### UX & Fiabilité
+- **Refonte graphique & Design System UI (`ui/theme.py`, `ui/sidebar.py`, `app.py`)** : Design system adaptatif clair/sombre avec sélecteur de thème dynamique sans rechargement (`data-theme-actual`), palette harmonisée (variables CSS, ombres, bordures), toggles/sliders/tags personnalisés en vert accent, fil d'Ariane contextuel, popover régional (pays/devise), logo de marque sidebar, modale de détails d'analyse et graphique à barres horizontales dans l'onglet Déclarations.
+- **Passage au modèle gratuit (don libre)** : Neutralisation des verrous de paiement Stripe et quotas SIREN (`_DONATION_MODE_SIREN_QUOTA`) au profit d'un accès intégral gratuit soutenu par les dons libres.
 - **Onboarding Lighthouse** : Guidage visuel par pulsations CSS vers les sections requises pour la configuration (Entreprise, TVA, Upload).
 - **Réactivité post-paiement** : Rafraîchissement instantané du statut d'abonnement lors du retour de Checkout Stripe (via `export_ok=1`) pour supprimer le délai de latence du cache (60s).
 - **Résilience de la barre latérale** : Isolation des pannes transitoires (lecture de l'historique de crédits) pour garantir l'accès permanent aux options d'abonnement et de paiement.
@@ -466,6 +474,13 @@ réglementaire et validation) : voir `README - evolution.md`.
 
 ## Incidents de production résolus
 
+- **2026-09-26 — Correctifs de typage Mypy, stabilité VIES UI et profiling TEDB/BCE (`pyproject.toml`, `vies_ui.py`, `vat_rates_db.py`, `engine.py`, `ecb_rates.py`)** : suppression des 13 overrides `ignore_errors` dans `pyproject.toml`, correction de l'import `DEFAULT_CACHE_TTL_DAYS`, optimisation mémoire du préchargement TEDB via générateur, recherche dichotomique `bisect_left` sur les taux BCE, et correction du cache LRU `_vat_rate_cached`.
+- **2026-09-25 — Correctifs de parsing CSV Polars et reruns UI (`loader.py`, `formatting.py`, `background_calc.py`)** : correction du bug `AttributeError: 'NoneType'` sur cellules vides, gestion d'erreur sur les `st.rerun(scope="fragment")` hors fragments, et nettoyage des variables doublons.
+- **2026-09-18 à 2026-09-21 — Refonte graphique, Design System et Dashboard UI (`theme.py`, `sidebar.py`, `declarations.py`, `app.py`)** : synchronisation JS/iframe du mode sombre (`data-theme-actual`), palette de couleurs adaptative, toggles/sliders/tags en vert accent, fil d'Ariane, graphique à barres des déclarations, modale de détails, et traductions du glossaire (ES/IT/PL/PT/DE).
+- **2026-09-17 — Passage au modèle gratuit (don libre) (`billing.py`, `billing_gate.py`, `auth_flow.py`, `README.md`)** : neutralisation des verrous de paiement Stripe et quotas SIREN au profit de la gratuité totale financée par don libre.
+- **2026-09-14 — Audit de sécurité & Monaco B2B (`auth.py`, `ui/files.py`, `engine.py`)** : validation MIME stricte des uploads (`sniff_upload_rejection_reason`), réduction du TTL de session à 7 jours avec renouvellement glissant, et préservation de l'exonération B2B VIES pour les flux au départ de Monaco.
+- **2026-09-12 à 2026-09-16 — Taux de TVA dynamiques TEDB & Catégories CN/CPA (`vat_rates_db.py`, `product_tax_code_category.py`)** : intégration de l'API SOAP TEDB de la Commission européenne, coupe-circuit, gestion de l'ambiguïté des taux (ex: Canaries 7% vs 21%), safe-list pour 11 catégories de taux réduits, et support du statut hors champ `OUT_OF_SCOPE` (`A_GEN_NOTAX`).
+- **2026-09-13 — Taux de change de clôture OSS/IOSS et correctif `period=""` (`oss_export.py`, `excel_report.py`)** : alignement de la ventilation mensuelle sur les totaux de clôture de période (art. 5 bis Règl. UE 2020/194) et correction du fallback de conversion.
 - **2026-09-11 — Régression VIES stale_fallback sur la voie batch, lenteur locale des taux BCE, faux message de succès du ré-essai VIES** : trois correctifs distincts issus de signalements ciblés. 1) Le correctif "stale_fallback" du 2026-09-09 n'avait été appliqué qu'à la voie de validation VIES unitaire (`check_vat_raw`) ; la voie batch/parallèle réellement utilisée en priorité en production écrasait systématiquement le cache expiré par un résultat vierge en cas de panne VIES — même correctif désormais appliqué aux deux voies. 2) En environnement local sans base de données, une erreur de certificat SSL sur l'API de la BCE était retentée en boucle sans jamais être mise en cache négatif, ralentissant fortement chaque conversion de devise. 3) La boucle de ré-essai automatique VIES en arrière-plan comptait à tort un repli sur cache périmé (panne VIES) comme un numéro "résolu", affichant un message de succès trompeur — notamment observé lors d'une indisponibilité du service VIES français. Détail dans `README - evolution.md`.
 - **2026-09-10 — Batch de correctifs fiscaux et techniques (moteur OSS/IOSS, AIC, VIES, performance BCE)** : plusieurs sessions le même jour, toutes issues d'audits externes puis confirmées contre le code réel avant correction — voir `README - evolution.md` (entrées du 2026-09-10) pour le détail fichier par fichier. Points marquants : cohérence des taux de change OSS/IOSS (taux de clôture pour les deux régimes, y compris les corrections a posteriori) ; élimination des faux positifs/négatifs d'AIC liés à Monaco (mouvements domestiques France↔Monaco, stock hors pays d'origine) ; TVA nette IOSS tenant compte des remboursements ; downgrade VIES restreint aux réponses serveur réellement vides ; purge complète de l'historique VIES ; performance de la lecture batch des taux BCE. Le cas structurel du Format Amazon 3 (quantité forcée à 1, faute de colonne quantité exploitable dans ce format) reste documenté sans correction dans `optimisations_en_attente.md`.
 - **2026-09-09 — Batch de 8 bugs confirmés (audit externe)** : ventes B2B locales rendues invisibles dans certains filtres, cache de statut d'abonnement non rafraîchi immédiatement après paiement, montants TVA affichés entre parenthèses mal interprétés, fuite mémoire sur le cache VIES, double comptage des livraisons DDP, incohérence de taux de change OSS/IOSS (première itération), contournement possible du quota SIREN, XSS sur les champs libres des rapports (`local_vat_report.py`) et exposition du jeton de session Stripe dans les URLs. Détail dans `README - evolution.md`.
