@@ -175,9 +175,9 @@ def test_prefetch_skips_non_eligible_pairs_without_network_call(tedb_enabled_no_
 
 
 def test_prefetch_noop_when_tedb_disabled():
-    """Flag desactive (comportement par defaut) : prefetch_standard_rates
+    """Flag explicitement désactivé (VAT_DYNAMIC_TEDB_ENABLED="false") : prefetch_standard_rates
     ne doit jamais tenter le moindre appel reseau."""
-    with patch.object(m, "get_secret", return_value=None):
+    with patch.object(m, "get_secret", return_value="false"):
         with patch.object(m, "_request_tedb") as mocked:
             m.prefetch_standard_rates([("FR", date(2026, 1, 1)), ("DE", date(2026, 1, 1))])
         mocked.assert_not_called()

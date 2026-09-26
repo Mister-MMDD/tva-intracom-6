@@ -128,10 +128,10 @@ def test_is_tedb_eligible_medicines_false_for_fr(tedb_enabled_no_db):
 
 
 def test_is_tedb_eligible_false_when_flag_disabled():
-    """Comportement par defaut (flag desactive) : personne n'est eligible,
+    """Flag explicitement désactivé (VAT_DYNAMIC_TEDB_ENABLED="false") : personne n'est éligible,
     tout part directement au statique — comportement identique a avant
     l'introduction de ce module."""
-    with patch.object(m, "get_secret", return_value=None):
+    with patch.object(m, "get_secret", return_value="false"):
         assert m._is_tedb_eligible("FR", "STANDARD") is False
 
 
