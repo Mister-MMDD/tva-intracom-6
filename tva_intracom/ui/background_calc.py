@@ -100,8 +100,19 @@ _active_jobs_count = 0
 # sur une instance Railway plus musclée sans risque d'OOM.
 MAX_CONCURRENT_BIG_JOBS = 1
 
-# File d'attente FIFO des jobs en attente d'un slot (_waiting_queue) et
-# horodatage de réservation (_reserved_at), pour détecter et
+# BUGFIX 2026-08-28 (voir README - évolution.md) : cette constante et
+# can_start_big_job() existaient déjà mais n'étaient appelées NULLE PART —
+# aucun garde-fou réel avant démarrage d'un job. Constaté par Matthieu suite
+# à un test 4 comptes où le plafond fixé à 1 n'avait aucun effet observable.
+# Introduction d'une vraie file d'attente FIFO ci-dessous, qui remplace
+# l'usage de can_start_big_job() (conservée pour compat/lisibilité mais
+# désormais un simple raccourci de lecture, plus jamais le seul garde-fou).
+#
+# _waiting_queue : liste FIFO des job_id en attente d'un slot, protégée par
+# le même verrou que _active_jobs_count (une seule source de vérité pour
+# éviter tout état incohérent entre compteur et file).
+#
+# _reserved_at : job_id -> horodatage de réservation, pour détecter et
 # libérer une réservation orpheline (onglet fermé entre la réservation du
 # slot — dans le fragment de file d'attente, qui tourne dans un thread de
 # script Streamlit, PAS le thread de calcul lui-même — et le démarrage réel
@@ -137,16 +148,6 @@ _RESERVATION_TIMEOUT_S = 45.0
 # résultats (graphiques, tableaux) avant que le slot ne soit repris par le
 # job suivant, évitant une compétition CPU/RAM immédiate.
 _POST_CALC_SLOT_HOLD_S = 5.0
-
-# Garde-fous pour l'estimation ETA affichée par render_job_progress()
-# (2026-09-26, point 5 revue perf/UX) : en dessous de 5% de progression,
-# une extrapolation linéaire temps_écoulé*(1-p)/p est trop instable (une
-# petite variation de p fait exploser l'estimation) pour être affichée sans
-# induire en erreur ; au-delà d'1h, on considère l'estimation hors de tout
-# usage pratique (l'utilisateur a de toute façon la position de file et le
-# temps écoulé) et on la masque plutôt que d'afficher un chiffre absurde.
-_MIN_PROGRESS_FOR_ETA = 0.05
-_MAX_ETA_DISPLAY_SECONDS = 3600.0
 
 
 def _reap_stale_reservations_locked() -> None:
@@ -245,8 +246,8 @@ def can_start_big_job() -> bool:
 @dataclass
 class _JobState:
     done: bool = False
-    error: BaseException | None = None
-    result: Any = None  # Result varies by job type (calculation, VIES retry, etc.)
+    error: Optional[BaseException] = None
+    result: Any = None
     progress: float = 0.0
     progress_text: str = ""
     started_at: float = field(default_factory=time.time)
@@ -266,9 +267,9 @@ _ACTIVE_JOB_TRACKER_KEY = "_bgjob_active_job_id"
 
 
 def start_background_job(
-        job_id: str,
-        target_fn: Callable[[Callable[[float, str], None]], Any],
-        is_big_job: bool = True,
+    job_id: str,
+    target_fn: Callable[[Callable[[float, str], None]], Any],
+    is_big_job: bool = True,
 ) -> None:
     """Démarre `target_fn` dans un thread séparé pour ce `job_id`, sauf s'il
     est déjà en cours (ou terminé) dans la session courante — un rerun
@@ -429,7 +430,14 @@ def render_job_progress(job_id: str, label: str) -> None:
     pendant les calculs longs (le moment où le CPU est justement le plus
     sollicité) est le vrai bénéfice.
 
-    Rendu du message dynamique du callback de progression (rejoint par `_text` au 1er tick).
+    BUGFIX 2026-08-28 (voir README - évolution.md) : `label` (le message
+    statique initial, ex. "Interrogation VIES...") restait auparavant
+    TOUJOURS collé devant le texte dynamique du callback de progression
+    (ex. "⏳ Calcul TVA/OSS : ..."), donnant un message à rallonge trompeur
+    ("Interrogation VIES... — Calcul TVA/OSS..." même une fois la phase
+    VIES terminée depuis longtemps). `label` ne sert plus que de texte de
+    repli avant le tout premier tick du callback ; une fois `_text` reçu,
+    il s'affiche seul.
     """
     state = get_job_state(job_id)
     if state is None:
@@ -440,7 +448,16 @@ def render_job_progress(job_id: str, label: str) -> None:
         if _done and not _already_triggered:
             state.rerun_triggered = True
     if _done:
-        # Message de fin de job affiché immédiatement avant rerun complet.
+        # BUGFIX (voir README - évolution.md, diagnostic du 2026-08-29) :
+        # avant ce correctif, rien n'était affiché ici -- l'ancien texte du
+        # DERNIER tick de progression (ex. "47 500 / 100 000 lignes lues")
+        # restait visible à l'écran jusqu'à ce que le `st.rerun()` complet
+        # ci-dessous ait réellement le temps de s'exécuter. Sur le vCPU
+        # partagé, ce rerun est en concurrence avec le thread du prochain
+        # job et les polls d'autres sessions -- son délai pouvait donner
+        # l'illusion trompeuse qu'un calcul tournait encore alors que le
+        # job était déjà terminé (observé concrètement : deux sessions
+        # affichant chacune un texte de progression, alors que les logs
         # confirmaient un seul job actif à la fois). Un texte "terminé"
         # explicite, même bref, signale correctement la transition.
         st.progress(1.0, text=f"{_text or label} ✅")
@@ -456,20 +473,7 @@ def render_job_progress(job_id: str, label: str) -> None:
             st.rerun()
         return
     _elapsed = time.time() - state.started_at
-    _eta_suffix = ""
-    # Estimation ETA par extrapolation linéaire simple (temps_écoulé *
-    # (1-progress)/progress) — volontairement PAS un vrai modèle par étape
-    # (les phases parse/VIES/TVA-OSS n'avancent pas à vitesse comparable,
-    # voir _vies_progress_cb/_vat_rate_progress_cb/_oss_progress_cb dans
-    # app.py), donc l'estimation dérive surtout en tout début de calcul.
-    # Garde-fous : _progress trop faible (< 5%) rend le calcul instable
-    # (division par un nombre proche de 0) ; borne haute à 1h pour ne
-    # jamais afficher une estimation absurde en cas de dérive.
-    if _elapsed >= 3 and _MIN_PROGRESS_FOR_ETA <= _progress < 1.0:
-        _eta = _elapsed * (1.0 - _progress) / _progress
-        if 0 <= _eta <= _MAX_ETA_DISPLAY_SECONDS:
-            _eta_suffix = f" → ~{_eta:.0f}s"
-    _suffix = f" ({_elapsed:.0f}s{_eta_suffix})" if _elapsed >= 3 else ""
+    _suffix = f" ({_elapsed:.0f}s)" if _elapsed >= 3 else ""
     _display_text = _text if _text else label
     st.progress(_progress, text=f"{_display_text}{_suffix}")
 
@@ -559,7 +563,7 @@ def start_vies_retry_loop(scope_id: str, vat_ids: list[str]) -> str:
                     total_iter=_VIES_RETRY_MAX_ITERATIONS,
                     count=len(remaining)
                 ),
-                )
+            )
             results = _tva_vies_engine.retry_vats_batch(scope_id, remaining)
             new_remaining = [
                 vat_id for vat_id in remaining

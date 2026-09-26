@@ -4,6 +4,7 @@ Ces tests vérifient que toutes les langues ont exactement les mêmes clés
 de traduction, sans variables orphelines ni traductions manquantes.
 """
 
+import re
 import pytest
 from tva_intracom.i18n.i18n_validator import (
     load_all_translations,
@@ -237,6 +238,22 @@ class TestIntegration:
                 f"Manquantes dans {lang}: {sorted(reference_keys - lang_keys)}. "
                 f"En trop dans {lang}: {sorted(lang_keys - reference_keys)}."
             )
+
+    def test_interpolation_placeholders_match_across_languages(self):
+        """Chaque traduction conserve les variables de la version française."""
+        translations = load_all_translations()
+        for key in translations["fr"]:
+            expected = set(re.findall(
+                r"\{([A-Za-z_][A-Za-z0-9_]*)\}", translations["fr"][key]
+            ))
+            for lang in LANGUAGES[1:]:
+                actual = set(re.findall(
+                    r"\{([A-Za-z_][A-Za-z0-9_]*)\}", translations[lang][key]
+                ))
+                assert actual == expected, (
+                    f"Placeholders différents pour {key!r} en {lang}: "
+                    f"attendus {sorted(expected)}, reçus {sorted(actual)}"
+                )
 
 
 # Test principal qui résume tout

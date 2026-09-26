@@ -35,7 +35,7 @@ from __future__ import annotations
 # réactiver avec lui si besoin.
 from dataclasses import dataclass, field
 from datetime import datetime as _dt
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import streamlit as st
 
@@ -43,10 +43,8 @@ import streamlit as st
 # uniquement utilisé par les blocs paywall Stripe désormais commentés
 # ci-dessous (is_admin) — à réactiver avec eux si besoin.
 from tva_intracom import billing as tva_billing
-from tva_intracom.auth import User
-from tva_intracom.billing import SirenQuotaStatus
 from tva_intracom.i18n import _, country_label
-from tva_intracom.models import Channel, ViesValidationSummary
+from tva_intracom.models import Channel
 from tva_intracom.rates import is_eu
 from tva_intracom.ui.sidebar import _cached_db_read
 from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
@@ -101,9 +99,9 @@ class BillingGate:
     period_label: str
     period_detected_range: Optional[tuple[str, str]]
     can_export: bool
-    quota_status: SirenQuotaStatus | None
+    quota_status: Any
     compliance_blocked: bool
-    missing_vats: list[str]
+    missing_vats: list
     ioss_missing: bool
     unlock_label_suffix: str
     sub_status: Optional[str] = None
@@ -113,27 +111,32 @@ class BillingGate:
     # can_export tant qu'il reste des identifiants non confirmés ou en
     # conflit avec un autre SIREN — voir render_account_link_panel().
     account_link_blocked: bool = False
-    unlinked_identifiers: list[str] = field(default_factory=list)
-    conflicting_links: list[tuple[str, str]] = field(default_factory=list)  # [(identifier, other_siren)]
+    unlinked_identifiers: list = field(default_factory=list)
+    conflicting_links: list = field(default_factory=list)  # [(identifier, other_siren)]
 
     # SIREN saisi non retrouvé parmi les SIREN enregistrés pour ce compte —
     # distinct de account_link_blocked (rattachement compte Amazon<->SIREN) :
     # ici c'est le SIREN lui-même qui n'est pas reconnu. Les deux forcent
     # can_export=False mais doivent afficher un message différent de celui
-    # du paywall Stripe dans gated_download().
+    # du paywall Stripe dans gated_download() — voir BUGFIX ci-dessous.
     siren_mismatch: bool = False
 
-    # SIREN requis pour tout export payant :
+    # BUGFIX (2026-09-04) : un compte gratuit ayant fait un achat PAYG sans
+    # avoir renseigné de SIREN passait `can_export=True` sans jamais être
+    # bloqué par le gate SIREN ci-dessus (qui ne s'exécute que `if
+    # siren_entreprise` — donc sauté si vide). Un export payant nécessite
+    # désormais toujours un SIREN. Distinct de `siren_mismatch` (SIREN saisi
+    # mais non reconnu) pour un message dédié dans gated_download().
     siren_missing: bool = False
 
     # Abonnement actif OU crédit ponctuel — indépendant des gates de
     # conformité (SIREN, rattachement compte, quota). Voir build_billing_gate.
     billing_ok: bool = True
 
-    current_user: User | None = field(repr=False, default=None)
-    vies_summary: ViesValidationSummary | None = field(repr=False, default=None)
-    stripe_success_url: Callable[[], str] | None = field(repr=False, default=None)
-    stripe_cancel_url: Callable[[], str] | None = field(repr=False, default=None)
+    current_user: Any = field(repr=False, default=None)
+    vies_summary: Any = field(repr=False, default=None)
+    stripe_success_url: Any = field(repr=False, default=None)
+    stripe_cancel_url: Any = field(repr=False, default=None)
     vies_scope_id: str = field(repr=False, default="")
     siren_entreprise: str = field(repr=False, default="")
     nom_entreprise: str = field(repr=False, default="")
@@ -155,7 +158,7 @@ class BillingGate:
         return None
         # if not tva_auth.is_admin(self.current_user):
         #     return None
-        # # Note (2026-09-04) : la clé de cache incluait seulement la période,
+        # # BUGFIX (2026-09-04) : la clé de cache incluait seulement la période,
         # # pas le SIREN — en changeant de SIREN sélectionné dans la même
         # # session (période identique), le lien Stripe déjà en cache aurait
         # # été réutilisé tel quel, avec le SIREN de la 1ère création dans sa
@@ -191,13 +194,17 @@ class BillingGate:
                 st.info(_("gate_payment_pending_info"))
                 return
 
-            # Paywall Stripe prioritaire pour les comptes non-abonnés.
+            # BUGFIX (priorité) : le paywall Stripe doit toujours primer
+            # pour un compte non-abonné / non-débloqué, avant de parler de
+            # quota ou de conformité. `billing_ok` est calculé plus haut,
+            # AVANT les gates de conformité, précisément pour permettre
+            # cette distinction.
             if not self.billing_ok:
                 pass  # tombe directement dans le paywall Stripe ci-dessous
 
             # Si le compte est à jour de paiement (billing_ok True) mais
             # reste bloqué (can_export False), on affiche la raison précise.
-            elif self.quota_status is not None and self.quota_status.blocked:
+            elif self.quota_status and self.quota_status.blocked:
                 st.error(
                     _("gate_quota_blocked_err",
                       label=label,
@@ -284,7 +291,7 @@ class BillingGate:
             #
             # _url = self.get_payg_checkout_url()
             # if _url:
-            #     # Note : un <a> HTML brut (unsafe_allow_html) ne sort pas de
+            #     # BUGFIX : un <a> HTML brut (unsafe_allow_html) ne sort pas de
             #     # l'iframe Streamlit Cloud au clic (survol OK, clic sans effet
             #     # — même incident que les boutons OAuth, cf. auth_flow.py).
             #     # st.link_button utilise le mécanisme de navigation propre à
@@ -350,11 +357,15 @@ def preview_lock_message(gate: "BillingGate") -> str:
     `can_export` est False, donc au moins une des conditions ci-dessous est
     vraie."""
     if gate.sub_status == "incomplete":
-        # Paiement par virement/prélèvement SEPA en cours de traitement :
+        # BUGFIX (2026-09-06) : paiement par virement/prélèvement SEPA en
+        # cours de traitement (délai bancaire normal, voir
+        # gate_payment_pending_info dans gated_download()) — l'utilisateur A
+        # payé, il ne faut donc jamais lui montrer le même message que
+        # "non abonné" (locked_premium) sur les tableaux/métriques masqués.
         return _("locked_payment_pending")
     if not gate.billing_ok:
         return "🔒 " + _("locked_premium")
-    if gate.quota_status is not None and gate.quota_status.blocked:
+    if gate.quota_status and gate.quota_status.blocked:
         return "🔒 " + _("locked_quota")
     if gate.account_link_blocked:
         return _("locked_account_link")
@@ -458,7 +469,15 @@ def build_billing_gate(
 
     quota_status = siren_quota_status
 
-    # Gate SIREN obligatoire (export payant rattaché à un SIREN).
+    # ── Gate SIREN obligatoire ────────────────────────────────────────────
+    # BUGFIX (2026-09-04) : un compte sans SIREN renseigné (typiquement un
+    # compte gratuit qui vient de faire un achat PAYG à l'unité sans jamais
+    # avoir enregistré de SIREN, celui-ci n'étant pas requis pour créer le
+    # compte) débloquait quand même l'affichage premium — le gate SIREN
+    # historique juste en dessous ne s'exécute que si `siren_entreprise` est
+    # renseigné, donc était silencieusement sauté. Un export payant doit
+    # toujours être rattaché à un SIREN (c'est d'ailleurs la clé du crédit
+    # PAYG désormais, voir has_export_credit) : on bloque explicitement ici.
     siren_missing = False
     if can_export and not siren_entreprise:
         can_export = False
@@ -496,7 +515,13 @@ def build_billing_gate(
               over=quota_status.over_quota_by)
         )
 
-    # Gate Conformité (TVA & IOSS) - filtré sur les pays de l'UE.
+    # ── Gate Conformité (TVA & IOSS) ──────────────────────────────────────
+    # BUGFIX : un stock situé hors UE (pays non listé dans rates.EU_COUNTRIES)
+    # ne crée aucune obligation d'immatriculation TVA intracommunautaire — il
+    # ne doit donc jamais réclamer un numéro de TVA local ni bloquer le
+    # téléchargement. `all_stock_countries` n'était pas filtré à l'UE, et
+    # l'exclusion du pays "domestique" était figée sur "FR" au lieu du pays
+    # d'origine choisi (home_country).
     missing_vats = []
     required_local_vats = {c for c in all_stock_countries if c and is_eu(c)} | pay_eu
     if seller_is_importer:
@@ -600,9 +625,13 @@ def build_billing_gate(
 
 @st.fragment
 def _render_unlinked_identifiers_fragment(gate: "BillingGate") -> None:
-    """Isolé en fragment : évite les reruns de toute la page lors du coche
-    de la case de confirmation.
-    """
+    """Isolé en fragment : BUGFIX — cocher la case de confirmation ne fait
+    que révéler le bouton "Confirmer" juste en dessous, ça ne doit surtout
+    pas redessiner toute la page (les 6 onglets, tableaux et graphiques déjà
+    affichés) à chaque coche. Seul le clic sur "Confirmer" a besoin d'un
+    rerun complet (st.rerun() par défaut, hors fragment) puisqu'il faut que
+    build_billing_gate() soit ré-évalué en amont pour faire disparaître ce
+    panneau et débloquer les téléchargements."""
     for _identifier in gate.unlinked_identifiers:
         st.markdown(
             _("account_link_new_title", identifier=_identifier)
@@ -649,11 +678,8 @@ def render_account_link_panel(gate: BillingGate) -> None:
     # Libellés lisibles pour les SIREN déjà connus du compte (utilisé pour
     # les messages de conflit : "SIREN X" -> "Client Untel — 123456789").
     try:
-        if gate.current_user is not None:
-            _sirens = tva_billing.list_registered_sirens(gate.current_user.org_id)
-            _siren_labels = {r["siren"]: f"{r['company_name'] or r['siren']} — {r['siren']}" for r in _sirens}
-        else:
-            _siren_labels = {}
+        _sirens = tva_billing.list_registered_sirens(gate.current_user.org_id)
+        _siren_labels = {r["siren"]: f"{r['company_name'] or r['siren']} — {r['siren']}" for r in _sirens}
     except Exception:
         _siren_labels = {}
 
@@ -669,6 +695,12 @@ def render_account_link_panel(gate: BillingGate) -> None:
             st.caption(_("account_link_conflict_text", other_label=_other_label, current_label=_current_label))
             if st.button(_("account_link_switch_btn", other_label=_other_label),
                          key=f"btn_switch_{gate.vies_scope_id}_{_identifier}"):
-                # Tampon de bascule SIREN pour le run suivant (évite StreamlitAPIException).
+                # BUGFIX : le widget `siren_select_box` est déjà instancié à ce
+                # stade du script (render_sidebar() tourne avant ce panneau,
+                # voir app.py) — y écrire directement lève StreamlitAPIException
+                # ("cannot be modified after the widget ... is instantiated").
+                # On dépose l'intention dans un tampon consommé en tout début de
+                # render_sidebar() (avant l'instanciation du selectbox), au run
+                # suivant déclenché par ce rerun.
                 st.session_state["_pending_siren_switch"] = _other_siren
                 st.rerun()

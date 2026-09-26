@@ -146,7 +146,7 @@ class TestHistoricalRates:
             expected_vat = Decimal("100.00") * (historical_rate_2024 / Decimal("100"))
             # CRITIQUE: Ce test échouera car le calcul utilise le taux actuel
             assert result.vat_amount == expected_vat, \
-                f"Une vente de 2024 devrait utiliser le taux {historical_rate_2024}%, pas {result.vat_rate}%"
+                f"Une vente de 2024 devrait utiliser le taux {histor_rate_2024}%, pas {result.vat_rate}%"
         else:
             pytest.skip("Taux STANDARD 2024 non disponible pour FR")
 

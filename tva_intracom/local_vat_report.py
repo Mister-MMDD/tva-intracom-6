@@ -34,7 +34,7 @@ from __future__ import annotations
 import html
 import logging
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, List, Optional, TypedDict
+from typing import Dict, List, Optional
 
 from tva_intracom.i18n import _, country_label
 from tva_intracom.models import VatResult
@@ -47,17 +47,6 @@ def _round(amount: Decimal) -> Decimal:
     return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-class _RateBucket(TypedDict, total=False):
-    base_vente: Decimal
-    tva_vente: Decimal
-    nb_vente: int
-    base_remb: Decimal
-    tva_remb: Decimal
-    nb_remb: int
-    base_net: Decimal
-    tva_net: Decimal
-
-
 def compute_local_vat_lines(
     results: List[VatResult],
     refund_results: Optional[List[VatResult]],
@@ -68,11 +57,21 @@ def compute_local_vat_lines(
     par taux de TVA réellement présent dans les données.
 
     Ne filtre PAS sur `seller_country` : ce module sert uniquement aux
-    immatriculations locales hors pays d'établissement.
+    immatriculations locales hors pays d'établissement — la France utilise
+    `ca3_report.py`, pas ce module.
 
-    Integration des transferts FBA (AIC) :
-    `all_fc_transfers` réutilise `ca3_report._compute_aic_from_fc_transfers`
-    en lui passant `vat_country` comme pays d'arrivée.
+    BUGFIX (2026-09-10, AIC FBA manquantes) : ce module ignorait totalement
+    les transferts de stock FBA. Un vendeur immatriculé en Allemagne ne
+    voyait donc jamais ses Acquisitions Intra-Communautaires (AIC)
+    allemandes (stock transféré depuis un autre État membre vers un entrepôt
+    Amazon en Allemagne) dans son rapport local, malgré l'obligation
+    d'autoliquidation qui en découle — risque de sous-déclaration.
+    `all_fc_transfers` (optionnel, rétro-compatible : None = comportement
+    inchangé) réutilise `ca3_report._compute_aic_from_fc_transfers`, déjà
+    validé pour la CA3 française, en lui passant `vat_country` (au lieu du
+    pays d'établissement) comme pays d'arrivée à considérer — cette fonction
+    est déjà générique sur ce paramètre (elle calcule les flux ENTRANTS vers
+    le pays passé en argument, quel qu'il soit).
     """
     vat_country = vat_country.upper()
     refund_results = refund_results or []
@@ -98,9 +97,9 @@ def compute_local_vat_lines(
     sales = [r for r in results if r.channel.value in ("LOCAL", "FR_DOMESTIC") and r.vat_country == vat_country]
     refunds = [r for r in refund_results if r.channel.value in ("LOCAL", "FR_DOMESTIC") and r.vat_country == vat_country]
 
-    by_rate: Dict[str, _RateBucket] = {}
+    by_rate: Dict[str, Dict[str, Decimal]] = {}
 
-    def _bucket(rate_key: str) -> _RateBucket:
+    def _bucket(rate_key: str) -> Dict[str, Decimal]:
         return by_rate.setdefault(rate_key, {
             "base_vente": Decimal("0"), "tva_vente": Decimal("0"), "nb_vente": 0,
             "base_remb": Decimal("0"), "tva_remb": Decimal("0"), "nb_remb": 0,
@@ -124,8 +123,10 @@ def compute_local_vat_lines(
 
     total_base_net = _round(sum((b["base_net"] for b in by_rate.values()), Decimal("0")))
     total_tva_net = _round(sum((b["tva_net"] for b in by_rate.values()), Decimal("0")))
-    # AIC ajoutées au total net à autoliquider pour ce pays (voir note
-    # ci-dessus).
+    # AIC ajoutées au total net à autoliquider pour ce pays (voir BUGFIX
+    # ci-dessus) — affichées séparément (base_ht estimée + TVA due) pour ne
+    # pas mélanger la TVA collectée sur ventes et la TVA autoliquidée sur
+    # introductions de stock, tout en les incluant dans le total déclaré.
     total_base_net_avec_aic = _round(total_base_net + aic_base_ht)
     total_tva_net_avec_aic = _round(total_tva_net + aic_vat)
     total_nb = sum(b["nb_vente"] + b["nb_remb"] for b in by_rate.values())
@@ -158,10 +159,12 @@ def generate_local_vat_html_report(
     non-FR. Même charte visuelle que le CA3 (`ca3_report.py`), structure
     volontairement plus simple (pas de cases numérotées officielles).
 
-    `all_fc_transfers` (AIC FBA) : voir docstring
+    `all_fc_transfers` (BUGFIX 2026-09-10, AIC manquantes) : voir docstring
     de `compute_local_vat_lines`. Optionnel/rétro-compatible."""
 
-    # Protection XSS : company_name et siren sont échappés.
+    # BUGFIX (2026-09-09, XSS) : company_name est une saisie utilisateur
+    # (formulaire d'enregistrement SIREN) injectée sans protection dans ce
+    # rapport HTML — voir même correctif dans ca3_report.py.
     company_name = html.escape(company_name or "")
     siren = html.escape(siren or "")
 
@@ -222,8 +225,10 @@ def generate_local_vat_html_report(
         f'<p class="notice" style="margin-top:6px;">{_("local_vat_no_box_codes_note")}</p>'
     )
 
-    # Affichage section AIC FBA : affichée uniquement si des transferts
-    # de stock entrants ont été détectés pour ce pays.
+    # BUGFIX (2026-09-10, AIC FBA manquantes) : section AIC affichée
+    # uniquement si des transferts de stock entrants ont été détectés pour
+    # ce pays (all_fc_transfers fourni ET base AIC non nulle) — sinon la
+    # section est omise pour ne pas alourdir le rapport des pays sans FBA.
     aic_section_html = ""
     if lines.get("aic_base_ht", Decimal("0.00")) != Decimal("0.00") or lines.get("aic_vat", Decimal("0.00")) != Decimal("0.00"):
         aic_section_html = f"""

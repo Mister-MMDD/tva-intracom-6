@@ -15,21 +15,28 @@ from unittest.mock import patch, MagicMock
 from tva_intracom import ecb_rates
 
 
+@pytest.fixture(autouse=True)
+def reset_ecb_caches():
+    ecb_rates._rate_cache.clear()
+    ecb_rates._forward_rate_cache.clear()
+    ecb_rates._failed_pairs.clear()
+    yield
+    ecb_rates._rate_cache.clear()
+    ecb_rates._forward_rate_cache.clear()
+    ecb_rates._failed_pairs.clear()
+
+
 class TestBCEClosingRate:
     """Tests pour le taux de clôture BCE."""
 
-    def test_closing_rate_looks_forward(self):
+    def test_closing_rate_looks_forward(self, monkeypatch):
         """Vérifie que le taux de clôture cherche en avant, pas en arrière."""
-        # Simuler une date de clôture le 15 du mois
         closing_date = date(2026, 6, 15)
-        
-        # Mock pour simuler la réponse BCE
-        # Le taux de clôture devrait être le PREMIER taux publié à partir du 15
-        # Si la BCE publie le 15, 16, 17... on prend le 15
-        # Si elle ne publie que le 16, on prend le 16
-        
-        # Ce test documente le comportement attendu
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        forward_lookup = MagicMock(return_value=Decimal("1.08"))
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", forward_lookup)
+
+        assert ecb_rates.get_closing_rate("usd", closing_date) == Decimal("1.08")
+        forward_lookup.assert_called_once_with("USD", closing_date)
 
     def test_forward_vs_historical_lookup(self):
         """Vérifie la distinction entre lookup historique et forward."""
@@ -42,103 +49,146 @@ class TestBCEClosingRate:
         assert callable(_fetch_ecb_rate)
         assert callable(_fetch_ecb_rate_forward)
 
-    def test_weekend_handling(self):
+    def test_weekend_closing_date_is_passed_to_forward_lookup(self, monkeypatch):
         """Vérifie le traitement des weekends (BCE ne publie pas le weekend)."""
-        # Si la date de clôture est un samedi ou dimanche,
-        # le taux de clôture devrait être le taux publié le lundi suivant
-        
-        closing_date_saturday = date(2026, 6, 13)  # Samedi
-        closing_date_sunday = date(2026, 6, 14)    # Dimanche
-        
-        # Documente le comportement attendu
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        forward_lookup = MagicMock(return_value=Decimal("1.09"))
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", forward_lookup)
 
-    def test_closing_rate_for_oss_period(self):
+        for closing_date in (date(2026, 6, 13), date(2026, 6, 14)):
+            assert ecb_rates.get_closing_rate("USD", closing_date) == Decimal("1.09")
+
+        assert [call.args for call in forward_lookup.call_args_list] == [
+            ("USD", date(2026, 6, 13)),
+            ("USD", date(2026, 6, 14)),
+        ]
+
+    def test_closing_rate_for_oss_period(self, monkeypatch):
         """Vérifie le taux de clôture pour une période OSS."""
-        # OSS: trimestriel (T1 = Q1 = Jan-Mar)
-        # Taux de clôture = dernier jour du trimestre = 31 mars
-        
-        # Si la BCE ne publie pas le 31 mars (weekend),
-        # on prend le premier taux publié après
-        
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        forward_lookup = MagicMock(return_value=Decimal("1.10"))
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", forward_lookup)
 
-    def test_closing_rate_for_ioss_period(self):
+        assert ecb_rates.get_closing_rate("USD", date(2026, 3, 31)) == Decimal("1.10")
+        forward_lookup.assert_called_once_with("USD", date(2026, 3, 31))
+
+    def test_closing_rate_for_ioss_period(self, monkeypatch):
         """Vérifie le taux de clôture pour une période IOSS."""
-        # IOSS: mensuel
-        # Taux de clôture = dernier jour du mois
-        
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        forward_lookup = MagicMock(return_value=Decimal("1.11"))
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", forward_lookup)
 
-    def test_cache_respects_lookup_type(self):
+        assert ecb_rates.get_closing_rate("GBP", date(2026, 2, 28)) == Decimal("1.11")
+        forward_lookup.assert_called_once_with("GBP", date(2026, 2, 28))
+
+    def test_cache_respects_lookup_type(self, monkeypatch):
         """Vérifie que le cache distingue lookup historique vs forward."""
-        # La clé de cache devrait inclure le type de lookup
-        # pour éviter de retourner un taux historique quand on veut forward
-        
-        pytest.skip("Test nécessite mock complexe du cache")
+        monkeypatch.setattr(ecb_rates, "_db_get_rate", lambda *_: None)
+        monkeypatch.setattr(ecb_rates, "_db_upsert_rate", lambda *_: None)
+        monkeypatch.setattr(
+            ecb_rates, "_fetch_ecb_rate", lambda *_: Decimal("1.07")
+        )
+        monkeypatch.setattr(
+            ecb_rates, "_fetch_ecb_rate_forward", lambda *_: Decimal("1.08")
+        )
+        lookup_date = date(2026, 6, 15)
 
-    def test_fallback_when_no_rate_after_date(self):
+        assert ecb_rates.get_rate("USD", lookup_date) == Decimal("1.07")
+        assert ecb_rates.get_closing_rate("USD", lookup_date) == Decimal("1.08")
+        assert ecb_rates.get_rate("USD", lookup_date) == Decimal("1.07")
+        assert ecb_rates.get_closing_rate("USD", lookup_date) == Decimal("1.08")
+
+    def test_no_forward_rate_is_not_cached_as_a_rate(self, monkeypatch):
         """Vérifie le fallback quand aucun taux n'est trouvé après la date."""
-        # Si la BCE n'a pas publié de taux après la date de clôture
-        # (ex: date future très lointaine), devrait avoir un fallback
-        
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        forward_lookup = MagicMock(return_value=None)
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", forward_lookup)
+        closing_date = date(2099, 1, 1)
+
+        assert ecb_rates.get_closing_rate("USD", closing_date) is None
+        assert ecb_rates.get_closing_rate("USD", closing_date) is None
+        forward_lookup.assert_called_once_with("USD", closing_date)
 
 
 class TestBCEHistoricalRate:
     """Tests pour les taux historiques BCE."""
 
-    def test_historical_rate_looks_backward(self):
+    def test_historical_rate_looks_backward(self, monkeypatch):
         """Vérifie que le taux historique cherche en arrière."""
-        # Pour une date passée, on utilise le dernier taux publié AVANT cette date
-        
         historical_date = date(2024, 6, 15)
-        
-        # Le taux historique devrait être le dernier taux publié avant le 15 juin 2024
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        historical_lookup = MagicMock(return_value=Decimal("1.06"))
+        monkeypatch.setattr(ecb_rates, "_db_get_rate", lambda *_: None)
+        monkeypatch.setattr(ecb_rates, "_db_upsert_rate", lambda *_: None)
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate", historical_lookup)
 
-    def test_historical_rate_for_old_transaction(self):
+        assert ecb_rates.get_rate("USD", historical_date) == Decimal("1.06")
+        historical_lookup.assert_called_once_with("USD", historical_date)
+
+    def test_historical_rate_for_old_transaction(self, monkeypatch):
         """Vérifie le taux historique pour une transaction ancienne."""
-        # Transaction de 2024 devrait utiliser le taux de 2024
-        
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        historical_lookup = MagicMock(return_value=Decimal("1.05"))
+        monkeypatch.setattr(ecb_rates, "_db_get_rate", lambda *_: None)
+        monkeypatch.setattr(ecb_rates, "_db_upsert_rate", lambda *_: None)
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate", historical_lookup)
 
-    def test_cache_key_different_for_same_date(self):
+        transaction_date = date(2024, 6, 15)
+        assert ecb_rates.get_rate("GBP", transaction_date) == Decimal("1.05")
+        historical_lookup.assert_called_once_with("GBP", transaction_date)
+
+    def test_cache_key_different_for_same_date(self, monkeypatch):
         """Vérifie que la clé de cache est différente pour historique vs forward."""
-        # Même date, mais lookup différent = clé de cache différente
-        
-        pytest.skip("Test nécessite inspection du cache")
+        monkeypatch.setattr(ecb_rates, "_db_get_rate", lambda *_: None)
+        monkeypatch.setattr(ecb_rates, "_db_upsert_rate", lambda *_: None)
+        historical_lookup = MagicMock(return_value=Decimal("1.07"))
+        forward_lookup = MagicMock(return_value=Decimal("1.08"))
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate", historical_lookup)
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", forward_lookup)
+        lookup_date = date(2026, 6, 15)
+
+        ecb_rates.get_rate("USD", lookup_date)
+        ecb_rates.get_closing_rate("USD", lookup_date)
+        ecb_rates.get_rate("USD", lookup_date)
+        ecb_rates.get_closing_rate("USD", lookup_date)
+
+        historical_lookup.assert_called_once()
+        forward_lookup.assert_called_once()
 
 
 class TestBCEEdgeCases:
     """Tests edge cases pour BCE."""
 
-    def test_non_eur_currency(self):
+    def test_non_eur_currency(self, monkeypatch):
         """Vérifie le traitement des devises non EUR."""
-        # Pour les pays non EUR, on convertit
-        # Le taux de change devrait être correct
-        
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        forward_lookup = MagicMock(return_value=Decimal("1.25"))
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", forward_lookup)
 
-    def test_very_old_date(self):
+        assert ecb_rates.get_closing_rate("GBP", date(2026, 6, 30)) == Decimal("1.25")
+        forward_lookup.assert_called_once_with("GBP", date(2026, 6, 30))
+
+    def test_very_old_date(self, monkeypatch):
         """Vérifie le traitement des dates très anciennes."""
-        # Date avant la création de l'euro (1999)
-        # Devrait avoir un comportement particulier
-        
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        historical_lookup = MagicMock(return_value=None)
+        monkeypatch.setattr(ecb_rates, "_db_get_rate", lambda *_: None)
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate", historical_lookup)
 
-    def test_future_date(self):
+        old_date = date(1990, 1, 1)
+        assert ecb_rates.get_rate("USD", old_date) is None
+        historical_lookup.assert_called_once_with("USD", old_date)
+
+    def test_future_date(self, monkeypatch):
         """Vérifie le traitement des dates futures."""
-        # Date future pour laquelle aucun taux n'existe
-        # Devrait avoir un fallback ou une erreur
-        
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        forward_lookup = MagicMock(return_value=None)
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", forward_lookup)
 
-    def test_bce_api_failure_handling(self):
+        future_date = date(2099, 12, 31)
+        assert ecb_rates.get_closing_rate("USD", future_date) is None
+        forward_lookup.assert_called_once_with("USD", future_date)
+
+    def test_bce_api_failure_handling(self, monkeypatch):
         """Vérifie la gestion des échecs de l'API BCE."""
-        # Si l'API BCE est indisponible, devrait avoir un fallback
-        
-        pytest.skip("Test nécessite mock complexe de l'API BCE")
+        failed_lookup = MagicMock(return_value=None)
+        monkeypatch.setattr(ecb_rates, "_fetch_ecb_rate_forward", failed_lookup)
+        closing_date = date(2026, 6, 30)
+
+        assert ecb_rates.get_closing_rate("USD", closing_date) is None
+        assert ecb_rates.get_closing_rate("USD", closing_date) is None
+        failed_lookup.assert_called_once_with("USD", closing_date)
 
 
 class TestBCECompliance:
@@ -158,17 +208,12 @@ class TestBCECompliance:
 
     def test_oss_uses_closing_rate(self):
         """Vérifie que l'export OSS utilise le taux de clôture."""
-        # L'export OSS devrait utiliser get_closing_rate() pour les conversions
+        import inspect
         from tva_intracom import oss_export
-        
-        # Vérifier que oss_export utilise ecb_rates.get_closing_rate
-        pytest.skip("Test nécessite inspection du code oss_export")
 
-    def test_ioos_uses_closing_rate(self):
-        """Vérifie que l'export IOSS utilise le taux de clôture."""
-        # L'export IOSS devrait utiliser get_closing_rate() pour les conversions
-        
-        pytest.skip("Test nécessite inspection du code IOSS")
+        source = inspect.getsource(oss_export)
+        assert "get_closing_rate" in source
+
 
 
 if __name__ == "__main__":

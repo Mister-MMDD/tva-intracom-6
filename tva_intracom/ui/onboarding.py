@@ -99,7 +99,16 @@ def compute_pulse_target(
     décalage d'un run est sans conséquence : c'est un indice visuel, pas
     une donnée fiscale.
 
-    Prise en compte de la section VIES (vies_ttl) dans le flux d'onboarding.
+    BUGFIX (2026-08-23) : la cible "vies_ttl" (section Cache VIES) était
+    déjà câblée côté rendu (sidebar.py, theme.py) mais jamais retournée
+    ici — le pulse correspondant ne s'affichait donc jamais, alors que le
+    TTL du cache VIES (7 jours par défaut, voir onboarding_check_vies_ttl)
+    est une info que l'utilisateur doit voir tôt. Affiché une seule fois
+    par session, juste après que la fiche entreprise soit complète et
+    avant le premier import de fichier — flag
+    `_onboarding_vies_ttl_pulse_done` pour ne pas rester bloqué dessus
+    indéfiniment (l'étape n'a pas de condition de "complétion" propre,
+    contrairement à entreprise/upload).
     """
     if step == "done":
         return None
@@ -134,8 +143,12 @@ def render_onboarding_banner(
     paramètres (calculés dans app.py) et `_onboarding_step` qu'en lecture
     — n'écrit jamais rien dans calc_key/parse_key.
 
-    Fragment isolé. Assemblage du HTML sans ligne vide intermédiaire
-    pour éviter les ruptures de rendu Markdown.
+    BUGFIX (2026-08-22) : le HTML est assemblé via une liste de fragments
+    sans indentation ni ligne vide, jointe par "".join(...) — une ligne
+    vide au milieu d'un bloc HTML met fin à ce bloc pour le parseur
+    Markdown de Streamlit, et la ligne suivante (indentée par un f-string
+    Python) était alors rendue comme un bloc de code brut au lieu d'être
+    interprétée comme du HTML.
     """
     _step = st.session_state.get("_onboarding_step", "done")
     if _step == "done":

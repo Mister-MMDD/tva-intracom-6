@@ -250,12 +250,12 @@ def generate_oss_xml(
                                       tva=b.bucket.vat_amount,
                                       matching=matching_txt))
             
-            _err_details = "\n".join(details_list)
+            details = "\n".join(details_list)
             
             raise ValueError(
                 _("xml_negative_balance_err", 
                   period=period, 
-                  details=_err_details, 
+                  details=details, 
                   suffix=(_("xml_negative_unmatched_suffix") if (any(b.matched for b in still_blocking) or confirm_corrections) else ""))
             )
 

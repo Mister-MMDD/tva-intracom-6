@@ -614,7 +614,7 @@ class TestOssThreshold:
         assert "FRANCHISSEMENT" in s2_res.note.upper() or s2_res.channel == Channel.OSS
 
     def test_refund_crossing_back_under_threshold_keeps_sale_regime(self):
-        """Test de régression : un avoir qui fait
+        """BUGFIX (point #3, README - évolution.md) : un avoir qui fait
         lui-même repasser le cumul OSS net sous 10 000 € doit conserver le
         régime (pays/taux de TVA) de la vente qu'il annule, pas être
         reclassé en domestique sous prétexte que LE CUMUL APRÈS L'AVOIR est
@@ -756,7 +756,7 @@ class TestVatResultFastConstruction:
         from tva_intracom.models import VatResult
         fast = VatResult._new_unchecked(**self._kwargs())
         with pytest.raises(Exception):
-            setattr(fast, "note", "mutation interdite")
+            fast.note = "mutation interdite"
 
     def test_compute_vat_return_type_is_vatresult(self):
         """Sanity check : compute_vat() renvoie bien une vraie instance
@@ -833,7 +833,7 @@ class TestSaleReplaceFast:
         sale = self._base_sale()
         fast = Sale._replace_fast(sale, buyer_vat_valid=True, product_category="STANDARD", asin="B0X")
         with pytest.raises(Exception):
-            setattr(fast, "buyer_vat_valid", False)
+            fast.buyer_vat_valid = False
 
     def test_used_end_to_end_via_compute_all_with_vies(self):
         """Sanity check bout-en-bout : le chemin réel (compute_all_with_vies

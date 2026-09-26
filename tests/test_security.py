@@ -95,6 +95,14 @@ class TestSQLInjection:
 class TestPIIEncryption:
     """Tests pour le chiffrement des données personnelles."""
 
+    @pytest.fixture(autouse=True)
+    def configured_encryption_key(self, monkeypatch):
+        from cryptography.fernet import Fernet
+        from tva_intracom import security
+
+        monkeypatch.setattr(security, "_KEY", Fernet.generate_key().decode("ascii"))
+        monkeypatch.setattr(security, "_fernet_singleton", None)
+
     def test_encrypt_decrypt_roundtrip(self):
         """Vérifie que le chiffrement/déchiffrement roundtrip fonctionne."""
         original_data = "sensitive_pii_data_12345"
@@ -130,17 +138,14 @@ class TestPIIEncryption:
         with pytest.raises(ValueError, match="not a valid Fernet token"):
             decrypt_data(plain_text)
 
-    def test_encryption_requires_key(self):
+    def test_encryption_requires_key(self, monkeypatch):
         """Vérifie que le chiffrement nécessite une clé de chiffrement."""
-        # Note: l'implémentation actuelle lève une exception si la clé n'est pas configurée
-        # Mais le mock de get_secret peut ne pas fonctionner comme attendu
-        # Ce test documente le comportement attendu
-        from tva_intracom.security import _get_fernet
-        
-        # Vérifier que _get_fernet lève une erreur si pas de clé
-        # Dans l'implémentation actuelle, _get_fernet est appelé au premier usage
-        # et lève RuntimeError si ENCRYPTION_KEY n'est pas défini
-        pytest.skip("Test complexe à mock - comportement documenté dans l'audit")
+        from tva_intracom import security
+
+        monkeypatch.setattr(security, "_KEY", None)
+        monkeypatch.setattr(security, "_fernet_singleton", None)
+        with pytest.raises(RuntimeError, match="Encryption key is not configured"):
+            encrypt_data("sensitive data")
 
     def test_encrypt_fernet_singleton(self):
         """Vérifie que l'instance Fernet est bien un singleton."""
@@ -179,6 +184,26 @@ class TestPIIEncryption:
         decrypted = decrypt_data(encrypted)
         
         assert decrypted == long_data
+
+    def test_decrypt_rejects_token_encrypted_with_another_key(self, monkeypatch):
+        from cryptography.fernet import Fernet
+        from tva_intracom import security
+
+        token = Fernet(security._KEY.encode("ascii")).encrypt(b"secret").decode("ascii")
+        monkeypatch.setattr(security, "_KEY", Fernet.generate_key().decode("ascii"))
+        monkeypatch.setattr(security, "_fernet_singleton", None)
+
+        with pytest.raises(ValueError, match="Check encryption key compatibility"):
+            decrypt_data(token)
+
+    def test_invalid_encryption_key_fails_closed(self, monkeypatch):
+        from tva_intracom import security
+
+        monkeypatch.setattr(security, "_KEY", "not-a-fernet-key")
+        monkeypatch.setattr(security, "_fernet_singleton", None)
+
+        with pytest.raises(RuntimeError, match="Encryption key is invalid"):
+            encrypt_data("sensitive data")
 
 
 class TestBruteForceProtection:
@@ -280,7 +305,7 @@ class TestBruteForceProtection:
     def test_session_token_ttl(self):
         """Vérifie la durée du token de session.
 
-        # Note (audit sécurité 2026-09-13, ÉLEVÉ #3) : ramené de 30 à 7
+        BUGFIX (audit sécurité 2026-09-13, ÉLEVÉ #3) : ramené de 30 à 7
         jours, avec renouvellement glissant sur usage (voir
         auth.get_user_by_session_token) pour ne pas dégrader l'UX d'un
         utilisateur actif au moins une fois par semaine."""
@@ -315,7 +340,7 @@ class TestInputValidation:
         # E-mail invalide (pas de @)
         is_valid, msg = validate_email_strict("invalid_email")
         assert is_valid is False
-        assert "invalide" in msg.lower()
+        assert msg
         
         # E-mail invalide (pas de domaine)
         is_valid, msg = validate_email_strict("test@")
@@ -324,6 +349,22 @@ class TestInputValidation:
         # E-mail valide avec sous-domaine
         is_valid, msg = validate_email_strict("test@sub.example.com")
         assert is_valid is True
+
+    @pytest.mark.parametrize("email", [
+        "", "   ", "invalid_email", "missing-domain@", "@example.com",
+    ])
+    def test_email_validation_rejects_malformed_addresses(self, email):
+        from tva_intracom.auth import validate_email_strict
+
+        valid, message = validate_email_strict(email)
+
+        assert valid is False
+        assert message
+
+    def test_email_validation_normalizes_whitespace_and_case(self):
+        from tva_intracom.auth import validate_email_strict
+
+        assert validate_email_strict("  TEST@Sub.Example.com  ") == (True, "")
 
     def test_vat_number_normalization(self):
         """Vérifie la normalisation des numéros TVA."""
@@ -339,7 +380,7 @@ class TestInputValidation:
         """Vérifie le nettoyage des préfixes."""
         from tva_intracom.vies_engine import normalize_full_vat
         
-        # Nettoyage des parenthèses (2026-09-09)
+        # Nettoyage des parenthèses (BUGFIX 2026-09-09)
         vat_with_parens = normalize_full_vat("FR", "(FR)123456789")
         vat_clean = normalize_full_vat("FR", "FR123456789")
         

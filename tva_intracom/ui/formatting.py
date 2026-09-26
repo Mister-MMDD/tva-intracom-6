@@ -20,7 +20,6 @@ import pandas as pd
 import streamlit as st
 
 from tva_intracom.i18n import _
-from tva_intracom.models import OssThresholdSummary
 
 
 def _fec_period_end_date(period: str) -> str:
@@ -100,16 +99,6 @@ def _resolve_display_limit(selected_option, filtered_count: int) -> int:
     return int(selected_option)
 
 
-def _fmt_bytes_size(num_bytes: int) -> str:
-    """Formate une taille en octets de manière lisible (ex: 1.2 Mo, 450 Ko)."""
-    if num_bytes < 1024:
-        return f"{num_bytes} B"
-    elif num_bytes < 1024 * 1024:
-        return f"{num_bytes / 1024:.1f} Ko"
-    else:
-        return f"{num_bytes / (1024 * 1024):.1f} Mo"
-
-
 def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
     """Affiche une barre de filtres (Recherche, Destination, Scénario, Canal) 
     et retourne le DataFrame filtré. Utilisé uniformément sur tous les tableaux.
@@ -137,28 +126,17 @@ def _render_filter_bar(df: pd.DataFrame, key_suffix: str) -> pd.DataFrame:
         _scen_sel = st.multiselect(_("filter_scenario"), _scen_opts, key=f"scen_{key_suffix}", 
                                    placeholder=_("filter_scenario_placeholder"))
         
-    _has_active_filter = bool(_search or _dest_sel or _canal_sel or _scen_sel)
-    if _has_active_filter:
-        if st.button(_("filter_reset_btn"), key=f"reset_{key_suffix}", help=_("filter_reset_tooltip")):
-            st.session_state.pop(f"search_{key_suffix}", None)
-            st.session_state.pop(f"dest_{key_suffix}", None)
-            st.session_state.pop(f"canal_{key_suffix}", None)
-            st.session_state.pop(f"scen_{key_suffix}", None)
-            # _render_filter_bar est appelée à la fois depuis des fragments
-            # (detail_ventes.py, audit.py) et depuis render_vies() dans
-            # vies_ui.py, qui n'est PAS un fragment — scope="fragment" y
-            # lèverait StreamlitAPIException (voir doc st.rerun). Repli sur
-            # un rerun complet quand on n'est pas dans un fragment.
-            try:
-                st.rerun(scope="fragment")
-            except st.errors.StreamlitAPIException:
-                st.rerun()
-
     df_filt = df # On évite la copie systématique ici
     
     if _search:
         _search_cols = [c for c in (_("vies_col_id"), _("col_note"), _("col_transaction")) if c in df_filt.columns]
         if _search_cols:
+            # Une seule colonne concaténée + un seul scan .str.contains(), au
+            # lieu d'une conversion .astype(str) et d'un scan par colonne
+            # (3x le travail sur un DataFrame identique). Le gain se voit
+            # surtout au-delà de 50k lignes. Le séparateur "\u0001" (non
+            # imprimable) évite qu'une recherche ne matche accidentellement
+            # à cheval sur deux colonnes concaténées.
             _search_index = df_filt[_search_cols[0]].fillna("").astype(str)
             for col in _search_cols[1:]:
                 _search_index = _search_index.str.cat(
@@ -193,8 +171,8 @@ def _get_conversion_rate() -> tuple[str, float]:
     try:
         from tva_intracom.ecb_rates import get_rate
         import datetime
-        _raw_rate = get_rate(target_currency, datetime.date.today())
-        rate: float = float(_raw_rate) if _raw_rate else 1.0
+        rate = get_rate(target_currency, datetime.date.today())
+        rate = float(rate) if rate else 1.0
     except Exception:
         rate = 1.0
     st.session_state[cache_key] = rate
@@ -480,7 +458,7 @@ def _gated_preview_table(
         st.warning(_("gated_preview_warning", count=n_total - min_rows))
 
 
-def render_oss_threshold_bar(oss_summary: OssThresholdSummary) -> None:
+def render_oss_threshold_bar(oss_summary: Any) -> None:
     """Affiche la barre de progression du seuil OSS 10 000 EUR (Art. 59 quater
     Dir. 2006/112/CE).
 

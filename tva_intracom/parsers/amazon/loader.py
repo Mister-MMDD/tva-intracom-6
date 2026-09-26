@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, Optional, Set, Tuple
+from typing import Callable, List, Optional, Set, Tuple
 
 from .aggregate import preaggregate_v5
 from .classify import (
@@ -53,15 +53,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AmazonImportResult:
-    sales: list[Sale]
-    refunds: list[Sale]
-    fc_transfers: list[dict]
-    stock_countries: set[str]
+    sales: List[Sale]
+    refunds: List[Sale]
+    fc_transfers: List[dict]
+    stock_countries: Set[str]
     skipped_rows: int = 0
     total_rows: int = 0
-    warnings: list[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
     detected_format: int = 0      # 1, 2, 3, 4 ou 5
-    # platform est "amazon" en minuscule en interne.
+    # BUGFIX (2026-08-25) : "amazon" en minuscule, pas "Amazon" — cohérent
+    # avec la convention du reste du code (cli.py::platform = "amazon",
+    # parsers/aliexpress.py::result.platform = "ebay"/"temu"/"aliexpress").
+    # app.py n'utilise ce champ que pour un affichage de secours
+    # (`platform or file_format...`), aucune comparaison sensible à la casse
+    # n'en dépendait ailleurs — vérifié par grep sur `.platform` avant
+    # correction.
     platform: str = "amazon"
     # Lignes RETURN physiques (mouvement marchandise sans montant financier).
     # Distinct de skipped_rows : les RETURN sont normaux, le flux financier
@@ -75,7 +81,7 @@ class AmazonImportResult:
     # Lignes brutes INVOICE / CREDIT_NOTE conservées pour l'onglet Excel dédié
     # (voir excel_report.py). Champs extraits via le parser du format détecté
     # + quelques colonnes brutes directement lues sur la ligne normalisée.
-    invoice_credit_notes: list[dict] = field(default_factory=list)
+    invoice_credit_notes: List[dict] = field(default_factory=list)
     # Ensemble des UNIQUE_ACCOUNT_IDENTIFIER rencontrés dans le fichier (colonne
     # Amazon identifiant le compte vendeur d'origine). Un même SIREN client peut
     # posséder plusieurs comptes Amazon (donc plusieurs identifiants), mais un
@@ -84,7 +90,7 @@ class AmazonImportResult:
     # link_account_identifier, et le gating dans ui/billing_gate.py, qui
     # empêchent d'exporter un fichier appartenant à un autre client sans
     # confirmation explicite.
-    account_identifiers: set[str] = field(default_factory=set)
+    account_identifiers: Set[str] = field(default_factory=set)
     # Format 5 uniquement : Tax Reporting Scheme par sale_id
     # "VCS_EU_OSS" = déclarable OSS ; "" = domestique / hors OSS
     tax_scheme_by_sale_id: dict = field(default_factory=dict)
@@ -94,7 +100,7 @@ class AmazonImportResult:
     # commande. Une entrée par vente concernée : {sale_id, order_date,
     # shipment_date, amount_ht}. Format 5 uniquement (seul format où les
     # deux dates sont disponibles séparément).
-    period_mismatches: list[dict] = field(default_factory=list)
+    period_mismatches: List[dict] = field(default_factory=list)
     # Chantier taux réduit dynamique CN/CPA (cf. synthèse
     # taux_reduit_dynamique.md) — répartition diagnostique des valeurs
     # PRODUCT_TAX_CODE / COMMODITY_CODE brutes rencontrées (sales/refunds
@@ -107,8 +113,16 @@ class AmazonImportResult:
     # observée), pas la source de vérité du calcul.
     product_tax_code_counts: "Counter[str]" = field(default_factory=Counter)
     commodity_code_counts: "Counter[str]" = field(default_factory=Counter)
-    # Compteurs de repli de taux de change par devise :
-    # nombre de ventes par devise où le taux BCE était indisponible.
+    # BUGFIX (2026-09-22, absence d'alerte UI) : nombre de ventes par devise
+    # où le taux BCE était indisponible et où le taux fourni par Amazon
+    # (INVOICE_LEVEL_EXCHANGE_RATE / EXCHANGE_RATE) a été utilisé en repli
+    # (voir CurrencyResult.exchange_rate_source == "fallback" dans
+    # classify.py). Champ structuré plutôt qu'un simple texte dans
+    # `warnings` : app.py s'en sert pour afficher un st.warning() TOUJOURS
+    # visible (y compris en mode d'affichage Simple, contrairement à
+    # `warnings` qui ne s'affiche qu'en mode Détaillé) — la fiabilité du
+    # taux de change est jugée suffisamment critique pour ne jamais être
+    # masquée par le mode d'affichage.
     ecb_fallback_counts: "Counter[str]" = field(default_factory=Counter)
 
 
@@ -547,14 +561,22 @@ def _read_and_prepare_rows(
         try:
             import polars as pl
             # On lit tout en string pour garder la cohérence avec le reste du moteur
-            # Lecture polars avec empty_string_is_null=False pour convertir les
-            # cellules vides en "" plutôt qu'en None (équivalent de l'ancien
-            # paramètre déprécié missing_utf8_is_empty_string=True — le reste
-            # du moteur suppose partout des chaînes, jamais None, voir
-            # classify.py / parsers/ / loader.py).
+            # BUGFIX (2026-09-06) : sans `missing_utf8_is_empty_string=True`,
+            # polars représente une cellule CSV vide par `null` (None en
+            # Python après to_dicts()), et NON par une chaîne vide — quelle
+            # que soit la colonne. Le reste du moteur (classify.py, parsers/,
+            # loader.py) suppose partout des chaînes (`row.get(col, "").strip()`
+            # notamment), un défaut `""` qui ne s'applique QUE si la clé est
+            # absente, jamais si sa valeur est `None`. Résultat : AttributeError
+            # ('NoneType' object has no attribute 'strip') dès qu'une colonne
+            # utilisée (ex: exchange_rate) contient une cellule vide dans le
+            # fichier source — pas un problème de casse d'en-tête (déjà géré
+            # par normalize_header ci-dessous), mais de valeur manquante. Ce
+            # flag corrige la cause à la racine, pour toutes les colonnes,
+            # dans le chemin de lecture principal (polars).
             df = pl.read_csv(
                 handle, separator=sep, infer_schema_length=0, encoding=encoding,
-                empty_string_is_null=False,
+                missing_utf8_is_empty_string=True,
             )
             df = df.rename({c: normalize_header(c) for c in df.columns})
             full_headers = set(df.columns)
@@ -623,7 +645,12 @@ def _read_and_prepare_rows(
                 # aucune colonne connue ne matche (fichier hors format), on
                 # ne filtre pas plutôt que de vider silencieusement les lignes.
                 _any_known_col = any(h in NEEDED_COLUMNS for h in full_headers)
-                # Traitement restval avec `(v or "")` pour garantir des chaînes.
+                # BUGFIX (2026-09-06) : `csv.DictReader` met `restval` (None
+                # par défaut) pour toute colonne manquante sur une ligne plus
+                # courte que l'en-tête (ligne mal formée / tronquée) — même
+                # cause racine que le correctif polars ci-dessus
+                # (`missing_utf8_is_empty_string`) : `v or ""` garantit ici
+                # aussi une chaîne pour TOUTE colonne, jamais None.
                 raw_rows = [
                     {
                         normalize_header(k): (v or "")
@@ -711,9 +738,18 @@ def load_amazon_report(
 ) -> AmazonImportResult:
     """Charge un fichier Amazon VAT Transactions Report (formats 1 à 5).
 
-    CLARTÉ D'API : le paramètre `target_currency` est
-    accepté mais TOUJOURS ignoré au profit d'EUR en dur.
-    Le moteur fiscal doit calculer en EUR quel que soit le pays vendeur.
+    CLARTÉ D'API (audit du 2026-08-19) : le paramètre `target_currency` est
+    accepté (et transmis explicitement par app.py) mais TOUJOURS ignoré au
+    profit d'EUR en dur, plus bas dans cette fonction — voir le commentaire
+    "BUGFIX CRITIQUE" associé. Ce n'est pas un bug : le moteur fiscal doit
+    calculer en EUR quel que soit le pays vendeur (seuil OSS, cases CA3,
+    taux de TVA…), la conversion vers une devise d'affichage se fait
+    uniquement en couche présentation (ui/formatting.py, report.py,
+    excel_report.py). Le paramètre est conservé dans la signature par
+    compatibilité (app.py l'appelle en keyword), mais son nom peut induire
+    en erreur un futur mainteneur qui penserait qu'il pilote encore quelque
+    chose ici. Un log de diagnostic prévient désormais si une valeur autre
+    qu'EUR est passée, pour que ce silence ne devienne jamais un piège.
 
     La détection du format et de l'encodage est automatique.
     Si l'encodage n'est pas fourni, on tente UTF-8 puis Windows-1252 (cp1252).
@@ -744,7 +780,7 @@ def load_amazon_report(
     # Optimisation : on scanne les dates une fois pour faire une requête groupée (batch).
     # On utilise un set pour éviter de passer des millions de doublons à prefetch_rates.
     if convert_currencies and rows_to_process:
-        to_prefetch_set: set[tuple[str, date]] = set()
+        to_prefetch_set: Set[Tuple[str, date]] = set()
         for _, row in rows_to_process:
             c = parser.currency(row)
             if c and c.upper() != "EUR":
@@ -776,11 +812,18 @@ def load_amazon_report(
             prefetch_rates(to_prefetch, progress_callback=_bce_cb)
 
     # Traitement principal (hors contexte fichier : fichier fermé proprement)
-    # Devise de calcul interne EUR : la devise de calcul interne du moteur
-    # fiscal DOIT toujours rester l'EUR, quel que soit le pays d'origine
-    # (home_country) choisi par l'utilisateur. La conversion vers une devise
-    # d'affichage locale se fait uniquement en couche présentation (voir
-    # tva_intracom/ui/formatting.py, report.py, excel_report.py), jamais ici.
+    # BUGFIX CRITIQUE : la devise de calcul interne du moteur fiscal DOIT
+    # toujours rester l'EUR, quel que soit le pays d'origine (home_country)
+    # choisi par l'utilisateur. `seller_country` sert uniquement à classer les
+    # ventes (domestique vs OSS vs immatriculation locale) — ce n'est PAS la
+    # devise de calcul. Le seuil OSS (10 000 EUR), les cases CA3, le calcul du
+    # taux de TVA (ecart Amazon/moteur), etc. supposent tous des montants en
+    # EUR partout ailleurs dans le moteur (voir engine.py, ca3_report.py,
+    # oss_export.py). Convertir ici vers la devise du pays d'origine
+    # contaminerait irrémédiablement tous les calculs fiscaux en aval.
+    # La conversion vers une devise d'affichage locale se fait uniquement en
+    # couche présentation (voir tva_intracom/ui/formatting.py, report.py,
+    # excel_report.py), jamais ici.
     _requested_target_currency = target_currency
     target_currency = "EUR"
     if _requested_target_currency and _requested_target_currency.upper() != "EUR":

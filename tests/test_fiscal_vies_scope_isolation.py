@@ -8,7 +8,7 @@ Ce module vérifie que l'isolation fonctionne correctement.
 """
 
 import pytest
-from datetime import date
+from datetime import date, datetime, timedelta, timezone, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from tva_intracom import vies_engine
@@ -92,15 +92,57 @@ class TestVISScopeIsolation:
         vat_number = "FR12345678901"
         scope = "user@gmail.com"
         
-        # La fonction interne _cache_key devrait être utilisée
-        # Ce test documente le format attendu
-        pytest.skip("Test nécessite inspection de la fonction _cache_key")
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = (
+            True, country, vat_number[2:], "Entreprise", "Paris", "",
+            datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.cursor.return_value = cursor
+
+        with patch.object(vies_engine, "_conn", return_value=connection), \
+                patch.object(vies_engine, "_is_expired", return_value=False), \
+                patch.object(vies_engine, "_dec", side_effect=lambda value: value):
+            result, fresh = vies_engine._db_get_scope(scope, vat_number)
+
+        assert result.valid is True
+        assert fresh is True
+        query, params = cursor.execute.call_args.args
+        assert "WHERE scope_id=%s AND vat_id=%s" in query
+        assert params == (scope, vat_number)
 
     def test_override_vies_cache_respects_scope(self):
         """Vérifie que les overrides VIES respectent le scope."""
-        # Un override pour une organisation ne devrait pas affecter une autre
-        
-        pytest.skip("Test nécessite mock du cache VIES")
+        rows_by_scope = {
+            "domain:company-a.com": [("FR12345678901", True, datetime.now(timezone.utc))],
+            "domain:company-b.com": [],
+        }
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+
+        def fetch_scope_rows():
+            return rows_by_scope[cursor.execute.call_args.args[1][0]]
+
+        cursor.fetchall.side_effect = fetch_scope_rows
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.cursor.return_value = cursor
+
+        with patch.object(vies_engine, "_conn", return_value=connection):
+            scope_a = vies_engine.get_manual_overrides(
+                "domain:company-a.com", include_expired=True
+            )
+            scope_b = vies_engine.get_manual_overrides(
+                "domain:company-b.com", include_expired=True
+            )
+
+        assert scope_a == {"FR12345678901": True}
+        assert scope_b == {}
+        assert [call.args[1][0] for call in cursor.execute.call_args_list] == [
+            "domain:company-a.com", "domain:company-b.com",
+        ]
 
 
 class TestVISScopeEdgeCases:
@@ -121,23 +163,11 @@ class TestVISScopeEdgeCases:
         assert scope1 != scope2, "Sous-domaines devraient avoir des scopes différents"
 
     def test_invalid_email_format(self):
-        """Vérifie le traitement des formats d'e-mail invalides."""
-        invalid_emails = [
-            "invalid",
-            "@nodomain.com",
-            "user@",
-            "",
-        ]
-        
-        for email in invalid_emails:
-            # Ne devrait pas planter
-            try:
-                scope = vies_engine.resolve_scope_id(email)
-                # Peut retourner un scope par défaut
-                assert scope is not None
-            except Exception:
-                # Ou lever une erreur
-                pass
+        """Les e-mails mal formés ont une portée de repli déterministe."""
+        assert vies_engine.resolve_scope_id("invalid") == "user:invalid"
+        assert vies_engine.resolve_scope_id("") == "user:inconnu"
+        assert vies_engine.resolve_scope_id("@nodomain.com") == "domain:nodomain.com"
+        assert vies_engine.resolve_scope_id("user@") == "domain:"
 
     def test_unicode_email(self):
         """Vérifie le traitement des e-mails avec caractères Unicode."""
@@ -149,21 +179,13 @@ class TestVISScopeEdgeCases:
         assert scope is not None
 
     def test_plus_addressing(self):
-        """Vérifie le traitement des adresses avec + (gmail feature)."""
-        # user+tag@gmail.com vs user@gmail.com
-        # Gmail ignore le + pour la livraison, mais pour l'isolation ?
-        
+        """Le plus-addressing reste distinct pour l'isolation du cache."""
         email1 = "user+tag@gmail.com"
         email2 = "user@gmail.com"
-        
-        scope1 = vies_engine.resolve_scope_id(email1)
-        scope2 = vies_engine.resolve_scope_id(email2)
-        
-        # Selon l'implémentation, pourraient être:
-        # - Différents (isolation stricte)
-        # - Identiques (normalisation)
-        # Ce test documente le comportement actuel
-        # (on ne fait pas d'assertion stricte)
+
+        assert vies_engine.resolve_scope_id(email1) == "user:user+tag@gmail.com"
+        assert vies_engine.resolve_scope_id(email2) == "user:user@gmail.com"
+        assert vies_engine.resolve_scope_id(email1) != vies_engine.resolve_scope_id(email2)
 
     def test_very_long_email(self):
         """Vérifie le traitement des e-mails très longs."""
@@ -188,10 +210,9 @@ class TestVISScopeConfiguration:
         assert "outlook.com" in PERSONAL_EMAIL_DOMAINS
 
     def test_scope_can_be_overridden_manually(self):
-        """Vérifie qu'un scope peut être défini manuellement."""
-        # Pour les cas particuliers, on devrait pouvoir forcer un scope
-        
-        pytest.skip("Test nécessite inspection de l'API de scope")
+        """Le scope d'organisation est déterminé de façon stable par domaine."""
+        assert vies_engine.resolve_scope_id("alice@company.example") == "domain:company.example"
+        assert vies_engine.resolve_scope_id("bob@company.example") == "domain:company.example"
 
     def test_scope_ttl_configurable(self):
         """Vérifie que le TTL du scope est configurable."""
@@ -201,15 +222,15 @@ class TestVISScopeConfiguration:
         assert _SCOPE_TTL_MAX_ENTRIES > 0
 
     def test_global_cache_has_different_ttl(self):
-        """Vérifie que le cache global a un TTL différent du cache scope."""
-        from tva_intracom.vies_engine import _SCOPE_TTL_MAX_ENTRIES
-        
-        # Le cache scope a un TTL configuré
-        assert _SCOPE_TTL_MAX_ENTRIES > 0
-        
-        # Le cache global peut avoir une configuration différente
-        # Ce test documente simplement que le TTL existe
-        pytest.skip("TTL global nécessite inspection du code vies_engine")
+        """Le TTL global par défaut et le TTL scope personnalisé sont distincts."""
+        checked_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        now = checked_at + timedelta(days=8)
+
+        with patch.object(vies_engine, "_now_utc", return_value=now):
+            assert vies_engine._is_expired(checked_at) is True
+            assert vies_engine._is_expired(
+                checked_at, "domain:long-ttl", ttl_days=30
+            ) is False
 
 
 class TestVISScopeMultiTenant:
@@ -248,11 +269,34 @@ class TestVISScopeMultiTenant:
         assert len(set(scopes)) == 1, "Tous les utilisateurs d'une organisation devraient partager le scope"
 
     def test_cross_domain_leak_prevention(self):
-        """Vérifie qu'il n'y a pas de fuite entre domaines."""
-        # Organisation A (company-a.com) valide un numéro VAT
-        # Organisation B (company-b.com) ne devrait pas voir cette validation
-        
-        pytest.skip("Test nécessite mock du cache VIES")
+        """Un résultat du cache scope A n'est pas visible dans le scope B."""
+        row = (
+            True, "DE", "123456789", "Entreprise A", "", "",
+            datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.cursor.return_value = cursor
+
+        def fetch_scope_row():
+            scope_id = cursor.execute.call_args.args[1][0]
+            return row if scope_id == "domain:company-a.com" else None
+
+        cursor.fetchone.side_effect = fetch_scope_row
+        with patch.object(vies_engine, "_conn", return_value=connection), \
+                patch.object(vies_engine, "_is_expired", return_value=False), \
+                patch.object(vies_engine, "_dec", side_effect=lambda value: value):
+            result_a, fresh_a = vies_engine._db_get_scope(
+                "domain:company-a.com", "DE123456789"
+            )
+            result_b, fresh_b = vies_engine._db_get_scope(
+                "domain:company-b.com", "DE123456789"
+            )
+
+        assert result_a is not None and result_a.valid and fresh_a
+        assert result_b is None and not fresh_b
 
 
 if __name__ == "__main__":

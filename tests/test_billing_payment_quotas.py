@@ -245,7 +245,7 @@ class TestCreateSubscriptionCheckoutSessionQuantity:
 
     @pytest.fixture(autouse=True)
     def _mock_dependencies(self, monkeypatch, fake_db):
-        # Note (2026-08-25) : create_subscription_checkout_session() appelle
+        # BUGFIX (2026-08-25) : create_subscription_checkout_session() appelle
         # désormais _require_write_access(acting_user_id) en tout premier
         # (défense en profondeur RÔLES, cohérente avec register_siren/
         # request_siren_removal) — nécessite `fake_db` pour que la lecture
@@ -404,7 +404,8 @@ class TestRequestSirenRemoval:
         """Abonnement actif avec échéance lointaine, mais organisation
         au-dessus de son quota (ex: downgrade Cabinet réduisant
         siren_quantity) : le retrait doit être immédiat, pas différé à la
-        date anniversaire (correctif 2026-09-08)."""
+        date anniversaire -- pour ne pas laisser le blocage premium
+        persister pendant des mois (bugfix 2026-09-08)."""
         period_end = time.time() + 30 * 24 * 3600  # dans 30 jours
         monkeypatch.setattr(billing, "get_subscription_status",
                              lambda org_id: billing.SubscriptionStatus(
@@ -506,7 +507,7 @@ class TestSirenLockedForAchatOnlyAccount:
         """Compte PAYG normalement verrouillé (jamais abonné, achat PAYG
         existant), mais qui se retrouve accidentellement avec plus d'un
         SIREN enregistré : le hors-quota prime sur le verrou "Achat" --
-        retrait immédiat autorisé jusqu'à revenir à 1 SIREN (correctif
+        retrait immédiat autorisé jusqu'à revenir à 1 SIREN (bugfix
         2026-09-08), contrairement à test_removal_blocked_for_payg_only_account
         ci-dessus où l'organisation reste dans son quota de 1."""
         monkeypatch.setattr(billing, "get_subscription_status",
@@ -613,7 +614,7 @@ class TestPaygTriggersOrgLock:
 
 
 # ---------------------------------------------------------------------------
-# register_siren : verrou avisé + recomptage sous verrou (verrou avisé Postgres),
+# register_siren : verrou avisé + recomptage sous verrou (BUGFIX point #4,
 # README - évolution.md) — ferme la course TOCTOU entre can_register_new_siren()
 # (lu côté UI, avant l'appel) et l'INSERT effectif, pour deux ajouts de SIREN
 # concurrents dans la même organisation.
@@ -727,7 +728,7 @@ def _fake_schedule_phase(start_date: float, price_id: str | None,
 
 class TestExtractScheduledChange:
 
-    # Note (2026-08-25) : `_plan_from_price_id` lit les price_id via
+    # BUGFIX (2026-08-25) : `_plan_from_price_id` lit les price_id via
     # `billing._env()`, qui priorise `st.secrets` sur `os.environ` (voir
     # docstring de `_env`) — fixer seulement `os.environ[...]` ici était
     # silencieusement ignoré dès qu'un `secrets.toml` local contenait de
@@ -826,7 +827,7 @@ class TestSubscriptionScheduleWebhookEvents:
         monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *a, **k: event)
         monkeypatch.setattr(billing, "_org_id_for_stripe_customer", lambda cid: "org-42")
 
-        # Note (2026-08-25) : voir commentaire de TestExtractScheduledChange
+        # BUGFIX (2026-08-25) : voir commentaire de TestExtractScheduledChange
         # — monkeypatch de billing._env, pas seulement os.environ, pour
         # rester fiable même avec des secrets Streamlit locaux réels.
         # Fallback sur os.environ pour les clés hors price_id (ex.

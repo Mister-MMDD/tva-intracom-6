@@ -100,7 +100,7 @@ def _asin_avg_price_from_results(results: List[VatResult]) -> Dict[str, Decimal]
 def _asin_category_map(results: List[VatResult]) -> Dict[str, str]:
     """Catégorie produit par ASIN, déduite des ventes connues (première
     valeur rencontrée par ASIN) — utilisée pour appliquer le bon taux de TVA
-    sur l'AIC au lieu du taux STANDARD systématique (voir note ci-dessous).
+    sur l'AIC au lieu du taux STANDARD systématique (voir BUGFIX ci-dessous).
     """
     mapping: Dict[str, str] = {}
     for r in results:
@@ -164,11 +164,16 @@ def _compute_aic_from_fc_transfers(
     ⚠ Valeur estimée : prix de vente moyen HT × qté (art. 83 impose la
     valeur d'achat, inconnue depuis Amazon). Approximation par excès.
 
-    Précision taux TVA AIC : le taux de TVA
-    appliqué à l'AIC s'appuie désormais sur la catégorie produit connue de
+    BUGFIX (précision fiscale, voir README - évolution.md) : le taux de TVA
+    appliqué à l'AIC était auparavant TOUJOURS le taux standard du pays
+    vendeur, y compris pour des ASIN vendus à taux réduit (livres,
+    alimentaire...) — sur-évaluant la base ET la TVA AIC affichées sur le
+    rapport CA3 (neutre au global puisque l'AIC est auto-liquidée et
+    immédiatement déduite en Ligne 20, mais trompeur ligne à ligne sur le
+    mémo B2/L17). On utilise désormais la catégorie produit connue de
     l'ASIN transféré (via les ventes de la période) pour appliquer le taux
     réellement applicable, avec repli sur STANDARD si l'ASIN n'apparaît dans
-    aucune vente connue.
+    aucune vente connue (comportement précédent conservé dans ce cas précis).
     """
     # BASCULE TVA DYNAMIQUE (2026-09-12) : le taux appliqué à l'AIC vient
     # désormais de vat_rates_db (TEDB + repli statique), STANDARD_VAT_RATES
@@ -197,17 +202,35 @@ def _compute_aic_from_fc_transfers(
                t.get("SALE_DEPART_COUNTRY") or t.get("sale_depart_country") or "").strip().upper()
         arr = (t.get("ARRIVAL_COUNTRY") or t.get("arrival_country") or
                t.get("SALE_ARRIVAL_COUNTRY") or t.get("sale_arrival_country") or "").strip().upper()
-        # AIC Monaco : un transfert de stock FBA arrivant à Monaco (arr="MC")
-        # est pris en compte car Monaco est fiscalement assimilé à la France
-        # (convention du 18 mai 1963, voir fiscal_equivalent_country).
+        # BUGFIX (2026-09-10, AIC Monaco) : un transfert de stock FBA
+        # arrivant physiquement à Monaco (arr="MC") était ignoré ici car
+        # "MC" != seller_country ("FR"), alors que Monaco est fiscalement
+        # assimilé à la France (convention du 18 mai 1963, voir
+        # fiscal_equivalent_country). Sous-évaluait la base AIC (case B2)
+        # et la TVA auto-liquidée (Ligne 17) pour les vendeurs stockant à
+        # Monaco.
         #
-        # Normalisation pays de départ / arrivée :
-        # normalisation via fiscal_equivalent_country() pour ne retenir que les
-        # mouvements extérieurs au territoire fiscal (FR/MC).
+        # BUGFIX 2 (2026-09-10, faux positif FR <-> Monaco) : le filtre
+        # "pas de mouvement réel" comparait ensuite dep/arr en codes BRUTS
+        # ("FR" == "MC" ? non), ce qui laissait passer comme AIC un
+        # transfert purement domestique entre la France et Monaco
+        # (ex. dep="FR", arr="MC", ou l'inverse) — alors que ces deux
+        # territoires forment un seul et même territoire fiscal TVA pour
+        # les marchandises : un tel mouvement ne constitue jamais une
+        # acquisition intracommunautaire, qu'il s'agisse d'un déplacement
+        # France -> France, France -> Monaco ou Monaco -> France. On
+        # normalise donc désormais AUSSI le pays de départ via
+        # fiscal_equivalent_country() pour ce filtre : seul un départ
+        # réellement extérieur au territoire fiscal du vendeur (FR/MC)
+        # peut donner lieu à une AIC entrante.
         arr_fiscal = fiscal_equivalent_country(arr)
         dep_fiscal = fiscal_equivalent_country(dep)
-        # Normalisation seller_country : seller_country est également normalisé
-        # pour gérer le cas d'un vendeur établi à Monaco avec arrivée en France.
+        # BUGFIX 3 (2026-09-10, symétrique du BUGFIX ci-dessus) : seul
+        # arr_fiscal était normalisé, pas seller_country. Pour un vendeur
+        # établi À Monaco (seller_country="MC") avec une arrivée physique
+        # en France (arr="FR"), la comparaison "FR" != "MC" écartait à tort
+        # ce transfert AIC alors que les deux territoires sont fiscalement
+        # équivalents.
         if arr_fiscal != fiscal_equivalent_country(seller_country.upper()) or dep_fiscal == arr_fiscal:
             continue
         asin = (t.get("ASIN") or t.get("asin") or "").strip()
@@ -335,9 +358,20 @@ def compute_ca3_lines_v2(
         lines[f"{k}_tva_due"]    = Decimal("0.00")
 
     def _aggregate(res: VatResult, is_refund: bool) -> None:
-        # Normalisation seller_country : normalisation des deux membres de la
-        # comparaison via fiscal_equivalent_country() (ex. seller_country="MC"
-        # et stock_country="FR").
+        # fiscal_equivalent_country : un stock physiquement à Monaco doit
+        # compter comme "stock chez le vendeur" si celui-ci est établi en
+        # France (Monaco = France fiscale, convention du 18 mai 1963) — sans
+        # cette normalisation, "MC" != seller_country="FR" faisait échouer
+        # à tort ce test. Corrigé le 2026-08-26 (angle mort confirmé).
+        #
+        # BUGFIX (2026-09-10, cas symétrique non couvert par le correctif
+        # ci-dessus) : seul stock_country était normalisé, pas
+        # seller_country. Pour un vendeur établi À Monaco (seller_country=
+        # "MC") avec un stock en France ("FR"), le test comparait
+        # fiscal_equivalent_country("FR")="FR" à seller_country.upper()="MC"
+        # → toujours faux, alors que ce stock est bien "chez le vendeur"
+        # (France fiscale des deux côtés). Normalisation des DEUX membres de
+        # la comparaison.
         stock_from_seller = (
             fiscal_equivalent_country(res.sale.stock_country)
             == fiscal_equivalent_country(seller_country.upper())
@@ -445,8 +479,14 @@ def generate_ca3_html_report_v2(
         company_name: str,
         siren: str,
         period_label: str,
-        # Protection XSS : échappement HTML immédiat de company_name et siren
-        # avant toute insertion dans le modèle HTML du rapport.
+        # BUGFIX (2026-09-09, XSS) : company_name est une saisie utilisateur
+        # (formulaire d'enregistrement SIREN, voir billing.register_siren)
+        # injectée sans protection dans ce rapport HTML — un nom
+        # d'entreprise contenant <script>...</script> s'exécutait à
+        # l'ouverture du rapport. Échappement HTML immédiat, avant toute
+        # utilisation dans les f-strings ci-dessous. siren échappé par la
+        # même occasion, par défense en profondeur (normalement numérique
+        # uniquement, mais non revalidé ici).
         refund_results: Optional[List[VatResult]] = None,
         all_fc_transfers: Optional[list] = None,
         tva_deductible_immos:      Decimal = Decimal("0.00"),
@@ -484,17 +524,19 @@ def generate_ca3_html_report_v2(
     solde_label = (_("ca3_solde_to_pay") if solde >= 0 else _("ca3_solde_credit"))
     solde_color = ("#C00000" if solde >= 0 else "#375623")
 
-    # Normalisation seller_country : seller_country normalisé via fiscal_equivalent_country.
+    # fiscal_equivalent_country : idem ci-dessus — un stock à Monaco compte
+    # comme stock "national" pour le seuil OSS si le vendeur est établi en
+    # France. Corrigé le 2026-08-26 (angle mort confirmé).
+    # BUGFIX (2026-09-10, symétrique) : seller_country normalisé lui aussi
+    # (cas d'un vendeur établi à Monaco avec stock en France).
     _seller_fiscal = fiscal_equivalent_country(seller_country.upper())
     oss_base = sum(
-        (r.sale.amount_ht for r in results
-         if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal),
-        Decimal("0"),
+        r.sale.amount_ht for r in results
+        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal
     )
     oss_tva = sum(
-        (r.vat_amount for r in results
-         if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal),
-        Decimal("0"),
+        r.vat_amount for r in results
+        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal
     )
 
     has_aic  = lines["B2_base_ht"] > 0
@@ -506,10 +548,10 @@ def generate_ca3_html_report_v2(
 
     # Totaux vente / avoir (hors AIC — l'AIC n'a pas de variante avoir)
     _RATE_LINES = ("L08", "L09", "LT6", "L9B")
-    tva_vente_total  = sum((lines[f"{k}_tva_vente"]  for k in _RATE_LINES), Decimal("0"))
-    tva_remb_total   = sum((lines[f"{k}_tva_remb"]   for k in _RATE_LINES), Decimal("0"))
-    base_vente_total = sum((lines[f"{k}_base_vente"] for k in _RATE_LINES), Decimal("0"))
-    base_remb_total  = sum((lines[f"{k}_base_remb"]  for k in _RATE_LINES), Decimal("0"))
+    tva_vente_total  = sum(lines[f"{k}_tva_vente"]  for k in _RATE_LINES)
+    tva_remb_total   = sum(lines[f"{k}_tva_remb"]   for k in _RATE_LINES)
+    base_vente_total = sum(lines[f"{k}_base_vente"] for k in _RATE_LINES)
+    base_remb_total  = sum(lines[f"{k}_base_remb"]  for k in _RATE_LINES)
     has_remb = any(
         lines[f"{k}_base_remb"] != 0
         for k in ("A1", "F2", "E1", "L08", "L09", "LT6", "L9B")
@@ -523,7 +565,7 @@ def generate_ca3_html_report_v2(
     # et *_base_remb, jamais touchées par l'ajout de l'AIC). Utiliser cette
     # dernière pour la ligne "TOTAL" produisait une base nette (46 273,68)
     # incohérente avec une TVA nette (9 369,75) qui, elle, incluait l'AIC.
-    base_net_total_avec_aic = sum((lines[f"{k}_base_ht"] for k in _RATE_LINES), Decimal("0"))
+    base_net_total_avec_aic = sum(lines[f"{k}_base_ht"] for k in _RATE_LINES)
 
     # TVA nette "hors AIC" : la TVA brute due (Ligne 16, AIC inclus) moins
     # UNIQUEMENT la part AIC (Ligne 17) — pas les autres déductions (L19,

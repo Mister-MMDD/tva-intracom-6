@@ -78,6 +78,57 @@ def test_check_vat_network_error(mock_urlopen_func):
 
 
 @patch("tva_intracom.vies_engine.urllib.request.urlopen")
+def test_check_vat_error_wrappers_are_reported(mock_urlopen_func):
+    response = MagicMock()
+    response.read.return_value = json.dumps({
+        "errorWrappers": [{"error": "MS_UNAVAILABLE"}],
+    }).encode("utf-8")
+    response.__enter__ = MagicMock(return_value=response)
+    response.__exit__ = MagicMock(return_value=False)
+    mock_urlopen_func.return_value = response
+
+    result = check_vat("DE", "123456789")
+
+    assert result.valid is False
+    assert "MS_UNAVAILABLE" in result.error
+
+
+@patch("tva_intracom.vies_engine.urllib.request.urlopen")
+def test_check_vat_null_company_fields_become_empty_strings(mock_urlopen_func):
+    response = MagicMock()
+    response.read.return_value = json.dumps({
+        "valid": True,
+        "countryCode": "DE",
+        "vatNumber": "123456789",
+        "name": None,
+        "address": None,
+    }).encode("utf-8")
+    response.__enter__ = MagicMock(return_value=response)
+    response.__exit__ = MagicMock(return_value=False)
+    mock_urlopen_func.return_value = response
+
+    result = check_vat("DE", "123456789")
+
+    assert result.valid is True
+    assert result.name == ""
+    assert result.address == ""
+
+
+@patch("tva_intracom.vies_engine.urllib.request.urlopen")
+def test_check_vat_malformed_json_returns_error_result(mock_urlopen_func):
+    response = MagicMock()
+    response.read.return_value = b"{not-json"
+    response.__enter__ = MagicMock(return_value=response)
+    response.__exit__ = MagicMock(return_value=False)
+    mock_urlopen_func.return_value = response
+
+    result = check_vat("DE", "123456789")
+
+    assert result.valid is False
+    assert result.error
+
+
+@patch("tva_intracom.vies_engine.urllib.request.urlopen")
 def test_check_vat_raw_valid(mock_urlopen_func):
     mock_urlopen_func.return_value = _mock_urlopen(valid=True)
     result = check_vat_raw("test", "DE123456789")
@@ -109,7 +160,7 @@ def test_is_downgrade_false_when_previous_was_invalid():
 
 @patch("tva_intracom.vies_engine.validate_vat_numbers_parallel")
 def test_compute_all_with_vies_stale_fallback_not_treated_as_valid(mock_check):
-    """Note (2026-09-08) : un ViesResult stale_fallback=True (repli suite a
+    """BUGFIX (2026-09-08) : un ViesResult stale_fallback=True (repli suite a
     un downgrade detecte cote vies_engine, TTL expire + reponse vide) NE DOIT
     PLUS declencher l'autoliquidation B2B, meme si son champ `valid` (dernier
     statut automatique connu) vaut True. Il doit etre traite comme un
@@ -117,7 +168,7 @@ def test_compute_all_with_vies_stale_fallback_not_treated_as_valid(mock_check):
     d'OSS), et remonter dans stale_fallback_count / inconclusive_vats pour
     apparaitre dans la liste de classification manuelle.
 
-    Note (2026-09-11) : compute_all_with_vies() appelle désormais
+    BUGFIX (2026-09-11) : compute_all_with_vies() appelle désormais
     validate_vat_numbers_parallel() (traitement en lot), plus check_vat_raw()
     (appel unitaire) — mocker check_vat_raw ici était sans effet, le test
     frappait la vraie base VIES/DB au lieu d'utiliser le mock (confirmé par
@@ -159,7 +210,7 @@ def test_compute_all_with_vies_stale_fallback_not_treated_as_valid(mock_check):
 def test_compute_all_with_vies_reclassifies_invalid(mock_check):
     """B2B avec numero invalide est reclassifie en B2C -> TVA facturee.
 
-    Note (2026-09-11) : mock déplacé de check_vat_raw à
+    BUGFIX (2026-09-11) : mock déplacé de check_vat_raw à
     validate_vat_numbers_parallel (voir docstring du test précédent)."""
     mock_check.return_value = {
         "DE000000000": ViesResult(
@@ -175,7 +226,7 @@ def test_compute_all_with_vies_reclassifies_invalid(mock_check):
             stock_country="FR",
             buyer_country="DE",
             buyer_vat_number="DE000000000",
-            # Note (2026-08-25) : le nouveau filtre d'entrée de la boucle
+            # BUGFIX (2026-08-25) : le nouveau filtre d'entrée de la boucle
             # VIES (engine.py, ~L1259) ignore désormais dès le départ tout
             # Sale dont buyer_vat_valid n'est pas déjà True (pré-filtre
             # "ressemble à un vrai n° TVA intracom", positionné par
@@ -203,7 +254,7 @@ def test_compute_all_with_vies_reclassifies_invalid(mock_check):
 def test_compute_all_with_vies_valid_number(mock_check):
     """B2B avec numero valide -> autoliquidation.
 
-    Note (2026-09-11) : mock déplacé de check_vat_raw à
+    BUGFIX (2026-09-11) : mock déplacé de check_vat_raw à
     validate_vat_numbers_parallel (voir docstring plus haut dans ce fichier)."""
     mock_check.return_value = {
         "DE123456789": ViesResult(
@@ -219,7 +270,7 @@ def test_compute_all_with_vies_valid_number(mock_check):
             stock_country="FR",
             buyer_country="DE",
             buyer_vat_number="DE123456789",
-            # Note (2026-08-25) : voir commentaire identique dans
+            # BUGFIX (2026-08-25) : voir commentaire identique dans
             # test_compute_all_with_vies_reclassifies_invalid ci-dessus.
             buyer_vat_valid=True,
         ),
@@ -243,7 +294,7 @@ def test_compute_all_with_vies_refund_reclassified_like_sale(mock_check):
     sans dupliquer d'entree dans vies_summary.reclassifications (deja
     renseignee via la vente d'origine) — voir engine.py::_effective_sale_with_vies.
 
-    Note (2026-09-11) : mock déplacé de check_vat_raw à
+    BUGFIX (2026-09-11) : mock déplacé de check_vat_raw à
     validate_vat_numbers_parallel (voir docstring plus haut dans ce fichier).
     """
     mock_check.return_value = {
@@ -304,7 +355,7 @@ def test_reclassification_post_processing_fields(mock_check):
     ce test garantit que les 5 champs sont toujours correctement renseignés
     après la bascule.
 
-    Note (2026-09-11) : mock déplacé de check_vat_raw à
+    BUGFIX (2026-09-11) : mock déplacé de check_vat_raw à
     validate_vat_numbers_parallel (voir docstring plus haut dans ce fichier).
     """
     mock_check.return_value = {

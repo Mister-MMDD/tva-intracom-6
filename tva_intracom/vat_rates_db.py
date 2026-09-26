@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 TEDB_ENDPOINT = "https://ec.europa.eu/taxation_customs/tedb/ws/VatRetrievalService"
 
-# Note (2026-09-20, voir ecb_rates.py — même correctif dupliqué ici pour
+# BUGFIX (2026-09-20, voir ecb_rates.py — même correctif dupliqué ici pour
 # la même raison que _is_permanent_ssl_error, cf. son docstring) : urlopen()
 # sans context SSL explicite dépend du magasin CA système, absent/périmé sur
 # certaines images de conteneur -> CERTIFICATE_VERIFY_FAILED systématique,
@@ -154,9 +154,13 @@ _TEDB_CATEGORY_SAFE_COUNTRIES: dict[str, frozenset[str]] = {
     "CHILD_WEAR": frozenset({"LU"}),
 }
 
-# Les catégories REDUCED restent mappées à titre structurel, mais ne sont
-# pas utilisées dynamiquement : seul le taux STANDARD est activé.
-_PARSE_REDUCED_CATEGORIES = False
+# Extraction des catégories REDUCED (_CATEGORY_TO_TEDB ci-dessus) réactivée
+# le 2026-09-16 en même temps que _is_tedb_eligible() ci-dessous accepte
+# désormais des catégories autres que STANDARD (restriction du 2026-09-13
+# levée). Voir _TEDB_CATEGORY_SAFE_COUNTRIES pour le périmètre réel par
+# pays/catégorie — la désactivation n'était qu'un verrou temporaire, pas
+# une remise en cause de l'extraction elle-même.
+_PARSE_REDUCED_CATEGORIES = True
 
 # ------------------------------------------------------------------
 # Cache L1 (mémoire/process) + Verrou de thread
@@ -171,17 +175,6 @@ _cache_lock = threading.Lock()
 # jour" constaté après passage à la granularité journalière (2026-09-14).
 _country_history_cache: dict[tuple[str, str], list[tuple[date, Decimal]]] = {}
 _country_history_loaded: set[tuple[str, str]] = set()
-
-# Cache L1ter : dates seules de _country_history_cache, dans le même ordre
-# (perf, 2026-09-26) — _db_get_rate() faisait `[d for d, _ in history]` à
-# CHAQUE recherche (le bisect lui-même est log(n), mais cette reconstruction
-# repart de zéro sur tout l'historique à chaque appel, ce qui redevient
-# coûteux lors du préchargement de nombreuses dates pour un même pays).
-# Maintenu en parallèle de _country_history_cache, jamais recalculé à
-# partir de ce dernier — mis à jour aux deux mêmes points d'écriture
-# (_load_country_history, _record_history_entry) et vidé aux mêmes points
-# (clear_cache()).
-_country_history_dates_cache: dict[tuple[str, str], list[date]] = {}
 
 _pool_lock = threading.Lock()
 _schema_ready = False
@@ -325,7 +318,6 @@ def _load_country_history(country: str, rate_type: str) -> list[tuple[date, Deci
 
     with _cache_lock:
         _country_history_cache[key] = history
-        _country_history_dates_cache[key] = [d for d, _ in history]
         _country_history_loaded.add(key)
     return history
 
@@ -339,13 +331,12 @@ def _record_history_entry(country: str, rate_type: str, situation_date: date, ra
         if key not in _country_history_loaded:
             return  # sera chargé (avec cette entrée incluse) au prochain besoin
         history = _country_history_cache.setdefault(key, [])
-        dates = _country_history_dates_cache.setdefault(key, [d for d, _ in history])
+        dates = [d for d, _ in history]
         idx = bisect.bisect_left(dates, situation_date)
         if idx < len(history) and history[idx][0] == situation_date:
             history[idx] = (situation_date, rate)
         else:
             history.insert(idx, (situation_date, rate))
-            dates.insert(idx, situation_date)
 
 
 def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[Decimal]:
@@ -357,14 +348,7 @@ def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[De
     history = _load_country_history(country, rate_type)
     if not history:
         return None
-    key = (country, rate_type)
-    with _cache_lock:
-        dates = _country_history_dates_cache.get(key)
-    if dates is None:
-        # Filet de sécurité seulement (ne devrait pas arriver : toujours
-        # peuplé par _load_country_history juste au-dessus) — jamais
-        # écrit dans le cache pour ne pas masquer une incohérence future.
-        dates = [d for d, _ in history]
+    dates = [d for d, _ in history]
     idx = bisect.bisect_right(dates, target_date) - 1
     if idx < 0:
         return None  # target_date antérieure au premier milestone connu
@@ -407,12 +391,8 @@ def _db_upsert_batch(entries: list[tuple[str, str, date, Decimal]]) -> None:
 # Requête SOAP TEDB
 # ------------------------------------------------------------------
 
-# Retry/backoff et TTL des échecs réseau : constantes partagées avec
-# ecb_rates.py, centralisées dans retry_config.py (2026-09-26). Alias
-# locaux conservés pour ne pas toucher aux usages ci-dessous.
-from .retry_config import FETCH_MAX_ATTEMPTS as _FETCH_MAX_ATTEMPTS
-from .retry_config import FETCH_BACKOFF_BASE_SECONDS as _FETCH_BACKOFF_BASE_SECONDS
-from .retry_config import FAILED_PAIR_TTL_SECONDS as _FAILED_PAIR_TTL_SECONDS
+_FETCH_MAX_ATTEMPTS = 3
+_FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s
 
 # Mémorise, par process, les paires (pays, date) ayant déjà échoué côté
 # réseau — évite de re-tenter (avec 3 essais + backoff) pour CHAQUE ligne
@@ -420,9 +400,10 @@ from .retry_config import FAILED_PAIR_TTL_SECONDS as _FAILED_PAIR_TTL_SECONDS
 # TEDB est injoignable. TTL court : au cas où la panne serait transitoire.
 # Purement un cache de performance process — aucun impact scale-to-zero
 # (dict mémoire, aucun thread/connexion persistant).
+_FAILED_PAIR_TTL_SECONDS = 300
 _failed_pairs: dict[tuple[str, date], float] = {}
 
-# Note (2026-09-20, voir ecb_rates.py pour le diagnostic complet) :
+# BUGFIX (2026-09-20, voir ecb_rates.py pour le diagnostic complet) :
 # drapeau global process, complémentaire à _failed_pairs (TTL 5 min pensé
 # pour un aléa ponctuel, pas pour une panne SSL systémique sur un fichier
 # dont le traitement dépasse ce TTL). Dès qu'une erreur SSL de certificat
@@ -562,10 +543,24 @@ def _local_tag(tag: str) -> str:
 def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: Optional[date] = None) -> dict[str, Decimal]:
     """Extrait {catégorie interne: taux} depuis une réponse retrieveVatRatesRespMsg.
 
-    Les catégories REDUCED restent décrites par _CATEGORY_TO_TEDB, mais ne
-    sont pas utilisées dynamiquement : seul le taux STANDARD est activé.
-    Ce filtre évite aussi de traiter des données de catégories qui ne
-    participent pas aux calculs.
+    Ne garde que les catégories couvertes par _CATEGORY_TO_TEDB — le filtre
+    d'éligibilité réel (pays sûr ou non pour cette catégorie) est fait en
+    amont par _is_tedb_eligible(), pas ici. Jusqu'au 2026-09-16,
+    l'extraction des catégories REDUCED était désactivée en bloc
+    (_PARSE_REDUCED_CATEGORIES = False, restriction du 2026-09-13 au taux
+    STANDARD uniquement) car un seul appel SOAP TEDB renvoie TOUTES les
+    catégories d'un pays/date en une fois (~2000 lignes de XML avec tous
+    les codes CN) : parser puis comparer au statique des catégories qu'on
+    n'utilisait même pas gaspillait du CPU et — surtout — générait des
+    warnings de plausibilité (avec dump du XML brut COMPLET, parfois
+    plusieurs dizaines de Ko) pour des taux jamais consommés. Observé en
+    prod (Matthieu, 2026-09-13) : c'est cette pollution de logs qui
+    causait le ralentissement perçu, pas l'appel réseau lui-même. Réactivé
+    le 2026-09-16 en même temps que l'éligibilité TEDB (voir
+    _TEDB_CATEGORY_SAFE_COUNTRIES) — le risque de pollution de logs ne
+    revient pas puisque seules les catégories effectivement mappées dans
+    _CATEGORY_TO_TEDB sont retenues (le `if cat_id in tedb_to_category`
+    plus bas filtre déjà tout le reste).
 
     N'accepte une valeur que si rate.type == "DEFAULT", "REDUCED_RATE",
     "SUPER_REDUCED_RATE" ou "EXEMPTED" (les seules valeurs documentées
@@ -751,11 +746,23 @@ def _is_plausible(country: str, rate_type: str, value: Decimal) -> bool:
 
 
 def _is_tedb_eligible(country: str, rate_type: str) -> bool:
-    """TEDB est utilisé dynamiquement uniquement pour les taux STANDARD."""
-    if rate_type != "STANDARD" or not _dynamic_tedb_enabled():
+    """STANDARD reste éligible sur tout _TEDB_SUPPORTED, comme depuis le
+    2026-09-13. Les catégories REDUCED (_CATEGORY_TO_TEDB) sont éligibles
+    UNIQUEMENT sur la safe-list par catégorie (_TEDB_CATEGORY_SAFE_COUNTRIES,
+    2026-09-16 — fin de la restriction STANDARD-only) : un pays absent de
+    la safe-list d'une catégorie n'est jamais interrogé en dynamique pour
+    cette catégorie, même s'il est dans _TEDB_SUPPORTED pour STANDARD —
+    retombe sur rates.py::REDUCED_VAT_RATES (repli statique déjà en
+    production), jamais de sous-déclaration."""
+    if not _dynamic_tedb_enabled():
         return False
     tedb_iso = _ISO_TO_TEDB.get(country, country)
-    return tedb_iso in _TEDB_SUPPORTED
+    if rate_type == "STANDARD":
+        return tedb_iso in _TEDB_SUPPORTED
+    safe_countries = _TEDB_CATEGORY_SAFE_COUNTRIES.get(rate_type)
+    if safe_countries is None:
+        return False
+    return tedb_iso in safe_countries
 
 
 def _process_fetch_result(
@@ -817,15 +824,20 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     Ordre de résolution :
       1. Cache L1 RAM (accès immédiat)
       2. Cache L2 Postgres (Supabase)
-      3. API TEDB (Commission européenne) — un appel par (pays, date),
-         pour le taux STANDARD
+      3. API TEDB (Commission européenne) — un seul appel par (pays, date),
+         qui alimente le cache pour TOUTES les catégories mappées d'un coup
       4. Fallback statique local (rates.py) — utilisé aussi immédiatement,
          sans aucun appel réseau, si le (pays, catégorie) n'est pas
          couvert par TEDB (cf. _is_tedb_eligible).
 
-    Granularité JOURNALIÈRE côté TEDB : le taux de TVA est interrogé et mis en
-    cache pour la date exacte de transaction (`situation_date = target_date`),
-    ce qui garantit le support précis de tout changement de taux en cours de mois.
+    Granularité JOURNALIÈRE : l'appel TEDB et les caches conservent la date
+    exacte de transaction afin de prendre en charge un changement de taux
+    en cours de mois.
+
+    Le repli statique (`rates.py`) continue d'utiliser la date EXACTE de
+    la transaction (pas la date normalisée) : son mécanisme d'historique
+    par date n'a pas besoin de cette optimisation et on ne veut rien
+    changer à son comportement existant.
 
     NOTE PERFORMANCE (2026-09-13) : dans un traitement en masse (moteur de
     calcul, voir engine.py::_run_oss_loop), appeler cette fonction ligne à
@@ -839,14 +851,14 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     """
     country = country.upper()
     rate_type = rate_type.upper()
-    situation_date = target_date  # granularité journalière pour supporter les changements mi-mois
+    situation_date = target_date
     key = _cache_key(country, rate_type, situation_date)
 
     with _cache_lock:
         if key in _vat_memory_cache:
             rate = _vat_memory_cache[key]
-            logger.info("[VAT_RATES] source=L1_RAM %s/%s/%s -> %s%%",
-                        country, rate_type, target_date, rate)
+            logger.debug("[VAT_RATES] source=L1_RAM %s/%s/%s -> %s%%",
+                         country, rate_type, target_date, rate)
             return rate
 
     if not _is_tedb_eligible(country, rate_type):
@@ -859,8 +871,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         else:
             reason = f"pays {country} non supporté par TEDB"
 
-        logger.info("[VAT_RATES] source=STATIC_FALLBACK (%s) %s/%s/%s -> %s%%",
-                    reason, country, rate_type, target_date, rate)
+        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (%s) %s/%s/%s -> %s%%",
+                     reason, country, rate_type, target_date, rate)
         with _cache_lock:
             _vat_memory_cache[key] = rate
         return rate
@@ -875,14 +887,14 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         # gros fichier referait un aller-retour Postgres pour rien tant
         # que la panne dure (audit 2026-09-13 (6)).
         rate = _static_vat_rate_at_date(country, target_date, rate_type)
-        logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
-                    _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
+        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
+                     _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
         return rate
 
     cached = _db_get_rate(country, rate_type, situation_date)
     if cached is not None:
-        logger.info("[VAT_RATES] source=L2_POSTGRES %s/%s/%s -> %s%%",
-                     country, rate_type, target_date, cached)
+        logger.debug("[VAT_RATES] source=L2_POSTGRES %s/%s/%s -> %s%%",
+                      country, rate_type, target_date, cached)
         with _cache_lock:
             _vat_memory_cache[key] = cached
         return cached
@@ -890,21 +902,22 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     result = _fetch_tedb_rates(country, situation_date)
     fetched = _process_fetch_result(country, situation_date, result, requested_rate_type=rate_type)
     if rate_type in fetched:
-        logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s -> %s%%",
-                    country, rate_type, target_date, fetched[rate_type])
+        logger.debug("[VAT_RATES] source=TEDB_FETCH %s/%s/%s -> %s%%",
+                     country, rate_type, target_date, fetched[rate_type])
         return fetched[rate_type]
     if result is not None:
         # Réponse TEDB obtenue mais catégorie absente/rejetée (cas
-        # ambigu, plausibilité, ou pays sans ce taux réduit) : le résultat
-        # de cette date est sûr de mettre en cache L1.
+        # ambigu, plausibilité, ou pays sans ce taux réduit) : fait
+        # fiscal stable pour ce (pays, date) — sûr de mettre en cache
+        # L1, aucune raison qu'un nouvel appel donne un résultat différent.
         logger.debug(
             "[VAT_RATES] TEDB : réponse reçue pour %s à la date %s mais catégorie '%s' absente ou "
             "rejetée (pays sans taux réduit de ce type, ou anomalie) — repli statique.",
             country, situation_date, rate_type,
         )
         rate = _static_vat_rate_at_date(country, target_date, rate_type)
-        logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB répondu, catégorie rejetée) %s/%s/%s -> %s%%",
-                    country, rate_type, target_date, rate)
+        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB répondu, catégorie rejetée) %s/%s/%s -> %s%%",
+                     country, rate_type, target_date, rate)
         with _cache_lock:
             _vat_memory_cache[key] = rate
         return rate
@@ -919,8 +932,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     # une simple coupure réseau transitoire figeait le taux sur le
     # statique jusqu'au redémarrage du process.
     rate = _static_vat_rate_at_date(country, target_date, rate_type)
-    logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
-                _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
+    logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
+                 _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
     return rate
 
 
@@ -937,13 +950,12 @@ def prefetch_standard_rates(
     de l'eau (voir note de performance dans get_vat_rate()).
 
     Args:
-        pairs: itérable de (country: str, target_date: date).
-            Chaque date est conservée telle quelle (granularité
-            journalière, comme get_vat_rate), afin de gérer les changements
-            de taux en cours de mois. Un simple SUPERSET des couples
+        pairs: itérable de (country: str, target_date: date). La date
+            exacte est conservée (même granularité que get_vat_rate) ;
+            seuls les couples (pays, date) distincts sont traités. Un simple SUPERSET des couples
             réellement nécessaires est parfaitement sûr à passer ici : les
-            couples non éligibles TEDB (_is_tedb_eligible) ou déjà en cache
-            sont ignorés quasi gratuitement, sans appel réseau.
+            couples non éligibles TEDB (_is_tedb_eligible) ou déjà en
+            cache sont ignorés quasi gratuitement, sans appel réseau.
         max_workers: nombre de requêtes SOAP TEDB menées en parallèle.
             Threads de courte durée, aucune connexion/pool persistant —
             même contrainte scale-to-zero que
@@ -1050,6 +1062,7 @@ def prefetch_standard_rates(
             _tick()
 
 
+@lru_cache(maxsize=20_000)
 def vat_rate(
     country: str,
     product_category: str = "STANDARD",
@@ -1080,23 +1093,7 @@ def vat_rate(
     elif cat in ("VETEMENTS", "CLOTHING"):
         cat = "CLOTHING"
 
-    # BUGFIX (2026-09-26) : date.today() DOIT être résolue ICI, avant tout
-    # passage par lru_cache — l'ancienne version appliquait @lru_cache
-    # directement sur vat_rate() avec tx_date=None comme clé, donc la
-    # résolution "date du jour" n'avait lieu qu'au premier appel ; tous les
-    # appels suivants avec tx_date=None réutilisaient ensuite le résultat
-    # mis en cache sous la clé (code, cat, None), même après un changement
-    # de date (passage à minuit) ou de taux effectif au 1er du mois/de
-    # l'année, jusqu'à expiration LRU ou redémarrage. Reproduit : un premier
-    # appel un jour donné fige le taux pour toute la durée de vie du
-    # process. En déléguant à une fonction interne mise en cache sur la
-    # date déjà résolue, la clé de cache change naturellement chaque jour.
     d = tx_date if tx_date is not None else date.today()
-    return _vat_rate_cached(code, cat, d)
-
-
-@lru_cache(maxsize=20_000)
-def _vat_rate_cached(code: str, cat: str, d: date) -> Decimal:
     return get_vat_rate(code, cat, d)
 
 
@@ -1105,9 +1102,8 @@ def clear_cache(persistent: bool = True) -> None:
     with _cache_lock:
         _vat_memory_cache.clear()
         _country_history_cache.clear()
-        _country_history_dates_cache.clear()
         _country_history_loaded.clear()
-    _vat_rate_cached.cache_clear()
+    vat_rate.cache_clear()
     _failed_pairs.clear()
     if not persistent:
         return

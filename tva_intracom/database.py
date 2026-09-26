@@ -134,11 +134,11 @@ class NonPoolingConnectionPool:
             logger.debug("Fermeture d'une connexion déjà invalide (ignorée).", exc_info=True)
 
 
-_shared_pool: NonPoolingConnectionPool | None = None
+_shared_pool: Optional["NonPoolingConnectionPool"] = None
 _shared_pool_lock = threading.Lock()
 
 
-def get_shared_pool(dsn: str) -> NonPoolingConnectionPool:
+def get_shared_pool(dsn: str) -> "NonPoolingConnectionPool":
     """Pool Postgres partagé par auth.py, billing.py, ecb_rates.py et
     vies_engine.py — les 4 modules pointent vers la même base
     (SUPABASE_DB_URL) et n'ont donc aucune raison de maintenir chacun leur
@@ -157,7 +157,6 @@ def get_shared_pool(dsn: str) -> NonPoolingConnectionPool:
         with _shared_pool_lock:
             if _shared_pool is None:
                 _shared_pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
-    assert _shared_pool is not None
     return _shared_pool
 
 
@@ -198,9 +197,9 @@ def close_idle_connections() -> None:
 
 
 def run_with_retry(
-    get_pool: Callable[[], NonPoolingConnectionPool],
+    get_pool: Callable[[], "NonPoolingConnectionPool"],
     fn: Callable[..., T],
-    on_retry: Callable[[], None] | None = None,
+    on_retry: Optional[Callable[[], None]] = None,
 ) -> T:
     """Exécute fn(conn, cur) avec une connexion prise dans le pool, avec un
     retry unique si la connexion s'avère fermée côté serveur (cas fréquent

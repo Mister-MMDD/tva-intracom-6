@@ -31,7 +31,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 
 import extra_streamlit_components as stx
 import streamlit as st
@@ -39,7 +39,6 @@ import streamlit as st
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom import billing as tva_billing
-from tva_intracom.auth import User
 from tva_intracom.i18n import _
 from tva_intracom.vies_engine import (
     resolve_scope_id as _vies_resolve_scope_id,
@@ -51,7 +50,7 @@ from ..config import get_secret
 _DB_CACHE_TTL_SECONDS = 20
 
 
-def _cached_db_read(cache_key: str, fetch_fn: Callable[[], Any], force: bool = False) -> Any:
+def _cached_db_read(cache_key: str, fetch_fn, force: bool = False):
     """Copie volontaire de `sidebar.py::_cached_db_read` (même schéma de clé
     `_sb_dbcache_{cache_key}`, même TTL) plutôt qu'un import croisé entre
     modules UI : les deux se partagent naturellement le même cache en
@@ -70,7 +69,7 @@ def _cached_db_read(cache_key: str, fetch_fn: Callable[[], Any], force: bool = F
 class AuthContext:
     """Contexte d'authentification résolu, transmis au reste de l'app."""
 
-    current_user: User
+    current_user: Any                 # tva_intracom.auth.User
     cookie_manager: "stx.CookieManager"
     app_base_url: str
     vies_scope_id: str
@@ -78,9 +77,16 @@ class AuthContext:
     def stripe_success_url(self, extra_qs: str = "") -> str:
         """URL de retour post-paiement Stripe.
 
-        Utilise le cookie de session `tva_session_token` pour restaurer la session
-        sans exposer le jeton de session dans l'URL.
-        """
+        BUGFIX (2026-09-09, sécurité) : embarquait auparavant le jeton de
+        session (`session_token`) en clair dans l'URL. Ce jeton transite
+        alors par le domaine Stripe (checkout.stripe.com), se retrouve dans
+        l'historique du navigateur et peut fuiter via les en-têtes Referer
+        ou les logs de journalisation tiers — exactement l'équivalent d'un
+        vol de session s'il est intercepté. Il est inutile : le cookie
+        `tva_session_token` (déjà posé, 30 jours, voir run_auth_flow) est
+        renvoyé automatiquement par le navigateur au retour sur ce domaine
+        et restaure la session (voir st.context.cookies, contrôlé EN
+        PREMIER avant tout repli sur un éventuel paramètre d'URL)."""
         return f"{self.app_base_url}/?{extra_qs}" if extra_qs else f"{self.app_base_url}/"
 
     def stripe_cancel_url(self) -> str:
@@ -310,7 +316,16 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
             if _b0_cached and _b0_cached[0] == _sb_code:
                 _b0_access_token = _b0_cached[1]
             else:
-                # Essaye chaque candidat récent (cascade) pour la récupération de mot de passe.
+                # BUGFIX (fiabilité, voir README - évolution.md et docstring
+                # de consume_latest_pkce_verifiers_by_provider dans auth.py) :
+                # on essaie chaque candidat récent (du plus récent au plus
+                # ancien) au lieu d'un seul "dernier jeton" — nécessaire dès
+                # que deux resets de mot de passe se chevauchent dans la
+                # même fenêtre de 15 minutes. PKCE valide cryptographiquement
+                # le couple (code, verifier) côté Supabase : au plus un seul
+                # candidat peut réussir, essayer les autres n'introduit
+                # aucun risque de sécurité (juste des tentatives en trop en
+                # cas de collision).
                 _candidates = tva_auth.consume_latest_pkce_verifiers_by_provider("recovery")
                 _last_err = None
                 for _verifier in _candidates:

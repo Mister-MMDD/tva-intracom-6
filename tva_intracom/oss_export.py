@@ -46,12 +46,22 @@ _ZERO = Decimal("0.00")
 # Type : départ → arrivée → taux → {ht, tva, nb}
 OssAggType = dict  # dict[str, dict[str, dict[Decimal, dict[str, Decimal | int]]]]
 
-# Suivi des replis de taux de clôture OSS/IOSS : compteur
-# process-global (mémoire, jamais persisté)
+# ---------------------------------------------------------------------------
+# BUGFIX (2026-09-22, repli silencieux taux de clôture OSS/IOSS) : compteur
+# process-global (mémoire, jamais persisté — même pattern que
+# `_rate_cache`/`_failed_pairs` dans ecb_rates.py, compatible scale-to-zero)
 # des cas où le taux de CLÔTURE BCE (Règl. UE 2020/194 art. 5 bis) était
 # indisponible et où `convert_ht_tva_for_oss_period` est retombée sur le
-# taux du jour de la transaction. Ce repli
-# produit un montant fiable mais NON CONFORME pour une déclaration OSS/IOSS.
+# taux du jour de la transaction (déjà connu depuis l'import). Ce repli
+# produit un montant fiable (le taux du jour de vente reste correct pour la
+# vente elle-même) mais NON CONFORME pour une déclaration OSS/IOSS, qui doit
+# légalement utiliser le taux de clôture de période — d'où l'alerte.
+#
+# Les deux chemins de repli de `convert_ht_tva_for_oss_period` (source_info
+# commençant par "fallback" ET `except ValueError: pass`) produisent
+# exactement le même résultat numérique (voir sa docstring et celle de
+# `convert_to_currency_for_oss`), d'où un compteur unique.
+# ---------------------------------------------------------------------------
 _oss_rate_fallback_counts: "Counter[str]" = Counter()
 
 
@@ -84,18 +94,30 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
     ht  = res.sale.amount_ht
     tva = res.vat_amount
 
-    # Note (périodicité IOSS) : l'IOSS est déclaré MENSUELLEMENT (art. 369l-x
+    # BUGFIX (2026-09-09) : l'IOSS est déclaré MENSUELLEMENT (art. 369l-x
     # dir. 2006/112/CE), l'OSS TRIMESTRIELLEMENT — chacun doit résoudre sa
-    # propre date de clôture (get_ioss_rate_date / get_oss_rate_date).
+    # propre date de clôture (get_ioss_rate_date / get_oss_rate_date), voir
+    # ecb_rates.py.
     _rate_date_fn = get_ioss_rate_date if res.scenario == Scenario.IOSS_DIRECT else get_oss_rate_date
 
-    # Note (devise légale EUR) : la déclaration OSS est légalement due en EUR (Règl. UE
+    # BUGFIX CRITIQUE : la déclaration OSS est légalement due en EUR (Règl. UE
     # 2020/194, art. 5 bis) — cette fonction alimente aussi bien le XML OSS
-    # officiel (oss_xml.py) que l'export Excel/CSV URSSAF.
+    # officiel (oss_xml.py) que l'export Excel/CSV URSSAF. Utiliser la devise
+    # du pays d'origine (home_country) ici corromprait la déclaration légale
+    # elle-même, pas seulement un rapport d'affichage. La conversion vers une
+    # devise d'affichage locale se fait uniquement en couche présentation
+    # (voir tva_intracom/ui/formatting.py, report.py, excel_report.py).
     target_currency = "EUR"
 
-    # Conversion de clôture : prend en compte period="" (fallback sur fin de mois)
-    # pour assurer la bonne valorisation IOSS/OSS.
+    # BUGFIX (2026-09-13) : la garde testait auparavant `if period and ...`,
+    # ce qui désactivait TOUTE conversion de clôture dès que `period` valait
+    # "" (chaîne vide, falsy en Python) — cas volontairement utilisé par
+    # `export_xlsx()` pour l'IOSS (`aggregate_ioss_results(..., period="")`,
+    # voir commentaire à cet appel) afin que `get_ioss_rate_date` retombe
+    # sur la fin du MOIS de la transaction. Ce fallback, pourtant bien conçu
+    # dans ecb_rates.py, n'était en réalité JAMAIS atteint : la garde
+    # coupait avant même l'appel à `_rate_date_fn`. Résultat en prod : les
+    # montants IOSS (Excel + dashboard) étaient valorisés au taux du JOUR DE
     # LA VENTE (spot) au lieu du taux de clôture — non-conforme à l'art. 5
     # bis Règl. UE 2020/194 pour toute vente IOSS en devise étrangère.
     # Seul le changement de devise doit conditionner la conversion ;
@@ -220,14 +242,34 @@ def _aggregate_by_scenario(
     # (via convert_to_currency_for_oss -> get_rate) fait une requête DB
     # individuelle à la PREMIÈRE occurrence de chaque devise/date rencontrée
     # dans la boucle ci-dessous (les occurrences suivantes de la même paire
-    # L'IOSS (mensuel) résout sa date de clôture via get_ioss_rate_date,
-    # pas get_oss_rate_date (trimestriel).
+    # touchent le cache mémoire L1 et sont gratuites — mesuré en prod : 5
+    # devises distinctes parmi ~27 lignes OSS_B2C/IOSS_DIRECT ont coûté
+    # ~2.9s cumulés en requêtes individuelles séquentielles, alors qu'UNE
+    # requête batch groupée suffit). `get_oss_rate_date` est une fonction
+    # pure (aucun accès DB) — sûre à appeler ici pour construire l'ensemble
+    # des paires à précharger, sans dupliquer la logique de conversion.
+    # BUGFIX (2026-09-09) : l'IOSS (mensuel) doit résoudre sa date de
+    # clôture via get_ioss_rate_date, pas get_oss_rate_date (trimestriel)
+    # — voir convert_ht_tva_for_oss_period, même correctif.
     #
-    # Pré-batching des taux de clôture : utilise prefetch_closing_rates
-    # (recherche en avant selon art. 5 bis Règl. UE 2020/194).
+    # BUGFIX (2026-09-09, non-conformité art. 5 bis) : ce pré-batch
+    # appelait auparavant prefetch_rates(), qui alimente le cache "en
+    # arrière" de get_rate(). La conversion de clôture OSS/IOSS utilise
+    # désormais get_closing_rate() (recherche EN AVANT — voir
+    # ecb_rates.py) avec son propre cache mémoire, d'où
+    # prefetch_closing_rates() à la place.
     #
-    # Ce bloc s'exécute de manière inconditionnelle pour précharger les
-    # taux même lorsque period="".
+    # BUGFIX (2026-09-13) : ce bloc était auparavant gardé par `if period:`,
+    # ce qui le désactivait entièrement pour `period=""` (cas volontaire de
+    # l'IOSS dans export_xlsx()). Or convert_ht_tva_for_oss_period tente
+    # désormais la conversion même sans période reconnue (voir son BUGFIX du
+    # même jour) : sans ce pré-batch, chaque ligne IOSS retapait la BDD
+    # individuellement à la première occurrence de chaque devise/date
+    # rencontrée, exactement la régression de perf que ce mécanisme de
+    # pré-batch groupé visait à éviter (voir commentaire d'origine
+    # ci-dessus). Le pré-batch est donc désormais inconditionnel ;
+    # `_rate_date_fn("", tx_date)` retombe proprement sur son fallback ligne
+    # à ligne (voir get_oss_rate_date / get_ioss_rate_date, ecb_rates.py).
     _rate_date_fn = get_ioss_rate_date if scenarios == (Scenario.IOSS_DIRECT,) else get_oss_rate_date
     _needed_pairs: set[tuple[str, _date]] = set()
     for _res in results:
@@ -328,7 +370,7 @@ def aggregate_by_month_and_country(
         period: période déclarée (ex: "2026-Q1" pour l'OSS, "2026-03" pour
             l'IOSS). Si vide, chaque `_rate_date_fn` retombe sur son
             fallback ligne à ligne (fin du trimestre/mois DE LA
-            TRANSACTION elle-même) — voir note sur
+            TRANSACTION elle-même) — voir BUGFIX 2026-09-13 sur
             `convert_ht_tva_for_oss_period` (la garde `if period` qui
             désactivait ce fallback a été supprimée).
         scenarios: filtre de scénario, ex. `(Scenario.OSS_B2C,)` ou
@@ -343,8 +385,12 @@ def aggregate_by_month_and_country(
 
     # Même pré-batch que _aggregate_by_scenario (évite une requête BCE
     # individuelle par ligne — voir son commentaire pour le détail mesuré
-    # en prod), désormais inconditionnel (period="" convertit quand même,
-    # via le fallback ligne à ligne de _rate_date_fn).
+    # en prod), désormais inconditionnel comme son pendant depuis le
+    # BUGFIX 2026-09-13 (period="" convertit quand même, via le fallback
+    # ligne à ligne de _rate_date_fn). Un doublon de préchargement avec
+    # _aggregate_by_scenario (quand les deux sont appelées pour le même
+    # export) touche uniquement le cache mémoire L1 déjà chaud — coût
+    # négligeable.
     _rate_date_fn = get_ioss_rate_date if scenarios == (Scenario.IOSS_DIRECT,) else get_oss_rate_date
     _needed_pairs: set[tuple[str, _date]] = set()
     for _res in results:
@@ -491,9 +537,19 @@ def suggest_negative_bucket_corrections(
     for res in results:
         if res.scenario not in (Scenario.OSS_B2C, Scenario.IOSS_DIRECT):
             continue
-        # Normalisation des pays de départ (Monaco -> FR) :
-        # `neg_keys` utilise des pays de départ déjà normalisés via
-        # fiscal_equivalent_country() (ex. stock Monaco "MC" -> "FR").
+        # BUGFIX (point #6, README - évolution.md) : `neg_keys` (dérivé de
+        # find_oss_negative_buckets(aggregate_oss_results(...))) utilise des
+        # pays de départ déjà normalisés via fiscal_equivalent_country() —
+        # ex. un stock à Monaco ("MC") y apparaît comme "FR" (convention
+        # fiscale franco-monégasque du 18 mai 1963, même normalisation déjà
+        # appliquée le 2026-08-26 dans _aggregate_by_scenario). Utiliser ici
+        # `res.sale.stock_country` brut ("MC" non normalisé) faisait qu'AUCUNE
+        # vente ni avoir à stock Monaco ne matchait jamais `neg_keys`
+        # (clé "MC" comparée à une clé "FR") : un compte avec stock Monaco et
+        # un couple négatif ne se voyait donc jamais proposer de rattachement
+        # automatique, même quand la vente d'origine était présente dans le
+        # même fichier — sans erreur visible (le XML restait bloqué par
+        # sécurité, mais avec un message "aucun avoir rattaché" trompeur).
         key = (fiscal_equivalent_country(res.sale.stock_country), res.vat_country, res.vat_rate)
         if key not in neg_keys:
             continue
@@ -513,24 +569,49 @@ def suggest_negative_bucket_corrections(
         unmatched_count = 0
 
         for refund in refunds_by_bucket.get(key, []):
-            # Rattachement d'avoirs (changement de taux) :
-            # `sale_id` + pays de stock/TVA suffisent à identifier la vente d'origine,
-            # indépendamment du taux qui a pu évoluer entre-temps.
+            # BUGFIX (2026-09-10, changement de taux entre vente et avoir) :
+            # la clé de recherche incluait auparavant `vat_rate`, hérité du
+            # rattachement par bucket négatif ci-dessus. Or le TAUX de
+            # `refund` peut différer de celui de la vente d'origine (Amazon
+            # applique le taux en vigueur au moment de l'avoir, pas celui de
+            # la vente initiale — voir aussi le BUGFIX taux historique dans
+            # compute_vat) : un avoir à taux changé ne retrouvait alors
+            # jamais sa vente, bloquant systématiquement la génération XML
+            # par sécurité. `sale_id` (même commande) + pays de stock/TVA
+            # suffisent à identifier la vente d'origine sans risque de faux
+            # positif — le taux n'apporte ici aucune garantie supplémentaire
+            # puisqu'un même sale_id/pays ne peut correspondre qu'à UNE
+            # vente d'origine.
             candidates = positive_by_sale_id.get(
                 (refund.sale.sale_id, refund.sale.stock_country, refund.vat_country)
             )
-            # Sélection déterministe de la vente la plus ancienne par transaction_date.
+            # BUGFIX (audit du 2026-08-19) : `candidates[0]` prenait la
+            # première vente rencontrée dans l'ORDRE D'ITÉRATION de
+            # `results` (pas forcément la plus ancienne) quand plusieurs
+            # ventes positives partagent le même sale_id (commande
+            # multi-articles). On prend désormais explicitement la vente la
+            # plus ancienne par transaction_date parmi les candidates, pour
+            # que la période d'origine déduite soit déterministe et reflète
+            # bien le début de la commande plutôt qu'une ligne arbitraire.
             origin_quarter = (
                 _oss_quarter_of(min(candidates, key=lambda c: c.sale.transaction_date or "").sale.transaction_date)
                 if candidates else ""
             )
             # On n'accepte le rattachement que si une origine a été trouvée
             # ET qu'elle correspond bien à une période DIFFÉRENTE de la
-            # période courante.
+            # période courante (sinon ce n'est pas un avoir "à cheval",
+            # juste un solde négatif normal intra-période — pas notre sujet).
             if origin_quarter and origin_quarter != period:
-                # Conversion au taux de la période d'origine :
-                # une correction rattachée à une période d'origine antérieure
-                # est valorisée au taux de clôture de cette période d'origine.
+                # BUGFIX (voir README - évolution.md) : `refund.sale.amount_ht`
+                # / `refund.vat_amount` sont figés au taux BCE du JOUR DE
+                # L'AVOIR (spot, appliqué au moment du calcul fiscal initial).
+                # Or une correction rattachée à une période D'ORIGINE
+                # antérieure (`origin_quarter`) doit être valorisée au taux
+                # de CLÔTURE de CETTE période d'origine (Règl. UE 2020/194,
+                # art. 5 bis), pas au taux du jour où l'avoir a été émis.
+                # On réutilise `convert_ht_tva_for_oss_period` (même
+                # fonction que pour les lignes normales) en lui passant
+                # `origin_quarter` plutôt que `period` (période courante).
                 _corr_ht, _corr_vat = convert_ht_tva_for_oss_period(refund, origin_quarter)
                 matched.append(MatchedRefundCorrection(
                     sale_id=refund.sale.sale_id,
@@ -805,15 +886,7 @@ def _build_oss_resume(
     tout le corps de la fonction."""
     ws = wb.create_sheet(sheet_name)
     ws.sheet_view.showGridLines = False
-    if lines is not None:
-        _lines = lines
-    else:
-        # IossExportData n'a pas de `oss_by_country` : par construction,
-        # `_build_ioss_resume()` (seul appelant avec data: IossExportData)
-        # fournit toujours `lines` explicitement (voir plus bas). Ce
-        # branchement n'est donc atteint qu'avec data: OssExportData.
-        assert isinstance(data, OssExportData)
-        _lines = data.oss_by_country
+    _lines = lines if lines is not None else data.oss_by_country
 
     # Largeurs de colonnes : DOIVENT être fixées avant le tout premier
     # `append` (vérifié empiriquement en write_only — contrairement au mode
@@ -1347,23 +1420,23 @@ def build_oss_csv(
     # mensuelle, art. 289 B CGI) — voir _build_b2b_recap pour le detail.
     _sorted_b2b = sorted(data.b2b_lines, key=lambda l: (_b2b_month_key(l.transaction_date) == "", _b2b_month_key(l.transaction_date), l.transaction_date))
     _b2b_months: dict[str, list] = {}
-    for b2b_line in _sorted_b2b:
-        _b2b_months.setdefault(_b2b_month_key(b2b_line.transaction_date), []).append(b2b_line)
+    for line in _sorted_b2b:
+        _b2b_months.setdefault(_b2b_month_key(line.transaction_date), []).append(line)
 
     for month_key, lines in _b2b_months.items():
         month_label = month_key if month_key else _("b2b_unknown_date")
         b2b_writer.writerow([_("b2b_month_group_header", month=month_label)])
         month_total = _ZERO
-        for b2b_line in lines:
+        for line in lines:
             b2b_writer.writerow([
-                b2b_line.sale_id,
-                b2b_line.transaction_date,
-                b2b_line.buyer_vat_number or "",
-                b2b_line.buyer_country,
-                b2b_line.country_name,
-                _fmt_dec(b2b_line.amount_ht),
+                line.sale_id,
+                line.transaction_date,
+                line.buyer_vat_number or "",
+                line.buyer_country,
+                line.country_name,
+                _fmt_dec(line.amount_ht),
             ])
-            month_total += b2b_line.amount_ht
+            month_total += line.amount_ht
         b2b_writer.writerow(["", "", "", "", _("b2b_month_subtotal", month=month_label), _fmt_dec(month_total)])
 
     b2b_writer.writerow([])

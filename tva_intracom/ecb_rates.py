@@ -23,7 +23,6 @@ Optimisations :
 
 from __future__ import annotations
 
-import bisect
 import json
 import logging
 import re
@@ -48,11 +47,14 @@ logger = logging.getLogger(__name__)
 
 ECB_BASE_URL = "https://data-api.ecb.europa.eu/service/data/EXR"
 
-# Note SSL (performance et compatibilité) : urlopen() sans
+# BUGFIX (2026-09-20, ralentissement massif gros fichiers) : urlopen() sans
 # context SSL explicite retombe sur le magasin CA du système
 # (/etc/ssl/certs/ca-certificates.crt), absent ou périmé sur certaines
-# images de conteneur -> CERTIFICATE_VERIFY_FAILED systématique. On
-# force le bundle certifi pour ne plus dépendre du magasin CA de l'OS.
+# images de conteneur (Railway inclus, constaté en production le 2026-09-20,
+# pas seulement en local) -> CERTIFICATE_VERIFY_FAILED systématique. On
+# force le bundle certifi (déjà en dépendance dans requirements.txt, mais
+# jusqu'ici jamais câblé sur les appels réseau) pour ne plus dépendre du
+# magasin CA de l'OS hôte/conteneur.
 _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 SUPPORTED_CURRENCIES = {
@@ -166,7 +168,7 @@ def _db_get_rates_batch(currency_dates: list[tuple[str, date]]) -> dict[tuple[st
     
     Optimisé pour prefetch_rates() afin d'éviter N requêtes SQL individuelles.
 
-    Note (performance) : la version précédente interrogeait l'API.
+    BUGFIX (performance, voir README - évolution.md) : la version précédente
     filtrait par `rate_date >= min_date AND rate_date <= max_date` (plage
     globale sur l'ensemble des paires demandées). Un fichier contenant des
     ventes très espacées dans le temps (ex. une vente en 2024 et une autre
@@ -269,32 +271,48 @@ def _db_upsert_batch(entries: list[tuple[str, date, Decimal]]) -> None:
 # Requête HTTP
 # ------------------------------------------------------------------
 
-# Retry/backoff et TTL des échecs réseau : constantes partagées avec
-# vat_rates_db.py, centralisées dans retry_config.py (2026-09-26). Alias
-# locaux conservés pour ne pas toucher aux usages ci-dessous.
+# Backoff exponentiel sur erreurs réseau/HTTP transitoires (dont HTTP 429).
 # Ne couvre PAS les réponses malformées (JSON invalide, structure inattendue) :
 # une réponse mal formée n'est pas transitoire, la retenter ne change rien.
 # Ne couvre PAS non plus les erreurs SSL de vérification de certificat
 # (ssl.SSLCertVerificationError) : voir _is_permanent_ssl_error ci-dessous.
-from .retry_config import FETCH_MAX_ATTEMPTS as _FETCH_MAX_ATTEMPTS
-from .retry_config import FETCH_BACKOFF_BASE_SECONDS as _FETCH_BACKOFF_BASE_SECONDS
-from .retry_config import FAILED_PAIR_TTL_SECONDS as _FAILED_PAIR_TTL_SECONDS
+_FETCH_MAX_ATTEMPTS = 3
+_FETCH_BACKOFF_BASE_SECONDS = 1.0  # 1s, puis 2s, puis 4s
 
-# Optimization de résilience réseau et gestion des erreurs SSL : deux angles
-# morts combinés ralentissaient les exécutions en local sans réseau :
+# BUGFIX (2026-09-11, tests locaux extrêmement lents) : deux angles morts
+# combinés rendaient les tests en local (sans SUPABASE_DB_URL, sans chaîne
+# de certificats CA à jour) quasi inutilisables :
 #
 #   1. Une erreur SSL de certificat (ssl.SSLCertVerificationError) est
-#      PERMANENTE pour la durée du process —
-#      elle est désormais traitée immédiatement comme permanente.
+#      PERMANENTE pour la durée du process (le magasin de certificats ne va
+#      pas changer entre deux tentatives séparées de quelques secondes) —
+#      pourtant elle était traitée comme transitoire : 3 tentatives + backoff
+#      (~7s) à chaque appel, pour rien.
 #   2. get_closing_rate() ne mémorise que les SUCCÈS dans _forward_rate_cache.
+#      Un échec n'est jamais mis en cache : pour un fichier contenant N ventes
+#      SEK sur le même trimestre (même date de clôture), chaque ligne
+#      redéclenchait tout le cycle de tentatives pour la MÊME paire
+#      (devise, date) déjà connue comme injoignable.
 #
 # _failed_pairs mémorise, par process, les paires (devise, date) ayant déjà
-# échoué avec un TTL court pour éviter les retentatives répétées sur un même run.
+# échoué (quelle qu'en soit la cause), avec un TTL court : passé ce délai, on
+# retente (au cas où une panne BCE transitoire se serait résolue). Ce cache
+# est un pur confort de performance locale — aucun impact sur le cache
+# Postgres L2 ni sur le scale-to-zero (dict en mémoire, vidé au redémarrage
+# du process, aucun thread/connexion persistant créé).
+_FAILED_PAIR_TTL_SECONDS = 300  # 5 minutes
 _failed_pairs: dict[tuple[str, str, date], float] = {}  # (kind, ccy, date) -> timestamp échec
 
-# Drapeau global process pour les erreurs SSL permanentes : dès qu'UNE
-# erreur SSL de certificat est constatée, on coupe tout appel réseau ECB
-# pour le reste du process pour maintenir des performances optimales.
+# BUGFIX (2026-09-20) : drapeau global process — complémentaire à
+# _failed_pairs, pas un remplacement. _failed_pairs a un TTL de 5 min pensé
+# pour un aléa PONCTUEL (une devise injoignable ponctuellement) ; il ne
+# protège pas contre une panne SYSTÉMIQUE (magasin CA cassé pour tout le
+# process) sur un fichier dont le traitement dépasse ce TTL : chaque paire
+# (devise, date) réessaie alors individuellement une vraie requête HTTPS
+# (donc un handshake TLS, même voué à échouer) dès que son entrée expire —
+# observé en prod le 2026-09-20 sur un fichier de 100k lignes, effondrement
+# du débit après ~5 minutes de traitement. Dès qu'UNE erreur SSL de
+# certificat est constatée, on coupe tout appel réseau ECB pour le reste du
 # process (jamais de retry : le magasin CA ne se répare pas tout seul entre
 # deux requêtes séparées de quelques secondes ou de plusieurs minutes) — ne
 # se réinitialise qu'au redémarrage du process (redéploiement Railway),
@@ -370,7 +388,7 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
     comme pour une réponse JSON malformée.
 
     Court-circuite AVANT toute tentative réseau si _is_ssl_broken() (voir
-    évite de payer un handshake TLS voué à l'échec pour chaque paire.
+    BUGFIX 2026-09-20) : évite de payer un handshake TLS voué à l'échec pour
     chaque nouvelle paire (devise, date) une fois le problème identifié.
     """
     if _is_ssl_broken():
@@ -447,10 +465,10 @@ def _fetch_ecb_rate(currency: str, target_date: date) -> Optional[Decimal]:
         return None
 
 
-# Conformité art. 5 bis Règl. UE 2020/194 :
+# BUGFIX (2026-09-09, non-conformité art. 5 bis Règl. UE 2020/194) :
 # _fetch_ecb_rate() ci-dessus ne cherche qu'EN ARRIÈRE (fenêtre
 # [target_date-7j, target_date]) — adapté à "quel était le taux en vigueur
-# à telle date" pour un usage général, mais pour la
+# à telle date" pour un usage général, mais À TORT utilisé aussi pour la
 # date de CLÔTURE OSS : le règlement impose, quand le dernier jour de la
 # période n'est pas un jour de publication BCE (week-end/férié), d'utiliser
 # le taux du PROCHAIN jour de publication (ex. le lundi suivant pour une
@@ -502,9 +520,9 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
     demandées pour cette devise), plutôt qu'un appel individuel par ligne de
     vente — même optimisation que prefetch_rates (voir son docstring, ~2.9s
     cumulés mesurés pour 5 devises sans pré-batch). Remplace prefetch_rates
-    dans oss_export.py depuis l'introduction de get_closing_rate : les
-    deux caches (recherche avant / arrière) sont distincts, prefetch_rates()
-    n'alimentait plus le bon cache."""
+    dans oss_export.py depuis l'introduction de get_closing_rate (BUGFIX
+    2026-09-09) : les deux caches (recherche avant / arrière) sont
+    distincts, prefetch_rates() n'alimentait plus le bon cache."""
     requested: list[tuple[str, date]] = []
     seen: set[tuple[str, date]] = set()
     for currency, d in pairs:
@@ -532,8 +550,9 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
             batch = _fetch_ecb_batch([ccy], start, end).get(ccy, {})
         except Exception:
             logger.warning("Échec du prefetch en lot des taux de clôture pour %s", ccy, exc_info=True)
-            # Mémorisation d'échec : sans ce marquage, chaque ligne de vente
-            # de cette devise retentait individuellement via get_closing_rate().
+            # BUGFIX 2026-09-11 : sans ce marquage, chaque ligne de vente de
+            # cette devise retentait individuellement via get_closing_rate()
+            # -> cycle complet de tentatives + backoff répété N fois.
             for d in dates:
                 _mark_failed("closing", ccy, d)
             continue
@@ -541,17 +560,12 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
             for d in dates:
                 _mark_failed("closing", ccy, d)
             continue
-        # Recherche dichotomique (perf, 2026-09-26) : available_dates est
-        # déjà trié, donc bisect_left retrouve directement le premier
-        # ad >= d en log(n) au lieu de reconstruire une liste filtrée
-        # (parcours + allocation) pour CHAQUE date demandée — n'utilisait
-        # de toute façon que le premier élément de cette liste.
         available_dates = sorted(batch.keys())
         for d in dates:
-            idx = bisect.bisect_left(available_dates, d)
-            if idx < len(available_dates):
+            candidates = [ad for ad in available_dates if ad >= d]
+            if candidates:
                 with _cache_lock:
-                    _forward_rate_cache[(ccy, d)] = batch[available_dates[idx]]
+                    _forward_rate_cache[(ccy, d)] = batch[candidates[0]]
             else:
                 _mark_failed("closing", ccy, d)
 
@@ -806,8 +820,9 @@ def prefetch_rates(
             to_persist.append((ccy, target_date, rate))
             loaded += 1
         else:
-            # Mémorisation d'échec : sans ce marquage, un appel individuel
-            # ultérieur à get_rate() pour cette même paire relance le cycle.
+            # BUGFIX 2026-09-11 : sans ce marquage, un appel individuel
+            # ultérieur à get_rate() pour cette même paire relance tout le
+            # cycle de tentatives + backoff (voir _is_permanently_failed).
             _mark_failed("rate", ccy, target_date)
 
         # Optimisation : on ne rapporte le progrès que périodiquement pour éviter de saturer l'UI
@@ -884,14 +899,18 @@ def convert_to_currency(
 
     rate_fn : voir convert_to_eur — propagé à la conversion EUR->cible.
 
-    Précision conversion croisée (pleine précision intermédiaire) :
-    la conversion source -> cible passait auparavant par `convert_to_eur()`,
-    qui quantize le montant EUR intermédiaire à 2 décimales AVANT la seconde
-    conversion (EUR -> cible). Ce double arrondi pouvait faire dériver le résultat.
-    On calcule désormais le montant EUR intermédiaire en pleine précision
-    (sans quantize) pour toute conversion croisée, et on ne quantize QUE le
-    résultat final. Le cas target_currency == "EUR" continue de passer par
-    `convert_to_eur()`.
+    BUGFIX (2026-09-10, dérive d'arrondi conversions croisées, voir
+    README - évolution.md) : la conversion source -> cible passait
+    auparavant par `convert_to_eur()`, qui quantize le montant EUR
+    intermédiaire à 2 décimales AVANT la seconde conversion (EUR -> cible).
+    Ce double arrondi pouvait faire dériver le résultat final de plusieurs
+    centimes sur la devise cible (ex. GBP -> EUR -> PLN), l'écart intermédiaire
+    en EUR étant amplifié par le taux cible. On calcule désormais le montant
+    EUR intermédiaire en pleine précision (sans quantize) pour toute
+    conversion croisée, et on ne quantize QUE le résultat final — comme
+    recommandé pour tout calcul financier multi-étapes. Le cas
+    target_currency == "EUR" continue de passer par `convert_to_eur()`
+    (résultat final déjà EUR, quantize correct dès cette étape).
     """
     _rate_fn = rate_fn or get_rate
     source_currency = source_currency.upper()
@@ -903,7 +922,7 @@ def convert_to_currency(
         return convert_to_eur(amount, source_currency, target_date, fallback_rate, rate_fn=_rate_fn)
 
     # 1. Conversion source -> EUR EN PLEINE PRÉCISION (pas de quantize
-    #    intermédiaire — voir note ci-dessus).
+    #    intermédiaire — voir BUGFIX ci-dessus).
     if source_currency == "EUR":
         eur_amount_precise = amount
         rate_source = Decimal("1")
@@ -1027,9 +1046,13 @@ def month_end_date(period: str) -> Optional[date]:
 def get_ioss_rate_date(period: str, transaction_date: date) -> date:
     """Détermine la date du taux BCE à utiliser pour une transaction IOSS.
 
-    Note (périodicité IOSS) : les déclarations IOSS sont MENSUELLES (contrairement
-    à l'OSS, trimestriel). Cette fonction gère le format mensuel ("2026-03")
-    pour cibler exactement la fin de mois de la déclaration.
+    BUGFIX (2026-09-09) : les déclarations IOSS sont MENSUELLES (contrairement
+    à l'OSS, trimestriel). Cette fonction utilisait auparavant
+    get_oss_rate_date(), qui ne sait parser qu'un format trimestriel
+    ("2026-Q1") : pour une période IOSS mensuelle ("2026-03"), non reconnue,
+    elle retombait à tort sur la fin du TRIMESTRE de la transaction au lieu
+    de la fin du MOIS — non-conforme à l'art. 5 bis Règl. UE 2020/194 pour
+    ce régime.
     """
     rate_date = month_end_date(period)
     if not rate_date:
@@ -1062,10 +1085,12 @@ def convert_to_currency_for_oss(
         par défaut get_oss_rate_date (trimestriel). L'appelant IOSS
         (mensuel) doit passer get_ioss_rate_date — voir oss_export.py.
 
-    Utilise désormais get_closing_rate() (recherche EN AVANT à partir de la date
-    de clôture) au lieu de get_rate() — l'art. 5 bis Règl. UE 2020/194 impose le taux
+    BUGFIX (2026-09-09) : utilise désormais get_closing_rate() (recherche
+    EN AVANT à partir de la date de clôture) au lieu de get_rate()
+    (recherche en arrière) — l'art. 5 bis Règl. UE 2020/194 impose le taux
     du PROCHAIN jour de publication BCE quand la date de clôture elle-même
-    n'est pas un jour de publication (week-end/férié).
+    n'est pas un jour de publication (week-end/férié), jamais le jour
+    ouvré précédent.
 
     PRÉCISION (audit du 2026-08-19) : si ce taux de clôture (potentiellement
     une date future, trimestre en cours) n'est pas encore publié par la BCE,
