@@ -561,7 +561,7 @@ def _read_and_prepare_rows(
         try:
             import polars as pl
             # On lit tout en string pour garder la cohérence avec le reste du moteur
-            # BUGFIX (2026-09-06) : sans `missing_utf8_is_empty_string=True`,
+            # BUGFIX (2026-09-06) : sans `empty_string_is_null=False`,
             # polars représente une cellule CSV vide par `null` (None en
             # Python après to_dicts()), et NON par une chaîne vide — quelle
             # que soit la colonne. Le reste du moteur (classify.py, parsers/,
@@ -576,7 +576,7 @@ def _read_and_prepare_rows(
             # dans le chemin de lecture principal (polars).
             df = pl.read_csv(
                 handle, separator=sep, infer_schema_length=0, encoding=encoding,
-                missing_utf8_is_empty_string=True,
+                empty_string_is_null=False,
             )
             df = df.rename({c: normalize_header(c) for c in df.columns})
             full_headers = set(df.columns)
@@ -649,7 +649,7 @@ def _read_and_prepare_rows(
                 # par défaut) pour toute colonne manquante sur une ligne plus
                 # courte que l'en-tête (ligne mal formée / tronquée) — même
                 # cause racine que le correctif polars ci-dessus
-                # (`missing_utf8_is_empty_string`) : `v or ""` garantit ici
+                # (`empty_string_is_null=False`) : `v or ""` garantit ici
                 # aussi une chaîne pour TOUTE colonne, jamais None.
                 raw_rows = [
                     {

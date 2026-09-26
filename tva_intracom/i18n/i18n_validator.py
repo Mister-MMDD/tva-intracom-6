@@ -38,8 +38,16 @@ def load_all_translations() -> Dict[str, Dict]:
         try:
             content = file_path.read_text(encoding="utf-8")
             translations[lang] = toml.loads(content)
+        except toml.TomlDecodeError:
+            # Erreur TOML déjà bien formée (msg/doc/pos) : on la laisse
+            # remonter telle quelle, avec le contexte de la langue en cause.
+            raise
         except Exception as e:
-            raise toml.TomlDecodeError(f"Erreur de parsing TOML pour {lang}.toml: {e}")
+            # `toml.TomlDecodeError(msg)` seul lève un TypeError (le
+            # constructeur exige aussi `doc` et `pos`) : on utilise une
+            # RuntimeError générique pour toute erreur non-TOML (I/O, etc.),
+            # en chaînant l'exception d'origine.
+            raise RuntimeError(f"Erreur de parsing TOML pour {lang}.toml: {e}") from e
     
     return translations
 

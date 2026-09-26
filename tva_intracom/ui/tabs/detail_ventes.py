@@ -6,6 +6,8 @@ ligne, Remboursements.
 
 from __future__ import annotations
 
+from typing import cast
+
 import pandas as pd
 import streamlit as st
 
@@ -110,7 +112,7 @@ def _build_rows_df(_results: list, target_currency: str, calc_key, label: str) -
     return df
 
 
-def _finalize_df(df_slice: pd.DataFrame, labels: dict, include_collector: bool) -> pd.DataFrame:
+def _finalize_df(df_slice: pd.DataFrame, labels: dict[str, str], include_collector: bool) -> pd.DataFrame:
     """Sélectionne l'ordre de colonnes final et renomme en libellés traduits.
 
     Opération pandas vectorisée (sélection + rename), pas de boucle Python
@@ -121,7 +123,12 @@ def _finalize_df(df_slice: pd.DataFrame, labels: dict, include_collector: bool) 
     if include_collector:
         cols_order.append("collector")
     cols_order += ["currency", "orig", "note"]
-    return df_slice[cols_order].rename(columns=labels)
+    # .loc[:, cols_order] plutôt que df_slice[cols_order] : pandas-stubs
+    # résout ce dernier vers un union Series|DataFrame ambigu dès que
+    # cols_order est une liste construite dynamiquement (append/+=), ce qui
+    # casse ensuite l'overload resolution de .rename() en aval (faux positif
+    # IDE, la valeur runtime est bien un DataFrame dans les deux cas).
+    return df_slice.loc[:, cols_order].rename(columns=labels)
 
 
 @st.fragment
@@ -217,7 +224,11 @@ def render_detail_ventes() -> None:
 
     if _active_subtab == 0:
         st.caption(_("what_you_owe_caption"))
-        _your_raw = _sales_df_raw[(_sales_df_raw["collector"] == "SELLER") & (_sales_df_raw["vat"] > 0)]
+        # cast: pandas-stubs résout le masque booléen __getitem__ vers un
+        # union Series|DataFrame ambigu, ce qui casse ensuite l'overload
+        # resolution de .sort_values()/.rename() en aval (faux positif IDE,
+        # la valeur runtime est bien un DataFrame).
+        _your_raw = cast(pd.DataFrame, _sales_df_raw[(_sales_df_raw["collector"] == "SELLER") & (_sales_df_raw["vat"] > 0)])
         sort_yours_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_yours")
         sort_yours = _sort_opts[sort_yours_lbl]
         if sort_yours == "Pays": _your_raw = _your_raw.sort_values("vat_country")
@@ -249,10 +260,10 @@ def render_detail_ventes() -> None:
         # Exonérations : 
         # 1. Vendeur responsable mais TVA à 0 (ex: Export, ou option sous seuil)
         # 2. Acheteur responsable (Reverse Charge) SAUF si c'est un import standard
-        _exempt_raw = _sales_df_raw[
+        _exempt_raw = cast(pd.DataFrame, _sales_df_raw[
             ((_sales_df_raw["collector"] == "SELLER") & (_sales_df_raw["vat"] <= 0)) |
             ((_sales_df_raw["collector"] == "BUYER") & (_sales_df_raw["scenario"] != "IMPORT_STANDARD"))
-        ]
+        ])
         sort_exempt_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_exempt")
         sort_exempt = _sort_opts[sort_exempt_lbl]
         if sort_exempt == "Pays": _exempt_raw = _exempt_raw.sort_values("vat_country")
@@ -284,10 +295,10 @@ def render_detail_ventes() -> None:
         # Géré par des tiers :
         # 1. Collecté par la plateforme (Amazon Deemed Supplier)
         # 2. Import standard (TVA douane payée par l'acheteur/transporteur)
-        _third_raw = _sales_df_raw[
+        _third_raw = cast(pd.DataFrame, _sales_df_raw[
             (_sales_df_raw["collector"] == "AMAZON") |
             ((_sales_df_raw["collector"] == "BUYER") & (_sales_df_raw["scenario"] == "IMPORT_STANDARD"))
-        ]
+        ])
         _third_df_full = _finalize_df(_third_raw, _labels, include_collector=True)
 
         # Filtres

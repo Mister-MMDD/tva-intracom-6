@@ -14,6 +14,7 @@ if sys.platform == 'win32':
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         try:
             from asyncio import WindowsSelectorEventLoopPolicy
+            # noinspection PyDeprecation
             asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
         except ImportError:
             pass

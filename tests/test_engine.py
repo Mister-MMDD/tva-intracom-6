@@ -756,7 +756,7 @@ class TestVatResultFastConstruction:
         from tva_intracom.models import VatResult
         fast = VatResult._new_unchecked(**self._kwargs())
         with pytest.raises(Exception):
-            fast.note = "mutation interdite"
+            fast.note = "mutation interdite"  # type: ignore[misc]
 
     def test_compute_vat_return_type_is_vatresult(self):
         """Sanity check : compute_vat() renvoie bien une vraie instance
@@ -833,7 +833,7 @@ class TestSaleReplaceFast:
         sale = self._base_sale()
         fast = Sale._replace_fast(sale, buyer_vat_valid=True, product_category="STANDARD", asin="B0X")
         with pytest.raises(Exception):
-            fast.buyer_vat_valid = False
+            fast.buyer_vat_valid = False  # type: ignore[misc]
 
     def test_used_end_to_end_via_compute_all_with_vies(self):
         """Sanity check bout-en-bout : le chemin réel (compute_all_with_vies
