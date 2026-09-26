@@ -176,6 +176,17 @@ _cache_lock = threading.Lock()
 _country_history_cache: dict[tuple[str, str], list[tuple[date, Decimal]]] = {}
 _country_history_loaded: set[tuple[str, str]] = set()
 
+# Cache L1ter : dates seules de _country_history_cache, dans le même ordre
+# (perf, 2026-09-26) — _db_get_rate() faisait `[d for d, _ in history]` à
+# CHAQUE recherche (le bisect lui-même est log(n), mais cette reconstruction
+# repart de zéro sur tout l'historique à chaque appel, ce qui redevient
+# coûteux lors du préchargement de nombreuses dates pour un même pays).
+# Maintenu en parallèle de _country_history_cache, jamais recalculé à
+# partir de ce dernier — mis à jour aux deux mêmes points d'écriture
+# (_load_country_history, _record_history_entry) et vidé aux mêmes points
+# (clear_cache()).
+_country_history_dates_cache: dict[tuple[str, str], list[date]] = {}
+
 _pool_lock = threading.Lock()
 _schema_ready = False
 _db_unavailable = False  # Sticky flag si BDD injoignable ou non configurée
@@ -318,6 +329,7 @@ def _load_country_history(country: str, rate_type: str) -> list[tuple[date, Deci
 
     with _cache_lock:
         _country_history_cache[key] = history
+        _country_history_dates_cache[key] = [d for d, _ in history]
         _country_history_loaded.add(key)
     return history
 
@@ -331,12 +343,13 @@ def _record_history_entry(country: str, rate_type: str, situation_date: date, ra
         if key not in _country_history_loaded:
             return  # sera chargé (avec cette entrée incluse) au prochain besoin
         history = _country_history_cache.setdefault(key, [])
-        dates = [d for d, _ in history]
+        dates = _country_history_dates_cache.setdefault(key, [d for d, _ in history])
         idx = bisect.bisect_left(dates, situation_date)
         if idx < len(history) and history[idx][0] == situation_date:
             history[idx] = (situation_date, rate)
         else:
             history.insert(idx, (situation_date, rate))
+            dates.insert(idx, situation_date)
 
 
 def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[Decimal]:
@@ -348,7 +361,14 @@ def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[De
     history = _load_country_history(country, rate_type)
     if not history:
         return None
-    dates = [d for d, _ in history]
+    key = (country, rate_type)
+    with _cache_lock:
+        dates = _country_history_dates_cache.get(key)
+    if dates is None:
+        # Filet de sécurité seulement (ne devrait pas arriver : toujours
+        # peuplé par _load_country_history juste au-dessus) — jamais
+        # écrit dans le cache pour ne pas masquer une incohérence future.
+        dates = [d for d, _ in history]
     idx = bisect.bisect_right(dates, target_date) - 1
     if idx < 0:
         return None  # target_date antérieure au premier milestone connu
@@ -1056,7 +1076,6 @@ def prefetch_standard_rates(
             _tick()
 
 
-@lru_cache(maxsize=20_000)
 def vat_rate(
     country: str,
     product_category: str = "STANDARD",
@@ -1087,7 +1106,23 @@ def vat_rate(
     elif cat in ("VETEMENTS", "CLOTHING"):
         cat = "CLOTHING"
 
+    # BUGFIX (2026-09-26) : date.today() DOIT être résolue ICI, avant tout
+    # passage par lru_cache — l'ancienne version appliquait @lru_cache
+    # directement sur vat_rate() avec tx_date=None comme clé, donc la
+    # résolution "date du jour" n'avait lieu qu'au premier appel ; tous les
+    # appels suivants avec tx_date=None réutilisaient ensuite le résultat
+    # mis en cache sous la clé (code, cat, None), même après un changement
+    # de date (passage à minuit) ou de taux effectif au 1er du mois/de
+    # l'année, jusqu'à expiration LRU ou redémarrage. Reproduit : un premier
+    # appel un jour donné fige le taux pour toute la durée de vie du
+    # process. En déléguant à une fonction interne mise en cache sur la
+    # date déjà résolue, la clé de cache change naturellement chaque jour.
     d = tx_date if tx_date is not None else date.today()
+    return _vat_rate_cached(code, cat, d)
+
+
+@lru_cache(maxsize=20_000)
+def _vat_rate_cached(code: str, cat: str, d: date) -> Decimal:
     return get_vat_rate(code, cat, d)
 
 
@@ -1096,8 +1131,9 @@ def clear_cache(persistent: bool = True) -> None:
     with _cache_lock:
         _vat_memory_cache.clear()
         _country_history_cache.clear()
+        _country_history_dates_cache.clear()
         _country_history_loaded.clear()
-    vat_rate.cache_clear()
+    _vat_rate_cached.cache_clear()
     _failed_pairs.clear()
     if not persistent:
         return

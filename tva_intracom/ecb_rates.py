@@ -23,6 +23,7 @@ Optimisations :
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import re
@@ -538,12 +539,17 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
             for d in dates:
                 _mark_failed("closing", ccy, d)
             continue
+        # Recherche dichotomique (perf, 2026-09-26) : available_dates est
+        # déjà trié, donc bisect_left retrouve directement le premier
+        # ad >= d en log(n) au lieu de reconstruire une liste filtrée
+        # (parcours + allocation) pour CHAQUE date demandée — n'utilisait
+        # de toute façon que le premier élément de cette liste.
         available_dates = sorted(batch.keys())
         for d in dates:
-            candidates = [ad for ad in available_dates if ad >= d]
-            if candidates:
+            idx = bisect.bisect_left(available_dates, d)
+            if idx < len(available_dates):
                 with _cache_lock:
-                    _forward_rate_cache[(ccy, d)] = batch[candidates[0]]
+                    _forward_rate_cache[(ccy, d)] = batch[available_dates[idx]]
             else:
                 _mark_failed("closing", ccy, d)
 

@@ -46,9 +46,15 @@ def make_sale(**kwargs) -> Sale:
 # ---------------------------------------------------------------------
 
 class TestCollectPrefetchPairs:
+    # NOTE (2026-09-26) : _collect_vat_rate_prefetch_pairs est désormais un
+    # générateur (perf mémoire sur gros imports, voir engine.py) — on le
+    # matérialise en list() dans chaque test pour conserver les mêmes
+    # assertions (membership multiple, ==[], .count()), qui ne fonctionnent
+    # pas sur un itérateur à usage unique.
+
     def test_includes_fr_stock_and_buyer_country(self):
         sale = make_sale(stock_country="IT", buyer_country="ES", transaction_date="2026-03-15")
-        pairs = _collect_vat_rate_prefetch_pairs([sale])
+        pairs = list(_collect_vat_rate_prefetch_pairs([sale]))
         assert ("FR", date(2026, 3, 15)) in pairs
         assert ("IT", date(2026, 3, 15)) in pairs
         assert ("ES", date(2026, 3, 15)) in pairs
@@ -62,23 +68,23 @@ class TestCollectPrefetchPairs:
             transaction_date="2026-06-10",
             order_date="2026-01-20",
         )
-        pairs = _collect_vat_rate_prefetch_pairs([refund])
+        pairs = list(_collect_vat_rate_prefetch_pairs([refund]))
         assert ("FR", date(2026, 1, 20)) in pairs
         assert not any(d == date(2026, 6, 10) for _, d in pairs)
 
     def test_refund_without_order_date_falls_back_to_transaction_date(self):
         refund = make_sale(amount_ht=Decimal("-50.00"), transaction_date="2026-06-10", order_date="")
-        pairs = _collect_vat_rate_prefetch_pairs([refund])
+        pairs = list(_collect_vat_rate_prefetch_pairs([refund]))
         assert ("FR", date(2026, 6, 10)) in pairs
 
     def test_empty_transaction_date_skipped_without_error(self):
         sale = make_sale(transaction_date="")
-        pairs = _collect_vat_rate_prefetch_pairs([sale])
+        pairs = list(_collect_vat_rate_prefetch_pairs([sale]))
         assert pairs == []
 
     def test_malformed_date_skipped_without_error(self):
         sale = make_sale(transaction_date="pas-une-date")
-        pairs = _collect_vat_rate_prefetch_pairs([sale])
+        pairs = list(_collect_vat_rate_prefetch_pairs([sale]))
         assert pairs == []
 
     def test_multiple_sales_produce_superset_with_duplicates_allowed(self):
@@ -88,7 +94,7 @@ class TestCollectPrefetchPairs:
             make_sale(stock_country="FR", buyer_country="DE", transaction_date="2026-02-01"),
             make_sale(stock_country="FR", buyer_country="DE", transaction_date="2026-02-15"),
         ]
-        pairs = _collect_vat_rate_prefetch_pairs(sales)
+        pairs = list(_collect_vat_rate_prefetch_pairs(sales))
         assert pairs.count(("FR", date(2026, 2, 1))) >= 1
         assert pairs.count(("FR", date(2026, 2, 15))) >= 1
 

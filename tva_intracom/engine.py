@@ -18,6 +18,7 @@ import threading
 from collections import OrderedDict
 from decimal import ROUND_HALF_UP, Decimal
 from itertools import chain
+from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -1323,11 +1324,20 @@ def _run_oss_loop(
     return results, refund_results, oss_summary
 
 
-def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> list[tuple[str, _date]]:
-    """Construit la liste (en SUPERSET volontaire, voir docstring de
+def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> Iterator[tuple[str, _date]]:
+    """Générateur (en SUPERSET volontaire, voir docstring de
     prefetch_standard_rates) des couples (pays, date) susceptibles d'être
     interrogés par compute_vat() sur ce lot, pour précharger les taux TEDB
     en une seule passe parallélisée avant _run_oss_loop.
+
+    Générateur plutôt que liste (perf, 2026-09-26) : sur un très gros
+    import, l'unique consommateur (prefetch_standard_rates, qui construit
+    lui-même un set() en un seul parcours) n'a jamais besoin de conserver
+    la liste intermédiaire complète en mémoire en plus des ventes déjà
+    chargées — seul le set final dédupliqué est retenu. Un futur appelant
+    qui aurait besoin d'une vraie liste (relecture multiple, indexation,
+    len()) doit explicitement faire
+    ``list(_collect_vat_rate_prefetch_pairs(...))``.
 
     On ne réplique pas ici toute la logique de branchement fiscal de
     compute_vat (Monaco, départ/destination, FBA...) — bien trop risqué de
@@ -1345,7 +1355,6 @@ def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> list[tuple
     (amount_ht < 0) utilise order_date (date de la vente d'origine) quand
     disponible, sinon transaction_date.
     """
-    pairs: list[tuple[str, _date]] = []
     for sale in all_items_sorted:
         raw_date = sale.transaction_date
         if sale.amount_ht < 0 and sale.order_date:
@@ -1356,12 +1365,11 @@ def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> list[tuple
             tx_date = _date.fromisoformat(raw_date[:10])
         except ValueError:
             continue
-        pairs.append(("FR", tx_date))
+        yield ("FR", tx_date)
         if sale.stock_country:
-            pairs.append((sale.stock_country, tx_date))
+            yield (sale.stock_country, tx_date)
         if sale.buyer_country:
-            pairs.append((sale.buyer_country, tx_date))
-    return pairs
+            yield (sale.buyer_country, tx_date)
 
 
 def compute_all_with_vies(
