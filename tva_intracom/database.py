@@ -134,7 +134,7 @@ class NonPoolingConnectionPool:
             logger.debug("Fermeture d'une connexion déjà invalide (ignorée).", exc_info=True)
 
 
-_shared_pool: Optional["NonPoolingConnectionPool"] = None
+_shared_pool: "NonPoolingConnectionPool" | None = None
 _shared_pool_lock = threading.Lock()
 
 
@@ -199,7 +199,7 @@ def close_idle_connections() -> None:
 def run_with_retry(
     get_pool: Callable[[], "NonPoolingConnectionPool"],
     fn: Callable[..., T],
-    on_retry: Optional[Callable[[], None]] = None,
+    on_retry: Callable[[], None] | None = None,
 ) -> T:
     """Exécute fn(conn, cur) avec une connexion prise dans le pool, avec un
     retry unique si la connexion s'avère fermée côté serveur (cas fréquent

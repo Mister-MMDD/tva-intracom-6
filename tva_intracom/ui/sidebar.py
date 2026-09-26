@@ -40,6 +40,7 @@ import streamlit as st
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom import billing as tva_billing
+from tva_intracom.billing import SirenQuotaStatus
 from tva_intracom.i18n import _, country_label
 from tva_intracom.rates import EU_COUNTRIES, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS, \
     oss_threshold_in_currency
@@ -132,7 +133,7 @@ class SidebarResult:
     tva_fr: str
     local_vat_numbers: dict[str, str] = field(default_factory=dict)
     oss_period: str = "__auto__"
-    siren_quota_status: Any = None
+    siren_quota_status: SirenQuotaStatus | None = None
     home_country: str = "FR"
     display_currency: str = "DEFAULT"
     ioss_own_number_active: bool = False
@@ -757,10 +758,10 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
                 except Exception:
                     _existing_vats = {}
 
-                _tva_fr_fixed = _existing_vats.get("FR") or _match.get("tva_number") or ""
+                _tva_fr_fixed = _existing_vats.get("FR") or (_match.get("tva_number") if _match else "")
 
-                _ioss_val = _match.get("ioss_number") or ""
-                _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
+                _ioss_val = _match.get("ioss_number") if _match else ""
+                _countries_raw = _match.get("countries_with_vat") if _match else "FR"
                 _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
 
                 ioss_number = _ioss_val

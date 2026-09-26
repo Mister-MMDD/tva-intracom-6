@@ -143,7 +143,7 @@ def _safe(value):
     return value
 
 
-def _wcell(ws, value, font: Font | None = None, fill: PatternFill | None = None, alignment: Alignment | None = None, number_format: str | None = None) -> Any:
+def _wcell(ws, value, font: Font | None = None, fill: PatternFill | None = None, alignment: Alignment | None = None, number_format: str | None = None) -> WriteOnlyCell:
     """Construit une cellule stylée prête à être ajoutée via `ws.append(...)`.
 
     `WriteOnlyCell` fonctionne aussi bien en `Workbook()` normal qu'en
@@ -151,7 +151,7 @@ def _wcell(ws, value, font: Font | None = None, fill: PatternFill | None = None,
     dès maintenant permet de convertir les feuilles une par une sans casser
     le mode normal encore actif, puis de basculer tout le classeur en
     write_only une fois toutes les feuilles converties."""
-    cell: Any = WriteOnlyCell(ws, value=value)
+    cell = WriteOnlyCell(ws, value=value)
     if font is not None:
         cell.font = font
     if fill is not None:

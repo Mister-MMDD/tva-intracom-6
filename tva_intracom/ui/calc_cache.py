@@ -29,6 +29,9 @@ from typing import Any, Optional
 
 import streamlit as st
 
+from tva_intracom.report import ReportSummary
+from tva_intracom.models import ViesValidationSummary, OssThresholdSummary
+
 _SS_PARSE_KEY = "_parse_cache_key"
 _SS_PARSE_DATA = "_parse_cache_data"
 _SS_CALC_KEY = "_calc_key"
@@ -50,15 +53,15 @@ class CalcCacheState:
     moment de l'appel (des widgets ailleurs dans le script peuvent l'avoir
     modifié entre deux lectures).
     """
-    parse_key: Optional[tuple] = None
-    parse_data: Optional[tuple] = None
-    calc_key: Optional[tuple] = None
-    period_sync_key: Optional[tuple] = None
+    parse_key: tuple | None = None
+    parse_data: tuple | None = None
+    calc_key: tuple | None = None
+    period_sync_key: tuple | None = None
     results: list = field(default_factory=list)
     refund_results: list = field(default_factory=list)
-    summary: Any = None
-    vies_summary: Any = None
-    oss_summary: Any = None
+    summary: ReportSummary | None = None
+    vies_summary: ViesValidationSummary | None = None
+    oss_summary: OssThresholdSummary | None = None
     vies_retry_nonce: int = 0
 
     @classmethod
@@ -86,7 +89,8 @@ class CalcCacheState:
     # -- Calcul ----------------------------------------------------------
     @staticmethod
     def save_calc(calc_key: tuple, results: list, refund_results: list,
-                   summary: Any, vies_summary: Any, oss_summary: Any) -> None:
+                   summary: ReportSummary | None, vies_summary: ViesValidationSummary | None, 
+                   oss_summary: OssThresholdSummary | None) -> None:
         st.session_state[_SS_CALC_KEY] = calc_key
         st.session_state[_SS_RESULTS] = results
         st.session_state[_SS_REFUND_RESULTS] = refund_results

@@ -824,37 +824,22 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     Ordre de résolution :
       1. Cache L1 RAM (accès immédiat)
       2. Cache L2 Postgres (Supabase)
-      3. API TEDB (Commission européenne) — un seul appel par (pays, MOIS),
-         qui alimente le cache pour TOUTES les catégories mappées d'un coup
+      3. API TEDB (Commission européenne) — interrogation par (pays, date)
       4. Fallback statique local (rates.py) — utilisé aussi immédiatement,
          sans aucun appel réseau, si le (pays, catégorie) n'est pas
          couvert par TEDB (cf. _is_tedb_eligible).
 
-    Granularité MENSUELLE côté TEDB (2026-09-13, demande Matthieu) : un
-    taux de TVA standard en UE ne change jamais en cours de mois (mise en
-    application légale systématiquement au 1er du mois ou au 1er janvier)
-    — hypothèse fiscale à confirmer explicitement avec le cabinet
-    comptable si un contre-exemple historique était identifié, mais
-    l'implémentation reste sûre par construction : TOUTE date de
-    transaction est normalisée au 1er du mois AVANT interrogation TEDB et
-    AVANT construction de la clé de cache. La valeur mise en cache est
-    donc explicitement "le taux en vigueur au 1er du mois", jamais "la
-    valeur vue par hasard au premier jour interrogé". Un seul appel réseau
-    par (pays, mois) au lieu d'un par (pays, jour) — gain direct sur le
-    volume de requêtes ET sur le volume de logs.
-
-    Le repli statique (`rates.py`) continue d'utiliser la date EXACTE de
-    la transaction (pas la date normalisée) : son mécanisme d'historique
-    par date n'a pas besoin de cette optimisation et on ne veut rien
-    changer à son comportement existant.
+    Granularité JOURNALIÈRE côté TEDB : le taux de TVA est interrogé et mis en
+    cache pour la date exacte de transaction (`situation_date = target_date`),
+    ce qui garantit le support précis de tout changement de taux en cours de mois.
 
     NOTE PERFORMANCE (2026-09-13) : dans un traitement en masse (moteur de
     calcul, voir engine.py::_run_oss_loop), appeler cette fonction ligne à
     ligne signifie que les premiers ratés de cache (un par nouveau couple
-    pays/mois rencontré) bloquent la boucle sur un aller-retour réseau
+    pays/date rencontré) bloquent la boucle sur un aller-retour réseau
     synchrone — invisible pour l'utilisateur tant que le prochain "tick" de
     progression n'est pas atteint. Voir prefetch_standard_rates() pour
-    charger TOUS les couples (pays, mois) nécessaires en une seule passe
+    charger TOUS les couples (pays, date) nécessaires en une seule passe
     parallélisée AVANT de lancer la boucle ligne à ligne, avec sa propre
     progression affichable.
     """
@@ -866,8 +851,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     with _cache_lock:
         if key in _vat_memory_cache:
             rate = _vat_memory_cache[key]
-            logger.debug("[VAT_RATES] source=L1_RAM %s/%s/%s -> %s%%",
-                         country, rate_type, target_date, rate)
+            logger.info("[VAT_RATES] source=L1_RAM %s/%s/%s -> %s%%",
+                        country, rate_type, target_date, rate)
             return rate
 
     if not _is_tedb_eligible(country, rate_type):
@@ -880,8 +865,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         else:
             reason = f"pays {country} non supporté par TEDB"
 
-        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (%s) %s/%s/%s -> %s%%",
-                     reason, country, rate_type, target_date, rate)
+        logger.info("[VAT_RATES] source=STATIC_FALLBACK (%s) %s/%s/%s -> %s%%",
+                    reason, country, rate_type, target_date, rate)
         with _cache_lock:
             _vat_memory_cache[key] = rate
         return rate
@@ -896,14 +881,14 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
         # gros fichier referait un aller-retour Postgres pour rien tant
         # que la panne dure (audit 2026-09-13 (6)).
         rate = _static_vat_rate_at_date(country, target_date, rate_type)
-        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
-                     _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
+        logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
+                    _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
         return rate
 
     cached = _db_get_rate(country, rate_type, situation_date)
     if cached is not None:
-        logger.debug("[VAT_RATES] source=L2_POSTGRES %s/%s/%s -> %s%%",
-                      country, rate_type, target_date, cached)
+        logger.info("[VAT_RATES] source=L2_POSTGRES %s/%s/%s -> %s%%",
+                     country, rate_type, target_date, cached)
         with _cache_lock:
             _vat_memory_cache[key] = cached
         return cached
@@ -911,8 +896,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     result = _fetch_tedb_rates(country, situation_date)
     fetched = _process_fetch_result(country, situation_date, result, requested_rate_type=rate_type)
     if rate_type in fetched:
-        logger.debug("[VAT_RATES] source=TEDB_FETCH %s/%s/%s -> %s%%",
-                     country, rate_type, target_date, fetched[rate_type])
+        logger.info("[VAT_RATES] source=TEDB_FETCH %s/%s/%s -> %s%%",
+                    country, rate_type, target_date, fetched[rate_type])
         return fetched[rate_type]
     if result is not None:
         # Réponse TEDB obtenue mais catégorie absente/rejetée (cas
@@ -926,8 +911,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
             country, situation_date, rate_type,
         )
         rate = _static_vat_rate_at_date(country, target_date, rate_type)
-        logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB répondu, catégorie rejetée) %s/%s/%s -> %s%%",
-                     country, rate_type, target_date, rate)
+        logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB répondu, catégorie rejetée) %s/%s/%s -> %s%%",
+                    country, rate_type, target_date, rate)
         with _cache_lock:
             _vat_memory_cache[key] = rate
         return rate
@@ -942,8 +927,8 @@ def get_vat_rate(country: str, rate_type: str, target_date: date) -> Decimal:
     # une simple coupure réseau transitoire figeait le taux sur le
     # statique jusqu'au redémarrage du process.
     rate = _static_vat_rate_at_date(country, target_date, rate_type)
-    logger.debug("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
-                 _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
+    logger.info("[VAT_RATES] source=STATIC_FALLBACK (TEDB indisponible, nouvel essai après %ds) %s/%s/%s -> %s%%",
+                _FAILED_PAIR_TTL_SECONDS, country, rate_type, target_date, rate)
     return rate
 
 
@@ -960,13 +945,11 @@ def prefetch_standard_rates(
     de l'eau (voir note de performance dans get_vat_rate()).
 
     Args:
-        pairs: itérable de (country: str, target_date: date). Chaque date
-            est normalisée au 1er du mois (même granularité que
-            get_vat_rate) — peu importe le jour exact fourni ici, seul le
-            couple (pays, mois) compte. Un simple SUPERSET des couples
-            réellement nécessaires est parfaitement sûr à passer ici : les
-            couples non éligibles TEDB (_is_tedb_eligible) ou déjà en
-            cache sont ignorés quasi gratuitement, sans appel réseau.
+        pairs: itérable de (country: str, target_date: date).
+            Un simple SUPERSET des couples réellement nécessaires est
+            parfaitement sûr à passer ici : les couples non éligibles TEDB
+            (_is_tedb_eligible) ou déjà en cache sont ignorés quasi
+            gratuitement, sans appel réseau.
         max_workers: nombre de requêtes SOAP TEDB menées en parallèle.
             Threads de courte durée, aucune connexion/pool persistant —
             même contrainte scale-to-zero que
@@ -976,16 +959,15 @@ def prefetch_standard_rates(
             cache L1/L2 sont faites séquentiellement dans le thread
             appelant après collecte de tous les résultats réseau).
         progress_callback: optionnel, callable(done: int, total: int),
-            appelé après chaque couple (pays, mois) traité (cache hit
+            appelé après chaque couple (pays, date) traité (cache hit
             immédiat ou fin de fetch réseau) — total = nombre de couples
             UNIQUES et éligibles à traiter, pas le nombre de lignes de
             vente d'origine (peut donc atteindre 100% bien avant que la
             boucle de calcul elle-même n'affiche sa propre progression).
     """
-    # Normalisation + déduplication (pays, mois) — potentiellement des
+    # Normalisation + déduplication (pays, date) — potentiellement des
     # dizaines de milliers de lignes en entrée pour une poignée de couples
-    # distincts en sortie (un fichier Amazon typique couvre peu de pays et
-    # peu de mois à la fois).
+    # distincts en sortie.
     normalized: set[tuple[str, date]] = set()
     for country, d in pairs:
         c = (country or "").upper()

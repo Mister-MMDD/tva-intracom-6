@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Dict, List, Optional, Set
+from typing import Optional
 
 from .i18n import _
 from .models import Channel, Collector, Scenario, VatResult
@@ -24,8 +24,8 @@ class ReportSummary:
 
     # HT par canal (Brut)
     fr_domestic_ht: Decimal = _ZERO
-    oss_ht_by_country: Dict[str, Decimal] = field(default_factory=dict)
-    local_ht_by_country: Dict[str, Decimal] = field(default_factory=dict)
+    oss_ht_by_country: dict[str, Decimal] = field(default_factory=dict)
+    local_ht_by_country: dict[str, Decimal] = field(default_factory=dict)
     ioss_ht: Decimal = _ZERO
     amazon_ht: Decimal = _ZERO
     import_ht: Decimal = _ZERO
@@ -34,8 +34,8 @@ class ReportSummary:
 
     # TVA que VOUS devez reverser.
     fr_domestic_vat: Decimal = _ZERO                      # CA3 France
-    oss_by_country: Dict[str, Decimal] = field(default_factory=dict)  # via OSS (FR)
-    local_by_country: Dict[str, Decimal] = field(default_factory=dict)  # immat. locale
+    oss_by_country: dict[str, Decimal] = field(default_factory=dict)  # via OSS (FR)
+    local_by_country: dict[str, Decimal] = field(default_factory=dict)  # immat. locale
     ioss_vat: Decimal = _ZERO                             # Guichet IOSS (propre numéro)
 
     # TVA geree par d'autres / sans reversement de votre part.
@@ -45,8 +45,8 @@ class ReportSummary:
     # Remboursements (montants négatifs, ventilés par canal).
     refund_total_ht: Decimal = _ZERO                      # CA HT remboursé (négatif)
     refund_fr_domestic_ht: Decimal = _ZERO
-    refund_oss_ht_by_country: Dict[str, Decimal] = field(default_factory=dict)
-    refund_local_ht_by_country: Dict[str, Decimal] = field(default_factory=dict)
+    refund_oss_ht_by_country: dict[str, Decimal] = field(default_factory=dict)
+    refund_local_ht_by_country: dict[str, Decimal] = field(default_factory=dict)
     refund_ioss_ht: Decimal = _ZERO
     refund_amazon_ht: Decimal = _ZERO
     refund_import_ht: Decimal = _ZERO
@@ -54,8 +54,8 @@ class ReportSummary:
     refund_export_ht: Decimal = _ZERO
 
     refund_fr_domestic_vat: Decimal = _ZERO               # TVA FR à déduire (négatif)
-    refund_oss_by_country: Dict[str, Decimal] = field(default_factory=dict)  # TVA OSS à déduire
-    refund_local_by_country: Dict[str, Decimal] = field(default_factory=dict)
+    refund_oss_by_country: dict[str, Decimal] = field(default_factory=dict)  # TVA OSS à déduire
+    refund_local_by_country: dict[str, Decimal] = field(default_factory=dict)
     refund_amazon_vat: Decimal = _ZERO                    # TVA Amazon remboursée
     refund_import_vat: Decimal = _ZERO
     refund_ioss_vat: Decimal = _ZERO
@@ -66,12 +66,12 @@ class ReportSummary:
     # Alimente les colonnes mois par mois des onglets OSS_Détail / TVA locale
     # dans excel_report.py — le total par pays (colonnes Brut/Remb/Net) reste
     # calculé séparément via oss_by_country / refund_oss_by_country ci-dessus.
-    oss_by_country_month: Dict[str, Dict[str, Decimal]] = field(default_factory=dict)
-    local_by_country_month: Dict[str, Dict[str, Decimal]] = field(default_factory=dict)
-    fr_domestic_by_month: Dict[str, Decimal] = field(default_factory=dict)
+    oss_by_country_month: dict[str, dict[str, Decimal]] = field(default_factory=dict)
+    local_by_country_month: dict[str, dict[str, Decimal]] = field(default_factory=dict)
+    fr_domestic_by_month: dict[str, Decimal] = field(default_factory=dict)
 
     # Cas 4 : pays ou le stock reside et qui imposent une immatriculation locale.
-    stock_countries_requiring_registration: Set[str] = field(default_factory=set)
+    stock_countries_requiring_registration: set[str] = field(default_factory=set)
 
     # Ventilation HT EXHAUSTIVE par "seau" de traitement fiscal (ventes, hors
     # remboursements). Chaque VatResult tombe dans exactement un seau — la
@@ -81,8 +81,8 @@ class ReportSummary:
     # dans app.py) : si un scénario futur n'était pas couvert par les branches
     # ci-dessous, il tomberait dans "Autre / non classé" et rendrait l'écart
     # visible plutôt que silencieux.
-    ht_by_bucket: Dict[str, Decimal] = field(default_factory=dict)
-    refund_ht_by_bucket: Dict[str, Decimal] = field(default_factory=dict)
+    ht_by_bucket: dict[str, Decimal] = field(default_factory=dict)
+    refund_ht_by_bucket: dict[str, Decimal] = field(default_factory=dict)
 
     @property
     def oss_total(self) -> Decimal:
@@ -93,7 +93,7 @@ class ReportSummary:
         return sum(self.local_by_country.values(), _ZERO)
 
     @property
-    def net_local_by_country(self) -> Dict[str, Decimal]:
+    def net_local_by_country(self) -> dict[str, Decimal]:
         """TVA locale nette par pays (ventes - remboursements)."""
         all_countries = set(self.local_by_country) | set(self.refund_local_by_country)
         return {
@@ -115,7 +115,7 @@ class ReportSummary:
         return self.fr_domestic_vat + self.refund_fr_domestic_vat
 
     @property
-    def net_oss_by_country(self) -> Dict[str, Decimal]:
+    def net_oss_by_country(self) -> dict[str, Decimal]:
         """TVA OSS nette par pays (ventes - remboursements)."""
         all_countries = set(self.oss_by_country) | set(self.refund_oss_by_country)
         return {
@@ -140,7 +140,7 @@ class ReportSummary:
         return self.net_fr_domestic_vat + self.net_oss_total + self.net_local_total + self.net_ioss_vat
 
     @property
-    def net_ht_by_bucket(self) -> Dict[str, Decimal]:
+    def net_ht_by_bucket(self) -> dict[str, Decimal]:
         """CA HT net (ventes - remboursements) par seau de traitement fiscal."""
         all_buckets = set(self.ht_by_bucket) | set(self.refund_ht_by_bucket)
         return {
@@ -292,8 +292,8 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
 
 
 def build_report(
-        results: List[VatResult],
-        refund_results: Optional[List[VatResult]] = None,
+        results: list[VatResult],
+        refund_results: list[VatResult] | None = None,
         lang: str | None = None,
 ) -> ReportSummary:
     """Agrege une liste de resultats en une synthese.
@@ -364,7 +364,7 @@ def render_report(summary: ReportSummary, seller_country: str = "FR") -> str:
         converted, display_currency = _conv(amount)
         return _fmt(converted, display_currency)
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("=" * 64)
     lines.append("RECAPITULATIF TVA INTRACOMMUNAUTAIRE")
     lines.append("=" * 64)

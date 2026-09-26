@@ -204,7 +204,7 @@ class User:
     id: str
     email: str
     is_cabinet: bool = False
-    cabinet_parent_id: Optional[str] = None
+    cabinet_parent_id: str | None = None
     home_country: str = "FR"
     language: str = "fr"
     display_currency: str = "DEFAULT"

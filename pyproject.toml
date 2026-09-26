@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "mypy>=1.0"]
 web = [
     "streamlit>=1.30",
     "extra-streamlit-components>=0.1.60",
@@ -40,3 +40,98 @@ tva_intracom = ["data/*.csv", "i18n/*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+no_implicit_optional = false
+warn_redundant_casts = false
+warn_unused_ignores = false
+warn_no_return = false
+follow_imports = "normal"
+ignore_missing_imports = true
+strict_optional = false
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.i18n.i18n_validator"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.oss_export"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.ui.glossary"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.ui.formatting"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.billing"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.engine"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.oss_xml"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.excel_report"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.ca3_report"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.local_vat_report"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.ui.tabs.vies_ui"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.ui.tabs.audit"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tva_intracom.ui.tabs.telechargements"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "streamlit.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "openpyxl.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "psycopg2.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "stripe.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "polars.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pandas.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "extra_streamlit_components.*"
+ignore_missing_imports = true

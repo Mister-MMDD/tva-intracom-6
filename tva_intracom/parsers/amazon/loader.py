@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, List, Optional, Set, Tuple
+from typing import Callable, Optional, Set, Tuple
 
 from .aggregate import preaggregate_v5
 from .classify import (
@@ -53,13 +53,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AmazonImportResult:
-    sales: List[Sale]
-    refunds: List[Sale]
-    fc_transfers: List[dict]
-    stock_countries: Set[str]
+    sales: list[Sale]
+    refunds: list[Sale]
+    fc_transfers: list[dict]
+    stock_countries: set[str]
     skipped_rows: int = 0
     total_rows: int = 0
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     detected_format: int = 0      # 1, 2, 3, 4 ou 5
     # platform est "amazon" en minuscule en interne.
     platform: str = "amazon"
@@ -75,7 +75,7 @@ class AmazonImportResult:
     # Lignes brutes INVOICE / CREDIT_NOTE conservées pour l'onglet Excel dédié
     # (voir excel_report.py). Champs extraits via le parser du format détecté
     # + quelques colonnes brutes directement lues sur la ligne normalisée.
-    invoice_credit_notes: List[dict] = field(default_factory=list)
+    invoice_credit_notes: list[dict] = field(default_factory=list)
     # Ensemble des UNIQUE_ACCOUNT_IDENTIFIER rencontrés dans le fichier (colonne
     # Amazon identifiant le compte vendeur d'origine). Un même SIREN client peut
     # posséder plusieurs comptes Amazon (donc plusieurs identifiants), mais un
@@ -84,7 +84,7 @@ class AmazonImportResult:
     # link_account_identifier, et le gating dans ui/billing_gate.py, qui
     # empêchent d'exporter un fichier appartenant à un autre client sans
     # confirmation explicite.
-    account_identifiers: Set[str] = field(default_factory=set)
+    account_identifiers: set[str] = field(default_factory=set)
     # Format 5 uniquement : Tax Reporting Scheme par sale_id
     # "VCS_EU_OSS" = déclarable OSS ; "" = domestique / hors OSS
     tax_scheme_by_sale_id: dict = field(default_factory=dict)
@@ -94,7 +94,7 @@ class AmazonImportResult:
     # commande. Une entrée par vente concernée : {sale_id, order_date,
     # shipment_date, amount_ht}. Format 5 uniquement (seul format où les
     # deux dates sont disponibles séparément).
-    period_mismatches: List[dict] = field(default_factory=list)
+    period_mismatches: list[dict] = field(default_factory=list)
     # Chantier taux réduit dynamique CN/CPA (cf. synthèse
     # taux_reduit_dynamique.md) — répartition diagnostique des valeurs
     # PRODUCT_TAX_CODE / COMMODITY_CODE brutes rencontrées (sales/refunds
@@ -744,7 +744,7 @@ def load_amazon_report(
     # Optimisation : on scanne les dates une fois pour faire une requête groupée (batch).
     # On utilise un set pour éviter de passer des millions de doublons à prefetch_rates.
     if convert_currencies and rows_to_process:
-        to_prefetch_set: Set[Tuple[str, date]] = set()
+        to_prefetch_set: set[tuple[str, date]] = set()
         for _, row in rows_to_process:
             c = parser.currency(row)
             if c and c.upper() != "EUR":

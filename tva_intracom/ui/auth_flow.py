@@ -31,7 +31,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 import extra_streamlit_components as stx
 import streamlit as st
@@ -39,6 +39,7 @@ import streamlit as st
 from tva_intracom import auth as tva_auth
 from tva_intracom import auth_supabase as tva_sb_auth
 from tva_intracom import billing as tva_billing
+from tva_intracom.auth import User
 from tva_intracom.i18n import _
 from tva_intracom.vies_engine import (
     resolve_scope_id as _vies_resolve_scope_id,
@@ -50,7 +51,7 @@ from ..config import get_secret
 _DB_CACHE_TTL_SECONDS = 20
 
 
-def _cached_db_read(cache_key: str, fetch_fn, force: bool = False):
+def _cached_db_read(cache_key: str, fetch_fn: Callable[[], Any], force: bool = False) -> Any:
     """Copie volontaire de `sidebar.py::_cached_db_read` (même schéma de clé
     `_sb_dbcache_{cache_key}`, même TTL) plutôt qu'un import croisé entre
     modules UI : les deux se partagent naturellement le même cache en
@@ -69,7 +70,7 @@ def _cached_db_read(cache_key: str, fetch_fn, force: bool = False):
 class AuthContext:
     """Contexte d'authentification résolu, transmis au reste de l'app."""
 
-    current_user: Any                 # tva_intracom.auth.User
+    current_user: User
     cookie_manager: "stx.CookieManager"
     app_base_url: str
     vies_scope_id: str

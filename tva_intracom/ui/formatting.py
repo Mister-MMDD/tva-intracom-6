@@ -20,6 +20,7 @@ import pandas as pd
 import streamlit as st
 
 from tva_intracom.i18n import _
+from tva_intracom.models import OssThresholdSummary
 
 
 def _fec_period_end_date(period: str) -> str:
@@ -479,7 +480,7 @@ def _gated_preview_table(
         st.warning(_("gated_preview_warning", count=n_total - min_rows))
 
 
-def render_oss_threshold_bar(oss_summary: Any) -> None:
+def render_oss_threshold_bar(oss_summary: OssThresholdSummary) -> None:
     """Affiche la barre de progression du seuil OSS 10 000 EUR (Art. 59 quater
     Dir. 2006/112/CE).
 

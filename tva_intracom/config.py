@@ -6,7 +6,7 @@ except ImportError:
 
 from typing import Any
 
-def get_secret(key: str, default: Any = None) -> Any:
+def get_secret(key: str, default: Any | None = None) -> Any | None:
     """
     Récupère une configuration depuis st.secrets (Streamlit Cloud / Local)
     ou depuis os.environ (Railway / Vercel / Docker), sans lever d'erreur

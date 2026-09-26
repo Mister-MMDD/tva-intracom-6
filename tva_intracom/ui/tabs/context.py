@@ -15,7 +15,11 @@ Téléchargements), donc ce couplage reste valide.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from decimal import Decimal
+from typing import Any, Callable, Optional
+
+from ...report import ReportSummary
+from ...models import ViesValidationSummary, OssThresholdSummary
 
 
 @dataclass
@@ -23,9 +27,9 @@ class TabContext:
     # Résultats calculés (moteur TVA)
     results: list
     refund_results: list
-    summary: Any
-    vies_summary: Any
-    oss_summary: Any
+    summary: ReportSummary
+    vies_summary: ViesValidationSummary
+    oss_summary: OssThresholdSummary
     period_label: str
     period_detected_range: Optional[tuple]
 
@@ -33,7 +37,7 @@ class TabContext:
     can_export: bool
     billing_ok: bool
     account_link_blocked: bool
-    gated_download: Any    # callable : BillingGate.gated_download
+    gated_download: Callable    # callable : BillingGate.gated_download
     unlock_label_suffix: str
     # Message court (avec cadenas) pour les aperçus bridés (tableaux masqués,
     # métriques) — calculé une fois par billing_gate.preview_lock_message()
@@ -77,14 +81,14 @@ class TabContext:
 
     # Cross-onglet : rempli par render_declarations(), lu par
     # render_telechargements() — voir docstring du module.
-    oss_tva_net_total: Any = None
+    oss_tva_net_total: Decimal | None = None
 
     # Clé de cache du calcul TVA (voir app.py `_cache_key`) — utilisée par
     # render_telechargements() pour ne régénérer les exports (Excel, CA3,
     # FEC...) que si les résultats sous-jacents ont réellement changé, plutôt
     # qu'à chaque interaction avec un widget local à l'onglet (checkbox de
     # confirmation OSS, sélecteur de pays local...).
-    calc_key: Any = None
+    calc_key: tuple | None = None
 
     # Signature stable du fichier/des options de parsing (voir app.py
     # `_parse_cache_key`) — NE dépend PAS de `vies_retry_nonce`, contrairement
@@ -93,7 +97,7 @@ class TabContext:
     # jour"/"Réessayer" ne la change pas) ou s'il s'agit réellement d'un
     # nouveau dépôt de fichier (elle change alors) — voir garde anti-relance
     # automatique dans ui/tabs/vies_ui.py.
-    parse_signature: Any = None
+    parse_signature: tuple | None = None
 
     # Statut Stripe brut ("incomplete" = virement/prélèvement SEPA en cours
     # de traitement, distinct d'un compte réellement non payant) — voir

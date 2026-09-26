@@ -35,7 +35,7 @@ from __future__ import annotations
 # réactiver avec lui si besoin.
 from dataclasses import dataclass, field
 from datetime import datetime as _dt
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 import streamlit as st
 
@@ -43,8 +43,10 @@ import streamlit as st
 # uniquement utilisé par les blocs paywall Stripe désormais commentés
 # ci-dessous (is_admin) — à réactiver avec eux si besoin.
 from tva_intracom import billing as tva_billing
+from tva_intracom.auth import User
+from tva_intracom.billing import SirenQuotaStatus
 from tva_intracom.i18n import _, country_label
-from tva_intracom.models import Channel
+from tva_intracom.models import Channel, ViesValidationSummary
 from tva_intracom.rates import is_eu
 from tva_intracom.ui.sidebar import _cached_db_read
 from tva_intracom.vies_engine import resolve_scope_id as _vies_resolve_scope_id
@@ -99,9 +101,9 @@ class BillingGate:
     period_label: str
     period_detected_range: Optional[tuple[str, str]]
     can_export: bool
-    quota_status: Any
+    quota_status: SirenQuotaStatus | None
     compliance_blocked: bool
-    missing_vats: list
+    missing_vats: list[str]
     ioss_missing: bool
     unlock_label_suffix: str
     sub_status: Optional[str] = None
@@ -111,8 +113,8 @@ class BillingGate:
     # can_export tant qu'il reste des identifiants non confirmés ou en
     # conflit avec un autre SIREN — voir render_account_link_panel().
     account_link_blocked: bool = False
-    unlinked_identifiers: list = field(default_factory=list)
-    conflicting_links: list = field(default_factory=list)  # [(identifier, other_siren)]
+    unlinked_identifiers: list[str] = field(default_factory=list)
+    conflicting_links: list[tuple[str, str]] = field(default_factory=list)  # [(identifier, other_siren)]
 
     # SIREN saisi non retrouvé parmi les SIREN enregistrés pour ce compte —
     # distinct de account_link_blocked (rattachement compte Amazon<->SIREN) :
@@ -128,10 +130,10 @@ class BillingGate:
     # conformité (SIREN, rattachement compte, quota). Voir build_billing_gate.
     billing_ok: bool = True
 
-    current_user: Any = field(repr=False, default=None)
-    vies_summary: Any = field(repr=False, default=None)
-    stripe_success_url: Any = field(repr=False, default=None)
-    stripe_cancel_url: Any = field(repr=False, default=None)
+    current_user: User | None = field(repr=False, default=None)
+    vies_summary: ViesValidationSummary | None = field(repr=False, default=None)
+    stripe_success_url: Callable[[], str] | None = field(repr=False, default=None)
+    stripe_cancel_url: Callable[[], str] | None = field(repr=False, default=None)
     vies_scope_id: str = field(repr=False, default="")
     siren_entreprise: str = field(repr=False, default="")
     nom_entreprise: str = field(repr=False, default="")
@@ -195,7 +197,7 @@ class BillingGate:
 
             # Si le compte est à jour de paiement (billing_ok True) mais
             # reste bloqué (can_export False), on affiche la raison précise.
-            elif self.quota_status and self.quota_status.blocked:
+            elif self.quota_status is not None and self.quota_status.blocked:
                 st.error(
                     _("gate_quota_blocked_err",
                       label=label,
@@ -352,7 +354,7 @@ def preview_lock_message(gate: "BillingGate") -> str:
         return _("locked_payment_pending")
     if not gate.billing_ok:
         return "🔒 " + _("locked_premium")
-    if gate.quota_status and gate.quota_status.blocked:
+    if gate.quota_status is not None and gate.quota_status.blocked:
         return "🔒 " + _("locked_quota")
     if gate.account_link_blocked:
         return _("locked_account_link")
@@ -647,8 +649,11 @@ def render_account_link_panel(gate: BillingGate) -> None:
     # Libellés lisibles pour les SIREN déjà connus du compte (utilisé pour
     # les messages de conflit : "SIREN X" -> "Client Untel — 123456789").
     try:
-        _sirens = tva_billing.list_registered_sirens(gate.current_user.org_id)
-        _siren_labels = {r["siren"]: f"{r['company_name'] or r['siren']} — {r['siren']}" for r in _sirens}
+        if gate.current_user is not None:
+            _sirens = tva_billing.list_registered_sirens(gate.current_user.org_id)
+            _siren_labels = {r["siren"]: f"{r['company_name'] or r['siren']} — {r['siren']}" for r in _sirens}
+        else:
+            _siren_labels = {}
     except Exception:
         _siren_labels = {}
 

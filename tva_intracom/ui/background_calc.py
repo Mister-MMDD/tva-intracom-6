@@ -235,8 +235,8 @@ def can_start_big_job() -> bool:
 @dataclass
 class _JobState:
     done: bool = False
-    error: Optional[BaseException] = None
-    result: Any = None
+    error: BaseException | None = None
+    result: Any = None  # Result varies by job type (calculation, VIES retry, etc.)
     progress: float = 0.0
     progress_text: str = ""
     started_at: float = field(default_factory=time.time)

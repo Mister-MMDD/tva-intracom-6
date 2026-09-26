@@ -22,7 +22,7 @@ import logging
 from datetime import date
 from decimal import Decimal
 from functools import lru_cache
-from typing import Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, List, NamedTuple, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Noms et codes pays — SOURCE UNIQUE
 # ---------------------------------------------------------------------------
 
-COUNTRY_NAMES: Dict[str, str] = {
+COUNTRY_NAMES: dict[str, str] = {
     "AT": "Autriche",    "BE": "Belgique",   "BG": "Bulgarie",
     "HR": "Croatie",     "CY": "Chypre",     "CZ": "Tchèque",
     "DK": "Danemark",    "EE": "Estonie",    "FI": "Finlande",
@@ -77,7 +77,7 @@ COUNTRY_NAMES: Dict[str, str] = {
 # Devises par pays
 # ---------------------------------------------------------------------------
 
-COUNTRY_CURRENCIES: Dict[str, str] = {
+COUNTRY_CURRENCIES: dict[str, str] = {
     "AT": "EUR", "BE": "EUR", "BG": "EUR", "HR": "EUR", "CY": "EUR",
     "CZ": "CZK", "DK": "DKK", "EE": "EUR", "FI": "EUR", "FR": "EUR",
     "DE": "EUR", "GR": "EUR", "HU": "HUF", "IE": "EUR", "IT": "EUR",
@@ -107,7 +107,7 @@ COUNTRY_CURRENCIES: Dict[str, str] = {
     "TZ": "TZS", "MU": "MUR",
 }
 
-CURRENCY_SYMBOLS: Dict[str, str] = {
+CURRENCY_SYMBOLS: dict[str, str] = {
     "EUR": "€",
     "PLN": "zł",
     "CZK": "Kč",
@@ -171,7 +171,7 @@ CURRENCY_SYMBOLS: Dict[str, str] = {
 # Dernière vérification de CE BLOC spécifique : juin 2026 (ces montants sont
 # publiés par chaque État membre et peuvent en théorie être révisés — à
 # revérifier périodiquement, indépendamment du reste du fichier).
-OSS_THRESHOLD_FIXED_EQUIVALENTS: Dict[str, Decimal] = {
+OSS_THRESHOLD_FIXED_EQUIVALENTS: dict[str, Decimal] = {
     "BGN": Decimal("19558"),
     "CZK": Decimal("256530"),
     "DKK": Decimal("74500"),
@@ -182,7 +182,7 @@ OSS_THRESHOLD_FIXED_EQUIVALENTS: Dict[str, Decimal] = {
 }
 
 
-def oss_threshold_in_currency(currency: str, eur_rate: Optional[Decimal] = None) -> Decimal:
+def oss_threshold_in_currency(currency: str, eur_rate: Decimal | None = None) -> Decimal:
     """Contre-valeur du seuil OSS de 10 000 EUR dans `currency`.
 
     - EUR : 10 000 (le seuil légal lui-même).
@@ -201,7 +201,7 @@ def oss_threshold_in_currency(currency: str, eur_rate: Optional[Decimal] = None)
         return Decimal("10000.00") * Decimal(str(eur_rate))
     return Decimal("10000.00")
 
-COUNTRY_ISO3: Dict[str, str] = {
+COUNTRY_ISO3: dict[str, str] = {
     "AT": "AUT", "BE": "BEL", "BG": "BGR", "HR": "HRV", "CY": "CYP",
     "CZ": "CZE", "DK": "DNK", "EE": "EST", "FI": "FIN", "FR": "FRA",
     "DE": "DEU", "GR": "GRC", "HU": "HUN", "IE": "IRL", "IT": "ITA",
@@ -221,7 +221,7 @@ COUNTRY_ISO3: Dict[str, str] = {
 
 # Métadonnées fiscales locales par pays.
 # Mise à jour juin 2026 : Taux réduit principal de la Finlande ajusté à 13.5%.
-COUNTRY_FISCAL_META: Dict[str, Tuple[str, str, str, str, str]] = {
+COUNTRY_FISCAL_META: dict[str, tuple[str, str, str, str, str]] = {
     "AT": ("Umsatzsteuervoranmeldung (UVA)",    "Bemessungsgrundlage", "Umsatzsteuer", "20%",   "10%"),
     "BE": ("Declaration TVA / BTW-aangifte",    "Base imposable",      "TVA / BTW",   "21%",   "6%"),
     "BG": ("Spravka-deklaraciya po ZDDS",       "Danachna osnova",     "DDS",         "20%",   "9%"),
@@ -264,7 +264,7 @@ COUNTRY_FISCAL_META: Dict[str, Tuple[str, str, str, str, str]] = {
 # ⚠️ Non exhaustif : seuls les pays où un client a eu besoin d'un mapping
 # précis ont été vérifiés. Les autres pays utilisent un rendu générique
 # (taux + libellé neutre, pas de code case) — voir local_vat_report.py.
-LOCAL_VAT_BOX_CODES: Dict[str, Tuple[List[str], Dict]] = {
+LOCAL_VAT_BOX_CODES: dict[str, tuple[list[str], dict]] = {
     "DE": (["Kennzahl", "Bezeichnung", "Base (EUR)", "TVA (EUR)", "Nb"], {"19": ("81", "19%"), "7": ("86", "7%")}),
     "ES": (["Casilla", "Concepto", "Base (EUR)", "TVA (EUR)", "Nb"], {"21": ("01", "21%"), "10": ("03", "10%"), "4": ("05", "4%")}),
     "IT": (["Aliquota", "Descrizione", "Base (EUR)", "TVA (EUR)", "N."], {"22": "22%", "10": "10%", "4": "4%"}),
@@ -280,7 +280,7 @@ LOCAL_VAT_BOX_CODES: Dict[str, Tuple[List[str], Dict]] = {
     "IE": (["Box", "Description", "Base (EUR)", "TVA (EUR)", "Count"], {"23": ("T1", "23%"), "9": ("T1", "9%"), "0": ("E1", "0%")}),
 }
 
-EU_COUNTRIES: Set[str] = {
+EU_COUNTRIES: set[str] = {
     "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
     "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
     "SI", "ES", "SE", "MC", "XI",
@@ -291,7 +291,7 @@ EU_COUNTRIES: Set[str] = {
 # ---------------------------------------------------------------------------
 # Territoires exclus du territoire fiscal de l'UE (TVA)
 # ---------------------------------------------------------------------------
-NON_FISCAL_EU_POSTCODES: Dict[str, Dict] = {
+NON_FISCAL_EU_POSTCODES: dict[str, dict] = {
     "ES": {
         "prefixes": [
             "35",  # Îles Canaries – hors TVA UE
@@ -379,7 +379,7 @@ _NON_FISCAL_EU_COUNTRY_CODES: frozenset[str] = frozenset(
 )
 
 
-def is_non_fiscal_eu(country: str, post_code: str | None) -> bool:
+def is_non_fiscal_eu(country: str, post_code: str | None = None) -> bool:
     """Retourne True si le territoire est exclu du territoire fiscal de l'UE (TVA).
     
     Gère à la fois les pays ayant leur propre code ISO (ex: GL pour le Groenland)
@@ -485,7 +485,7 @@ def fiscal_equivalent_country(country: str) -> str:
     return "FR" if country.upper() == "MC" else country.upper()
 
 # Taux standard courants (2026)
-STANDARD_VAT_RATES: Dict[str, Decimal] = {
+STANDARD_VAT_RATES: dict[str, Decimal] = {
     "AT": Decimal("20"), "BE": Decimal("21"), "BG": Decimal("20"), "HR": Decimal("25"),
     "CY": Decimal("19"), "CZ": Decimal("21"), "DK": Decimal("25"), "EE": Decimal("24"),   
     "FI": Decimal("25.5"), "FR": Decimal("20"), "DE": Decimal("19"), "GR": Decimal("24"),
@@ -503,12 +503,12 @@ STANDARD_VAT_RATES: Dict[str, Decimal] = {
 class _VatPeriod(NamedTuple):
     country: str
     date_from: date
-    date_to: Optional[date]
+    date_to: date | None
     rate: Decimal
     category: str = "STANDARD"  # Valeur par défaut pour garder la flexibilité
 
 
-VAT_RATE_HISTORY: List[_VatPeriod] = [
+VAT_RATE_HISTORY: list[_VatPeriod] = [
     # --- AT ---
     _VatPeriod("AT", date(2000, 1, 1) , None             , Decimal("20.0"), "STANDARD"),
     # --- BE ---
@@ -660,7 +660,7 @@ _VatPeriod("ES", date(2024, 10, 1), date(2024, 12, 31), Decimal("2"),  "SUPER_RE
 ]
 
 # Index précalculé : (pays, catégorie) → liste de périodes (triées par date_from)
-_HISTORY_INDEX: Dict[Tuple[str, str], List[_VatPeriod]] = {}
+_HISTORY_INDEX: dict[tuple[str, str], list[_VatPeriod]] = {}
 for _p in VAT_RATE_HISTORY:
     _HISTORY_INDEX.setdefault((_p.country, _p.category), []).append(_p)
 
