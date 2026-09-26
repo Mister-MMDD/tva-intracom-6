@@ -57,58 +57,6 @@ ignore_missing_imports = true
 strict_optional = false
 
 [[tool.mypy.overrides]]
-module = "tva_intracom.i18n.i18n_validator"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.oss_export"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.ui.glossary"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.ui.formatting"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.billing"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.engine"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.oss_xml"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.excel_report"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.ca3_report"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.local_vat_report"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.ui.tabs.vies_ui"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.ui.tabs.audit"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tva_intracom.ui.tabs.telechargements"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
 module = "streamlit.*"
 ignore_missing_imports = true
 

@@ -1670,7 +1670,7 @@ def compute_all_with_vies(
     # -----------------------------------------------------------------------
 
     # État mutable partagé avec la closure (suivi des reclassifications)
-    _vies_state = {"last_classified_sale_id": None}
+    _vies_state: dict[str, str | None] = {"last_classified_sale_id": None}
 
     def _effective_sale_with_vies(sale: Sale, product_category: str) -> Sale:
         """Applique la classification VIES sur la vente et retourne l'objet effectif.
@@ -1697,10 +1697,11 @@ def compute_all_with_vies(
         # au départ ou à destination selon le même arbitrage art.194 dans
         # compute_vat. On l'enregistre quand même dans les reclassifications
         # pour qu'elle apparaisse dans l'onglet VIES (sinon invisible).
+        _has_national_tax_id = bool(getattr(sale, "national_tax_id", ""))
         if (
                 sale.buyer_type == BuyerType.B2B
                 and not sale.buyer_vat_number
-                and getattr(sale, "national_tax_id", "")
+                and _has_national_tax_id
                 and sale.stock_country != sale.buyer_country
         ):
             if not is_refund:

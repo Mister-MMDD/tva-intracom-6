@@ -487,12 +487,14 @@ def generate_ca3_html_report_v2(
     # Normalisation seller_country : seller_country normalisé via fiscal_equivalent_country.
     _seller_fiscal = fiscal_equivalent_country(seller_country.upper())
     oss_base = sum(
-        r.sale.amount_ht for r in results
-        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal
+        (r.sale.amount_ht for r in results
+         if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal),
+        Decimal("0"),
     )
     oss_tva = sum(
-        r.vat_amount for r in results
-        if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal
+        (r.vat_amount for r in results
+         if r.scenario == Scenario.OSS_B2C and fiscal_equivalent_country(r.sale.stock_country) == _seller_fiscal),
+        Decimal("0"),
     )
 
     has_aic  = lines["B2_base_ht"] > 0
@@ -504,10 +506,10 @@ def generate_ca3_html_report_v2(
 
     # Totaux vente / avoir (hors AIC — l'AIC n'a pas de variante avoir)
     _RATE_LINES = ("L08", "L09", "LT6", "L9B")
-    tva_vente_total  = sum(lines[f"{k}_tva_vente"]  for k in _RATE_LINES)
-    tva_remb_total   = sum(lines[f"{k}_tva_remb"]   for k in _RATE_LINES)
-    base_vente_total = sum(lines[f"{k}_base_vente"] for k in _RATE_LINES)
-    base_remb_total  = sum(lines[f"{k}_base_remb"]  for k in _RATE_LINES)
+    tva_vente_total  = sum((lines[f"{k}_tva_vente"]  for k in _RATE_LINES), Decimal("0"))
+    tva_remb_total   = sum((lines[f"{k}_tva_remb"]   for k in _RATE_LINES), Decimal("0"))
+    base_vente_total = sum((lines[f"{k}_base_vente"] for k in _RATE_LINES), Decimal("0"))
+    base_remb_total  = sum((lines[f"{k}_base_remb"]  for k in _RATE_LINES), Decimal("0"))
     has_remb = any(
         lines[f"{k}_base_remb"] != 0
         for k in ("A1", "F2", "E1", "L08", "L09", "LT6", "L9B")
@@ -521,7 +523,7 @@ def generate_ca3_html_report_v2(
     # et *_base_remb, jamais touchées par l'ajout de l'AIC). Utiliser cette
     # dernière pour la ligne "TOTAL" produisait une base nette (46 273,68)
     # incohérente avec une TVA nette (9 369,75) qui, elle, incluait l'AIC.
-    base_net_total_avec_aic = sum(lines[f"{k}_base_ht"] for k in _RATE_LINES)
+    base_net_total_avec_aic = sum((lines[f"{k}_base_ht"] for k in _RATE_LINES), Decimal("0"))
 
     # TVA nette "hors AIC" : la TVA brute due (Ligne 16, AIC inclus) moins
     # UNIQUEMENT la part AIC (Ligne 17) — pas les autres déductions (L19,

@@ -34,7 +34,7 @@ from __future__ import annotations
 import html
 import logging
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
 
 from tva_intracom.i18n import _, country_label
 from tva_intracom.models import VatResult
@@ -45,6 +45,17 @@ logger = logging.getLogger(__name__)
 
 def _round(amount: Decimal) -> Decimal:
     return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+class _RateBucket(TypedDict, total=False):
+    base_vente: Decimal
+    tva_vente: Decimal
+    nb_vente: int
+    base_remb: Decimal
+    tva_remb: Decimal
+    nb_remb: int
+    base_net: Decimal
+    tva_net: Decimal
 
 
 def compute_local_vat_lines(
@@ -87,9 +98,9 @@ def compute_local_vat_lines(
     sales = [r for r in results if r.channel.value in ("LOCAL", "FR_DOMESTIC") and r.vat_country == vat_country]
     refunds = [r for r in refund_results if r.channel.value in ("LOCAL", "FR_DOMESTIC") and r.vat_country == vat_country]
 
-    by_rate: Dict[str, Dict[str, Decimal]] = {}
+    by_rate: Dict[str, _RateBucket] = {}
 
-    def _bucket(rate_key: str) -> Dict[str, Decimal]:
+    def _bucket(rate_key: str) -> _RateBucket:
         return by_rate.setdefault(rate_key, {
             "base_vente": Decimal("0"), "tva_vente": Decimal("0"), "nb_vente": 0,
             "base_remb": Decimal("0"), "tva_remb": Decimal("0"), "nb_remb": 0,

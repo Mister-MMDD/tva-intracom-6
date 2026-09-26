@@ -102,7 +102,7 @@ def render_audit() -> None:
         if not has_amazon_vat:
             st.info(_("no_amazon_vat_info"))
         else:
-            _vies_affected_ids = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
+            _vies_affected_ids: set = getattr(vies_summary, "vies_affected_sale_ids", set()) if vies_summary else set()
             _vies_rc_ids_app: set[str] = set()
             _dom_rc_ids_app:  set[str] = set()
             if vies_summary and hasattr(vies_summary, "reclassifications"):

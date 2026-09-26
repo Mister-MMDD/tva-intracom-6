@@ -64,7 +64,7 @@ except ImportError:
     class _StreamlitShim:
         cache_data = _NoOpCacheData()
 
-    st = _StreamlitShim()
+    st = _StreamlitShim()  # type: ignore[assignment]  # shim de secours si streamlit absent (CLI/tests)
 
 logger = logging.getLogger(__name__)
 

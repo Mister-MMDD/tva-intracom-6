@@ -410,7 +410,7 @@ def render_vies(ctx: TabContext) -> None:
                 set_manual_override as _smo_edit,
                 delete_manual_override as _dmo_edit,
                 get_manual_overrides_full as _gmo_full,
-                CACHE_TTL_DAYS as _VIES_TTL_B,
+                DEFAULT_CACHE_TTL_DAYS as _VIES_TTL_B,
                 _is_expired as _vies_is_expired_b,
             )
             _existing_overrides_b = _gmo_full(_vies_scope_id)
@@ -599,7 +599,7 @@ def render_vies(ctx: TabContext) -> None:
                                          exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")], lock_msg=ctx.lock_message)
 
             if avec_delta:
-                by_c = {}
+                by_c: dict[str, float] = {}
                 for r in avec_delta:
                     _c_lbl = country_label(r.buyer_country)
                     by_c[_c_lbl] = by_c.get(_c_lbl,0) + float(r.vat_avoided)

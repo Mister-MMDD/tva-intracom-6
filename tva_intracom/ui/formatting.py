@@ -193,8 +193,8 @@ def _get_conversion_rate() -> tuple[str, float]:
     try:
         from tva_intracom.ecb_rates import get_rate
         import datetime
-        rate = get_rate(target_currency, datetime.date.today())
-        rate = float(rate) if rate else 1.0
+        _raw_rate = get_rate(target_currency, datetime.date.today())
+        rate: float = float(_raw_rate) if _raw_rate else 1.0
     except Exception:
         rate = 1.0
     st.session_state[cache_key] = rate

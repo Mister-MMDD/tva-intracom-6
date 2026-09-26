@@ -99,7 +99,7 @@ def render_telechargements() -> None:
     # Invalidation automatique du cache RAM si la clé de cache globale change.
     if st.session_state.get("_dl_active_cache_key") != _dl_cache_key:
         for k in list(st.session_state.keys()):
-            if k.startswith("_dl_artifact_") or k.startswith("_oss_preview_"):
+            if isinstance(k, str) and (k.startswith("_dl_artifact_") or k.startswith("_oss_preview_")):
                 del st.session_state[k]
         st.session_state["_dl_active_cache_key"] = _dl_cache_key
 

@@ -73,8 +73,11 @@ def render_tooltip_button(term_key: str, icon: str = "❓") -> None:
     """
     tooltip_text = get_tooltip(term_key)
     
-    # Utiliser st.tooltip pour le comportement au survol
-    st.tooltip(icon, help=tooltip_text)
+    # BUGFIX (mypy, chantier typing) : `st.tooltip` n'existe pas dans l'API
+    # Streamlit (vérifié sur 1.64.0 installé — AttributeError au runtime).
+    # Le comportement "icône + info-bulle au survol" s'obtient via le
+    # paramètre `help=` d'un widget existant, ici `st.button`.
+    st.button(icon, help=tooltip_text)
 
 
 def render_inline_tooltip(term_key: str, label: str | None = None) -> str:

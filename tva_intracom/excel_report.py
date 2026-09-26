@@ -8,7 +8,7 @@ from datetime import date as _date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from itertools import chain
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
@@ -187,10 +187,12 @@ class _SequentialSheetWriter:
     `_write_*_tab`.
     """
 
+    _buffer: list[list]  # [[row_num, cells, height], ...] avant fixation des largeurs
+
     def __init__(self, ws) -> None:
         object.__setattr__(self, "_ws", ws)
         object.__setattr__(self, "_tracker", _ColumnWidthTracker())
-        object.__setattr__(self, "_buffer", [])       # [[row_num, cells, height], ...] avant fixation des largeurs
+        object.__setattr__(self, "_buffer", [])
         object.__setattr__(self, "_pending", None)    # [row_num, cells, height] en attente (mode direct)
         object.__setattr__(self, "_widths_set", False)
         object.__setattr__(self, "_row_counter", 0)
@@ -2016,9 +2018,9 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
 
     Colonnes AIC FBA : ajout de colonnes AIC (base estimée + TVA due) en fin de tableau."""
     ws.title = i18n_("xl_tab_local")
-    countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
+    _countries_with_vat_set = {c.upper() for c in (countries_with_vat or [])}
     # Le pays d'origine est toujours considéré comme immatriculé
-    countries_with_vat.add(seller_country.upper())
+    _countries_with_vat_set.add(seller_country.upper())
 
     ws.append([_wcell(ws, i18n_("xl_local_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
@@ -2045,13 +2047,13 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         refund_local[sc] = refund_local.get(sc, _z) + summary.refund_fr_domestic_vat
 
     all_countries = sorted(set(local) | set(refund_local))
-    unregistered = [c for c in all_countries if c not in countries_with_vat]
+    unregistered = [c for c in all_countries if c not in _countries_with_vat_set]
 
     # Estimation AIC FBA : calculée par pays pour toutes les lignes.
     _aic_by_country: dict[str, tuple[Decimal, Decimal]] = {}
     if all_fc_transfers and results is not None:
         from .ca3_report import _compute_aic_from_fc_transfers
-        for _c in set(all_countries) | countries_with_vat:
+        for _c in set(all_countries) | _countries_with_vat_set:
             _aic_by_country[_c] = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country=_c)
     _has_any_aic = any(b != _z or t != _z for b, t in _aic_by_country.values())
     if _has_any_aic:
@@ -2101,7 +2103,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     for country in all_countries:
         brut   = local.get(country, _z)
         refund = refund_local.get(country, _z)
-        is_registered = country in countries_with_vat
+        is_registered = country in _countries_with_vat_set
 
         month_values = by_country_month.get(country, {})
         _vals = [_get_country_name(country), country]
@@ -2256,7 +2258,7 @@ def export_xlsx(
     # (3x sum() + 1x for) : on économise à la fois l'allocation de la liste
     # concaténée ET on repasse de 5 itérations complètes à 1 seule sur
     # potentiellement 150k lignes.
-    hash_totals = {
+    hash_totals: dict[str, int | Decimal] = {
         "count": 0,
         "abs_ht": Decimal("0.00"),
         "vat": Decimal("0.00"),

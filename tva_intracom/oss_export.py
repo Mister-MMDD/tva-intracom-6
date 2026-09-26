@@ -805,7 +805,15 @@ def _build_oss_resume(
     tout le corps de la fonction."""
     ws = wb.create_sheet(sheet_name)
     ws.sheet_view.showGridLines = False
-    _lines = lines if lines is not None else data.oss_by_country
+    if lines is not None:
+        _lines = lines
+    else:
+        # IossExportData n'a pas de `oss_by_country` : par construction,
+        # `_build_ioss_resume()` (seul appelant avec data: IossExportData)
+        # fournit toujours `lines` explicitement (voir plus bas). Ce
+        # branchement n'est donc atteint qu'avec data: OssExportData.
+        assert isinstance(data, OssExportData)
+        _lines = data.oss_by_country
 
     # Largeurs de colonnes : DOIVENT être fixées avant le tout premier
     # `append` (vérifié empiriquement en write_only — contrairement au mode
@@ -1339,23 +1347,23 @@ def build_oss_csv(
     # mensuelle, art. 289 B CGI) — voir _build_b2b_recap pour le detail.
     _sorted_b2b = sorted(data.b2b_lines, key=lambda l: (_b2b_month_key(l.transaction_date) == "", _b2b_month_key(l.transaction_date), l.transaction_date))
     _b2b_months: dict[str, list] = {}
-    for line in _sorted_b2b:
-        _b2b_months.setdefault(_b2b_month_key(line.transaction_date), []).append(line)
+    for b2b_line in _sorted_b2b:
+        _b2b_months.setdefault(_b2b_month_key(b2b_line.transaction_date), []).append(b2b_line)
 
     for month_key, lines in _b2b_months.items():
         month_label = month_key if month_key else _("b2b_unknown_date")
         b2b_writer.writerow([_("b2b_month_group_header", month=month_label)])
         month_total = _ZERO
-        for line in lines:
+        for b2b_line in lines:
             b2b_writer.writerow([
-                line.sale_id,
-                line.transaction_date,
-                line.buyer_vat_number or "",
-                line.buyer_country,
-                line.country_name,
-                _fmt_dec(line.amount_ht),
+                b2b_line.sale_id,
+                b2b_line.transaction_date,
+                b2b_line.buyer_vat_number or "",
+                b2b_line.buyer_country,
+                b2b_line.country_name,
+                _fmt_dec(b2b_line.amount_ht),
             ])
-            month_total += line.amount_ht
+            month_total += b2b_line.amount_ht
         b2b_writer.writerow(["", "", "", "", _("b2b_month_subtotal", month=month_label), _fmt_dec(month_total)])
 
     b2b_writer.writerow([])
