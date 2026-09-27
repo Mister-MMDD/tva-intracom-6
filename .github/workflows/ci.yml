@@ -13,9 +13,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install
+
+      - name: Install package and dependencies
         run: |
+          pip install --upgrade pip
+          pip install -e .[dev]
           pip install -r requirements.txt
-          pip install pytest
+
+      - name: Run Mypy (Type checking)
+        run: mypy tva_intracom
+
       - name: Run tests
         run: pytest -q

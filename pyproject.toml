@@ -32,8 +32,9 @@ web = [
 [project.scripts]
 tva-intracom = "tva_intracom.cli:main"
 
-[tool.setuptools]
-packages = ["tva_intracom"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tva_intracom*"]
 
 [tool.setuptools.package-data]
 tva_intracom = ["data/*.csv", "i18n/*.toml"]
