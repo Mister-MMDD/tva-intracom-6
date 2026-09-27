@@ -1,7 +1,7 @@
 """Onglet "Téléchargements" (extrait tel quel de app.py, with tab_dl:).
 
 Génère et propose tous les exports : rapport Excel complet, XML OSS +
-Excel/CSV OSS, rapport CA3 HTML, récapitulatif B2B, déclarations locales
+Excel/CSV OSS, rapport CA3 HTML et CSV de préparation EDI, récapitulatif B2B, déclarations locales
 par pays (formats CSV pré-formatés Kennzahl/Casilla/...), export FEC.
 
 Lit `ctx.oss_tva_net_total`, calculé par l'onglet Déclarations — voir
@@ -19,6 +19,7 @@ from decimal import Decimal
 import streamlit as st
 
 from tva_intracom.ca3_report import generate_ca3_html_report_v2
+from tva_intracom.ca3_edi_export import generate_ca3_edi_preparation_csv
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.fec_export import generate_fec_bytes
 from tva_intracom.i18n import _, country_label
@@ -35,7 +36,7 @@ from tva_intracom.oss_export import (
 )
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
-from tva_intracom.rates_evidence import build_rates_evidence_csv
+from tva_intracom.rates_evidence import build_rates_evidence_xlsx
 from tva_intracom.rates_evidence_pdf import generate_rates_evidence_pdf
 from tva_intracom.ui.formatting import _fec_period_end_date, _fmt
 from tva_intracom.ui.tabs.context import TabContext
@@ -453,6 +454,7 @@ def render_telechargements() -> None:
         if home_country == "FR":
             st.markdown(_("france_ca3_header"))
             st.caption(_("france_ca3_caption"))
+            st.warning(_("ca3_edi_preparation_warning"))
             def _build_ca3_html():
                 return generate_ca3_html_report_v2(
                     results=results, refund_results=refund_results, company_name=nom_entreprise, siren=siren_entreprise,
@@ -463,6 +465,22 @@ def render_telechargements() -> None:
                 _gated_download(_("dl_ca3_html_btn"), data=b"", file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html")
             elif ca3_html_bytes is not None:
                 _gated_download(_("dl_ca3_html_btn"), data=ca3_html_bytes, file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html")
+
+            def _build_ca3_edi_preparation():
+                return generate_ca3_edi_preparation_csv(
+                    results=results, refund_results=refund_results,
+                    company_name=nom_entreprise, siren=siren_entreprise,
+                    period_label=period_label, all_fc_transfers=all_fc_transfers,
+                )
+            ca3_edi_bytes = _lazy_artifact(
+                "ca3_edi_preparation", _build_ca3_edi_preparation,
+                label="dl_generate_ca3_edi_btn",
+            )
+            ca3_edi_filename = _("dl_ca3_edi_filename", company=nom_entreprise, period=period_label)
+            if not _can_export:
+                _gated_download(_("dl_ca3_edi_btn"), data=b"", file_name=ca3_edi_filename, mime="text/csv")
+            elif ca3_edi_bytes is not None:
+                _gated_download(_("dl_ca3_edi_btn"), data=ca3_edi_bytes, file_name=ca3_edi_filename, mime="text/csv")
         else:
             st.markdown(_("home_country_declaration_header", country=country_label(home_country)))
             st.caption(_("home_country_declaration_caption"))
@@ -652,16 +670,23 @@ def render_telechargements() -> None:
         st.caption(_("rates_evidence_caption"))
 
         def _build_rates_evidence():
-            csv_bytes = build_rates_evidence_csv(_get_results_net(), period_label)
+            xlsx_bytes = build_rates_evidence_xlsx(
+                _get_results_net(),
+                period_label,
+                company_name=nom_entreprise,
+                siren=siren_entreprise,
+                translator=_,
+            )
             pdf_bytes = generate_rates_evidence_pdf(
-                csv_bytes,
+                _get_results_net(),
+                period_label,
                 company_name=nom_entreprise,
                 siren=siren_entreprise,
                 scope_id=_vies_scope_id,
-                period_label=period_label,
+                xlsx_bytes=xlsx_bytes,
                 translator=_,
             )
-            return pdf_bytes, csv_bytes
+            return pdf_bytes, xlsx_bytes
 
         rates_evidence_files = _lazy_artifact(
             "rates_evidence",
@@ -669,12 +694,12 @@ def render_telechargements() -> None:
             label="rates_evidence_generate_btn",
         )
         _rates_evidence_pdf_filename = _("rates_evidence_pdf_filename", company=nom_entreprise, period=period_label)
-        _rates_evidence_csv_filename = _("rates_evidence_csv_filename", company=nom_entreprise, period=period_label)
+        _rates_evidence_xlsx_filename = _("rates_evidence_xlsx_filename", company=nom_entreprise, period=period_label)
         if not _can_export:
             _gated_download(_("rates_evidence_pdf_btn"), data=b"", file_name=_rates_evidence_pdf_filename, mime="application/pdf")
-            _gated_download(_("rates_evidence_csv_btn"), data=b"", file_name=_rates_evidence_csv_filename, mime="text/csv")
+            _gated_download(_("rates_evidence_xlsx_btn"), data=b"", file_name=_rates_evidence_xlsx_filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         elif rates_evidence_files is not None:
-            pdf_bytes, csv_bytes = rates_evidence_files
+            pdf_bytes, xlsx_bytes = rates_evidence_files
             _gated_download(
                 _("rates_evidence_pdf_btn"),
                 data=pdf_bytes,
@@ -682,8 +707,8 @@ def render_telechargements() -> None:
                 mime="application/pdf",
             )
             _gated_download(
-                _("rates_evidence_csv_btn"),
-                data=csv_bytes,
-                file_name=_rates_evidence_csv_filename,
-                mime="text/csv",
+                _("rates_evidence_xlsx_btn"),
+                data=xlsx_bytes,
+                file_name=_rates_evidence_xlsx_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )

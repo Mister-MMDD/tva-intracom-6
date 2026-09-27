@@ -1,9 +1,10 @@
-import csv
 from decimal import Decimal
-from io import StringIO
+from io import BytesIO
+
+import openpyxl
 
 from tva_intracom.models import BuyerType, Channel, Collector, Sale, Scenario, VatResult
-from tva_intracom.rates_evidence import build_rates_evidence_csv
+from tva_intracom.rates_evidence import extract_rates_evidence_records, build_rates_evidence_xlsx
 from tva_intracom.rates_evidence_pdf import generate_rates_evidence_pdf
 
 
@@ -38,40 +39,36 @@ def _result(
     )
 
 
-def test_rates_evidence_lists_daily_closing_and_vat_rates(monkeypatch):
+def test_rates_evidence_extracts_daily_closing_and_vat_rates(monkeypatch):
     monkeypatch.setattr(
         "tva_intracom.rates_evidence.get_closing_rate",
         lambda currency, closing_date: Decimal("1.12"),
     )
-    csv_bytes = build_rates_evidence_csv(
+    vat_records, fx_records = extract_rates_evidence_records(
         [_result("S1", "2026-04-01"), _result("S2", "2026-04-03")],
         "2026-Q2",
     )
-    rows = list(csv.reader(StringIO(csv_bytes.decode("utf-8-sig")), delimiter=";"))
-    daily = [row for row in rows[1:] if row[0] == "Change quotidien"]
-    closing = [row for row in rows[1:] if row[0] == "Clôture BCE"]
-    vat = [row for row in rows[1:] if row[0] == "TVA appliquée"]
+    daily = [r for r in fx_records if r[0] == "Change quotidien"]
+    closing = [r for r in fx_records if r[0] == "Clôture BCE"]
 
     assert len(daily) == 2
-    assert {row[2] for row in daily} == {"2026-04-01", "2026-04-03"}
+    assert {r[2] for r in daily} == {"2026-04-01", "2026-04-03"}
     assert len(closing) == 1
-    assert closing[0][2:6] == ["", "2026-06-30", "USD", "1.12"]
-    assert len(vat) == 1
-    assert vat[0][6:10] == ["DE", "19", "2026-04-01", "2026-04-03"]
+    assert closing[0][1:7] == ("OSS", "", "2026-06-30", "USD", Decimal("1.12"), "ecb_closing")
+    assert len(vat_records) == 1
+    assert vat_records[0] == ("DE", Decimal("19"), "2026-04-01", "2026-04-03")
 
 
 def test_rates_evidence_lists_country_rate_once_across_categories_and_years():
     early = _result("S1", "2021-01-08")
     later = _result("S2", "2026-05-26", category="FOOD")
     changed_rate = _result("S3", "2026-05-29", vat_rate=Decimal("7"))
-    csv_bytes = build_rates_evidence_csv([early, later, changed_rate], "2026-Q2")
-    rows = list(csv.reader(StringIO(csv_bytes.decode("utf-8-sig")), delimiter=";"))
-    vat = [row for row in rows[1:] if row[0] == "TVA appliquée"]
+    vat_records, _ = extract_rates_evidence_records([early, later, changed_rate], "2026-Q2")
 
-    assert len(vat) == 2
-    assert [row[6:10] for row in vat] == [
-        ["DE", "19", "2021-01-08", "2026-05-26"],
-        ["DE", "7", "2026-05-29", "2026-05-29"],
+    assert len(vat_records) == 2
+    assert vat_records == [
+        ("DE", Decimal("19"), "2021-01-08", "2026-05-26"),
+        ("DE", Decimal("7"), "2026-05-29", "2026-05-29"),
     ]
 
 
@@ -80,12 +77,11 @@ def test_rates_evidence_marks_sale_rate_fallback(monkeypatch):
         "tva_intracom.rates_evidence.get_closing_rate",
         lambda currency, closing_date: None,
     )
-    csv_bytes = build_rates_evidence_csv([_result("S1", "2026-04-01")], "2026-Q2")
-    rows = list(csv.reader(StringIO(csv_bytes.decode("utf-8-sig")), delimiter=";"))
-    fallback = [row for row in rows[1:] if row[0] == "Repli taux de vente"]
+    _, fx_records = extract_rates_evidence_records([_result("S1", "2026-04-01")], "2026-Q2")
+    fallback = [r for r in fx_records if r[0] == "Repli taux de vente"]
 
     assert len(fallback) == 1
-    assert fallback[0][1:6] == ["OSS", "2026-04-01", "2026-06-30", "USD", "1.10"]
+    assert fallback[0][1:7] == ("OSS", "2026-04-01", "2026-06-30", "USD", Decimal("1.10"), "ecb")
 
 
 def test_rates_evidence_excludes_zero_vat_rates(monkeypatch):
@@ -93,27 +89,76 @@ def test_rates_evidence_excludes_zero_vat_rates(monkeypatch):
         "tva_intracom.rates_evidence.get_closing_rate",
         lambda currency, closing_date: Decimal("1.12"),
     )
-    csv_bytes = build_rates_evidence_csv(
+    vat_records, _ = extract_rates_evidence_records(
         [_result("S0", "2026-04-01", vat_rate=Decimal("0"))],
         "2026-Q2",
     )
-    rows = list(csv.reader(StringIO(csv_bytes.decode("utf-8-sig")), delimiter=";"))
 
-    assert not any(row[0] == "TVA appliquée" for row in rows[1:])
+    assert len(vat_records) == 0
 
 
 def test_rates_evidence_pdf_has_pdf_signature_and_unique_reference():
-    csv_bytes = build_rates_evidence_csv([_result("S1", "2026-04-01")], "2026-Q2")
+    results = [_result("S1", "2026-04-01")]
     options = {
         "company_name": "Example",
         "siren": "123456789",
         "scope_id": "private-scope",
-        "period_label": "2026-Q2",
     }
 
-    first = generate_rates_evidence_pdf(csv_bytes, **options)
-    second = generate_rates_evidence_pdf(csv_bytes, **options)
+    first = generate_rates_evidence_pdf(results, "2026-Q2", **options)
+    second = generate_rates_evidence_pdf(results, "2026-Q2", **options)
 
     assert first.startswith(b"%PDF-")
     assert first.endswith(b"%%EOF\n")
     assert first != second
+
+
+def test_rates_evidence_xlsx_generates_two_sheets_with_expected_headers_and_data(monkeypatch):
+    monkeypatch.setattr(
+        "tva_intracom.rates_evidence.get_closing_rate",
+        lambda currency, closing_date: Decimal("1.12"),
+    )
+    xlsx_bytes = build_rates_evidence_xlsx(
+        [_result("S1", "2026-04-01"), _result("S2", "2026-04-03")],
+        "2026-Q2",
+        company_name="TestCo",
+        siren="123456789",
+    )
+
+    assert xlsx_bytes.startswith(b"PK\x03\x04")
+
+    wb = openpyxl.load_workbook(BytesIO(xlsx_bytes))
+    assert wb.sheetnames == ["TVA", "BCE"]
+
+    ws_tva = wb["TVA"]
+    assert "TestCo" in str(ws_tva.cell(row=2, column=1).value)
+    tva_headers = [ws_tva.cell(row=4, column=col).value for col in range(1, 5)]
+    assert tva_headers == [
+        "Pays TVA",
+        "Taux TVA (%)",
+        "Première date d'opération",
+        "Dernière date d'opération",
+    ]
+    assert ws_tva.cell(row=5, column=1).value == "DE"
+    assert ws_tva.cell(row=5, column=2).value == 19.0
+    assert ws_tva.cell(row=5, column=3).value == "2026-04-01"
+    assert ws_tva.cell(row=5, column=4).value == "2026-04-03"
+
+    ws_bce = wb["BCE"]
+    assert "TestCo" in str(ws_bce.cell(row=2, column=1).value)
+    bce_headers = [ws_bce.cell(row=4, column=col).value for col in range(1, 8)]
+    assert bce_headers == [
+        "Type",
+        "Régime",
+        "Date du taux / opération",
+        "Clôture OSS/IOSS",
+        "Devise",
+        "Cours (1 EUR = devise) / taux TVA (%)",
+        "Source",
+    ]
+    daily_rows = [row for row in ws_bce.iter_rows(min_row=5, values_only=True) if row[0] == "Change quotidien"]
+    closing_rows = [row for row in ws_bce.iter_rows(min_row=5, values_only=True) if row[0] == "Clôture BCE"]
+
+    assert len(daily_rows) == 2
+    assert len(closing_rows) == 1
+    assert closing_rows[0][1:7] == ("OSS", None, "2026-06-30", "USD", 1.12, "ecb_closing")

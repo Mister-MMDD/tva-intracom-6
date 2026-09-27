@@ -13,8 +13,8 @@ import json
 import sys
 from pathlib import Path
 
-# Ajouter le répertoire parent au path pour importer le module
-sys.path.insert(0, str(Path(__file__).parent))
+# Ajouter le répertoire racine au path pour importer le module
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tva_intracom.i18n.i18n_validator import (
     load_all_translations,

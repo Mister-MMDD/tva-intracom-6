@@ -44,20 +44,11 @@ Améliorations v2 :
   - La ligne T6 (taux particulier 2,1 % métropole — presse, médicaments
     remboursables) est un cas rare ; à vérifier au cas par cas si utilisée.
 
-ROADMAP — export EDI-TVA (télédéclaration) :
-Ce module ne génère aujourd'hui qu'un rapport HTML (`generate_ca3_html_report_v2`),
-destiné à la SAISIE MANUELLE sur le portail impots.gouv.fr (mode EFI) ou par un
-cabinet comptable. Il n'existe pas d'export au format EDI-TVA (norme d'échange
-utilisée en mode EDI par les partenaires EDI homologués DGFIP pour la
-télétransmission directe des CA3). Ajouter ce format nécessiterait :
-  - le mapping des lignes CA3 vers le schéma EDI-TVA (cahier des charges DGFIP,
-    non fourni avec ce dépôt — à obtenir auprès de la DGFIP ou d'un partenaire
-    EDI homologué),
-  - une homologation ou un partenariat avec un opérateur EDI existant (la
-    télétransmission directe à la DGFIP n'est pas ouverte à un éditeur non
-    homologué sans passer par un partenaire EDI),
-  - une gestion de la signature/authentification propre au canal EDI.
-Non implémenté dans cette version — voir README, section Roadmap.
+Export EDI-TVA : le module `ca3_edi_export.py` produit un CSV de préparation
+avec les codes de données CA3/T-IDENTIF, sans enveloppe EDIFACT ni télétransmission.
+Les formulaires 3310-A/TER/TIC, 3310-CA3G, la ROF, les dates déclaratives et
+plusieurs cases comptables ne sont pas disponibles dans le moteur ; les zones
+correspondantes doivent être complétées et validées par un partenaire EDI habilité.
 """
 
 from __future__ import annotations

@@ -102,8 +102,9 @@ tva-intracom/
 │   │                                 Portal, quotas SIREN, grille tarifaire, webhooks,
 │   │                                 quotas d'export en base Postgres/Supabase).
 │   │                                 Gère aussi le rattachement anti-abus Compte Amazon <-> SIREN.
-│   ├── ca3_report.py                 Génération du rapport CA3 (HTML) : compute_ca3_lines_v2,
-│   │                                 AIC ligne 08, deductions manuelles, generate_ca3_html_report_v2
+│   ├── ca3_report.py                 Calcul des lignes CA3 et génération du rapport HTML : compute_ca3_lines_v2,
+│   │                                 AIC ligne 08, déductions manuelles, generate_ca3_html_report_v2
+│   ├── ca3_edi_export.py             CSV de préparation codé CA3/T-IDENTIF (pas un interchange EDIFACT)
 │   ├── local_vat_report.py           Équivalent générique du CA3 pour tout pays UE hors France
 │   │                                 (canal LOCAL_REGISTRATION/FR_DOMESTIC) : rapport HTML harmonisé
 │   │                                 visuellement au CA3 mais PAS un fac-similé du formulaire officiel
@@ -196,7 +197,8 @@ tva-intracom/
 | `ecb_rates.py` | Taux BCE : cache deux niveaux (mémoire + Postgres), prefetch parallèle, `convert_to_currency_for_oss` (taux de clôture de période — Règl. UE 2020/194, art. 5 bis), calcul automatique de la date de clôture par transaction pour les périodes multiples (semestres, années), retry exponentiel |
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
 | `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965) avec multi-validation XSD (DGFIP/UE) |
-| `ca3_report.py` | Génération du rapport CA3 (HTML uniquement — pas d'export EDI-TVA) : compute_ca3_lines_v2, AIC ligne 08 (transferts FBA), déductions manuelles, calcul du solde net, generate_ca3_html_report_v2 |
+| `ca3_report.py` | Calcul des lignes CA3 et rapport HTML ; AIC estimées, déductions et solde : `compute_ca3_lines_v2`, `generate_ca3_html_report_v2` |
+| `ca3_edi_export.py` | CSV de préparation de certaines rubriques 3310-CA3/T-IDENTIF avec codes EDI 2026 ; champs manquants signalés, pas d'interchange EDIFACT ni de télétransmission |
 | `local_vat_report.py` | Équivalent générique du CA3 pour n'importe quel pays UE hors France (canal `LOCAL_REGISTRATION`, ou `FR_DOMESTIC` quand ce pays est le **pays d'origine** du compte) : `compute_local_vat_lines`, `generate_local_vat_html_report`. Ventilation base/TVA par taux réellement présent dans les données, style visuel harmonisé au CA3, mais **PAS un fac-similé du formulaire officiel** — un avertissement explicite figure dans chaque rapport généré. Codes de case indicatifs pour DE/ES/IT/PL/NL/BE/PT/SE/AT/CZ/RO/HU/IE (`rates.LOCAL_VAT_BOX_CODES`, non vérifiés exhaustivement contre un PDF officiel, contrairement au CA3) |
 | `fec_export.py` | Export comptable au format FEC (journal des ventes agrégé par régime/pays/taux, écritures équilibrées débit/crédit) — pré-remplissage pour import dans un logiciel comptable tiers, alternative légère à l'EDI-TVA |
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
@@ -524,7 +526,7 @@ La suite couvre la classification fiscale, le cache VIES, le seuil OSS multi-ann
 
 ## Roadmap
 
-- **EDI-TVA** : Export pour télétransmission directe des CA3 (actuellement HTML pour saisie manuelle).
+- **EDI-TVA** : CSV de préparation CA3 avec codes EDI officiels et rubriques calculées par le moteur ; ce n’est pas un interchange EDIFACT ni un fichier télétransmissible.
 - **XML IOSS** : Export XML officiel pour le guichet unique IOSS (Import Scheme).
 
 ---

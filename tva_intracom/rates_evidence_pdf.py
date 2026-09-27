@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import io
 import uuid
 from datetime import datetime, timezone
+from typing import Iterable
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -23,6 +23,8 @@ from reportlab.platypus import (
 )
 
 from .i18n import _
+from .models import VatResult
+from .rates_evidence import extract_rates_evidence_records
 
 
 def _paragraph(value: str, style: ParagraphStyle) -> Paragraph:
@@ -30,21 +32,20 @@ def _paragraph(value: str, style: ParagraphStyle) -> Paragraph:
 
 
 def generate_rates_evidence_pdf(
-    csv_bytes: bytes,
+    results: Iterable[VatResult],
+    period_label: str,
     *,
     company_name: str,
     siren: str,
     scope_id: str,
-    period_label: str,
+    xlsx_bytes: bytes | None = None,
     translator=None,
 ) -> bytes:
-    """Render the CSV evidence as a readable PDF with a unique reference and hashes."""
+    """Render the rate evidence as a readable PDF with a unique reference and hashes."""
     translate = translator or _
-    decoded_csv = csv_bytes.decode("utf-8-sig")
-    raw_rows = list(csv.reader(io.StringIO(decoded_csv, newline=""), delimiter=";"))
-    data_rows = raw_rows[1:] if raw_rows else []
+    vat_records, fx_records = extract_rates_evidence_records(results, period_label, translator=translate)
     generated_at = datetime.now(timezone.utc)
-    data_hash = hashlib.sha256(csv_bytes).hexdigest()
+    data_hash = hashlib.sha256(xlsx_bytes or b"").hexdigest()
     scope_hash = hashlib.sha256(scope_id.encode("utf-8")).hexdigest()[:16]
     document_id = uuid.uuid4().hex.upper()
 
@@ -82,7 +83,7 @@ def generate_rates_evidence_pdf(
          _paragraph(translate("vies_certificate_generated_at"), label_style),
          _paragraph(generated_at.strftime("%Y-%m-%d %H:%M:%S UTC"), small_style)],
         [_paragraph(translate("rates_evidence_pdf_record_count"), label_style),
-         _paragraph(str(len(data_rows)), small_style), "", ""],
+         _paragraph(str(len(vat_records) + len(fx_records)), small_style), "", ""],
     ]
     header_table = Table(header_rows, colWidths=[40 * mm, 105 * mm, 42 * mm, 70 * mm])
     header_table.setStyle(TableStyle([
@@ -94,14 +95,6 @@ def generate_rates_evidence_pdf(
         ("LINEBELOW", (0, 0), (-1, -1), 0.3, colors.lightgrey),
     ]))
     elements.extend([header_table, Spacer(1, 6 * mm)])
-
-    type_values = {
-        translate("rates_evidence_daily"),
-        translate("rates_evidence_closing"),
-        translate("rates_evidence_fallback"),
-    }
-    fx_records = [row for row in data_rows if row and row[0] in type_values and row[0] != translate("rates_evidence_vat")]
-    vat_records = [row for row in data_rows if row and row[0] == translate("rates_evidence_vat")]
 
     def add_table(title: str, headers: list[str], rows: list[list[str]], widths: list[float]) -> None:
         elements.append(Paragraph(escape(title), section_style))
@@ -124,16 +117,25 @@ def generate_rates_evidence_pdf(
         elements.extend([table, Spacer(1, 4 * mm)])
 
     col = lambda key: translate(f"rates_evidence_col_{key}")
+    fx_rows = [
+        [rate_type, regime, dt, closing_dt, currency, str(rate) if rate is not None else "", source]
+        for rate_type, regime, dt, closing_dt, currency, rate, source in fx_records
+    ]
+    vat_rows = [
+        [country, str(vat_rate), first_d, last_d]
+        for country, vat_rate, first_d, last_d in vat_records
+    ]
+
     add_table(
         translate("rates_evidence_pdf_exchange_header"),
         [col("type"), col("regime"), col("date"), col("closing_date"), col("currency"), col("rate"), col("source")],
-        [[row[0], row[1], row[2], row[3], row[4], row[5], row[11]] for row in fx_records],
+        fx_rows,
         [29 * mm, 30 * mm, 34 * mm, 34 * mm, 20 * mm, 40 * mm, 45 * mm],
     )
     add_table(
         translate("rates_evidence_pdf_vat_header"),
         [col("country"), col("vat_rate"), col("first_date"), col("last_date")],
-        [[row[6], row[7], row[8], row[9]] for row in vat_records],
+        vat_rows,
         [40 * mm, 45 * mm, 75 * mm, 75 * mm],
     )
 
