@@ -35,6 +35,8 @@ from tva_intracom.oss_export import (
 )
 from tva_intracom.oss_xml import generate_oss_xml, preview_negative_bucket_suggestions
 from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
+from tva_intracom.rates_evidence import build_rates_evidence_csv
+from tva_intracom.rates_evidence_pdf import generate_rates_evidence_pdf
 from tva_intracom.ui.formatting import _fec_period_end_date, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 from tva_intracom.ui.display_mode import is_detailed
@@ -93,7 +95,7 @@ def render_telechargements() -> None:
     _dl_cache_key = (
         ctx.calc_key, nom_entreprise, siren_entreprise, tva_fr,
         tuple(sorted(local_vat_numbers.items())) if local_vat_numbers else None,
-        ctx.target_currency,
+        ctx.target_currency, period_label, _vies_scope_id,
     )
 
     # BUGFIX (RAM) : Si la clé de cache change, on supprime immédiatement les
@@ -644,3 +646,44 @@ def render_telechargements() -> None:
             _gated_download(_("dl_fec_btn"), data=b"", file_name=_fec_filename, mime="text/plain")
         elif fec_bytes is not None:
             _gated_download(_("dl_fec_btn"), data=fec_bytes, file_name=_fec_filename, mime="text/plain")
+
+        st.divider()
+        st.markdown(_("rates_evidence_header"))
+        st.caption(_("rates_evidence_caption"))
+
+        def _build_rates_evidence():
+            csv_bytes = build_rates_evidence_csv(_get_results_net(), period_label)
+            pdf_bytes = generate_rates_evidence_pdf(
+                csv_bytes,
+                company_name=nom_entreprise,
+                siren=siren_entreprise,
+                scope_id=_vies_scope_id,
+                period_label=period_label,
+                translator=_,
+            )
+            return pdf_bytes, csv_bytes
+
+        rates_evidence_files = _lazy_artifact(
+            "rates_evidence",
+            _build_rates_evidence,
+            label="rates_evidence_generate_btn",
+        )
+        _rates_evidence_pdf_filename = _("rates_evidence_pdf_filename", company=nom_entreprise, period=period_label)
+        _rates_evidence_csv_filename = _("rates_evidence_csv_filename", company=nom_entreprise, period=period_label)
+        if not _can_export:
+            _gated_download(_("rates_evidence_pdf_btn"), data=b"", file_name=_rates_evidence_pdf_filename, mime="application/pdf")
+            _gated_download(_("rates_evidence_csv_btn"), data=b"", file_name=_rates_evidence_csv_filename, mime="text/csv")
+        elif rates_evidence_files is not None:
+            pdf_bytes, csv_bytes = rates_evidence_files
+            _gated_download(
+                _("rates_evidence_pdf_btn"),
+                data=pdf_bytes,
+                file_name=_rates_evidence_pdf_filename,
+                mime="application/pdf",
+            )
+            _gated_download(
+                _("rates_evidence_csv_btn"),
+                data=csv_bytes,
+                file_name=_rates_evidence_csv_filename,
+                mime="text/csv",
+            )
