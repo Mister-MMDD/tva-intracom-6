@@ -426,6 +426,7 @@ no_local_sales_info = "ℹ️ No local registration sales detected (excluding Fr
 dl_select_country_label = "Select the country to export"
 dl_local_vat_due_metric = "VAT due — {country}"
 dl_standard_rate_metric = "Standard rate"
+dl_standard_rate_change = "{rate}% (change observed on {date})"
 dl_reduced_rate_metric = "Reduced rate"
 dl_local_csv_btn = "📥 Download {country} Declaration (.csv)"
 dl_local_csv_filename = "VAT Declaration {country} - {company} - {period}.csv"

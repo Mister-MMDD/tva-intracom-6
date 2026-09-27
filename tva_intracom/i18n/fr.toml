@@ -427,6 +427,7 @@ no_local_sales_info = "ℹ️ Aucune vente en immatriculation locale détectée 
 dl_select_country_label = "Sélectionnez le pays à exporter"
 dl_local_vat_due_metric = "TVA due — {country}"
 dl_standard_rate_metric = "Taux standard"
+dl_standard_rate_change = "{rate} % (changement observé le {date})"
 dl_reduced_rate_metric = "Taux réduit"
 dl_local_csv_btn = "📥 Télécharger Déclaration {country} (.csv)"
 dl_local_csv_filename = "Déclaration TVA {country} - {company} - {period}.csv"

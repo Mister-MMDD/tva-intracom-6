@@ -426,6 +426,7 @@ no_local_sales_info = "ℹ️ Keine Verkäufe mit lokaler Registrierung erkannt 
 dl_select_country_label = "Land für Export auswählen"
 dl_local_vat_due_metric = "Fällige MwSt — {country}"
 dl_standard_rate_metric = "Regelsteuersatz"
+dl_standard_rate_change = "{rate} % (Änderung beobachtet am {date})"
 dl_reduced_rate_metric = "Ermäßigter Steuersatz"
 dl_local_csv_btn = "📥 Erklärung für {country} herunterladen (.csv)"
 dl_local_csv_filename = "MwSt_Erklaerung_{country} - {company} - {period}.csv"

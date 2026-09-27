@@ -23,7 +23,11 @@ from tva_intracom.ca3_edi_export import generate_ca3_edi_preparation_csv
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.fec_export import generate_fec_bytes
 from tva_intracom.i18n import _, country_label
-from tva_intracom.local_vat_report import generate_local_vat_html_report
+from tva_intracom.local_vat_report import (
+    format_local_standard_rates,
+    generate_local_vat_html_report,
+    local_standard_rate_timeline,
+)
 from tva_intracom.models import Scenario
 from tva_intracom.oss_export import (
     aggregate_oss_results,
@@ -591,7 +595,6 @@ def render_telechargements() -> None:
                         w.writerow([(r.sale.display_id or r.sale.sale_id),r.sale.transaction_date,str(r.sale.amount_ht).replace(".",","),str(r.vat_rate).replace(".",","),str(r.vat_amount).replace(".",","),r.channel.value,r.sale.buyer_country])
                     return ("\ufeff"+buf.getvalue()).encode("utf-8")
 
-                meta_sel = COUNTRY_FISCAL_META.get(export_country, ("", "", "", "—", "—"))
                 # export_country provient du pool "LOCAL" (jamais home_country,
                 # par construction du moteur — voir engine.py) : la branche
                 # summary.net_fr_domestic_vat ne peut être atteinte que si
@@ -616,7 +619,11 @@ def render_telechargements() -> None:
                 _lock_msg = ctx.lock_message
                 m1.metric(_("dl_local_vat_due_metric", country=country_label(export_country)),
                           _fmt(country_vat) if _can_export else _lock_msg)
-                m2.metric(_("dl_standard_rate_metric"), meta_sel[3])
+                _standard_rate_timeline = local_standard_rate_timeline(
+                    _get_results_net(), export_country
+                )
+                m2.metric(_("dl_standard_rate_metric"),
+                          format_local_standard_rates(_standard_rate_timeline))
                 c1, c2 = st.columns(2)
                 with c1:
                     _local_csv_filename = _("dl_local_csv_filename", country=export_country, company=nom_entreprise, period=period_label)

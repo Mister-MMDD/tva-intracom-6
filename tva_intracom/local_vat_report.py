@@ -33,14 +33,59 @@ from __future__ import annotations
 
 import html
 import logging
+from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Optional, cast
 
 from tva_intracom.i18n import _, country_label
 from tva_intracom.models import VatResult
 from tva_intracom.rates import COUNTRY_FISCAL_META, LOCAL_VAT_BOX_CODES
+from tva_intracom.vat_rates_db import vat_rate
 
 logger = logging.getLogger(__name__)
+
+
+def local_standard_rate_timeline(
+    results: List[VatResult],
+    vat_country: str,
+) -> List[tuple[date, Decimal]]:
+    """Retourne les dates d'application observées des taux STANDARD dynamiques.
+
+    Les dates proviennent des transactions locales de la période. En cas de
+    changement, la date indiquée est donc la première transaction à laquelle
+    le nouveau taux a été appliqué.
+    """
+    vat_country = vat_country.upper()
+    tx_dates: set[date] = set()
+    for result in results:
+        if result.vat_country != vat_country or result.channel.value not in ("LOCAL", "FR_DOMESTIC"):
+            continue
+        try:
+            tx_dates.add(date.fromisoformat((result.sale.transaction_date or "")[:10]))
+        except ValueError:
+            continue
+
+    timeline: List[tuple[date, Decimal]] = []
+    previous_rate: Optional[Decimal] = None
+    for tx_date in sorted(tx_dates):
+        rate = vat_rate(vat_country, "STANDARD", tx_date)
+        if rate != previous_rate:
+            timeline.append((tx_date, rate))
+            previous_rate = rate
+    return timeline
+
+
+def format_local_standard_rates(timeline: List[tuple[date, Decimal]]) -> str:
+    """Formate les taux observés et les dates de transition pour l'affichage."""
+    if not timeline:
+        return "—"
+
+    rate_text = f"{timeline[0][1].normalize():f} %"
+    for change_date, rate in timeline[1:]:
+        rate_text += "; " + _("dl_standard_rate_change",
+                              rate=f"{rate.normalize():f}",
+                              date=change_date.isoformat())
+    return rate_text
 
 
 def _round(amount: Decimal) -> Decimal:
@@ -184,6 +229,9 @@ def generate_local_vat_html_report(
         (f"Déclaration TVA — {c_label}", "Base imposable", "TVA", "—", "—"),
     )
     decl_name, lbl_base, lbl_tax, rate_std, rate_red = meta
+    rate_std = format_local_standard_rates(
+        local_standard_rate_timeline(results + (refund_results or []), vat_country)
+    )
     box_meta = LOCAL_VAT_BOX_CODES.get(vat_country)
     has_box_codes = box_meta is not None
 

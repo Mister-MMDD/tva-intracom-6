@@ -426,6 +426,7 @@ no_local_sales_info = "ℹ Nessuna vendita con registrazione locale rilevata (es
 dl_select_country_label = "Seleziona il paese da esportare"
 dl_local_vat_due_metric = "IVA dovuta — {country}"
 dl_standard_rate_metric = "Aliquota ordinaria"
+dl_standard_rate_change = "{rate} % (variazione rilevata il {date})"
 dl_reduced_rate_metric = "Aliquota ridotta"
 dl_local_csv_btn = "📥 Scarica Dichiarazione {country} (.csv)"
 dl_local_csv_filename = "Dichiarazione IVA {country} - {company} - {period}.csv"
