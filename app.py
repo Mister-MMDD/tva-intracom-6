@@ -1,9 +1,9 @@
 """Application Streamlit — Moteur TVA Intracommunautaire."""
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
-import asyncio
 
 # Correctif pour [WinError 10022] sur Windows avec asyncio/Streamlit
 if sys.platform == 'win32':
@@ -1436,9 +1436,9 @@ if uploaded_files:
                     # taux par devise et par date de clôture si la période est
                     # multiple. Logique de calcul INCHANGÉE (déplacée telle
                     # quelle depuis son ancien emplacement).
+                    _used_rates_info: set = set()
                     if convert_fx and _fx_currencies_used:
                         from tva_intracom.ecb_rates import get_oss_rate_date
-                        _used_rates_info = set()
                         for _r in results:
                             if _r.sale.original_currency and _r.sale.original_currency != "EUR":
                                 try:

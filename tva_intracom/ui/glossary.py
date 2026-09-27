@@ -73,8 +73,10 @@ def render_tooltip_button(term_key: str, icon: str = "❓") -> None:
     """
     tooltip_text = get_tooltip(term_key)
     
-    # Utiliser st.tooltip pour le comportement au survol
-    st.tooltip(icon, help=tooltip_text)
+    # st.tooltip n'existe pas dans l'API Streamlit (corrigé le 2026-09-26,
+    # fix apparemment non mergé sur dev) : st.button avec `help` reproduit
+    # le comportement recherché (icône + info-bulle au survol).
+    st.button(icon, help=tooltip_text)
 
 
 def render_inline_tooltip(term_key: str, label: str | None = None) -> str:

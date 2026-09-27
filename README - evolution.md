@@ -8542,3 +8542,28 @@ Fichiers modifiés : `tva_intracom/retry_config.py` (nouveau), `tva_intracom/ecb
 **Validation** : `mypy tva_intracom/` → **0 erreur** (dépôt entier, sans nouvel `ignore_errors`). `py_compile` propre sur les 15 fichiers modifiés. Suite `pytest` complète comparée avant/après sur deux téléchargements indépendants de `dev` : **439 passed / 7 skipped / 3 failed** des deux côtés, liste des échecs strictement identique (`test_billing_payment_quotas.py::TestSubscriptionScheduleWebhookEvents` ×3, environnemental — package `stripe` absent du bac à sable) — aucune régression introduite.
 
 Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/database.py`, `tva_intracom/security.py`, `tva_intracom/ecb_rates.py`, `tva_intracom/engine.py`, `tva_intracom/excel_report.py`, `tva_intracom/oss_export.py`, `tva_intracom/oss_xml.py`, `tva_intracom/vies_engine.py`, `tva_intracom/ca3_report.py`, `tva_intracom/local_vat_report.py`, `tva_intracom/i18n/i18n_validator.py`, `tva_intracom/ui/formatting.py`, `tva_intracom/ui/tabs/vies_ui.py`, `tva_intracom/ui/tabs/audit.py`, `README - evolution.md`.
+
+
+## 2026-09-27 (2) — Nouvelle liste PyCharm (8 fichiers, test_engine/oss_export/detail_ventes/app/background_calc/formatting/glossary/sidebar) : 3 bugs réels, reste faux positifs
+
+**Contexte** : Deuxième liste PyCharm soumise par Matthieu le même jour, portant sur 8 fichiers différents de l'entrée précédente (`tests/test_engine.py`, `oss_export.py`, `ui/tabs/detail_ventes.py`, `app.py`, `ui/background_calc.py`, `ui/formatting.py`, `ui/glossary.py`, `ui/sidebar.py`). Code récupéré depuis GitHub (`dev`), chaque alerte vérifiée individuellement (lecture du code réel, et pour `oss_export.py` exécution runtime de `WriteOnlyCell`) avant toute correction.
+
+**Bugs réels corrigés (3)** :
+- **`app.py`** : `_used_rates_info` initialisé seulement dans `if convert_fx and _fx_currencies_used:` mais lu juste après sans condition (`if _used_rates_info:`) → `NameError` si l'un des deux est faux. Corrigé par une initialisation `set()` avant le `if`.
+- **`ui/sidebar.py`** : `_tva_fr_fixed` et `_ioss_val` accédaient à `_match.get(...)` sans la garde `if _match else ...` présente sur toutes les lignes voisines du même bloc — `AttributeError` possible si le SIREN sélectionné (`session_state`) ne correspond plus à `_registered_sirens` (cas déjà documenté, BUGFIX 2026-08-26, scoping par SIREN). Corrigé par la même garde que le reste du bloc.
+- **`ui/glossary.py`** : `render_tooltip_button()` appelait `st.tooltip()`, inexistant dans l'API Streamlit. **Déjà identifié et corrigé le 2026-09-26** (`st.button(icon, help=...)`) mais le correctif n'était plus présent sur `dev` — recorrigé à l'identique.
+
+**Faux positifs confirmés (reste de la liste)** :
+- `test_engine.py` (2 alertes "attribute is read-only") : intentionnel, teste qu'un dataclass frozen (`VatResult`, `Sale`) refuse bien la mutation (`with pytest.raises(Exception): ...`).
+- `oss_export.py` (10 alertes "Cell has no attribute font/fill/alignment/number_format/border") : `WriteOnlyCell()` est une fonction openpyxl qui renvoie un vrai `Cell` — vérifié à l'exécution que `.font`/`.fill`/`.alignment`/`.number_format`/`.border` s'assignent sans erreur. Stub/IDE qui ne suit pas le type de retour de cette factory.
+- `ui/tabs/detail_ventes.py` (3 alertes cast Series→DataFrame) : déjà documenté en commentaire dans le code comme faux positif connu de pandas-stubs sur `__getitem__` avec masque booléen.
+- `app.py` (4 alertes "can be undefined" sur `results`/`refund_results`/`summary`/`oss_summary`) : dû à `st.stop()` non reconnu `NoReturn` par l'IDE — les deux branches (job en arrière-plan terminé / cache déjà présent) assignent bien ces variables avant tout usage.
+- `ui/background_calc.py` (1 alerte "unreachable") : `return` après `st.rerun()` (typé `NoReturn` côté Streamlit) — code mort inoffensif, style défensif volontaire.
+- `ui/formatting.py` (2 alertes) : limitation connue de pandas-stubs sur `.str.cat()` (retour `str | Series` mal résolu par overload) ; exposition dynamique de `st.column_config` non typée proprement par les stubs Streamlit.
+- `ui/sidebar.py` (13 alertes restantes sur 16) : narrowing perdu par l'IDE à travers une variable bool intermédiaire (`_siren_over_quota = bool(_siren_quota_status and ...)`) ou une expression ternaire (`X if _match else Y`) — logiquement sûrs à l'exécution, contrairement aux 2 cas réels ci-dessus qui n'avaient aucune garde du tout.
+
+**Hors périmètre, non touché** : `parsers` (Amazon uniquement, comme convenu) ; scale-to-zero Railway (aucune modification de polling/health-check, patchs strictement locaux à la logique métier existante).
+
+**Validation** : `py_compile` propre sur les 3 fichiers modifiés (`app.py`, `ui/sidebar.py`, `ui/glossary.py`).
+
+Fichiers modifiés : `app.py`, `tva_intracom/ui/sidebar.py`, `tva_intracom/ui/glossary.py`, `README - evolution.md`.

@@ -7,8 +7,6 @@ import json
 import os
 import re
 import urllib.request
-from datetime import date
-from decimal import Decimal
 from typing import List, NamedTuple, Optional
 
 # Configuration

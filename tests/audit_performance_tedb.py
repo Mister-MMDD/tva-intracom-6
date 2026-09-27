@@ -8,12 +8,11 @@ Analyse les goulots d'étranglement et les performances :
 - Scalabilité
 """
 
-import sys
 import logging
+import sys
 import time
-from datetime import date
-from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 
 # Configuration du logging
 logging.basicConfig(

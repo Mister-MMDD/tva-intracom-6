@@ -5,9 +5,9 @@ de traduction TOML entre différentes langues.
 """
 
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
-import toml
+from typing import Dict, Set, Tuple
 
+import toml
 
 I18N_DIR = Path(__file__).resolve().parent
 LANGUAGES = ["fr", "en", "de", "es", "it", "pl", "pt"]
