@@ -850,7 +850,7 @@ def _hdr_cell(ws, value: str, bg: str, fg: str = _WHITE, bold: bool = True, size
     )
 
 
-def _data_cell(ws, value, fmt: str = None, zebra: bool = False, alignment: Alignment = None):
+def _data_cell(ws, value, fmt: Optional[str] = None, zebra: bool = False, alignment: Optional[Alignment] = None):
     return _wcell(
         ws, value,
         font=Font(name="Arial", size=9),
@@ -861,7 +861,7 @@ def _data_cell(ws, value, fmt: str = None, zebra: bool = False, alignment: Align
     )
 
 
-def _total_cell(ws, value, fmt: str = None, alignment: Alignment = None):
+def _total_cell(ws, value, fmt: Optional[str] = None, alignment: Optional[Alignment] = None):
     return _wcell(
         ws, value,
         font=Font(bold=True, name="Arial", size=9),
@@ -886,7 +886,7 @@ def _build_oss_resume(
     tout le corps de la fonction."""
     ws = wb.create_sheet(sheet_name)
     ws.sheet_view.showGridLines = False
-    _lines = lines if lines is not None else data.oss_by_country
+    _lines = lines if lines is not None else getattr(data, "oss_by_country", [])
 
     # Largeurs de colonnes : DOIVENT être fixées avant le tout premier
     # `append` (vérifié empiriquement en write_only — contrairement au mode
@@ -1387,7 +1387,7 @@ def build_oss_csv(
 
     # --- CSV OSS URSSAF ---
     oss_buf = io.StringIO()
-    oss_writer = csv.writer(oss_buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+    oss_writer = csv.writer(oss_buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)  # type: ignore[arg-type]  # stub PyCharm : Literal[0..5] vs int, csv.QUOTE_MINIMAL est bien valide
     oss_writer.writerow([_("oss_csv_title", period=period)])
     oss_writer.writerow([])
     oss_writer.writerow([_("oss_col_country_code"), _("oss_col_country"), _("oss_csv_col_rate_pct"), _("oss_csv_col_base_eur"), _("oss_csv_col_vat_eur"), _("oss_col_nb_tx")])
@@ -1411,7 +1411,7 @@ def build_oss_csv(
 
     # --- CSV B2B ---
     b2b_buf = io.StringIO()
-    b2b_writer = csv.writer(b2b_buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+    b2b_writer = csv.writer(b2b_buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)  # type: ignore[arg-type]  # stub PyCharm : Literal[0..5] vs int, csv.QUOTE_MINIMAL est bien valide
     b2b_writer.writerow([_("b2b_csv_title", period=period)])
     b2b_writer.writerow([])
     b2b_writer.writerow([_("b2b_col_id"), _("b2b_col_date"), _("b2b_col_vat_number"), _("b2b_col_country_code"), _("b2b_col_buyer_country"), _("b2b_csv_col_amount_eur")])
@@ -1420,23 +1420,23 @@ def build_oss_csv(
     # mensuelle, art. 289 B CGI) — voir _build_b2b_recap pour le detail.
     _sorted_b2b = sorted(data.b2b_lines, key=lambda l: (_b2b_month_key(l.transaction_date) == "", _b2b_month_key(l.transaction_date), l.transaction_date))
     _b2b_months: dict[str, list] = {}
-    for line in _sorted_b2b:
-        _b2b_months.setdefault(_b2b_month_key(line.transaction_date), []).append(line)
+    for b2b_line in _sorted_b2b:
+        _b2b_months.setdefault(_b2b_month_key(b2b_line.transaction_date), []).append(b2b_line)
 
-    for month_key, lines in _b2b_months.items():
+    for month_key, b2b_lines in _b2b_months.items():
         month_label = month_key if month_key else _("b2b_unknown_date")
         b2b_writer.writerow([_("b2b_month_group_header", month=month_label)])
         month_total = _ZERO
-        for line in lines:
+        for b2b_line in b2b_lines:
             b2b_writer.writerow([
-                line.sale_id,
-                line.transaction_date,
-                line.buyer_vat_number or "",
-                line.buyer_country,
-                line.country_name,
-                _fmt_dec(line.amount_ht),
+                b2b_line.sale_id,
+                b2b_line.transaction_date,
+                b2b_line.buyer_vat_number or "",
+                b2b_line.buyer_country,
+                b2b_line.country_name,
+                _fmt_dec(b2b_line.amount_ht),
             ])
-            month_total += line.amount_ht
+            month_total += b2b_line.amount_ht
         b2b_writer.writerow(["", "", "", "", _("b2b_month_subtotal", month=month_label), _fmt_dec(month_total)])
 
     b2b_writer.writerow([])

@@ -153,11 +153,14 @@ def get_shared_pool(dsn: str) -> "NonPoolingConnectionPool":
     NonPoolingConnectionPool ci-dessus).
     """
     global _shared_pool
-    if _shared_pool is None:
+    pool = _shared_pool
+    if pool is None:
         with _shared_pool_lock:
-            if _shared_pool is None:
-                _shared_pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
-    return _shared_pool
+            pool = _shared_pool
+            if pool is None:
+                pool = NonPoolingConnectionPool(dsn, sslmode="require", cache_connection=True)
+                _shared_pool = pool
+    return pool
 
 
 def has_shared_pool() -> bool:

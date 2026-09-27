@@ -2160,8 +2160,9 @@ def _extract_scheduled_change(schedule_data: dict) -> Optional[tuple[str, Option
             break
     if next_phase is None:
         return None
+    _next_phase = next_phase
 
-    items = _safe_get(next_phase, "items", []) or []
+    items = _safe_get(_next_phase, "items", []) or []
     if not items:
         return None
     first_item = items[0]

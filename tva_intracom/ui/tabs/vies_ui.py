@@ -437,10 +437,18 @@ def render_vies(ctx: TabContext) -> None:
                 set_manual_override as _smo_edit,
                 delete_manual_override as _dmo_edit,
                 get_manual_overrides_full as _gmo_full,
-                CACHE_TTL_DAYS as _VIES_TTL_B,
+                _get_ttl_days as _get_vies_ttl_days,
                 _is_expired as _vies_is_expired_b,
             )
             _existing_overrides_b = _gmo_full(_vies_scope_id)
+            # BUGFIX (2026-09-27, audit typing/mypy) : `CACHE_TTL_DAYS` n'a
+            # jamais existé dans vies_engine.py (le vrai TTL par scope se lit
+            # via _get_ttl_days(scope_id), pas une constante plate) — l'import
+            # échouait donc silencieusement à CHAQUE appel, ce bloc entier
+            # tombant systématiquement dans l'except ci-dessous : les overrides
+            # manuels n'étaient en réalité jamais chargés/éditables dans cet
+            # onglet (fallback [] + _smo_edit/_dmo_edit=None en permanence).
+            _VIES_TTL_B = _get_vies_ttl_days(_vies_scope_id)
         except Exception:
             _existing_overrides_b = []
             _VIES_TTL_B = 90
@@ -634,7 +642,7 @@ def render_vies(ctx: TabContext) -> None:
                                          exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")], lock_msg=ctx.lock_message)
 
             if avec_delta:
-                by_c = {}
+                by_c: dict[str, float] = {}
                 for r in avec_delta:
                     _c_lbl = country_label(r.buyer_country)
                     by_c[_c_lbl] = by_c.get(_c_lbl,0) + float(r.vat_avoided)

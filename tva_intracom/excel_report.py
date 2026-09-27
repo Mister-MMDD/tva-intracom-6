@@ -187,10 +187,13 @@ class _SequentialSheetWriter:
     `_write_*_tab`.
     """
 
+    _buffer: list  # [[row_num, cells, height], ...] avant fixation des largeurs — annoté ici car posé
+                    # via object.__setattr__ dans __init__, donc invisible pour l'inférence de type.
+
     def __init__(self, ws) -> None:
         object.__setattr__(self, "_ws", ws)
         object.__setattr__(self, "_tracker", _ColumnWidthTracker())
-        object.__setattr__(self, "_buffer", [])       # [[row_num, cells, height], ...] avant fixation des largeurs
+        object.__setattr__(self, "_buffer", [])
         object.__setattr__(self, "_pending", None)    # [row_num, cells, height] en attente (mode direct)
         object.__setattr__(self, "_widths_set", False)
         object.__setattr__(self, "_row_counter", 0)
@@ -680,7 +683,7 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
             sale = r
             scenario_val = "REFUND"
             vat_rate = 0.0
-            vat_amount = 0.0
+            vat_amount = Decimal("0.00")
             collector = "N/A"
             channel = "N/A"
             note = "Remboursement (source brute)"
@@ -2086,9 +2089,9 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     Excel de ce tableau, déjà documentées comme fragiles aux décalages de
     colonnes/lignes (voir le BUGFIX #VALEUR! juste en-dessous)."""
     ws.title = i18n_("xl_tab_local")
-    countries_with_vat = {c.upper() for c in (countries_with_vat or [])}
+    _countries_set: set[str] = {c.upper() for c in (countries_with_vat or [])}
     # Le pays d'origine est toujours considéré comme immatriculé
-    countries_with_vat.add(seller_country.upper())
+    _countries_set.add(seller_country.upper())
 
     ws.append([_wcell(ws, i18n_("xl_local_title"), font=_TITLE_FONT)])
     ws.row_dimensions[1].height = 25
@@ -2115,7 +2118,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
         refund_local[sc] = refund_local.get(sc, _z) + summary.refund_fr_domestic_vat
 
     all_countries = sorted(set(local) | set(refund_local))
-    unregistered = [c for c in all_countries if c not in countries_with_vat]
+    unregistered = [c for c in all_countries if c not in _countries_set]
 
     # BUGFIX (2026-09-10, AIC FBA manquantes) : AIC entrante estimée par
     # pays, calculée une seule fois ici pour toutes les lignes (voir
@@ -2124,7 +2127,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     _aic_by_country: dict[str, tuple[Decimal, Decimal]] = {}
     if all_fc_transfers and results is not None:
         from .ca3_report import _compute_aic_from_fc_transfers
-        for _c in set(all_countries) | countries_with_vat:
+        for _c in set(all_countries) | _countries_set:
             _aic_by_country[_c] = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country=_c)
     _has_any_aic = any(b != _z or t != _z for b, t in _aic_by_country.values())
     if _has_any_aic:
@@ -2183,7 +2186,7 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     for country in all_countries:
         brut   = local.get(country, _z)
         refund = refund_local.get(country, _z)
-        is_registered = country in countries_with_vat
+        is_registered = country in _countries_set
 
         month_values = by_country_month.get(country, {})
         _vals = [_get_country_name(country), country]
@@ -2338,7 +2341,7 @@ def export_xlsx(
     # (3x sum() + 1x for) : on économise à la fois l'allocation de la liste
     # concaténée ET on repasse de 5 itérations complètes à 1 seule sur
     # potentiellement 150k lignes.
-    hash_totals = {
+    hash_totals: dict[str, Any] = {
         "count": 0,
         "abs_ht": Decimal("0.00"),
         "vat": Decimal("0.00"),

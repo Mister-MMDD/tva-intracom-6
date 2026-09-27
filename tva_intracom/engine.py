@@ -18,6 +18,7 @@ import threading
 from collections import OrderedDict
 from decimal import ROUND_HALF_UP, Decimal
 from itertools import chain
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -1566,7 +1567,7 @@ def compute_all_with_vies(
     # Appel de la validation VIES parallèle (validate_vat_numbers_parallel importée
     # en tête de fonction depuis vies.py). En cas d'erreur réseau ou VIES indisponible,
     # on dégrade vers la version séquentielle, puis vers un dict vide avec log explicite.
-    checked_vats: dict = {}
+    checked_vats: dict[str, Any] = {}
     if vats_to_check:
         try:
             checked_vats = validate_vat_numbers_parallel(
@@ -1723,7 +1724,7 @@ def compute_all_with_vies(
     # -----------------------------------------------------------------------
 
     # État mutable partagé avec la closure (suivi des reclassifications)
-    _vies_state = {"last_classified_sale_id": None}
+    _vies_state: dict[str, str | None] = {"last_classified_sale_id": None}
 
     def _effective_sale_with_vies(sale: Sale, product_category: str) -> Sale:
         """Applique la classification VIES sur la vente et retourne l'objet effectif.
@@ -1750,10 +1751,11 @@ def compute_all_with_vies(
         # au départ ou à destination selon le même arbitrage art.194 dans
         # compute_vat. On l'enregistre quand même dans les reclassifications
         # pour qu'elle apparaisse dans l'onglet VIES (sinon invisible).
+        _national_tax_id = getattr(sale, "national_tax_id", "")
         if (
                 sale.buyer_type == BuyerType.B2B
                 and not sale.buyer_vat_number
-                and getattr(sale, "national_tax_id", "")
+                and _national_tax_id
                 and sale.stock_country != sale.buyer_country
         ):
             if not is_refund:

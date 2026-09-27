@@ -1888,28 +1888,30 @@ def validate_vat_numbers_parallel(
 
     for vat_id, norm in norm_map.items():
         scope_entry = scope_cache_map.get(norm)
-        if scope_entry is not None and scope_entry[1]:  # (result, fresh)
-            results[vat_id] = scope_entry[0]
+        scope_result, scope_fresh = scope_entry if scope_entry is not None else (None, False)
+        if scope_entry is not None and scope_fresh:
+            results[vat_id] = scope_result
             _tick()
             continue
 
         global_entry = global_cache_map.get(norm)
+        global_result, _global_fresh = global_entry if global_entry is not None else (None, False)
         if global_entry is not None:
             # BUGFIX : Si l'utilisateur a réduit son TTL (ex: 1 jour), on ne doit 
             # pas utiliser une entrée du cache global qui a 6 jours (même si 
             # elle est considérée "fraîche" par le défaut global de 7j).
             # On vérifie la fraîcheur par rapport au TTL du SCOPE.
-            if not _is_expired(global_entry[0].checked_at, scope_id):
-                results[vat_id] = global_entry[0]
-                to_copy_from_global.append((norm, global_entry[0]))
+            if not _is_expired(global_result.checked_at, scope_id):
+                results[vat_id] = global_result
+                to_copy_from_global.append((norm, global_result))
                 _tick()
                 continue
 
         if scope_entry is not None:
-            fallback_cache[norm] = scope_entry[0]
+            fallback_cache[norm] = scope_result
             logger.debug("Cache VIES [%s] expiré pour %s, revalidation.", scope_id, _mask_vat(norm))
         elif global_entry is not None:
-            fallback_cache[norm] = global_entry[0]
+            fallback_cache[norm] = global_result
 
         to_fetch[norm] = vat_id
 

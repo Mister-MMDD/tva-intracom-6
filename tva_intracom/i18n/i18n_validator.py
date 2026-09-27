@@ -61,7 +61,7 @@ def get_all_keys(translations: Dict[str, Dict]) -> Set[str]:
     Returns:
         Ensemble de toutes les clés uniques.
     """
-    all_keys = set()
+    all_keys: Set[str] = set()
     for lang_translations in translations.values():
         all_keys.update(lang_translations.keys())
     return all_keys
@@ -81,7 +81,7 @@ def compare_translations(translations: Dict[str, Dict]) -> Dict[str, Dict]:
         - 'fallback_translations': traductions en fallback (clé = valeur)
     """
     all_keys = get_all_keys(translations)
-    results = {
+    results: Dict[str, Dict] = {
         'missing_keys': {},
         'orphan_keys': {},
         'empty_translations': {},
@@ -112,7 +112,7 @@ def compare_translations(translations: Dict[str, Dict]) -> Dict[str, Dict]:
             results['fallback_translations'][lang] = sorted(fallback)
     
     # Calculer les clés orphelines réelles (présentes dans une langue mais pas dans toutes les autres)
-    key_counts = {}
+    key_counts: Dict[str, int] = {}
     for lang_translations in translations.values():
         for key in lang_translations.keys():
             key_counts[key] = key_counts.get(key, 0) + 1

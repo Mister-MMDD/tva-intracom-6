@@ -29,8 +29,9 @@ def _get_fernet() -> Fernet:
         logger.critical("ENCRYPTION_KEY is missing in configuration!")
         raise RuntimeError("Security Error: Encryption key is not configured. Sensitive data cannot be processed.")
     try:
-        _fernet_singleton = Fernet(_KEY.encode())
-        return _fernet_singleton
+        fernet = Fernet(_KEY.encode())
+        _fernet_singleton = fernet
+        return fernet
     except Exception as e:
         logger.critical(f"Invalid ENCRYPTION_KEY format: {str(e)}")
         raise RuntimeError("Security Error: Encryption key is invalid.") from e

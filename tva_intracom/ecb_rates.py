@@ -544,8 +544,9 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
         by_currency.setdefault(ccy, []).append(d)
 
     for ccy, dates in by_currency.items():
-        start = min(dates)
-        end = max(dates) + timedelta(days=7)  # marge pour trouver le prochain jour publié après la dernière clôture demandée
+        _sorted_dates = sorted(dates)
+        start = _sorted_dates[0]
+        end = _sorted_dates[-1] + timedelta(days=7)  # marge pour trouver le prochain jour publié après la dernière clôture demandée
         try:
             batch = _fetch_ecb_batch([ccy], start, end).get(ccy, {})
         except Exception:

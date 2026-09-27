@@ -34,7 +34,7 @@ from __future__ import annotations
 import html
 import logging
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 from tva_intracom.i18n import _, country_label
 from tva_intracom.models import VatResult
@@ -97,9 +97,9 @@ def compute_local_vat_lines(
     sales = [r for r in results if r.channel.value in ("LOCAL", "FR_DOMESTIC") and r.vat_country == vat_country]
     refunds = [r for r in refund_results if r.channel.value in ("LOCAL", "FR_DOMESTIC") and r.vat_country == vat_country]
 
-    by_rate: Dict[str, Dict[str, Decimal]] = {}
+    by_rate: Dict[str, Dict[str, Decimal | int]] = {}
 
-    def _bucket(rate_key: str) -> Dict[str, Decimal]:
+    def _bucket(rate_key: str) -> Dict[str, Decimal | int]:
         return by_rate.setdefault(rate_key, {
             "base_vente": Decimal("0"), "tva_vente": Decimal("0"), "nb_vente": 0,
             "base_remb": Decimal("0"), "tva_remb": Decimal("0"), "nb_remb": 0,
@@ -118,11 +118,11 @@ def compute_local_vat_lines(
         b["nb_remb"] += 1
 
     for b in by_rate.values():
-        b["base_net"] = _round(b["base_vente"] + b["base_remb"])
-        b["tva_net"] = _round(b["tva_vente"] + b["tva_remb"])
+        b["base_net"] = _round(cast(Decimal, b["base_vente"]) + cast(Decimal, b["base_remb"]))
+        b["tva_net"] = _round(cast(Decimal, b["tva_vente"]) + cast(Decimal, b["tva_remb"]))
 
-    total_base_net = _round(sum((b["base_net"] for b in by_rate.values()), Decimal("0")))
-    total_tva_net = _round(sum((b["tva_net"] for b in by_rate.values()), Decimal("0")))
+    total_base_net = _round(sum((cast(Decimal, b["base_net"]) for b in by_rate.values()), Decimal("0")))
+    total_tva_net = _round(sum((cast(Decimal, b["tva_net"]) for b in by_rate.values()), Decimal("0")))
     # AIC ajoutées au total net à autoliquider pour ce pays (voir BUGFIX
     # ci-dessus) — affichées séparément (base_ht estimée + TVA due) pour ne
     # pas mélanger la TVA collectée sur ventes et la TVA autoliquidée sur
