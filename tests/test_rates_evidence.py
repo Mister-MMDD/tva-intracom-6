@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 
@@ -13,6 +14,8 @@ def _result(
     tx_date: str,
     vat_rate: Decimal = Decimal("19"),
     category: str = "STANDARD",
+    currency: str = "USD",
+    scenario: Scenario = Scenario.OSS_B2C,
 ) -> VatResult:
     sale = Sale(
         sale_id=sale_id,
@@ -20,7 +23,7 @@ def _result(
         buyer_type=BuyerType.B2C,
         stock_country="FR",
         buyer_country="DE",
-        original_currency="USD",
+        original_currency=currency,
         original_amount=Decimal("110.00"),
         exchange_rate=Decimal("1.10"),
         exchange_rate_source="ecb",
@@ -29,7 +32,7 @@ def _result(
     )
     return VatResult(
         sale=sale,
-        scenario=Scenario.OSS_B2C,
+        scenario=scenario,
         vat_country="DE",
         vat_rate=vat_rate,
         vat_amount=Decimal("100") * vat_rate / Decimal("100"),
@@ -82,6 +85,63 @@ def test_rates_evidence_marks_sale_rate_fallback(monkeypatch):
 
     assert len(fallback) == 1
     assert fallback[0][1:7] == ("OSS", "2026-04-01", "2026-06-30", "USD", Decimal("1.10"), "ecb")
+
+
+def test_rates_evidence_keeps_non_oss_currency_on_daily_rate_only(monkeypatch):
+    closing_rate_calls = []
+
+    def unexpected_closing_rate(currency, closing_date):
+        closing_rate_calls.append((currency, closing_date))
+        return Decimal("0.86")
+
+    monkeypatch.setattr(
+        "tva_intracom.rates_evidence.get_closing_rate",
+        unexpected_closing_rate,
+    )
+    _, fx_records = extract_rates_evidence_records(
+        [_result("S1", "2026-04-01", currency="GBP", scenario=Scenario.DOMESTIC)],
+        "2026-Q2",
+    )
+
+    assert len(fx_records) == 1
+    assert fx_records[0][0] == "Change quotidien"
+    assert fx_records[0][2:6] == ("2026-04-01", "", "GBP", Decimal("1.10"))
+    assert closing_rate_calls == []
+
+
+def test_rates_evidence_uses_monthly_closing_date_for_ioss(monkeypatch):
+    closing_rate_calls = []
+
+    def record_closing_rate(currency, closing_date):
+        closing_rate_calls.append((currency, closing_date))
+        return Decimal("1.12")
+
+    monkeypatch.setattr(
+        "tva_intracom.rates_evidence.get_closing_rate",
+        record_closing_rate,
+    )
+    _, fx_records = extract_rates_evidence_records(
+        [
+            _result(
+                "S1",
+                "2026-04-01",
+                scenario=Scenario.IOSS_DIRECT,
+            )
+        ],
+        "2026-04",
+    )
+    closing = [row for row in fx_records if row[0] == "Clôture BCE"]
+
+    assert len(closing) == 1
+    assert closing[0][1:7] == (
+        "IOSS",
+        "",
+        "2026-04-30",
+        "USD",
+        Decimal("1.12"),
+        "ecb_closing",
+    )
+    assert closing_rate_calls == [("USD", date(2026, 4, 30))]
 
 
 def test_rates_evidence_excludes_zero_vat_rates(monkeypatch):

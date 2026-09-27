@@ -33,8 +33,8 @@ import pandas as pd
 
 from tva_intracom.historical_rates_widget import render_historical_rates_alert
 from tva_intracom.i18n import _, init_i18n, language_selector, country_label
-from tva_intracom.ecb_rates import get_rate as _ecb_get_rate
 from tva_intracom.engine import compute_all_with_vies
+from tva_intracom.rates_evidence import extract_rates_evidence_records
 from tva_intracom.ui.background_calc import (
     start_background_job,
     get_job_state,
@@ -65,6 +65,7 @@ from tva_intracom.ui.onboarding import (
     compute_pulse_target,
 )
 from tva_intracom.ui.glossary import render_glossary_dialog
+from tva_intracom.ui.import_warnings import warning_to_table_row
 
 _ZERO = Decimal("0.00")
 
@@ -751,7 +752,10 @@ if uploaded_files:
                     _p_all_invoice_credit_notes.extend(getattr(_parse_result, "invoice_credit_notes", []))
                     _p_all_stock_countries |= _parse_result.stock_countries
                     _p_all_account_identifiers |= getattr(_parse_result, "account_identifiers", set())
-                    _p_all_warnings.extend(_parse_result.warnings); _p_all_platforms.append(_platform)
+                    _p_all_warnings.extend(
+                        f"{_fname} :: {warning}"
+                        for warning in _parse_result.warnings
+                    ); _p_all_platforms.append(_platform)
                     _p_total_rows_sum += _parse_result.total_rows; _p_skipped_rows_sum += _parse_result.skipped_rows
                     _p_parse_results.append(_parse_result)
                     _p_file_summaries.append({
@@ -971,7 +975,10 @@ if uploaded_files:
                     all_invoice_credit_notes.extend(getattr(parse_result, "invoice_credit_notes", []))
                     all_stock_countries |= parse_result.stock_countries
                     all_account_identifiers |= getattr(parse_result, "account_identifiers", set())
-                    all_warnings.extend(parse_result.warnings); all_platforms.append(platform)
+                    all_warnings.extend(
+                        f"{uploaded_file.name} :: {warning}"
+                        for warning in parse_result.warnings
+                    ); all_platforms.append(platform)
                     total_rows_sum += parse_result.total_rows; skipped_rows_sum += parse_result.skipped_rows
                     _parse_results.append(parse_result)
                     file_summaries.append({
@@ -1051,7 +1058,19 @@ if uploaded_files:
             st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
         if all_warnings:
             with st.expander(_("import_warnings_header", count=len(all_warnings))):
-                for w in all_warnings: st.text(w)
+                _warning_rows = [
+                    warning_to_table_row(warning) for warning in all_warnings
+                ]
+                st.dataframe(
+                    pd.DataFrame(_warning_rows).rename(columns={
+                        "file": _("import_warning_col_file"),
+                        "line": _("import_warning_col_line"),
+                        "reference": _("import_warning_col_reference"),
+                        "warning": _("import_warning_col_message"),
+                    }),
+                    width="stretch",
+                    hide_index=True,
+                )
 
     all_period_mismatches = []
     for pr in _parse_results:
@@ -1402,8 +1421,7 @@ if uploaded_files:
         # demande explicite de Matthieu, même pattern visuel que "Compte &
         # Confidentialité" (sidebar.py::_render_account_dialog). Regroupe
         # les totaux globaux par type de transaction, les changements de
-        # taux TVA récents et les taux BCE. Contenu et calculs INCHANGÉS par
-        # rapport à leur ancien emplacement, seule la présentation change.
+        # taux TVA récents et les taux BCE appliqués.
         #
         # Construit ICI (et pas au niveau des cards fichier) car c'est le
         # premier point du script où toutes les données nécessaires
@@ -1416,84 +1434,88 @@ if uploaded_files:
         # (voir commentaire détaillé sur _details_btn_ph plus haut).
         with _details_btn_ph.container():
             if st.button(_("file_card_details_button"), key="btn_open_import_details_dialog", width="stretch"):
-                @st.dialog(title=_("advanced_details_button"))
+                @st.dialog(title=_("advanced_details_button"), width="large")
                 def _import_details_dialog() -> None:
-                    st.markdown(f"**{_('advanced_details_totals_title')}**")
-                    st.markdown(f"- {_('col_sales')} : {len(all_sales)}")
-                    st.markdown(f"- {_('col_refunds')} : {len(all_refunds)}")
-                    st.markdown(f"- {_('col_fba_trans')} : {len(all_fc_transfers)}")
-                    if _total_returns: st.markdown(f"- {_return_part}")
-                    if _total_invoice: st.markdown(f"- {_invoice_part}")
-                    if _total_credit_note: st.markdown(f"- {_credit_part}")
-                    if _total_skipped: st.markdown(f"- {_skip_part}")
-                    if len(unique_platforms) > 1:
-                        st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
+                    with st.expander(_("advanced_details_totals_title"), expanded=True):
+                        st.markdown(f"- {_('col_sales')} : {len(all_sales)}")
+                        st.markdown(f"- {_('col_refunds')} : {len(all_refunds)}")
+                        st.markdown(f"- {_('col_fba_trans')} : {len(all_fc_transfers)}")
+                        for _count, _part in (
+                            (_total_returns, _return_part),
+                            (_total_invoice, _invoice_part),
+                            (_total_credit_note, _credit_part),
+                            (_total_skipped, _skip_part),
+                        ):
+                            if _count:
+                                st.markdown(f"- {_part.lstrip(' ,')}")
+                        if len(unique_platforms) > 1:
+                            st.warning(_("different_sources_warning", sources=', '.join(unique_platforms)))
 
                     render_historical_rates_alert(results, calc_key=_cache_key)
 
-                    # Taux BCE de clôture de période réellement utilisés pour la
-                    # conversion OSS (Règl. UE 2020/194, art. 5 bis) — affiche les
-                    # taux par devise et par date de clôture si la période est
-                    # multiple. Logique de calcul INCHANGÉE (déplacée telle
-                    # quelle depuis son ancien emplacement).
-                    _used_rates_info: set = set()
+                    _fx_records = []
                     if convert_fx and _fx_currencies_used:
-                        from tva_intracom.ecb_rates import get_oss_rate_date
-                        for _r in results:
-                            if _r.sale.original_currency and _r.sale.original_currency != "EUR":
-                                try:
-                                    _tx_date = datetime.fromisoformat((_r.sale.transaction_date or "")[:10])
-                                    # On utilise la date de clôture OSS correspondante à la transaction
-                                    _rate_date = get_oss_rate_date(period_label, _tx_date)
-                                    _used_rates_info.add((_r.sale.original_currency.upper(), _rate_date))
-                                except Exception:
-                                    pass
+                        _vat_records, _fx_records = extract_rates_evidence_records(results, period_label)
+                    _daily_type = str(_("rates_evidence_daily"))
+                    _closing_types = {
+                        str(_("rates_evidence_closing")),
+                        str(_("rates_evidence_fallback")),
+                    }
+                    _daily_rates = [row for row in _fx_records if row[0] == _daily_type]
+                    _closing_rates = [row for row in _fx_records if row[0] in _closing_types]
 
-                    if _used_rates_info:
-                        _all_dates = sorted({d for c, d in _used_rates_info})
-                        st.divider()
-                        st.markdown(f"**{_('bce_rates_title', count=len(_used_rates_info))}**")
-                        if len(_all_dates) == 1:
-                            st.caption(_("bce_rates_oss_disclaimer", date=_all_dates[0].isoformat()))
-                        elif "_" in period_label:
-                            _p_parts = period_label.split("_")
-                            _p_start = _p_parts[0]
-                            _p_end = _p_parts[-1]
-                            if not "-" in _p_end and "-" in _p_start:
-                                # Cas "2026-Q1_Q3" -> "2026-Q1" à "2026-Q3"
-                                _p_year = _p_start.split("-")[0]
-                                _p_end = f"{_p_year}-{_p_end}"
-                            st.caption(_("bce_rates_oss_disclaimer_range", start=_p_start, end=_p_end))
-                        else:
-                            st.caption(_("bce_rates_oss_disclaimer", date=f"{_all_dates[0].isoformat()} → {_all_dates[-1].isoformat()}"))
+                    def _format_rate(_rate, _currency: str) -> str:
+                        if _rate is None:
+                            return str(_("bce_rates_oss_unavailable"))
+                        return f"1 EUR = {float(_rate):.4f} {_currency}"
 
-                        # Rendu en tableau (au lieu d'une liste de st.caption sans
-                        # séparation visuelle entre les lignes, cf. retour Matthieu
-                        # 2026-09-18) — logique de calcul des taux inchangée,
-                        # seule la présentation change. Classe dédiée dans
-                        # theme.py plutôt que de réutiliser .stTable, pour ne pas
-                        # affecter d'autres tableaux natifs Streamlit.
-                        _rows_html = []
-                        for _ccy, _d in sorted(_used_rates_info):
-                            try:
-                                _oss_rate = _ecb_get_rate(_ccy, _d)
-                            except Exception:
-                                _oss_rate = None
+                    def _format_rate_date(_value: str) -> str:
+                        try:
+                            return datetime.fromisoformat(_value).strftime("%d/%m/%Y")
+                        except ValueError:
+                            return _value
 
-                            _date_suffix = _d.strftime("%d/%m/%Y") if len(_all_dates) > 1 else ""
-                            if _oss_rate is not None:
-                                _rate_cell = f"1 EUR = {float(_oss_rate):.4f} {_ccy}"
-                            else:
-                                _rate_cell = _("bce_rates_oss_unavailable")
-                            _rows_html.append(
-                                f"<tr><td>{_ccy}</td><td>{_rate_cell}</td><td>{_date_suffix}</td></tr>"
+                    if _closing_rates:
+                        with st.expander(
+                            _("bce_rates_title", count=len(_closing_rates)),
+                            expanded=False,
+                        ):
+                            _closing_rows = [
+                                {
+                                    _("rates_evidence_col_type"): f"{_regime} · {_type}",
+                                    _("rates_evidence_col_closing_date"): _format_rate_date(_closing_date),
+                                    _("rates_evidence_col_currency"): _currency,
+                                    _("rates_evidence_col_rate"): _format_rate(_rate, _currency),
+                                }
+                                for _type, _regime, _tx_date, _closing_date, _currency, _rate, _source
+                                in _closing_rates
+                            ]
+                            st.dataframe(
+                                pd.DataFrame(_closing_rows),
+                                width="stretch",
+                                hide_index=True,
                             )
-                        st.markdown(
-                            '<table class="bce-rates-table"><tbody>'
-                            + "".join(_rows_html)
-                            + "</tbody></table>",
-                            unsafe_allow_html=True,
-                        )
+
+                    if _daily_rates:
+                        with st.expander(
+                            _("bce_rates_daily_title", count=len(_daily_rates)),
+                            expanded=False,
+                        ):
+                            _daily_rows = [
+                                {
+                                    _("rates_evidence_col_date"): _format_rate_date(_tx_date),
+                                    _("rates_evidence_col_currency"): _currency,
+                                    _("rates_evidence_col_rate"): _format_rate(_rate, _currency),
+                                    _("rates_evidence_col_source"): _source,
+                                }
+                                for _type, _regime, _tx_date, _closing_date, _currency, _rate, _source
+                                in _daily_rates
+                            ]
+                            st.dataframe(
+                                pd.DataFrame(_daily_rows),
+                                width="stretch",
+                                hide_index=True,
+                            )
 
                 _import_details_dialog()
 

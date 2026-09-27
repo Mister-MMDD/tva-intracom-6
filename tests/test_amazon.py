@@ -51,6 +51,28 @@ def test_refund_negative_amount():
     assert refund.amount_ht < 0
 
 
+def test_zero_amount_warning_identifies_source_row_and_order(tmp_path):
+    lines = _SAMPLE.read_text(encoding="utf-8").splitlines()
+    headers = lines[0].split("\t")
+    event_id_index = headers.index("transaction_event_id")
+    refund_line_index = next(
+        i for i, line in enumerate(lines[1:], start=1)
+        if line.split("\t")[event_id_index] == "EVT007"
+    )
+    refund = lines[refund_line_index].split("\t")
+    refund[headers.index("total_activity_value_amt_vat_excl")] = "0.00"
+    lines[refund_line_index] = "\t".join(refund)
+    source = tmp_path / "refunds.tsv"
+    source.write_text("\n".join(lines), encoding="utf-8")
+
+    result = load_amazon_report(source)
+
+    warning = next(w for w in result.warnings if "montant nul" in w)
+    assert "Ligne du fichier 8" in warning
+    assert "commande/remboursement ORD-2024-002" in warning
+    assert "Ligne 8 (L8)" not in warning
+
+
 def test_fc_transfer_tracked():
     r = load_amazon_report(_SAMPLE)
     assert len(r.fc_transfers) == 3

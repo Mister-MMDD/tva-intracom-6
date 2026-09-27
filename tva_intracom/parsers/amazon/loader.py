@@ -130,6 +130,22 @@ class AmazonImportResult:
 # Boucle principale de traitement
 # ---------------------------------------------------------------------------
 
+def _row_warning_context(row: dict, line_no: int) -> str:
+    """Return an unambiguous source-line context and, when available, its ID."""
+    references = (
+        ("commande", row.get("order_id")),
+        ("transaction", row.get("transaction_id")),
+        ("commande/remboursement", row.get("activity_transaction_id")),
+        ("transaction", row.get("transaction_event_id")),
+        ("facture", row.get("vat_invoice_number") or row.get("vat_inv_number")),
+    )
+    for label, value in references:
+        reference = (value or "").strip()
+        if reference:
+            return f"Ligne du fichier {line_no} — {label} {reference}"
+    return f"Ligne du fichier {line_no}"
+
+
 def _process_rows(
     rows_to_process: list[tuple[int, dict]],
     parser: _RowParser,
@@ -311,13 +327,8 @@ def _process_rows(
             except ValueError:
                 pass
         if not _tx_date_valid:
-            order_ref = (
-                row.get("order_id", "")
-                or row.get("vat_invoice_number", "")
-                or f"L{line_no}"
-            )
             result.warnings.append(
-                f"Ligne {line_no} ({order_ref}) : date de transaction absente ou "
+                f"{_row_warning_context(row, line_no)} : date de transaction absente ou "
                 f"illisible ({tx_date_str!r}) — cette vente est conservée mais "
                 "triée en fin de période dans le suivi du seuil OSS ; vérifiez "
                 "la date dans le fichier source."
@@ -325,13 +336,8 @@ def _process_rows(
 
         # --- Pays manquants ---
         if not departure or not arrival:
-            order_ref = (
-                row.get("order_id", "")
-                or row.get("vat_invoice_number", "")
-                or f"L{line_no}"
-            )
             result.warnings.append(
-                f"Ligne {line_no} ({order_ref}) : pays départ/arrivée manquant — "
+                f"{_row_warning_context(row, line_no)} : pays départ/arrivée manquant — "
                 "ligne incomplète (facture TVA Amazon non générée ?), ignorée."
             )
             result.skipped_rows += 1
@@ -348,13 +354,8 @@ def _process_rows(
             if tx_type == "return":
                 result.return_rows += 1
                 continue
-            order_ref = (
-                row.get("order_id", "")
-                or row.get("vat_invoice_number", "")
-                or f"L{line_no}"
-            )
             result.warnings.append(
-                f"Ligne {line_no} ({order_ref}) : {tx_type} à montant nul (0 €) — "
+                f"{_row_warning_context(row, line_no)} : {tx_type} à montant nul (0 €) — "
                 "conservée dans le rapport, à vérifier."
             )
 
@@ -402,7 +403,8 @@ def _process_rows(
                 result.ecb_fallback_counts[currency] += 1
         except ValueError as exc:
             result.warnings.append(
-                f"Ligne {line_no} : conversion {currency}→{target_currency} impossible ({exc}). "
+                f"{_row_warning_context(row, line_no)} : conversion "
+                f"{currency}→{target_currency} impossible ({exc}). "
                 "Montant gardé en devise originale."
             )
             fx = CurrencyResult(

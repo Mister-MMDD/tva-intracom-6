@@ -1450,37 +1450,6 @@ div[data-testid="stVerticalBlock"] > div > div {
     text-decoration: underline;
 }
 
-/* Tableau "Taux de change BCE utilisés" — remplace une liste de
-   st.caption() sans séparation visuelle entre les lignes (retour
-   Matthieu 2026-09-18). Rendu par app.py via st.markdown(unsafe_allow_html),
-   classe dédiée pour ne pas affecter .stTable (tableaux natifs Streamlit). */
-.bce-rates-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-    margin-top: 4px;
-}
-.bce-rates-table td {
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border-light);
-    color: var(--text-primary);
-    transition: background-color 0.3s ease; /* Animation modérée (2026-09-20) */
-}
-.bce-rates-table tr:last-child td {
-    border-bottom: none;
-}
-.bce-rates-table tr:hover td {
-    background-color: var(--bg-tertiary);
-}
-.bce-rates-table td:first-child {
-    font-weight: 700;
-    width: 15%;
-}
-.bce-rates-table td:last-child {
-    color: var(--text-muted);
-    text-align: right;
-    width: 25%;
-}
 </style>
 """
 
