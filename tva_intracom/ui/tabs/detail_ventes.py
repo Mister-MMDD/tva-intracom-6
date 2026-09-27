@@ -1,7 +1,7 @@
-"""Onglet "Détail ventes" (extrait tel quel de app.py, with tab_detail:).
+"""Onglet "Détail ventes".
 
-Quatre sous-onglets : Ce que vous devez, Géré par des tiers, Ligne par
-ligne, Remboursements.
+Cinq sous-onglets : Ce que vous devez, Exonération, Géré par des tiers,
+Remboursements, Ligne par ligne.
 """
 
 from __future__ import annotations
@@ -202,8 +202,11 @@ def render_detail_ventes() -> None:
     # par un sélecteur radio + branches conditionnelles : seul le
     # sous-onglet actif s'exécute désormais.
     _subtab_labels = [
-        _("subtab_what_you_owe"), _("subtab_exemptions"), _("subtab_managed_by_tiers"), _("subtab_row_by_row"),
+        _("subtab_what_you_owe"),
+        _("subtab_exemptions"),
+        _("subtab_managed_by_tiers"),
         _("subtab_refunds", count=len(refund_results or [])),
+        _("subtab_row_by_row"),
     ]
     _active_subtab = st.radio(
         _("subtab_selector_label"), options=list(range(len(_subtab_labels))), format_func=lambda i: _subtab_labels[i],
@@ -257,12 +260,14 @@ def render_detail_ventes() -> None:
 
     if _active_subtab == 1:
         st.caption(_("subtab_exemptions_caption"))
-        # Exonérations : 
+        # Exonérations & Hors champ :
         # 1. Vendeur responsable mais TVA à 0 (ex: Export, ou option sous seuil)
         # 2. Acheteur responsable (Reverse Charge) SAUF si c'est un import standard
+        # 3. Hors champ de la TVA (collector == "NONE")
         _exempt_raw = cast(pd.DataFrame, _sales_df_raw[
             ((_sales_df_raw["collector"] == "SELLER") & (_sales_df_raw["vat"] <= 0)) |
-            ((_sales_df_raw["collector"] == "BUYER") & (_sales_df_raw["scenario"] != "IMPORT_STANDARD"))
+            ((_sales_df_raw["collector"] == "BUYER") & (_sales_df_raw["scenario"] != "IMPORT_STANDARD")) |
+            (_sales_df_raw["collector"] == "NONE")
         ])
         sort_exempt_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_exempt")
         sort_exempt = _sort_opts[sort_exempt_lbl]
@@ -313,35 +318,6 @@ def render_detail_ventes() -> None:
         _gated_preview_table(_third_df, _can_export, column_config=_third_cfg, total_count=len(_third_df_filt), lock_msg=ctx.lock_message)
 
     if _active_subtab == 3:
-        st.caption(_("subtab_row_by_row_caption"))
-        sort_all_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_all")
-        sort_all = _sort_opts[sort_all_lbl]
-        _all_raw = _sales_df_raw
-        if sort_all == "Pays": _all_raw = _all_raw.sort_values("vat_country")
-        elif sort_all == "Taux": _all_raw = _all_raw.sort_values("rate_pct", ascending=False)
-        else: _all_raw = _all_raw.sort_values("ht", ascending=False)
-        _all_df_full = _finalize_df(_all_raw, _labels, include_collector=False)
-
-        # Filtres
-        _all_df_filt = _render_filter_bar(_all_df_full, "all")
-
-        # Pagination
-        _page_size_all = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
-            value=250, key="page_size_all")
-        _n_all = len(_all_df_filt)
-        _limit_all = _resolve_display_limit(_page_size_all, _n_all)
-        st.caption(_("results_count_caption", count=_n_all, filtered=(_("results_filtered_tag") if _n_all < len(_all_df_full) else ''), visible=min(_limit_all, _n_all)))
-
-        _all_df_page = _all_df_filt.head(_limit_all).copy()
-        _all_cfg = _smart_money_df(_all_df_page,
-            money_cols=[_lbl_ht, _lbl_vat],
-            pct_cols=[_("col_rate_pct")],
-            note_cols=[_("col_note")],
-            existing_config=_orig_cfg)
-        _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg, total_count=_n_all,
-                             extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig], lock_msg=ctx.lock_message)
-
-    if _active_subtab == 4:
         if not refund_results:
             st.info(_("no_refunds_info"))
         else:
@@ -370,3 +346,32 @@ def render_detail_ventes() -> None:
                 existing_config=_orig_cfg)
             _gated_preview_table(_ref_df, _can_export, column_config=_ref_cfg, total_count=len(_ref_df_filt),
                                  extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig], lock_msg=ctx.lock_message)
+
+    if _active_subtab == 4:
+        st.caption(_("subtab_row_by_row_caption"))
+        sort_all_lbl = st.radio(_("sort_by_label"), list(_sort_opts.keys()), horizontal=True, key="sort_all")
+        sort_all = _sort_opts[sort_all_lbl]
+        _all_raw = _sales_df_raw
+        if sort_all == "Pays": _all_raw = _all_raw.sort_values("vat_country")
+        elif sort_all == "Taux": _all_raw = _all_raw.sort_values("rate_pct", ascending=False)
+        else: _all_raw = _all_raw.sort_values("ht", ascending=False)
+        _all_df_full = _finalize_df(_all_raw, _labels, include_collector=False)
+
+        # Filtres
+        _all_df_filt = _render_filter_bar(_all_df_full, "all")
+
+        # Pagination
+        _page_size_all = st.select_slider(_("rows_per_page_label"), options=[100, 250, 500, 1000, _("rows_all")],
+            value=250, key="page_size_all")
+        _n_all = len(_all_df_filt)
+        _limit_all = _resolve_display_limit(_page_size_all, _n_all)
+        st.caption(_("results_count_caption", count=_n_all, filtered=(_("results_filtered_tag") if _n_all < len(_all_df_full) else ''), visible=min(_limit_all, _n_all)))
+
+        _all_df_page = _all_df_filt.head(_limit_all).copy()
+        _all_cfg = _smart_money_df(_all_df_page,
+            money_cols=[_lbl_ht, _lbl_vat],
+            pct_cols=[_("col_rate_pct")],
+            note_cols=[_("col_note")],
+            existing_config=_orig_cfg)
+        _gated_preview_table(_all_df_page, _can_export, column_config=_all_cfg, total_count=_n_all,
+                             extra_safe_cols=[_lbl_ht, _c_currency, _lbl_orig], lock_msg=ctx.lock_message)
