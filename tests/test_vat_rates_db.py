@@ -88,6 +88,121 @@ def test_parse_es_ambiguous_does_not_silently_pick_first_document_order():
 
 
 # ---------------------------------------------------------------------
+# Regression 2026-09-27 : le taux ES doit rester dynamique meme si le
+# taux legal reel change et que le statique (rates.py) devient perime —
+# c'etait exactement le risque signale par Matthieu (correspondance au
+# statique = ne "detecte" jamais un vrai changement de taux). Le plancher
+# legal UE (15%, art. 97 Dir. 2006/112/CE) doit trancher seul, sans
+# dependre de l'exactitude du statique.
+# ---------------------------------------------------------------------
+
+def _es_fixture_with_standard_rate(new_value: str) -> ET.Element:
+    """Reconstruit la fixture ES reelle en changeant uniquement la valeur
+    du candidat STANDARD continental (21.0), pour simuler un changement
+    legal reel sans toucher au candidat Canaries (7.0)."""
+    raw = (FIXTURES_DIR / "ES_standard_ambiguous_2026-01-01.xml").read_text()
+    target = (
+        "<value>21.0</value></rate><situationOn>2026-01-01+01:00"
+        "</situationOn></vatRateResults>"
+    )
+    assert raw.count(target) == 1, "fixture ES modifiee de facon inattendue"
+    replacement = (
+        f"<value>{new_value}</value></rate><situationOn>2026-01-01+01:00"
+        "</situationOn></vatRateResults>"
+    )
+    return ET.fromstring(raw.replace(target, replacement))
+
+
+def test_parse_es_uses_dynamic_rate_even_when_static_reference_is_stale(caplog):
+    """Le vrai taux ES est desormais 22% (simule un changement legal
+    posterieur a la valeur figee dans rates.py, restee a 21%). Avant le
+    correctif du 2026-09-27, la correspondance au statique echouait
+    (22 != 21) -> resultat ambigu -> repli statique errone (21% au lieu
+    de 22%). Le plancher legal (>= 15%) doit desormais isoler seul le
+    candidat continental (22%, seul >= 15%) sans avoir besoin qu'il
+    egale le statique."""
+    root = _es_fixture_with_standard_rate("22.0")
+    with caplog.at_level(logging.WARNING, logger="tva_intracom.vat_rates_db"):
+        result = m._parse_tedb_response(root, country="ES", target_date=date(2026, 1, 1))
+    assert result["STANDARD"] == Decimal("22.0")
+    assert not any("valeurs STANDARD distinctes" in rec.message for rec in caplog.records)
+
+
+def test_parse_es_below_floor_candidate_never_wins_even_if_it_matches_static():
+    """Garde-fou inverse : meme si (par coincidence) le statique valait le
+    candidat Canaries, celui-ci reste hors champ TVA UE (< 15%) et ne doit
+    jamais etre retenu comme taux STANDARD."""
+    root = _es_fixture_with_standard_rate("21.0")
+    with patch.object(m, "_STATIC_STANDARD_RATES", {**m._STATIC_STANDARD_RATES, "ES": Decimal("7.0")}):
+        result = m._parse_tedb_response(root, country="ES", target_date=date(2026, 1, 1))
+    assert result["STANDARD"] == Decimal("21.0")
+    assert result["STANDARD"] != Decimal("7.0")
+
+
+def test_get_vat_rate_es_dynamic_change_end_to_end(tedb_enabled_no_db):
+    """Bout en bout : get_vat_rate() renvoie bien le nouveau taux dynamique
+    (22%) et non le statique perime (21%), sans intervention manuelle sur
+    rates.py."""
+    root = _es_fixture_with_standard_rate("22.0")
+    fake_raw_xml = ET.tostring(root)
+
+    with patch.object(m, "_request_tedb", return_value=(root, fake_raw_xml)):
+        rate = m.get_vat_rate("ES", "STANDARD", date(2026, 1, 1))
+
+    assert rate == Decimal("22.0")
+
+
+def test_parse_multiple_candidates_above_floor_falls_back_to_static_match(caplog):
+    """Cas type Portugal (continent/Madere/Acores : plusieurs taux STANDARD
+    distincts, tous >= 15%) : le plancher legal seul ne suffit pas a
+    trancher, le filet de securite (correspondance statique) doit prendre
+    le relais, sans regression du comportement conservateur."""
+    root = ET.fromstring(
+        "<env:Envelope xmlns:env='http://schemas.xmlsoap.org/soap/envelope/'>"
+        "<env:Body><ns0:retrieveVatRatesRespMsg "
+        "xmlns='urn:ec.europa.eu:taxud:tedb:services:v1:IVatRetrievalService:types' "
+        "xmlns:ns0='urn:ec.europa.eu:taxud:tedb:services:v1:IVatRetrievalService'>"
+        "<vatRateResults><memberState>PT</memberState><type>STANDARD</type>"
+        "<rate><type>DEFAULT</type><value>23.0</value></rate>"
+        "<situationOn>2026-01-01+01:00</situationOn></vatRateResults>"
+        "<vatRateResults><memberState>PT</memberState><type>STANDARD</type>"
+        "<rate><type>DEFAULT</type><value>22.0</value></rate>"
+        "<situationOn>2026-01-01+01:00</situationOn>"
+        "<comment>Madeira</comment></vatRateResults>"
+        "</ns0:retrieveVatRatesRespMsg></env:Body></env:Envelope>"
+    )
+    with patch.object(m, "_STATIC_STANDARD_RATES", {**m._STATIC_STANDARD_RATES, "PT": Decimal("23.0")}):
+        with caplog.at_level(logging.WARNING, logger="tva_intracom.vat_rates_db"):
+            result = m._parse_tedb_response(root, country="PT", target_date=date(2026, 1, 1))
+    assert result["STANDARD"] == Decimal("23.0")
+    assert not any("valeurs STANDARD distinctes" in rec.message for rec in caplog.records)
+
+
+def test_parse_multiple_candidates_above_floor_no_static_match_is_ambiguous(caplog):
+    """Meme cas que ci-dessus mais sans reference statique correspondante :
+    doit rester ambigu (repli statique + warning), comportement inchange."""
+    root = ET.fromstring(
+        "<env:Envelope xmlns:env='http://schemas.xmlsoap.org/soap/envelope/'>"
+        "<env:Body><ns0:retrieveVatRatesRespMsg "
+        "xmlns='urn:ec.europa.eu:taxud:tedb:services:v1:IVatRetrievalService:types' "
+        "xmlns:ns0='urn:ec.europa.eu:taxud:tedb:services:v1:IVatRetrievalService'>"
+        "<vatRateResults><memberState>PT</memberState><type>STANDARD</type>"
+        "<rate><type>DEFAULT</type><value>23.0</value></rate>"
+        "<situationOn>2026-01-01+01:00</situationOn></vatRateResults>"
+        "<vatRateResults><memberState>PT</memberState><type>STANDARD</type>"
+        "<rate><type>DEFAULT</type><value>22.0</value></rate>"
+        "<situationOn>2026-01-01+01:00</situationOn>"
+        "<comment>Madeira</comment></vatRateResults>"
+        "</ns0:retrieveVatRatesRespMsg></env:Body></env:Envelope>"
+    )
+    with patch.object(m, "_STATIC_STANDARD_RATES", {**m._STATIC_STANDARD_RATES, "PT": Decimal("99.0")}):
+        with caplog.at_level(logging.WARNING, logger="tva_intracom.vat_rates_db"):
+            result = m._parse_tedb_response(root, country="PT", target_date=date(2026, 1, 1))
+    assert "STANDARD" not in result
+    assert any("valeurs STANDARD distinctes" in rec.message for rec in caplog.records)
+
+
+# ---------------------------------------------------------------------
 # Perimetre restreint : eligibilite TEDB limitee au STANDARD
 # ---------------------------------------------------------------------
 

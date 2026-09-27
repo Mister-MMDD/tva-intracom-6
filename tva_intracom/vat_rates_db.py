@@ -580,13 +580,28 @@ def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: O
     a un régime distinct (ex. Canaries pour l'Espagne, hors TVA UE,
     identifiable uniquement via un texte libre non structuré dans
     <comment> — donc pas exploitable de façon fiable pour distinguer les
-    cas automatiquement). Si les valeurs STANDARD distinctes trouvées
-    diffèrent, le résultat est jugé AMBIGU : aucune valeur STANDARD n'est
-    retournée (repli automatique sur rates.py côté appelant), et un
-    warning explicite est loggé avec le détail de chaque candidat pour
-    permettre une revue manuelle. Comportement volontairement conservateur
-    tant qu'aucune règle de désambiguïsation par territoire n'a été
-    validée avec le cabinet comptable.
+    cas automatiquement).
+
+    Désambiguïsation en 2 temps (révisé 2026-09-27, cf. README - évolution) :
+    1. On écarte d'abord tout candidat < _EU_MIN_STANDARD_RATE (15%, art. 97
+       Dir. 2006/112/CE) : un territoire hors champ TVA UE (Canaries/IGIC,
+       DOM français...) a structurellement un taux sous ce plancher, donc ce
+       n'est jamais le vrai taux normal d'un État membre. Ce filtre est
+       fondé sur le droit primaire UE, pas sur une donnée qu'on maintient —
+       il reste valable même si le vrai taux standard du pays change, ce que
+       ne permettait pas l'ancienne comparaison au statique seule (un
+       candidat dynamique correct mais différent du statique périmé était
+       auparavant rejeté comme ambigu).
+    2. S'il reste UN SEUL candidat après ce filtre, c'est le taux STANDARD
+       retenu, dynamique, sans condition de correspondance au statique.
+       S'il en reste PLUSIEURS (ex. Portugal : continent/Madère/Açores ont
+       chacun un taux standard différent mais tous ≥ 15%), on retombe sur la
+       correspondance unique au statique comme filet de sécurité secondaire.
+       S'il n'en reste AUCUN, ou que le filet secondaire ne tranche pas non
+       plus, le résultat est jugé AMBIGU : aucune valeur STANDARD n'est
+       retournée (repli automatique sur rates.py côté appelant), et un
+       warning explicite est loggé avec le détail de chaque candidat pour
+       permettre une revue manuelle.
     """
     tedb_to_category = {v: k for k, v in _CATEGORY_TO_TEDB.items()}
     result: dict[str, Decimal] = {}
@@ -651,23 +666,46 @@ def _parse_tedb_response(root: ET.Element, *, country: str = "?", target_date: O
         if len(distinct_values) == 1:
             result["STANDARD"] = standard_candidates[0][0]
         else:
-            # DESAMBIGUÏSATION (2026-09-15) : cas typique ES (Continent 21% vs Canaries 7%).
-            # Si l'un des candidats correspond exactement à notre référence statique,
-            # on le privilégie au lieu de rejeter tout le bloc.
-            reference = _STATIC_STANDARD_RATES.get(country)
-            matches = [v for v, _ in standard_candidates if reference is not None and v == reference]
-            if len(matches) == 1:
-                result["STANDARD"] = matches[0]
-                logger.debug("[VAT_RATES] TEDB : ambiguïté résolue pour %s (correspondance statique %s%%).",
-                             country, matches[0])
-            else:
-                logger.warning(
-                    "[VAT_RATES] TEDB : %d valeurs STANDARD distinctes et incompatibles reçues pour "
-                    "%s au %s (probable territoire spécial, ex. régime IGIC Canaries pour "
-                    "ES) — résultat jugé ambigu, repli statique. Candidats : %s",
-                    len(distinct_values), country, target_date,
-                    [f"{v}% ({c or 'sans commentaire'})" for v, c in standard_candidates],
+            # ÉTAPE 1 (2026-09-27) : écarter les candidats structurellement
+            # hors champ TVA UE (< plancher légal art. 97 Dir. 2006/112/CE).
+            above_floor = [
+                (v, c) for v, c in standard_candidates if v >= _EU_MIN_STANDARD_RATE
+            ]
+            distinct_above_floor = {v for v, _ in above_floor}
+
+            if len(distinct_above_floor) == 1:
+                result["STANDARD"] = above_floor[0][0]
+                logger.debug(
+                    "[VAT_RATES] TEDB : ambiguïté résolue pour %s par le plancher légal "
+                    "UE (%s%% écarté(s) < %s%%, candidat retenu %s%%).",
+                    country,
+                    [f"{v}" for v, _ in standard_candidates if v < _EU_MIN_STANDARD_RATE],
+                    _EU_MIN_STANDARD_RATE, above_floor[0][0],
                 )
+            else:
+                # ÉTAPE 2 (2026-09-15, conservée en filet secondaire) : cas
+                # type Portugal (continent/Madère/Açores, tous ≥ 15%) où le
+                # plancher légal ne suffit pas à trancher seul. Si l'un des
+                # candidats restants correspond exactement à notre référence
+                # statique, on le privilégie au lieu de rejeter tout le bloc.
+                candidates_for_static_match = above_floor or standard_candidates
+                reference = _STATIC_STANDARD_RATES.get(country)
+                matches = [
+                    v for v, _ in candidates_for_static_match
+                    if reference is not None and v == reference
+                ]
+                if len(matches) == 1:
+                    result["STANDARD"] = matches[0]
+                    logger.debug("[VAT_RATES] TEDB : ambiguïté résolue pour %s (correspondance statique %s%%).",
+                                 country, matches[0])
+                else:
+                    logger.warning(
+                        "[VAT_RATES] TEDB : %d valeurs STANDARD distinctes et incompatibles reçues pour "
+                        "%s au %s (probable territoire spécial, ex. régime IGIC Canaries pour "
+                        "ES) — résultat jugé ambigu, repli statique. Candidats : %s",
+                        len(distinct_values), country, target_date,
+                        [f"{v}% ({c or 'sans commentaire'})" for v, c in standard_candidates],
+                    )
 
     return result
 
@@ -729,6 +767,20 @@ def _dynamic_tedb_enabled() -> bool:
 # année sur l'autre ; un écart plus important trahit presque à coup sûr un
 # bug de parsing plutôt qu'un vrai changement légal.
 _PLAUSIBILITY_MAX_DEVIATION = Decimal("3")
+
+# Taux normal minimum imposé aux États membres par le droit primaire UE
+# (art. 97 Dir. 2006/112/CE, plancher reconduit périodiquement par décision
+# du Conseil — À REVÉRIFIER SUR EUR-LEX SI CE CODE A PLUS DE QUELQUES ANNÉES
+# qu'aucune prolongation n'est venue changer ce seuil). Sert à écarter,
+# lors d'une désambiguïsation TEDB (cf. _parse_tedb_response), les
+# candidats STANDARD qui correspondent structurellement à un territoire
+# hors champ TVA UE (IGIC Canaries pour l'ES, DOM français, etc. — art. 6
+# Dir. 2006/112/CE) plutôt qu'au taux normal réel de l'État membre. Un
+# plancher de droit primaire est plus fiable qu'une comparaison au taux
+# statique local (rates.py) : il reste valable même si le vrai taux
+# standard du pays change, alors qu'une comparaison au statique ne
+# fonctionne plus que le statique est à jour.
+_EU_MIN_STANDARD_RATE = Decimal("15")
 
 
 def _is_plausible(country: str, rate_type: str, value: Decimal) -> bool:
