@@ -175,6 +175,18 @@ _cache_lock = threading.Lock()
 # jour" constaté après passage à la granularité journalière (2026-09-14).
 _country_history_cache: dict[tuple[str, str], list[tuple[date, Decimal]]] = {}
 _country_history_loaded: set[tuple[str, str]] = set()
+# Cache parallèle : liste des dates SEULES par (pays, type_taux), même clé
+# que _country_history_cache. RÉINTRODUIT (2026-09-26 (2), disparu depuis) :
+# sans lui, _db_get_rate() reconstruisait `dates = [d for d, _ in history]`
+# depuis zéro À CHAQUE appel (recherche bisect elle-même en log(n), mais la
+# reconstruction de la liste reste O(n) par appel) — coût qui s'additionne
+# sur un gros import quand de nombreuses dates/pays distincts sont
+# interrogés (notamment depuis l'activation des catégories taux réduit
+# CN/CPA, non couvertes par prefetch_standard_rates qui ne précharge QUE
+# STANDARD). Peuplé dans _load_country_history, maintenu à jour EN PLACE
+# dans _record_history_entry (insertion synchronisée avec l'historique),
+# vidé dans clear_cache().
+_country_history_dates_cache: dict[tuple[str, str], list[date]] = {}
 
 _pool_lock = threading.Lock()
 _schema_ready = False
@@ -318,6 +330,7 @@ def _load_country_history(country: str, rate_type: str) -> list[tuple[date, Deci
 
     with _cache_lock:
         _country_history_cache[key] = history
+        _country_history_dates_cache[key] = [d for d, _ in history]
         _country_history_loaded.add(key)
     return history
 
@@ -331,12 +344,13 @@ def _record_history_entry(country: str, rate_type: str, situation_date: date, ra
         if key not in _country_history_loaded:
             return  # sera chargé (avec cette entrée incluse) au prochain besoin
         history = _country_history_cache.setdefault(key, [])
-        dates = [d for d, _ in history]
+        dates = _country_history_dates_cache.setdefault(key, [d for d, _ in history])
         idx = bisect.bisect_left(dates, situation_date)
         if idx < len(history) and history[idx][0] == situation_date:
             history[idx] = (situation_date, rate)
         else:
             history.insert(idx, (situation_date, rate))
+            dates.insert(idx, situation_date)
 
 
 def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[Decimal]:
@@ -348,7 +362,13 @@ def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[De
     history = _load_country_history(country, rate_type)
     if not history:
         return None
-    dates = [d for d, _ in history]
+    with _cache_lock:
+        dates = _country_history_dates_cache.get((country, rate_type))
+    if dates is None:
+        # Filet de sécurité (ne devrait pas arriver : _load_country_history
+        # peuple toujours les deux caches ensemble) — reconstruction
+        # ponctuelle plutôt qu'un crash.
+        dates = [d for d, _ in history]
     idx = bisect.bisect_right(dates, target_date) - 1
     if idx < 0:
         return None  # target_date antérieure au premier milestone connu
@@ -1114,7 +1134,6 @@ def prefetch_standard_rates(
             _tick()
 
 
-@lru_cache(maxsize=20_000)
 def vat_rate(
     country: str,
     product_category: str = "STANDARD",
@@ -1130,6 +1149,19 @@ def vat_rate(
 
     Raises:
         KeyError: si le pays est inconnu (délégué au repli statique).
+
+    BUGFIX (RÉINTRODUIT, 2026-09-26 (2) point 5, disparu depuis) : le
+    @lru_cache était auparavant posé directement sur CETTE fonction, avec
+    tx_date=None comme clé quand l'appelant ne précise pas de date
+    (notamment les calculs AIC). La résolution date.today() n'avait alors
+    lieu qu'au PREMIER appel sans date explicite ; tous les appels
+    suivants avec tx_date=None réutilisaient le résultat mis en cache sous
+    la clé (pays, catégorie, None) — y compris après changement de date
+    (minuit) ou de taux effectif (1er du mois/de l'année), jusqu'à
+    expiration LRU ou redémarrage du process. Corrigé en résolvant la date
+    ICI, À CHAQUE appel, AVANT tout cache — le cache lui-même est posé sur
+    _vat_rate_cached (date déjà résolue en paramètre), dont la clé change
+    donc naturellement chaque jour.
     """
     code = (country or "").strip().upper()
     cat = (product_category or "").strip().upper()
@@ -1146,6 +1178,13 @@ def vat_rate(
         cat = "CLOTHING"
 
     d = tx_date if tx_date is not None else date.today()
+    return _vat_rate_cached(code, cat, d)
+
+
+@lru_cache(maxsize=20_000)
+def _vat_rate_cached(code: str, cat: str, d: date) -> Decimal:
+    """Cache LRU de vat_rate(), posé sur la date déjà résolue (voir
+    docstring de vat_rate) — jamais appelée directement avec tx_date=None."""
     return get_vat_rate(code, cat, d)
 
 
@@ -1154,8 +1193,9 @@ def clear_cache(persistent: bool = True) -> None:
     with _cache_lock:
         _vat_memory_cache.clear()
         _country_history_cache.clear()
+        _country_history_dates_cache.clear()
         _country_history_loaded.clear()
-    vat_rate.cache_clear()
+    _vat_rate_cached.cache_clear()
     _failed_pairs.clear()
     if not persistent:
         return

@@ -8567,3 +8567,19 @@ Fichiers modifiés : `tva_intracom/billing.py`, `tva_intracom/database.py`, `tva
 **Validation** : `py_compile` propre sur les 3 fichiers modifiés (`app.py`, `ui/sidebar.py`, `ui/glossary.py`).
 
 Fichiers modifiés : `app.py`, `tva_intracom/ui/sidebar.py`, `tva_intracom/ui/glossary.py`, `README - evolution.md`.
+
+## 2026-09-28 — Régression de performance gros fichiers : 4 correctifs perf du 2026-09-26 (2) disparus, réappliqués
+
+**Contexte** : Matthieu signale un import plus lent qu'avant sur un gros fichier, après ses propres modifications récentes (`loader.py`, taux BCE/TVA, EDI-TVA). Code récupéré depuis GitHub (`dev`), jamais déduit. `loader.py` lui-même vérifié propre (le bugfix polars `empty_string_is_null=False` du 2026-09-06 est bien resté en place). En comparant le code réel à l'entrée de changelog du **2026-09-26 (2)**, constaté que ses **3 correctifs perf ne sont plus dans le code téléchargé** (probable perte lors d'un travail reparti d'une copie antérieure de ces fichiers) — plus un 4e point (bug de cache, point 5 de la même entrée) jamais réappliqué non plus. Les 4 ont été réintégrés.
+
+**1. `engine.py::_collect_vat_rate_prefetch_pairs`** — était redevenue une fonction construisant une `list` complète (`.append`) au lieu d'un générateur (`yield`). Reconvertie en générateur : plus de liste intermédiaire de couples (pays, date) conservée en RAM en plus des ventes déjà chargées, sur un gros import. `tests/test_vat_rate_prefetch.py` adapté (`list(...)` autour de chaque appel).
+
+**2. `vat_rates_db.py::_db_get_rate`** — le cache parallèle `_country_history_dates_cache` (liste des dates seules par (pays, type_taux), évitant de reconstruire `dates = [d for d, _ in history]` à CHAQUE appel) avait disparu ; `_db_get_rate` refaisait cette reconstruction O(n) sur l'historique complet à chaque cache-miss. Réintroduit, peuplé dans `_load_country_history`, maintenu à jour dans `_record_history_entry`, vidé dans `clear_cache()`. Impact amplifié depuis l'activation des catégories taux réduit CN/CPA (2026-09-16, point 4) : ces catégories ne sont pas couvertes par `prefetch_standard_rates` (STANDARD uniquement), donc chaque nouvelle date rencontrée pour une vente FOOD/MEDICINES/etc. retombait sur ce chemin non optimisé.
+
+**3. `ecb_rates.py::prefetch_closing_rates`** — la recherche dichotomique (`bisect.bisect_left`) sur les dates de clôture BCE disponibles avait disparu, remplacée par une reconstruction de liste filtrée `[ad for ad in available_dates if ad >= d]` par date demandée. Import `bisect` (absent du fichier) rétabli, recherche dichotomique réintroduite.
+
+**4. `vat_rates_db.py::vat_rate` — bug de cache (point 5, jamais réappliqué)** : `@lru_cache` était reposé directement sur `vat_rate()`, avec `tx_date=None` comme clé quand l'appelant ne précise pas de date (calculs AIC notamment) — la résolution `date.today()` n'avait lieu qu'au premier appel sans date explicite, tous les suivants réutilisant le taux figé sous la clé `(pays, catégorie, None)`. Reséparé : résolution de date à chaque appel dans `vat_rate()`, cache LRU posé sur une fonction interne `_vat_rate_cached(code, cat, d)` appelée avec la date déjà résolue. `clear_cache()` mis à jour (`_vat_rate_cached.cache_clear()`).
+
+**Validation** : `py_compile` + `pyflakes` propres sur les 4 fichiers modifiés (`engine.py`, `vat_rates_db.py`, `ecb_rates.py`, `tests/test_vat_rate_prefetch.py`). Suite `pytest` complète : **465 passed / 7 skipped / 0 failed** (environnement bac à sable, sans Postgres/secrets configurés — écarts par rapport à la baseline documentée le 2026-09-25/26 attribuables à cette différence d'environnement, pas à ce lot) ; tests ciblés (`test_vat_rate_prefetch.py`, `test_vat_rates_db.py`, `test_ecb_rates.py`, `test_engine.py`) : **123 passed**, aucun échec.
+
+Fichiers modifiés : `tva_intracom/engine.py`, `tva_intracom/vat_rates_db.py`, `tva_intracom/ecb_rates.py`, `tests/test_vat_rate_prefetch.py`, `README - evolution.md`.

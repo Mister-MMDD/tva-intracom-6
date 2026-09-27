@@ -1358,9 +1358,9 @@ def _run_oss_loop(
     return results, refund_results, oss_summary
 
 
-def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> list[tuple[str, _date]]:
-    """Construit la liste (en SUPERSET volontaire, voir docstring de
-    prefetch_standard_rates) des couples (pays, date) susceptibles d'être
+def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]):
+    """Génère (en SUPERSET volontaire, voir docstring de
+    prefetch_standard_rates) les couples (pays, date) susceptibles d'être
     interrogés par compute_vat() sur ce lot, pour précharger les taux TEDB
     en une seule passe parallélisée avant _run_oss_loop.
 
@@ -1379,8 +1379,15 @@ def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> list[tuple
     Même règle de date que _vat_rate_tx_date dans _run_oss_loop : un avoir
     (amount_ht < 0) utilise order_date (date de la vente d'origine) quand
     disponible, sinon transaction_date.
+
+    GÉNÉRATEUR (RÉINTRODUIT, 2026-09-26 (2) point 1, disparu depuis) :
+    l'appelant (prefetch_standard_rates) réduit immédiatement ce flux à un
+    set() dédupliqué — matérialiser une liste intermédiaire ici (jusqu'à 3
+    couples par vente/avoir) fait donc coexister inutilement cette liste ET
+    les ventes déjà chargées en RAM, sur un gros import. `yield` élimine ce
+    palier mémoire ; l'appelant construit directement le set final en un
+    seul parcours.
     """
-    pairs: list[tuple[str, _date]] = []
     for sale in all_items_sorted:
         raw_date = sale.transaction_date
         if sale.amount_ht < 0 and sale.order_date:
@@ -1391,12 +1398,11 @@ def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]) -> list[tuple
             tx_date = _date.fromisoformat(raw_date[:10])
         except ValueError:
             continue
-        pairs.append(("FR", tx_date))
+        yield ("FR", tx_date)
         if sale.stock_country:
-            pairs.append((sale.stock_country, tx_date))
+            yield (sale.stock_country, tx_date)
         if sale.buyer_country:
-            pairs.append((sale.buyer_country, tx_date))
-    return pairs
+            yield (sale.buyer_country, tx_date)
 
 
 def compute_all_with_vies(
