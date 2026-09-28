@@ -16,6 +16,19 @@ from tva_intracom.ca3_report import compute_ca3_lines_v2
 from tva_intracom.models import VatResult
 
 _EURO = Decimal("1")
+_VALID_REGIMES = ("trimestriel", "mensuel")
+
+
+class Ca3EdiRegimeMismatchError(ValueError):
+    """Levée quand le régime de périodicité déclaré (Art. 289 B CGI) est
+    incohérent avec la période détectée par le moteur.
+
+    Le régime de périodicité (mensuel vs trimestriel) est une décision
+    administrative externe (notifiée par le SIE), jamais déductible des
+    seules dates de vente : cette vérification ne fait que confronter une
+    valeur déclarée par l'appelant à la période réellement détectée, elle
+    ne la déduit jamais elle-même.
+    """
 _CSV_COLUMNS = (
     "formulaire",
     "version_champ",
@@ -60,6 +73,50 @@ def _declared_civil_period(period_label: str) -> tuple[str, str] | None:
     return None
 
 
+def _declared_period_shape(period_label: str) -> str | None:
+    """Forme de la période détectée : "mois" (AAAA-MM), "trimestre"
+    (AAAA-Qn) ou None (autre forme : année, semestre, plage, vide...).
+
+    Une forme non reconnue (None) ne déclenche jamais d'erreur de cohérence
+    avec le régime déclaré : on ne bloque que sur une incohérence certaine.
+    """
+    label = (period_label or "").strip()
+    if re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", label):
+        return "mois"
+    if re.fullmatch(r"\d{4}-Q[1-4]", label):
+        return "trimestre"
+    return None
+
+
+def validate_regime_periodicite(regime_periodicite: str | None, period_label: str) -> None:
+    """Vérifie la cohérence régime déclaré / période détectée.
+
+    Publique pour que l'UI puisse bloquer AVANT de proposer la génération
+    (message d'erreur propre) ; `generate_ca3_edi_preparation_csv` la rappelle
+    par sécurité. Lève ValueError (régime inconnu) ou
+    Ca3EdiRegimeMismatchError (incohérence certaine). `None` (régime non
+    déclaré) désactive le contrôle.
+    """
+    if regime_periodicite is None:
+        return
+    if regime_periodicite not in _VALID_REGIMES:
+        raise ValueError(
+            f"regime_periodicite invalide : {regime_periodicite!r} "
+            f"(attendu : {', '.join(_VALID_REGIMES)})"
+        )
+    shape = _declared_period_shape(period_label)
+    if regime_periodicite == "mensuel" and shape == "trimestre":
+        raise Ca3EdiRegimeMismatchError(
+            f"Régime déclaré mensuel (Art. 289 B CGI) mais période détectée "
+            f"trimestrielle ({period_label!r})."
+        )
+    if regime_periodicite == "trimestriel" and shape == "mois":
+        raise Ca3EdiRegimeMismatchError(
+            f"Régime déclaré trimestriel mais période détectée mensuelle "
+            f"({period_label!r})."
+        )
+
+
 def generate_ca3_edi_preparation_csv(
     results: list[VatResult],
     company_name: str,
@@ -67,13 +124,24 @@ def generate_ca3_edi_preparation_csv(
     period_label: str,
     refund_results: list[VatResult] | None = None,
     all_fc_transfers: list | None = None,
+    regime_periodicite: str | None = None,
 ) -> bytes:
     """Construit un CSV de préparation CA3 avec les codes EDI des formulaires 2026.
 
     Les cases non calculées ou qui requièrent une information absente restent
     vides et portent un statut explicite ; elles ne sont jamais remplacées par
     zéro. Les montants présents sont arrondis conformément au Volume III.
+
+    `regime_periodicite` ("trimestriel" ou "mensuel"; None = non déclaré, aucun
+    contrôle de cohérence) est une
+    donnée déclarative fournie par l'appelant — reflet du régime de
+    périodicité TVA réel de l'entreprise (Art. 289 B CGI), notifié par le
+    SIE et jamais déductible des ventes importées. Une incohérence avec la
+    période détectée (`period_label`) fait lever `Ca3EdiRegimeMismatchError`
+    plutôt que de produire un CSV silencieusement erroné.
     """
+    validate_regime_periodicite(regime_periodicite, period_label)
+
     lines = compute_ca3_lines_v2(
         results,
         refund_results,
@@ -162,6 +230,15 @@ def generate_ca3_edi_preparation_csv(
         "T-IDENTIF", "06/00", "CB", "DTM", "CB:C507:2380:1:102", period_end, period_status,
         "Date de fin de période (SSAAMMJJ)", period_comment,
     )
+    # Ligne purement informative (aucun code EDI officiel associé) : rappelle
+    # le régime de périodicité déclaré par l'appelant, vérifié cohérent avec
+    # la période ci-dessus (sinon Ca3EdiRegimeMismatchError, plus haut).
+    add(
+        "T-IDENTIF", "", "", "", "", regime_periodicite or "",
+        "déclaré par l'utilisateur" if regime_periodicite else "non déclaré",
+        "Régime de périodicité TVA (Art. 289 B CGI)",
+        "Information de contrôle, hors format EDI. Régime notifié par le SIE, non déduit des ventes.",
+    )
 
     aic_present = lines["B2_base_ht"] != 0
     aic_note = "Base AIC estimée par le moteur à partir des transferts de stock." if aic_present else ""
@@ -193,7 +270,6 @@ def generate_ca3_edi_preparation_csv(
         add_amount(f"{key}_tva_due", tax_code, version, f"{key} — taux {label} : taxe due",
                    amount=tax_amount, status=tax_status, comment=tax_comment)
 
-    aic_tax = _whole_euros(lines["L17_tva_aic"])
     add_amount(
         "L17_tva_aic", "GJ", "19/00", "L17 — TVA brute sur acquisitions intracommunautaires",
         amount=lines["L17_tva_aic"], status="estimé" if aic_present else "calculé",

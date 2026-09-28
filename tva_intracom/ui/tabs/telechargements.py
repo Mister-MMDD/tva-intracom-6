@@ -19,7 +19,11 @@ from decimal import Decimal
 import streamlit as st
 
 from tva_intracom.ca3_report import generate_ca3_html_report_v2
-from tva_intracom.ca3_edi_export import generate_ca3_edi_preparation_csv
+from tva_intracom.ca3_edi_export import (
+    Ca3EdiRegimeMismatchError,
+    generate_ca3_edi_preparation_csv,
+    validate_regime_periodicite,
+)
 from tva_intracom.excel_report import export_xlsx
 from tva_intracom.fec_export import generate_fec_bytes
 from tva_intracom.i18n import _, country_label
@@ -470,21 +474,47 @@ def render_telechargements() -> None:
             elif ca3_html_bytes is not None:
                 _gated_download(_("dl_ca3_html_btn"), data=ca3_html_bytes, file_name=_("dl_ca3_html_filename", company=nom_entreprise, period=period_label), mime="text/html")
 
+            # Régime de périodicité TVA (Art. 289 B CGI) : donnée déclarative,
+            # notifiée par le SIE, jamais déduite des ventes. Widget local à ce
+            # bloc (fragment) : aucun impact sur le calcul ni le reste de l'app.
+            _regime_options = {
+                "trimestriel": _("ca3_edi_regime_trimestriel"),
+                "mensuel": _("ca3_edi_regime_mensuel"),
+            }
+            _regime = st.selectbox(
+                _("ca3_edi_regime_label"),
+                options=list(_regime_options),
+                format_func=_regime_options.get,
+                key="ca3_edi_regime",
+                help=_("ca3_edi_regime_help"),
+            )
+            try:
+                validate_regime_periodicite(_regime, period_label)
+                _regime_ok = True
+            except Ca3EdiRegimeMismatchError:
+                _regime_ok = False
+                st.error(_("ca3_edi_regime_mismatch_err", regime=_regime_options[_regime], period=period_label))
+
             def _build_ca3_edi_preparation():
                 return generate_ca3_edi_preparation_csv(
                     results=results, refund_results=refund_results,
                     company_name=nom_entreprise, siren=siren_entreprise,
                     period_label=period_label, all_fc_transfers=all_fc_transfers,
+                    regime_periodicite=_regime,
                 )
-            ca3_edi_bytes = _lazy_artifact(
-                "ca3_edi_preparation", _build_ca3_edi_preparation,
-                label="dl_generate_ca3_edi_btn",
-            )
             ca3_edi_filename = _("dl_ca3_edi_filename", company=nom_entreprise, period=period_label)
             if not _can_export:
                 _gated_download(_("dl_ca3_edi_btn"), data=b"", file_name=ca3_edi_filename, mime="text/csv")
-            elif ca3_edi_bytes is not None:
-                _gated_download(_("dl_ca3_edi_btn"), data=ca3_edi_bytes, file_name=ca3_edi_filename, mime="text/csv")
+            elif _regime_ok:
+                # Nom d'artefact distinct par régime : le cache `_lazy_artifact`
+                # n'est pas invalidé par le widget, sans quoi un CSV généré avec
+                # un autre régime serait resservi.
+                ca3_edi_bytes = _lazy_artifact(
+                    f"ca3_edi_preparation_{_regime}", _build_ca3_edi_preparation,
+                    label="dl_generate_ca3_edi_btn",
+                )
+                if ca3_edi_bytes is not None:
+                    _gated_download(_("dl_ca3_edi_btn"), data=ca3_edi_bytes, file_name=ca3_edi_filename, mime="text/csv")
         else:
             st.markdown(_("home_country_declaration_header", country=country_label(home_country)))
             st.caption(_("home_country_declaration_caption"))

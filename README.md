@@ -104,7 +104,8 @@ tva-intracom/
 │   │                                 Gère aussi le rattachement anti-abus Compte Amazon <-> SIREN.
 │   ├── ca3_report.py                 Calcul des lignes CA3 et génération du rapport HTML : compute_ca3_lines_v2,
 │   │                                 AIC ligne 08, déductions manuelles, generate_ca3_html_report_v2
-│   ├── ca3_edi_export.py             CSV de préparation codé CA3/T-IDENTIF (pas un interchange EDIFACT)
+│   ├── ca3_edi_export.py             CSV de préparation codé CA3/T-IDENTIF (pas un interchange EDIFACT) ;
+│   │                                 régime de périodicité déclaré (mensuel/trimestriel) contrôlé contre la période détectée
 │   ├── local_vat_report.py           Équivalent générique du CA3 pour tout pays UE hors France
 │   │                                 (canal LOCAL_REGISTRATION/FR_DOMESTIC) : rapport HTML harmonisé
 │   │                                 visuellement au CA3 mais PAS un fac-similé du formulaire officiel
@@ -124,7 +125,10 @@ tva-intracom/
 │   ├── oss_xml.py                    Génération XML OSS officiel (Règl. UE 2021/965)
 │   ├── product_tax_code_category.py  Classification Amazon (PRODUCT_TAX_CODE -> catégorie interne)
 │   ├── rates.py                      Taux TVA historisés par pays (vat_rate_at_date)
+│   ├── rates_evidence.py             Justificatif des taux appliqués (TVA + BCE) : extraction des enregistrements + classeur Excel 2 onglets
+│   ├── rates_evidence_pdf.py         Rendu PDF du justificatif des taux, avec référence unique, hash SHA-256 et empreinte du scope
 │   ├── report.py                     ReportSummary, build_report, render_report
+│   ├── retry_config.py               Constantes de résilience réseau partagées (retry/backoff, cache des échecs) pour BCE et TEDB
 │   ├── security.py                   Utilitaires de sécurité pour la conformité Amazon DPP (Data Protection Policy)
 │   ├── vat_rates_db.py               Taux de TVA dynamiques via l'API TEDB
 │   ├── vies_certificate.py           Génération de certificat de validité VIES en PDF (preuve de bonne foi).
@@ -144,6 +148,7 @@ tva-intracom/
 │   │   ├── formatting.py             Helpers d'affichage partagés (_fmt, _smart_money_df,
 │   │   │                             _gated_preview_table, _fec_period_end_date…)
 │   │   ├── glossary.py               Gestion du glossaire TVA, définitions multilingues et tooltips d'aide.
+│   │   ├── import_warnings.py        Transformation des avertissements d'import (ligne/référence/message) en lignes de tableau structurées.
 │   │   ├── onboarding.py             Stepper guidé d'onboarding avec guidage visuel Lighthouse.
 │   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
 │   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, Facturation Stripe).
@@ -198,11 +203,14 @@ tva-intracom/
 | `oss_export.py` | Agrégation OSS partagée (aggregate_oss_results), exports Excel + CSV URSSAF, détection des soldes négatifs (find_oss_negative_buckets) |
 | `oss_xml.py` | Génération XML OSS officiel (Règl. UE 2021/965) avec multi-validation XSD (DGFIP/UE) |
 | `ca3_report.py` | Calcul des lignes CA3 et rapport HTML ; AIC estimées, déductions et solde : `compute_ca3_lines_v2`, `generate_ca3_html_report_v2` |
-| `ca3_edi_export.py` | CSV de préparation de certaines rubriques 3310-CA3/T-IDENTIF avec codes EDI 2026 ; champs manquants signalés, pas d'interchange EDIFACT ni de télétransmission |
+| `ca3_edi_export.py` | CSV de préparation de certaines rubriques 3310-CA3/T-IDENTIF avec codes EDI 2026 ; champs manquants signalés, pas d'interchange EDIFACT ni de télétransmission. Paramètre `regime_periodicite` (`mensuel`/`trimestriel`, Art. 289 B CGI — donnée déclarative notifiée par le SIE, jamais déduite des ventes) : `validate_regime_periodicite()` lève `Ca3EdiRegimeMismatchError` si le régime contredit la période détectée (`AAAA-MM` vs `AAAA-Qn`) ; formes de période non reconnues jamais bloquées ; `None` = non déclaré, aucun contrôle |
 | `local_vat_report.py` | Équivalent générique du CA3 pour n'importe quel pays UE hors France (canal `LOCAL_REGISTRATION`, ou `FR_DOMESTIC` quand ce pays est le **pays d'origine** du compte) : `compute_local_vat_lines`, `generate_local_vat_html_report`. Ventilation base/TVA par taux réellement présent dans les données, style visuel harmonisé au CA3, mais **PAS un fac-similé du formulaire officiel** — un avertissement explicite figure dans chaque rapport généré. Codes de case indicatifs pour DE/ES/IT/PL/NL/BE/PT/SE/AT/CZ/RO/HU/IE (`rates.LOCAL_VAT_BOX_CODES`, non vérifiés exhaustivement contre un PDF officiel, contrairement au CA3) |
 | `fec_export.py` | Export comptable au format FEC (journal des ventes agrégé par régime/pays/taux, écritures équilibrées débit/crédit) — pré-remplissage pour import dans un logiciel comptable tiers, alternative légère à l'EDI-TVA |
 | `excel_report.py` | Export Excel multi-onglets (voir détail onglets ci-dessous) |
 | `historical_rates_widget.py` | Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués |
+| `rates_evidence.py` | Justificatif des taux appliqués au calcul : taux de TVA effectivement retenus par pays (avec première/dernière opération à chaque taux — issus du calcul, donc dynamiques TEDB avec repli sur `rates.py`) et taux BCE (cours quotidiens, cours de clôture OSS/IOSS, replis signalés) ; export Excel 2 onglets « TVA » / « BCE » |
+| `rates_evidence_pdf.py` | Version PDF (A4 paysage) du justificatif des taux, avec identifiant de document unique, hash SHA-256 du classeur Excel associé et empreinte du scope |
+| `retry_config.py` | Constantes de résilience réseau partagées (backoff exponentiel, cache négatif des échecs) pour `ecb_rates.py` et `vat_rates_db.py` ; constantes en mémoire uniquement, sans thread ni connexion persistante (compatible scale-to-zero) |
 | `report.py` | ReportSummary, build_report, render_report — ventilation HT exhaustive par canal fiscal (ht_by_bucket) servant de contrôle de cohérence interne, et agrégation mensuelle nette par pays (oss_by_country_month, local_by_country_month) |
 | `mem_utils.py` | Utilitaires d'analyse et d'optimisation de la mémoire (interning, RAM stats) |
 | `cli.py` | Interface en ligne de commande (CLI) pour exécuter le moteur hors interface web |
@@ -230,6 +238,7 @@ Chaque module reprend une partie logique de l'interface, isolé et paramétré p
 | `ui/display_mode.py` | Gestion globale du mode d'affichage Simple / Détaillé. |
 | `ui/files.py` | Gestion du cache des fichiers uploadés (compression gzip, signatures MD5). |
 | `ui/formatting.py` | Helpers d'affichage partagés et conversion vers la devise d'affichage UI. |
+| `ui/import_warnings.py` | Découpage des avertissements d'import (fichier, ligne, référence, message) en colonnes de tableau. |
 | `ui/onboarding.py` | Stepper guidé d'onboarding avec guidage visuel "Lighthouse". |
 | `ui/sidebar.py` | Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe). |
 | `ui/theme.py` | Configuration de page et injection du CSS de marque (Design System). |
@@ -346,6 +355,15 @@ commenté pour réactivation éventuelle (voir `tva_intracom/billing.py`,
 | 11 | **Intrastat (EMEBI)** | Aide au remplissage : introductions et expéditions par ASIN et **par mois** |
 | 12 | **INVOICE & CREDIT_NOTE** | Détail des écritures de service Amazon |
 | 13 | **Calendrier Fiscal** | Échéances OSS, CA3, Intrastat, ESL avec compte à rebours |
+
+---
+
+## Justificatif des taux (TVA / BCE) et CSV de préparation CA3 EDI
+
+Onglet « 📥 Téléchargements » :
+
+- **Justificatif des taux** (`rates_evidence.py`, `rates_evidence_pdf.py`) : fichier Excel à 2 onglets (**TVA** : pays, taux appliqué, première et dernière opération à ce taux ; **BCE** : cours quotidiens, cours de clôture OSS trimestriels / IOSS mensuels, source du cours, replis signalés) et sa version **PDF** traçable (identifiant unique, hash SHA-256 du classeur, horodatage UTC). Les taux TVA listés sont ceux réellement appliqués par le moteur (taux dynamiques TEDB, repli sur `rates.py`).
+- **CSV de préparation CA3 EDI** (`ca3_edi_export.py`) : **ni EDIFACT ni télétransmissible** — aucun format d'interchange public unique n'existe, la télétransmission EDI-TVA passe par un partenaire EDI agréé. Le sélecteur « Régime de périodicité TVA » (mensuel/trimestriel, Art. 289 B CGI) est propre à ce bloc ; en cas d'incohérence avec la période détectée, un message d'erreur remplace le bouton de génération. Hors périmètre à ce jour : L19 (TVA déductible sur immobilisations), L22 (crédit N-1), 3310-CA3G (paiement) ; annexes 3310-A / 3310-Ter / 3310-TIC en attente de documentation.
 
 ---
 
@@ -476,6 +494,8 @@ réglementaire et validation) : voir `README - evolution.md`.
 
 ## Incidents de production résolus
 
+- **2026-09-28 — Régression de performance sur gros fichiers (`engine.py`, `vat_rates_db.py`, `ecb_rates.py`)** : quatre correctifs du 2026-09-26 avaient disparu du code (générateur de paires de préchargement, cache des dates d'historique par pays, recherche dichotomique sur les taux BCE, cache LRU du taux du jour) ; réappliqués et validés. Détail dans `README - evolution.md`.
+- **2026-09-28 — CSV de préparation CA3 EDI : régime de périodicité (`ca3_edi_export.py`, `telechargements.py`)** : paramètre `regime_periodicite` avec blocage si incohérence avec la période détectée ; retrait d'une variable morte (`aic_tax`).
 - **2026-09-26 — Correctifs de typage Mypy, stabilité VIES UI et profiling TEDB/BCE (`pyproject.toml`, `vies_ui.py`, `vat_rates_db.py`, `engine.py`, `ecb_rates.py`)** : suppression des 13 overrides `ignore_errors` dans `pyproject.toml`, correction de l'import `DEFAULT_CACHE_TTL_DAYS`, optimisation mémoire du préchargement TEDB via générateur, recherche dichotomique `bisect_left` sur les taux BCE, et correction du cache LRU `_vat_rate_cached`.
 - **2026-09-25 — Correctifs de parsing CSV Polars et reruns UI (`loader.py`, `formatting.py`, `background_calc.py`)** : correction du bug `AttributeError: 'NoneType'` sur cellules vides, gestion d'erreur sur les `st.rerun(scope="fragment")` hors fragments, et nettoyage des variables doublons.
 - **2026-09-18 à 2026-09-21 — Refonte graphique, Design System et Dashboard UI (`theme.py`, `sidebar.py`, `declarations.py`, `app.py`)** : synchronisation JS/iframe du mode sombre (`data-theme-actual`), palette de couleurs adaptative, toggles/sliders/tags en vert accent, fil d'Ariane, graphique à barres des déclarations, modale de détails, et traductions du glossaire (ES/IT/PL/PT/DE).
@@ -506,7 +526,9 @@ réglementaire et validation) : voir `README - evolution.md`.
 ```bash
 pytest -q
 ```
-La suite couvre la classification fiscale, le cache VIES, le seuil OSS multi-année, les formats Amazon 1–5, la conversion BCE, la thread-safety du pool DB et l'équilibrage FEC.
+La suite couvre la classification fiscale, le cache VIES, le seuil OSS multi-année, les formats Amazon 1–5, la conversion BCE, les taux TVA dynamiques (TEDB, préchargement), le justificatif des taux, le CSV de préparation CA3 EDI (dont le contrôle du régime de périodicité), la thread-safety du pool DB et l'équilibrage FEC.
+
+**Référence au 2026-09-28** (environnement bac à sable, sans Postgres ni secrets configurés) : **469 passed / 7 skipped / 0 failed**. Un environnement disposant de la base et des secrets peut donner un décompte différent (tests `skipped`, variables d'environnement comme `ENCRYPTION_KEY`) : toute déviation par rapport à ce décompte dans le même environnement mérite investigation. Cohérence i18n : 1331 clés × 7 langues (FR/EN/DE/ES/IT/PL/PT), vérifiée par `tests/test_i18n_coherence.py` et `scripts/check_i18n_coherence.py`.
 
 ---
 
@@ -526,7 +548,7 @@ La suite couvre la classification fiscale, le cache VIES, le seuil OSS multi-ann
 
 ## Roadmap
 
-- **EDI-TVA** : CSV de préparation CA3 avec codes EDI officiels et rubriques calculées par le moteur ; ce n’est pas un interchange EDIFACT ni un fichier télétransmissible.
+- **EDI-TVA** : CSV de préparation CA3 avec codes EDI officiels et rubriques calculées par le moteur ; ce n’est pas un interchange EDIFACT ni un fichier télétransmissible (aucun partenaire EDI agréé retenu à ce jour). Régime de périodicité mensuel/trimestriel géré. À venir : annexes 3310-A / 3310-Ter / 3310-TIC (dans l'attente de la documentation officielle) ; L19, L22 et 3310-CA3G restent hors périmètre faute de données d'achats dans le moteur.
 - **XML IOSS** : Export XML officiel pour le guichet unique IOSS (Import Scheme).
 
 ---

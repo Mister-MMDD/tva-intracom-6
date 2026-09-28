@@ -103,3 +103,42 @@ def test_ca3_edi_preparation_uses_civil_quarter_and_leaves_ambiguous_period_blan
     assert ambiguous_values["CA:C507:2380:1:102"]["valeur"] == ""
     assert ambiguous_values["CB:C507:2380:1:102"]["valeur"] == ""
     assert ambiguous_values["CA:C507:2380:1:102"]["statut"] == "à compléter"
+
+
+def test_ca3_edi_regime_mensuel_rejects_quarter_period():
+    import pytest
+    from tva_intracom.ca3_edi_export import Ca3EdiRegimeMismatchError
+
+    with pytest.raises(Ca3EdiRegimeMismatchError):
+        generate_ca3_edi_preparation_csv(
+            [], "Entreprise", "123456789", "2026-Q1", regime_periodicite="mensuel",
+        )
+
+
+def test_ca3_edi_regime_trimestriel_rejects_month_period():
+    import pytest
+    from tva_intracom.ca3_edi_export import Ca3EdiRegimeMismatchError
+
+    with pytest.raises(Ca3EdiRegimeMismatchError):
+        generate_ca3_edi_preparation_csv(
+            [], "Entreprise", "123456789", "2026-01", regime_periodicite="trimestriel",
+        )
+
+
+def test_ca3_edi_regime_coherent_or_undeclared_is_accepted_and_reported():
+    rows = _rows(generate_ca3_edi_preparation_csv(
+        [], "Entreprise", "123456789", "2026-01", regime_periodicite="mensuel",
+    ))
+    regime = [r for r in rows if r["libelle"].startswith("Régime de périodicité")]
+    assert len(regime) == 1 and regime[0]["valeur"] == "mensuel"
+    # Forme non reconnue (ex. plage multi-trimestres) : jamais de blocage.
+    generate_ca3_edi_preparation_csv([], "E", "123456789", "2026-Q1_Q2", regime_periodicite="mensuel")
+    # Non déclaré : aucun contrôle.
+    generate_ca3_edi_preparation_csv([], "E", "123456789", "2026-Q1")
+
+
+def test_ca3_edi_regime_invalid_value_raises_value_error():
+    import pytest
+
+    with pytest.raises(ValueError):
+        generate_ca3_edi_preparation_csv([], "E", "123456789", "2026-01", regime_periodicite="annuel")
