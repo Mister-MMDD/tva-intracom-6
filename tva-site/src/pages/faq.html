@@ -46,7 +46,23 @@
 <div class="card interactive" data-open="false">
     <h2>Le moteur produit‑il des fichiers prêts pour la déclaration ?</h2>
     <div class="details">
-        <p>Oui : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi‑onglets, FEC comptable.</p>
+        <p>Oui : XML OSS officiel, rapports CA3 HTML, CSV de préparation CA3 avec codes EDI (non télétransmissible), rapports locaux UE, Excel multi‑onglets, FEC comptable et justificatif des taux appliqués.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
+</div>
+
+<div class="card interactive" data-open="false">
+    <h2>Le moteur télétransmet-il l'EDI-TVA à la DGFIP ?</h2>
+    <div class="details">
+        <p>Non. La télétransmission EDI-TVA passe obligatoirement par un partenaire EDI agréé, chacun avec son propre format d'échange. Le moteur produit un CSV de préparation CA3 avec les codes EDI des rubriques qu'il calcule ; les cases qu'il ne peut pas renseigner (TVA déductible sur immobilisations, crédit antérieur, paiement) restent signalées « à compléter ». Ce fichier n'est ni un message EDIFACT ni un fichier télétransmissible.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
+</div>
+
+<div class="card interactive" data-open="false">
+    <h2>Comment justifier les taux de TVA et de change appliqués ?</h2>
+    <div class="details">
+        <p>L'onglet Téléchargements propose un justificatif des taux : un classeur Excel (taux de TVA appliqués par pays avec première et dernière opération, cours de change quotidiens et cours de clôture OSS/IOSS) et sa version PDF, avec identifiant unique et empreinte SHA-256 du classeur.</p>
     </div>
     <button class="toggle-button">Afficher la réponse</button>
 </div>

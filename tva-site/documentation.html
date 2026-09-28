@@ -87,6 +87,7 @@
                 <ul>
                     <li><strong>VIES (EU)</strong> : Validation des numéros de TVA en temps réel.</li>
                     <li><strong>BCE (SDW)</strong> : Récupération quotidienne des taux de change officiels.</li>
+                    <li><strong>TEDB (Commission européenne)</strong> : Taux de TVA à jour par pays et par date de transaction.</li>
                     <li><strong>Polars / Pandas</strong> : Parsing haute performance des gros volumes de données (Amazon).</li>
                     <li><strong>DGFIP / Schémas XSD</strong> : Validation des fichiers XML OSS.</li>
                 </ul>
@@ -99,6 +100,8 @@
                     <li><strong>ecb_rates.py</strong> : Synchro auto avec la Banque Centrale Européenne (BCE).</li>
                     <li><strong>vies_engine.py</strong> : Validation VIES avec cache et piste d'audit conforme (365 jours).</li>
                     <li><strong>ca3_report.py / oss_xml.py</strong> : Générateurs de liasses fiscales (HTML/XML).</li>
+                    <li><strong>ca3_edi_export.py</strong> : CSV de préparation CA3 avec codes EDI (non télétransmissible), avec contrôle du régime de périodicité mensuel/trimestriel.</li>
+                    <li><strong>rates_evidence.py</strong> : Justificatif des taux de TVA et de change appliqués (Excel + PDF traçable).</li>
                     <li><strong>local_vat_report.py</strong> : Rapports de TVA locaux pour les autres pays de l'UE.</li>
                     <li><strong>billing.py</strong> : Moteur de facturation Stripe et gestion des quotas.</li>
                 </ul>
@@ -142,6 +145,7 @@ tva-intracom/
 │   │   ├── files.py                  Cache compressé des uploads (MD5)
 │   │   ├── formatting.py             Helpers d'affichage et conversion
 │   │   ├── glossary.py               Gestion du glossaire TVA et tooltips d'aide
+│   │   ├── import_warnings.py        Avertissements d'import en tableau structuré
 │   │   ├── onboarding.py             Stepper guidé Lighthouse CSS
 │   │   ├── rerun_utils.py            Gestion des st.rerun()
 │   │   ├── sidebar.py                Barre latérale de configuration
@@ -150,6 +154,7 @@ tva-intracom/
 │   ├── amazon_adapter.py             Passerelle de compatibilité modèles
 │   ├── auth_supabase.py              Authentification Supabase Auth
 │   ├── billing.py                    Facturation Stripe et quotas SIREN
+│   ├── ca3_edi_export.py             CSV de préparation CA3 (codes EDI, non télétransmissible)
 │   ├── ca3_report.py                 Rapport CA3 (HTML)
 │   ├── database.py                   Pooling Postgres centralisé
 │   ├── ecb_rates.py                  Taux BCE (cache multi-niveaux)
@@ -162,6 +167,9 @@ tva-intracom/
 │   ├── oss_xml.py                    Génération XML OSS officiel
 │   ├── product_tax_code_category.py  Classification Amazon (PRODUCT_TAX_CODE -> catégorie interne)
 │   ├── rates.py                      Taux TVA historisés
+│   ├── rates_evidence.py             Justificatif des taux TVA/BCE appliqués (Excel)
+│   ├── rates_evidence_pdf.py         Justificatif des taux TVA/BCE (PDF traçable)
+│   ├── retry_config.py               Constantes de résilience réseau (BCE, TEDB)
 │   ├── security.py                   Sécurité Amazon DPP (Fernet)
 │   ├── vat_rates_db.py               Taux de TVA dynamiques via l'API TEDB
 │   ├── vies_engine.py                Validation VIES avec cache Postgres
@@ -234,7 +242,9 @@ tva-intracom/
 
                 <h3 style="margin-top: 20px;">Roadmap</h3>
                 <ul style="font-size: 0.9rem;">
-                    <li>⏳ Intégration directe EDI-TVA (Télédéclaration automatique Cerfa).</li>
+                    <li>✅ CSV de préparation CA3 avec codes EDI (rubriques calculées par le moteur) : disponible. Ce n'est ni un interchange EDIFACT ni un fichier télétransmissible.</li>
+                    <li>⏳ Annexes CA3 (3310-A, 3310-Ter, 3310-TIC) : à venir. Les cases de TVA déductible sur immobilisations (L19), de crédit antérieur (L22) et le paiement (3310-CA3G) restent à saisir manuellement, le moteur ne récupérant pas les achats.</li>
+                    <li>ℹ️ Télétransmission EDI-TVA : la DGFIP impose de passer par un partenaire EDI agréé ; aucune télédéclaration directe n'est prévue à ce jour.</li>
                     <li>📄 Export XML IOSS officiel (Import Scheme).</li>
                 </ul>
             </div>

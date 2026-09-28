@@ -37,7 +37,9 @@
             {"@type": "Question", "name": "Comment sont gérés les numéros de TVA acheteurs ?", "acceptedAnswer": {"@type": "Answer", "text": "Via l'API VIES officielle, avec cache PostgreSQL, historique d'audit horodaté et reclassification B2B/B2C si nécessaire."}},
             {"@type": "Question", "name": "Pourquoi la piste d'audit est-elle cruciale ?", "acceptedAnswer": {"@type": "Answer", "text": "En cas de contrôle fiscal sur une vente B2B exonérée, vous devez prouver que le numéro de TVA du client était valide au moment de la vente. Le moteur archive systématiquement cette preuve."}},
             {"@type": "Question", "name": "Le moteur gère-t-il les changements de taux de TVA ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui, le système intègre l'historique des taux et applique le bon taux selon la date de la transaction."}},
-            {"@type": "Question", "name": "Le moteur produit-il des fichiers prêts pour la déclaration ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi-onglets, FEC comptable."}},
+            {"@type": "Question", "name": "Le moteur produit-il des fichiers prêts pour la déclaration ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui : XML OSS officiel, rapports CA3 HTML, CSV de préparation CA3 avec codes EDI (non télétransmissible), rapports locaux UE, Excel multi-onglets, FEC comptable et justificatif des taux appliqués."}},
+            {"@type": "Question", "name": "Le moteur télétransmet-il l'EDI-TVA à la DGFIP ?", "acceptedAnswer": {"@type": "Answer", "text": "Non. La télétransmission EDI-TVA passe obligatoirement par un partenaire EDI agréé, chacun avec son propre format d'échange. Le moteur produit un CSV de préparation CA3 avec les codes EDI des rubriques qu'il calcule ; les cases qu'il ne peut pas renseigner (TVA déductible sur immobilisations, crédit antérieur, paiement) restent signalées « à compléter ». Ce fichier n'est ni un message EDIFACT ni un fichier télétransmissible."}},
+            {"@type": "Question", "name": "Comment justifier les taux de TVA et de change appliqués ?", "acceptedAnswer": {"@type": "Answer", "text": "L'onglet Téléchargements propose un justificatif des taux : un classeur Excel (taux de TVA appliqués par pays avec première et dernière opération, cours de change quotidiens et cours de clôture OSS/IOSS) et sa version PDF, avec identifiant unique et empreinte SHA-256 du classeur."}},
             {"@type": "Question", "name": "Le moteur est-il payant ?", "acceptedAnswer": {"@type": "Answer", "text": "Non, l'outil est gratuit. Son développement peut être soutenu par un don libre."}}
         ]
     }
@@ -128,7 +130,23 @@
 <div class="card interactive" data-open="false">
     <h2>Le moteur produit‑il des fichiers prêts pour la déclaration ?</h2>
     <div class="details">
-        <p>Oui : XML OSS officiel, rapports CA3 HTML, rapports locaux UE, Excel multi‑onglets, FEC comptable.</p>
+        <p>Oui : XML OSS officiel, rapports CA3 HTML, CSV de préparation CA3 avec codes EDI (non télétransmissible), rapports locaux UE, Excel multi‑onglets, FEC comptable et justificatif des taux appliqués.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
+</div>
+
+<div class="card interactive" data-open="false">
+    <h2>Le moteur télétransmet-il l'EDI-TVA à la DGFIP ?</h2>
+    <div class="details">
+        <p>Non. La télétransmission EDI-TVA passe obligatoirement par un partenaire EDI agréé, chacun avec son propre format d'échange. Le moteur produit un CSV de préparation CA3 avec les codes EDI des rubriques qu'il calcule ; les cases qu'il ne peut pas renseigner (TVA déductible sur immobilisations, crédit antérieur, paiement) restent signalées « à compléter ». Ce fichier n'est ni un message EDIFACT ni un fichier télétransmissible.</p>
+    </div>
+    <button class="toggle-button">Afficher la réponse</button>
+</div>
+
+<div class="card interactive" data-open="false">
+    <h2>Comment justifier les taux de TVA et de change appliqués ?</h2>
+    <div class="details">
+        <p>L'onglet Téléchargements propose un justificatif des taux : un classeur Excel (taux de TVA appliqués par pays avec première et dernière opération, cours de change quotidiens et cours de clôture OSS/IOSS) et sa version PDF, avec identifiant unique et empreinte SHA-256 du classeur.</p>
     </div>
     <button class="toggle-button">Afficher la réponse</button>
 </div>
