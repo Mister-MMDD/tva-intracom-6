@@ -74,6 +74,7 @@ class TabContext:
     platform_name: str
     home_country: str = "FR"
     target_currency: str = "EUR"
+    amazon_format: int = 0  # Format Amazon détecté (1-5), 0 si non Amazon
 
     # Cross-onglet : rempli par render_declarations(), lu par
     # render_telechargements() — voir docstring du module.

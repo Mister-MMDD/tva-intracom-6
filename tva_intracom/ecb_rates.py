@@ -579,17 +579,10 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
 
 
 def get_closing_rate(currency: str, closing_date: date) -> Optional[Decimal]:
-    """Taux BCE applicable à une date de CLÔTURE de période OSS/IOSS
-    (Règl. UE 2020/194, art. 5 bis) : recherche EN AVANT à partir de
-    closing_date, contrairement à get_rate() qui recherche EN ARRIÈRE
-    (adapté à un usage général "taux en vigueur à telle date").
-
-    Cache mémoire (L1) uniquement, propre à ce process — délibérément PAS
-    de cache Postgres L2 partagé : réutiliser la table/clé (devise, date)
-    de get_rate() collisionnerait avec sa sémantique inverse sous la même
-    clé (même (devise, date), valeur potentiellement différente). Le volume
-    d'appels reste faible (une poignée de devises par période déclarée),
-    donc l'absence de L2 n'a pas d'impact mesurable — voir README - évolution.md.
+    """Récupère le taux de change de clôture pour une devise et une date.
+    
+    Returns:
+        Taux de change (EUR/CCY) ou None si indisponible.
     """
     currency = currency.upper()
     if currency == "EUR":
@@ -678,13 +671,10 @@ def _fetch_ecb_batch(
 # ------------------------------------------------------------------
 
 def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
-    """Retourne le taux EUR/{currency} (unités de devise pour 1 EUR).
-
-    Ordre de résolution : cache mémoire (L1, ce process) -> cache Postgres
-    global (L2, partagé entre toutes les instances Streamlit Cloud et
-    persistant entre redéploiements) -> API BCE en dernier recours.
-    Thread-safe : _rate_cache protégé par _cache_lock. Le L2 est optionnel :
-    s'il n'est pas configuré/joignable, on saute directement à l'API BCE.
+    """Récupère le taux de change pour une devise et une date cible.
+    
+    Returns:
+        Taux de change ou None si indisponible.
     """
     currency = currency.upper()
     if currency == "EUR":

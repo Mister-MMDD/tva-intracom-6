@@ -1,0 +1,145 @@
+{
+ "calls": [
+  "call.purge('scope1')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "depth": 0,
+   "label": "📄 Certificat de Validité VIES (PDF)",
+   "type": "BLOCK:expander"
+  },
+  {
+   "body": "Générez un document PDF récapitulant l'historique complet des vérifications VIES de vos clients B2B — à conserver comme preuve de bonne foi en cas de contrôle fiscal.",
+   "depth": 1,
+   "type": "caption",
+   "value": "Générez un document PDF récapitulant l'historique complet des vérifications VIES de vos clients B2B — à conserver comme preuve de bonne foi en cas de contrôle fiscal."
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "index": 0,
+   "key": "vies_cert_scope",
+   "label": "Périmètre du certificat",
+   "options": [
+    "📄 Fichier importé",
+    "🗂️ Compte entier (historique complet)"
+   ],
+   "type": "radio",
+   "value": "file"
+  },
+  {
+   "body": "Ne liste que les numéros de TVA B2B présents dans le fichier actuellement chargé — utile pour isoler un client précis dans un cabinet suivant plusieurs comptes.",
+   "depth": 1,
+   "type": "caption",
+   "value": "Ne liste que les numéros de TVA B2B présents dans le fichier actuellement chargé — utile pour isoler un client précis dans un cabinet suivant plusieurs comptes."
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "vies_cert_history_mode",
+   "label": "Historique complet des vérifications (au lieu de la situation à date)",
+   "type": "checkbox",
+   "value": false
+  },
+  {
+   "body": "Chaque vérification VIES effectuée dans le temps, avec sa date et son heure (UTC) — piste d'audit détaillée, format paysage.",
+   "depth": 1,
+   "type": "caption",
+   "value": "Chaque vérification VIES effectuée dans le temps, avec sa date et son heure (UTC) — piste d'audit détaillée, format paysage."
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "btn_gen_vies_certificate",
+   "label": "Générer le certificat",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 0,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "5 / 0",
+   "depth": 2,
+   "label": "VIES / NIF détectés",
+   "type": "metric",
+   "value": "5 / 0"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "3",
+   "depth": 2,
+   "help": "Les NIF ne sont jamais valables pour les transactions transfrontalières.",
+   "label": "✅ VIES valides",
+   "type": "metric",
+   "value": "3"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "2",
+   "depth": 2,
+   "help": "Les NIF ne sont jamais valables pour les transactions transfrontalières.",
+   "label": "❌ VIES invalides",
+   "type": "metric",
+   "value": "2"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "0",
+   "depth": 2,
+   "help": "Le serveur VIES de l'Union Européenne est structurellement instable et plusieurs tentatives sont souvent requises pour valider tous les numéros. Dans certains cas critiques, les serveurs d'un pays entier peuvent être indisponibles pendant plusieurs jours. Ce comportement est entièrement indépendant du code de l'application.",
+   "label": "⚠️ VIES non vérifiés (erreur serveur)",
+   "type": "metric",
+   "value": "0"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "0 € / 0 €",
+   "depth": 2,
+   "label": "TVA récupérée via VIES / NIF",
+   "type": "metric",
+   "value": "0 € / 0 €"
+  },
+  {
+   "body": "Tous les numéros de TVA B2B sont valides.",
+   "depth": 0,
+   "type": "success",
+   "value": "Tous les numéros de TVA B2B sont valides."
+  }
+ ],
+ "session_keys": [
+  "_tab_ctx",
+  "btn_gen_vies_certificate",
+  "vies_cert_history_mode",
+  "vies_cert_scope"
+ ],
+ "session_values": {
+  "btn_gen_vies_certificate": false,
+  "vies_cert_history_mode": false,
+  "vies_cert_scope": "file"
+ }
+}

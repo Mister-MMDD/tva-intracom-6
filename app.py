@@ -771,6 +771,13 @@ if uploaded_files:
             # Même optimisation RAM que le chemin synchrone (voir plus bas) :
             # on vide les ventes/remboursements déjà recopiés dans les
             # accumulateurs ci-dessus avant mise en cache des ParseResult.
+            # AVANT de vider, on extrait le format Amazon détecté
+            _p_amazon_format = 0
+            for _pr in _p_parse_results:
+                if hasattr(_pr, 'detected_format') and _pr.detected_format:
+                    _p_amazon_format = _pr.detected_format
+                    break
+            
             for _pr in _p_parse_results:
                 _pr.sales = []; _pr.refunds = []; _pr.fc_transfers = []
 
@@ -782,6 +789,7 @@ if uploaded_files:
                 _p_all_sales, _p_all_refunds, _p_all_fc_transfers, _p_all_invoice_credit_notes,
                 _p_all_stock_countries, _p_all_account_identifiers, _p_all_warnings, _p_all_platforms,
                 _p_total_rows_sum, _p_skipped_rows_sum, _p_file_summaries, _p_parse_results,
+                _p_amazon_format,
             )
 
             if not _p_all_sales:
@@ -905,7 +913,7 @@ if uploaded_files:
         _cached = _calc_cache.parse_data
         (all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,
          all_stock_countries, all_account_identifiers, all_warnings, all_platforms,
-         total_rows_sum, skipped_rows_sum, file_summaries, _parse_results) = _cached
+         total_rows_sum, skipped_rows_sum, file_summaries, _parse_results, _amazon_format) = _cached
         tmp_paths: list = []
     else:
         all_sales, all_refunds, all_fc_transfers = [], [], []
@@ -917,6 +925,7 @@ if uploaded_files:
         all_account_identifiers: set = set()
         total_rows_sum = skipped_rows_sum = 0
         file_summaries, tmp_paths, _parse_results = [], [], []
+        _amazon_format = 0
 
         # Placeholder stable pour éviter les sauts d'interface pendant l'analyse des fichiers
         parse_progress_ph = st.empty()
@@ -995,6 +1004,13 @@ if uploaded_files:
                 for p in tmp_paths: p.unlink(missing_ok=True)
                 st.stop()
 
+        # Extraire le format Amazon détecté après parsing
+        _amazon_format = 0
+        for _pr in _parse_results:
+            if hasattr(_pr, 'detected_format') and _pr.detected_format:
+                _amazon_format = _pr.detected_format
+                break
+
         # Optimisation RAM : `parse_result.sales` / `.refunds` / `.fc_transfers`
         # de chaque ParseResult sont déjà entièrement recopiés dans
         # `all_sales` / `all_refunds` / `all_fc_transfers` ci-dessus (via
@@ -1018,6 +1034,7 @@ if uploaded_files:
                 all_sales, all_refunds, all_fc_transfers, all_invoice_credit_notes,
                 all_stock_countries, all_account_identifiers, all_warnings, all_platforms,
                 total_rows_sum, skipped_rows_sum, file_summaries, _parse_results,
+                _amazon_format,
             ),
         )
 
@@ -1694,6 +1711,7 @@ if uploaded_files:
             target_currency=target_currency,
             calc_key=_cache_key,
             parse_signature=_parse_cache_key,
+            amazon_format=_amazon_format,
         )
 
         # Stocké dans session_state (et non plus seulement passé en argument)

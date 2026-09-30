@@ -561,8 +561,11 @@ class SubscriptionStatus:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_subscription_status(org_id: str) -> SubscriptionStatus:
-    """ORG_ID (2026-08-24) : un seul abonnement par organisation, partagé
-    entre tous ses membres (voir _migrate_billing_to_org_id)."""
+    """Récupère le statut d'abonnement d'une organisation.
+    
+    Returns:
+        SubscriptionStatus avec détails plan, période, etc.
+    """
     def _fn(conn, cur):
         cur.execute(
             """

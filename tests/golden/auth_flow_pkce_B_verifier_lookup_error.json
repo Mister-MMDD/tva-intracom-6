@@ -1,0 +1,39 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')",
+  "call.consume_pkce_verifier('NONCE123456789', 'google')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "body": "Session de connexion expirée ou perdue — réessayez. (prov=google, nonce=NONCE123...) — diagnostic: diag-info",
+   "depth": 0,
+   "type": "error",
+   "value": "Session de connexion expirée ou perdue — réessayez. (prov=google, nonce=NONCE123...) — diagnostic: diag-info"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "label": "Réessayer",
+   "type": "button",
+   "value": false
+  }
+ ],
+ "query_params_final": {
+  "code": [
+   "CODE"
+  ],
+  "sb_nonce": [
+   "NONCE123456789"
+  ],
+  "sb_provider": [
+   "google"
+  ]
+ },
+ "returned_context": null,
+ "session_keys": [
+  "auth_user",
+  "manual_logout"
+ ],
+ "sidebar": []
+}

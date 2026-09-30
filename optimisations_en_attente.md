@@ -1,68 +1,49 @@
 # Optimisations en attente de validation
 
-Ce fichier liste les propositions d'améliorations techniques notées pour le système de gestion de fichiers et de calcul, à valider avant implémentation.
+Ce fichier liste les propositions d'améliorations techniques et fiscales notées pour le système, à valider ou à conserver en file d'attente.
+
+> **Note de mise à jour (2026-09-28)** : Nettoyage du fichier selon le protocole du projet. Les points résolus ou rejetés lors des revues de performance (`cached_property`, partage `asin_avg`, batching VIES & `DictCursor`) ont été retirés. Le point `psutil` est conservé pour une éventuelle montée en charge future.
+
+---
 
 ## Architecture & Performance
 
-### 1. Monitoring dynamique de la RAM (Proposition D - 2026-08-31)
-*   **Description** : Utiliser la bibliothèque `psutil` pour détecter la mémoire vive réellement disponible sur le serveur au moment du démarrage d'un job.
-*   **Objectif** : Ajuster `MAX_CONCURRENT_BIG_JOBS` dynamiquement.
-*   **Statut** : En attente. Inutile sur le plan gratuit Streamlit (limite 1 Go), mais pertinent pour une future montée en charge sur serveur dédié/Railway.
+### 1. Monitoring dynamique de la RAM (Proposition D — `psutil`)
+*   **Description** : Utiliser la bibliothèque `psutil` pour détecter la mémoire vive réellement disponible sur le serveur au moment du démarrage d'un job afin d'ajuster `MAX_CONCURRENT_BIG_JOBS` dynamiquement.
+*   **Objectif** : Empêcher les dépassements de mémoire (OOM) en régulant les gros calculs concurrents selon la RAM disponible.
+*   **Statut** : En attente. Non nécessaire sur l'hébergement gratuit Streamlit Cloud actuel (quota fixe 1 Go), mais conservé pour une future montée en charge ou migration vers un serveur dédié / Railway.
 *   **Lieu concerné** : `tva_intracom/ui/background_calc.py`
 
-### 2. Partage du prix moyen ASIN entre exports
-*   **Description** : Partager le résultat du calcul du prix moyen par ASIN déjà effectué pour l'Excel avec la génération du rapport CA3 dans le même run.
-*   **Objectif** : Éviter un double calcul coûteux sur les très gros volumes.
-*   **Statut** : Différé (nécessite une plomberie via `session_state` keyé sur `calc_key`).
-*   **Lieu concerné** : `tva_intracom/ca3_report.py` et `tva_intracom/excel_report.py`
+### 2. Monitoring structuré & Métriques in-process (optionnel)
+*   **Description** : Suivi centralisé des métriques de performance (hits/misses de cache BCE/VIES/TEDB, temps de parsing, consommation mémoire in-process).
+*   **Statut** : Différé. L'architecture hébergée sur Streamlit Cloud (scale-to-zero, quota mémoire 1 Go fixe, pas de thread d'arrière-plan persistant) exclut tout agent externe ou thread de collecte. Toute implémentation devra se limiter à des compteurs in-process flushés en fin de job via les logs structurés.
 
-### 3. Utilisation de `cached_property` sur `ReportSummary`
-*   **Description** : Utiliser `functools.cached_property` pour les propriétés calculées comme `net_oss_by_country`.
-*   **Objectif** : Optimiser les accès multiples lors du rendu des visualisations.
-*   **Statut** : Différé (complexité liée à l'usage de `__slots__` dans les dataclasses).
-*   **Lieu concerné** : `tva_intracom/report.py`
-
-### 4. Batching VIES & Migration `DictCursor`
-*   **Description** : Implémenter le batching VIES par chunks de 50 avec écriture au fil de l'eau, combiné à la migration vers `DictCursor`.
-*   **Objectif** : Améliorer la résilience et la lisibilité des interactions BDD VIES.
-*   **Statut** : Différé / Reporté.
-*   **Lieu concerné** : `tva_intracom/vies_engine.py`
+---
 
 ## Fiscalité & Exports
 
-### 5. Export XML IOSS dédié
-*   **Description** : Développer un module de génération de fichier XML pour les déclarations IOSS (similaire à l'OSS).
-*   **Objectif** : Automatiser le dépôt des déclarations IOSS (actuellement manuel).
-*   **Statut** : Travaux en cours / Sur l'horizon.
+### 3. Export XML IOSS dédié
+*   **Description** : Développer un module de génération de fichier XML homologué pour les déclarations IOSS (régime d'importation ≤ 150 €), similaire à ce qui existe pour l'OSS Union Scheme (`oss_xml.py`).
+*   **Contexte actuel** : L'IOSS dispose déjà d'agrégats et d'exports Excel/CSV dédiés (`build_ioss_excel`, `build_ioss_csv` dans `oss_export.py`). Le format XML varie selon les guichets uniques nationaux UE et n'est pas encore harmonisé pour l'IOSS.
+*   **Statut** : En attente d'une normalisation ou d'un besoin explicite par guichet national.
 *   **Lieu concerné** : `tva_intracom/oss_export.py` et `tva_intracom/ui/tabs/telechargements.py`
 
-### 6. Format Amazon 3 — quantité forcée à 1 (biais base AIC)
-*   **Description** : `_Format3Parser.qty()` (`tva_intracom/parsers/amazon/parsers.py`) retourne toujours `1` car ce format Amazon n'expose aucune colonne quantité exploitable. Or `_asin_avg_price_and_category` (`ca3_report.py`) calcule le prix moyen HT/unité par ASIN en divisant `amount_ht` par la somme des `quantity` connues : si une ligne Format 3 représente en réalité plusieurs unités groupées, ce prix moyen est artificiellement gonflé, ce qui sur-évalue ensuite la base AIC (ligne 08 CA3) calculée par `_compute_aic_from_fc_transfers`.
-*   **Objectif** : Ne pas générer un montant AIC faussé pour les utilisateurs encore sur le Format 3 avec des ventes groupées.
-*   **Statut** : Non corrigeable en l'état — le Format 3 ne contient structurellement aucune donnée de quantité, il n'y a rien à déduire sans risque d'invention de données. Décision : documenté ici, laissé tel quel. Piste possible si le besoin se confirme : détecter ce cas et avertir l'utilisateur qu'il devrait migrer vers un export Format 4/5 (qui contiennent une colonne QTY) plutôt que de tenter une estimation supplémentaire côté code.
-*   **Lieu concerné** : `tva_intracom/parsers/amazon/parsers.py` (`_Format3Parser.qty`), `tva_intracom/ca3_report.py` (`_asin_avg_price_and_category`)
+### 4. Format Amazon 3 — quantité forcée à 1 (limitation structurelle)
+*   **Description** : `_Format3Parser.qty()` (`tva_intracom/parsers/amazon/parsers.py`) retourne toujours `1` car ce format Amazon obsolète n'expose aucune colonne de quantité. Lors du calcul du prix moyen HT/unité par ASIN (`_asin_avg_price_and_category` dans `ca3_report.py`), si une ligne Format 3 regroupe plusieurs unités, le prix moyen est artificiellement surévalué, gonflant la base AIC (ligne 08 CA3).
+*   **Statut** : Non corrigeable côté code sans invention de données. Conservé comme limitation documentée. Recommandation utilisateur : migrer vers les exports Amazon Format 4/5 (qui comportent la colonne quantité).
+*   **Lieu concerné** : `tva_intracom/parsers/amazon/parsers.py` (`_Format3Parser.qty`), `tva_intracom/ca3_report.py`
 
-### 7. Extension du FEC aux achats
-*   **Description** : Étendre le module d'export FEC (Fichier des Écritures Comptables) pour inclure les factures d'achats.
-*   **Objectif** : Fournir un journal d'achats complet pour la comptabilité.
-*   **Statut** : En attente d'une extension future.
+### 5. Extension du FEC aux achats
+*   **Description** : Étendre le module d'export FEC (Fichier des Écritures Comptables) pour inclure le journal des factures d'achats, en plus du journal des ventes.
+*   **Statut** : En attente d'une évolution fonctionnelle future.
 *   **Lieu concerné** : `tva_intracom/fec_export.py`
 
-### 8. Taux TVA dynamique (TEDB) — catégories non mappables & choix MEDICINES à valider
-*   **Description** : Depuis la bascule TVA dynamique du 2026-09-12 (`vat_rates_db.py`, API TEDB de la Commission européenne), 3 des 6 catégories internes n'ont **aucune** catégorie TEDB équivalente et restent donc en repli statique permanent (`rates.py`), sans aucun appel réseau tenté :
-    - `BOOKS` : TEDB n'a pas de catégorie générale "livres" (seule `LOAN_LIBRARIES` = prêt en bibliothèque existe, hors sujet ; `NEWSPAPERS`/`PERIODICALS` ne couvrent pas les livres).
-    - `CLOTHING` : TEDB n'a pas de catégorie générale "habillement" (seule `CLOTHING_REPAIR` = réparation existe, hors sujet).
-    - `SUPER_REDUCED` : notion de palier de taux propre à ce projet, pas une catégorie TEDB (qui catégorise par nature de bien/service).
-    Par ailleurs, `MEDICINES` est mappé vers la catégorie TEDB `PHARMACEUTICAL_PRODUCTS` (produits pharmaceutiques vendus) plutôt que `MEDICAL_CARE` (prestations de soins médicaux/dentaires) — choix jugé le plus pertinent pour un catalogue Amazon, mais non encore confirmé.
-*   **Objectif** : Cabinet comptable à valider explicitement (1) que le choix `MEDICINES` → `PHARMACEUTICAL_PRODUCTS` est correct, et (2) qu'un repli statique permanent est acceptable pour BOOKS/CLOTHING/SUPER_REDUCED (alternative technique existante mais non implémentée : requête TEDB par code CN/CPA au lieu de catégorie, écartée pour l'instant faute de code CN/CPA fiable par pays sans risque d'erreur fiscale).
-*   **Statut** : Implémenté avec repli documenté ; décision de confirmation en attente du cabinet.
+### 6. Taux TVA dynamique (TEDB) — validation cabinet comptable
+*   **Description** : L'intégration de l'API TEDB de la Commission européenne (`vat_rates_db.py`) est pleinement opérationnelle : préchargement en lot, garde-fou de plausibilité, cache mensuel auto-réparateur et activation par défaut (`VAT_DYNAMIC_TEDB_ENABLED=true` depuis le 15/09/2026).
+    Cependant, 3 catégories internes n'ont pas d'équivalent TEDB direct et utilisent un repli statique permanent (`rates.py`) :
+    - `BOOKS` (TEDB ne couvre que le prêt en bibliothèque `LOAN_LIBRARIES`).
+    - `CLOTHING` (TEDB ne couvre que la réparation `CLOTHING_REPAIR`).
+    - `SUPER_REDUCED` (notion de palier propre au projet, non présente telle quelle dans TEDB).
+    Par ailleurs, `MEDICINES` est mappé vers `PHARMACEUTICAL_PRODUCTS`.
+*   **Statut** : Technique livrée et active par défaut. Décision finale en attente de confirmation par le cabinet comptable quant au maintien du repli statique pour `BOOKS`/`CLOTHING`/`SUPER_REDUCED` et à la validation du mapping `MEDICINES`.
 *   **Lieu concerné** : `tva_intracom/vat_rates_db.py` (`_CATEGORY_TO_TEDB`)
-*   **Incident du 2026-09-12 (post-livraison)** : constaté en prod — taux ES/STANDARD renvoyé ~7% au lieu de 21% (donnée fiscale erronée), table `vat_rate_cache` déjà existante en prod avec un ancien schéma incompatible (colonne `situation_date` absente, lectures/écritures silencieusement en échec), et lenteur ~1 ligne/s (SOAP par ligne, `_OSS_PROGRESS_TICK_EVERY=500` dans `engine.py` donnant l'illusion d'un blocage). **Mitigations livrées** : coupe-circuit `VAT_DYNAMIC_TEDB_ENABLED` (désactivé par défaut → retour 100% statique), garde-fou de plausibilité (rejet + log XML brut si écart > 3 points vs référence statique), `_init_schema` auto-réparateur (détecte un schéma incompatible et recrée la table cache). **Reste à faire avant réactivation** : obtenir une réponse XML TEDB réelle (via le garde-fou déclenché, ou un test manuel de Matthieu) pour corriger le parsing sur preuve ; paralléliser le préchargement des couples (pays, date) pour la performance (cf. point performance ci-dessus, pattern `ThreadPoolExecutor` déjà utilisé pour VIES).
-
-## Internationalisation (i18n)
-
-*Néant pour le moment — dernier point (entrée #12, onglet "Analyse AIC FBA")
-traité et clos le 2026-09-02, voir `README - evolution.md`.*
-
----
-*Note : Les propositions A (Avoid to_dicts), B (MD5 robuste) et C (Streaming CSV) citées dans les versions précédentes du README sont exclues de cette liste pour le moment.*

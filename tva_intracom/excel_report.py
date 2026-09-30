@@ -2128,7 +2128,8 @@ def _write_local_tab(ws, summary: ReportSummary, countries_with_vat: list | None
     if all_fc_transfers and results is not None:
         from .ca3_report import _compute_aic_from_fc_transfers
         for _c in set(all_countries) | _countries_set:
-            _aic_by_country[_c] = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country=_c)
+            b, t, _, _ = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country=_c)
+            _aic_by_country[_c] = (b, t)
     _has_any_aic = any(b != _z or t != _z for b, t in _aic_by_country.values())
     if _has_any_aic:
         all_countries = sorted(set(all_countries) | {c for c, (b, t) in _aic_by_country.items() if b != _z or t != _z})
@@ -2321,14 +2322,10 @@ def export_xlsx(
         display_currency: str | None = None,
         invoice_credit_notes: list | None = None,
 ) -> Path:
-    """Genere le fichier Excel complet avec tous les onglets.
-
-    Args:
-        scope_id: portée de cache VIES du compte appelant (voir
-                  vies.resolve_scope_id) — transmise à l'onglet Historique
-                  VIES pour n'afficher que les vérifications de ce compte.
-        display_currency: devise d'affichage choisie pour le rapport (ex: PLN).
-                          Si None, utilise la devise du pays d'origine.
+    """Génère le fichier Excel complet avec tous les onglets.
+    
+    Returns:
+        Path du fichier généré.
     """
 
     if summary is None:
@@ -2341,7 +2338,7 @@ def export_xlsx(
     # (3x sum() + 1x for) : on économise à la fois l'allocation de la liste
     # concaténée ET on repasse de 5 itérations complètes à 1 seule sur
     # potentiellement 150k lignes.
-    hash_totals: dict[str, Any] = {
+    hash_totals = {
         "count": 0,
         "abs_ht": Decimal("0.00"),
         "vat": Decimal("0.00"),
@@ -2396,7 +2393,7 @@ def export_xlsx(
     if results is not None:
         _oss_agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period)
 
-    # Pendant IOSS de _oss_agg ci-dessus (voir BUGFIX _ioss_period_totals) :
+    # Pendant IOSS de _oss_agg ci-dessus (voir _ioss_period_totals) :
     # `period=""` volontairement — le `period` ici est trimestriel (OSS),
     # non reconnu par `get_ioss_rate_date` (mensuel), qui retombe alors sur
     # la fin de mois par transaction (toujours conforme art. 5 bis).
@@ -2474,7 +2471,7 @@ def export_xlsx(
     # était déjà calculé ci-dessus mais jamais consommé — onglet absent).
     if summary.ioss_vat or summary.refund_ioss_vat:
         ws_ioss = _SequentialSheetWriter(wb.create_sheet())
-        _write_ioss_tab(ws_ioss, summary, display_currency=_currency,
+        _write_ioss_tab(ws_ios, summary, display_currency=_currency,
                         results=results, refund_results=refund_results, period=period,
                         ioss_agg=_ioss_agg)
         ws_ioss.finalize()
@@ -2490,6 +2487,203 @@ def export_xlsx(
     # 8. Onglet Audit Ecarts Amazon
     ws_audit = _SequentialSheetWriter(wb.create_sheet("Audit Ecarts Amazon"))
     _write_audit_tab(ws_audit, results, vies_affected_sale_ids, vies_summary=vies_summary,
+                     display_currency=_currency, refund_results=refund_results)
+    ws_audit.finalize()
+
+
+    # 9. Onglet Analyse AIC FBA (synthèse fiscale des transferts)
+    ws_aic = _SequentialSheetWriter(wb.create_sheet("Analyse AIC FBA"))
+    _write_fba_aic_tab(ws_aic, all_fc_transfers or [], results, countries_with_vat, display_currency=_currency, asin_avg=_asin_avg)
+    ws_aic.finalize()
+
+    # 10. Onglet Transferts FBA Détail (liste brute)
+    ws_fba = _SequentialSheetWriter(wb.create_sheet("Transferts FBA Détail"))
+    _write_fba_transfers_tab(ws_fba, all_fc_transfers or [])
+    ws_fba.finalize()
+
+    # 11. Onglet Intrastat / DEB (aide au remplissage)
+    ws_intrastat = _SequentialSheetWriter(wb.create_sheet("Intrastat (EMEBI)"))
+    _write_intrastat_tab(ws_intrastat, all_fc_transfers or [], results, seller_country=seller_country, display_currency=_currency, asin_avg=_asin_avg)
+    ws_intrastat.finalize()
+
+    # 11bis. Onglet INVOICE / CREDIT_NOTE (écritures Amazon hors ventes)
+    if invoice_credit_notes:
+        ws_inv_cn = _SequentialSheetWriter(wb.create_sheet())
+        _write_invoice_creditnote_tab(ws_inv_cn, invoice_credit_notes)
+        ws_inv_cn.finalize()
+
+    # 12. Onglet Calendrier fiscal (échéances déduites des données)
+    ws_cal = _SequentialSheetWriter(wb.create_sheet("Calendrier Fiscal"))
+    _write_calendar_tab(
+        ws_cal, results, all_fc_transfers or [],
+        period=period, seller_country=seller_country,
+                         )
+    ws_cal.finalize()
+
+    # 13. Sauvegarde sur disque
+    p = Path(output_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(str(p))
+    return p
+    if not results:
+        return b""
+
+    # Calcul des Hash Totals (Contrôle d'intégrité technique).
+    # Une seule passe sur chain(results, refund_results or []) pour tout
+    # calculer (count, sommes, id_hash) au lieu de matérialiser
+    # `results + (refund_results or [])` puis de le reparcourir 4 fois
+    # (3x sum() + 1x for) : on économise à la fois l'allocation de la liste
+    # concaténée ET on repasse de 5 itérations complètes à 1 seule sur
+    # potentiellement 150k lignes.
+    hash_totals: dict[str, Any] = {
+        "count": 0,
+        "abs_ht": Decimal("0.00"),
+        "vat": Decimal("0.00"),
+        "id_hash": 0,
+        "net_ht_check": Decimal("0.00"),
+    }
+    # Cache local : un même TRANSACTION_EVENT_ID (sale_id) revient très
+    # souvent sur plusieurs lignes consécutives (une commande Amazon = un ID
+    # de commande partagé par tous ses articles) — on évite de refaire le
+    # nettoyage regex + parsing int pour un sale_id déjà vu dans cette passe.
+    _id_hash_cache: dict[str, int] = {}
+    for r in chain(results, refund_results or []):
+        hash_totals["count"] += 1
+        hash_totals["abs_ht"] += abs(r.sale.amount_ht)
+        hash_totals["vat"] += abs(r.vat_amount)
+        hash_totals["net_ht_check"] += r.sale.amount_ht
+        # Somme numérique des IDs pour détecter les doublons ou omissions
+        _sid = r.sale.sale_id
+        _id_contrib = _id_hash_cache.get(_sid)
+        if _id_contrib is None:
+            raw_id = re.sub(r"\D", "", str(_sid))
+            # On prend les 6 derniers chiffres pour plus de précision
+            _id_contrib = int(raw_id[-6:]) if raw_id else 0
+            _id_hash_cache[_sid] = _id_contrib
+        hash_totals["id_hash"] += _id_contrib
+
+    # write_only=True : toutes les feuilles ci-dessous sont désormais écrites en
+    # mode séquentiel (ws.append), ce qui élimine le gonflement mémoire d'openpyxl
+    # (mesuré à ~625 Mo pour un export de 20k lignes en mode normal, contre un
+    # fichier final de ~2 Mo — voir chantier RAM). Une feuille write_only ne peut
+    # plus être relue (pas de wb.active, pas de ws.cell(row=,col=), pas de
+    # merge_cells) : chaque fonction _write_*_tab a été adaptée en conséquence.
+    wb = Workbook(write_only=True)
+    # openpyxl n'écrit jamais de valeur mise en cache pour les cellules-formule
+    # (seulement la chaîne "=..."). Excel les recalcule normalement à
+    # l'ouverture, mais dans certains cas (Mode protégé après téléchargement,
+    # aperçu par certains lecteurs tiers) le classeur peut s'afficher sans
+    # recalcul tant que l'utilisateur n'a pas quitté ce mode. `fullCalcOnLoad`
+    # force Excel à recalculer TOUT le classeur dès l'ouverture (dès que
+    # l'édition/le calcul est autorisé), plutôt que d'attendre une modification
+    # manuelle d'une cellule pour déclencher le calcul.
+    wb.calculation.fullCalcOnLoad = True
+
+    # Agrégat OSS calculé UNE SEULE fois pour tout l'export (taux BCE de
+    # clôture de période, art. 5 bis Règl. UE 2020/194) et partagé entre la
+    # page de synthèse et l'onglet OSS détaillé, qui en avaient chacun
+    # besoin séparément : sur un fichier de 100k lignes ça évite de refaire
+    # deux fois le même calcul (dates BCE + sommation complète). `results`
+    # peut être None (appels CLI historiques) : dans ce cas on ne calcule
+    # rien ici, chaque fonction retombe sur son comportement historique.
+    _oss_agg = None
+    if results is not None:
+        _oss_agg = aggregate_oss_results(list(results) + list(refund_results or []), period=period_label)
+
+    # Pendant IOSS de _oss_agg ci-dessus (voir BUGFIX _ioss_period_totals) :
+    # `period=""` volontairement — le `period` ici est trimestriel (OSS),
+    # non reconnu par `get_ioss_rate_date` (mensuel), qui retombe alors sur
+    # la fin de mois par transaction (toujours conforme art. 5 bis).
+    _ioss_agg = None
+    if results is not None:
+        _ioss_agg = aggregate_ioss_results(list(results) + list(refund_results or []), period="")
+
+    # Prix moyen HT par ASIN calculé UNE SEULE fois pour tout l'export et
+    # partagé entre l'onglet Analyse AIC FBA et l'onglet Intrastat (EMEBI),
+    # qui en avaient chacun besoin séparément (même parcours complet de
+    # `results`) : sur un fichier de 100k lignes ça évite de refaire deux
+    # fois le même calcul. `results` peut être None (appels CLI
+    # historiques) : dans ce cas chaque fonction retombe sur son fallback
+    # de calcul individuel.
+    _asin_avg = None
+    if results is not None:
+        _asin_avg = _build_asin_avg_price(results)
+
+    # 1. Page de synthèse
+    ws_recap = _SequentialSheetWriter(wb.create_sheet())
+    _write_recap(ws_recap, summary, hash_totals=hash_totals, seller_country=home_country,
+                 display_currency=target_currency, results=results, refund_results=refund_results,
+                 period=period_label, oss_agg=_oss_agg, ioss_agg=_ioss_agg)
+    ws_recap.finalize()
+
+    # 2. Séparation ventes / remboursements
+    # Si refund_results est passé explicitement par app.py (cas normal), on fait
+    # confiance à cette séparation : results = ventes uniquement, refund_results = avoirs.
+    # On filtre quand même results pour écarter d'éventuels résidus négatifs qui
+    # auraient glissé (défense en profondeur), mais on n'ajoute PAS refund_results
+    # une deuxième fois s'il est déjà fourni — ce serait un doublon.
+    sales_results = []
+    refunds_from_results = []  # avoirs détectés dans results (cas mixte ou CLI sans séparation)
+
+    for r in results:
+        tx_type  = str(getattr(r.sale, "transaction_type", "")).upper()
+        sale_id  = str(getattr(r.sale, "sale_id", "")).upper()
+        is_refund = getattr(r.sale, "is_refund", False)
+
+        if tx_type == "REFUND" or is_refund or r.sale.amount_ht < 0 or "REFUND" in sale_id:
+            refunds_from_results.append(r)
+        else:
+            sales_results.append(r)
+
+    # Construire la liste finale des remboursements sans doublon :
+    # - Si refund_results fourni explicitement → on l'utilise en priorité et on
+    #   ignore refunds_from_results (ils sont déjà dans refund_results).
+    # - Sinon (CLI, appel direct) → on utilise ce qu'on a extrait de results.
+    if refund_results:
+        refunds_results_to_write = list(refund_results)
+    else:
+        refunds_results_to_write = refunds_from_results
+
+    _currency = target_currency or _home_currency(home_country)
+
+    # 4. Onglet Détail Ventes
+    ws_sales = _SequentialSheetWriter(wb.create_sheet())
+    _write_details_tab(ws_sales, "Detail ventes", sales_results, is_refund_tab=False, display_currency=_currency)
+    ws_sales.finalize()
+
+    # 5. Onglet Détail Remboursements
+    ws_refunds = _SequentialSheetWriter(wb.create_sheet())
+    _write_details_tab(ws_refunds, "Detail remboursements", refunds_results_to_write, is_refund_tab=True, display_currency=_currency)
+    ws_refunds.finalize()
+
+    # 6. Onglet OSS détaillé par pays
+    if summary.oss_by_country or getattr(summary, "refund_oss_by_country", None):
+        ws_oss = _SequentialSheetWriter(wb.create_sheet())
+        _write_oss_tab(ws_oss, summary, display_currency=_currency,
+                       results=results, refund_results=refund_results, period=period_label,
+                       oss_agg=_oss_agg)
+        ws_oss.finalize()
+
+    # 6bis. Onglet IOSS détaillé par pays (ajouté 2026-09-11 : _ioss_agg
+    # était déjà calculé ci-dessus mais jamais consommé — onglet absent).
+    if summary.ioss_vat or summary.refund_ioss_vat:
+        ws_ioss = _SequentialSheetWriter(wb.create_sheet())
+        _write_ioss_tab(ws_ioss, summary, display_currency=_currency,
+                        results=results, refund_results=refund_results, period=period_label,
+                        ioss_agg=_ioss_agg)
+        ws_ioss.finalize()
+
+    # 7. Onglet TVA locale par pays
+    if (summary.local_by_country or getattr(summary, "refund_local_by_country", None) or
+            summary.fr_domestic_vat or summary.refund_fr_domestic_vat):
+        ws_local = _SequentialSheetWriter(wb.create_sheet())
+        _write_local_tab(ws_local, summary, None, seller_country=home_country, display_currency=_currency,
+                         results=results, all_fc_transfers=all_fc_transfers)
+        ws_local.finalize()
+
+    # 8. Onglet Audit Ecarts Amazon
+    ws_audit = _SequentialSheetWriter(wb.create_sheet("Audit Ecarts Amazon"))
+    _write_audit_tab(ws_audit, results, None, vies_summary=vies_summary,
                      display_currency=_currency, refund_results=refund_results)
     ws_audit.finalize()
 

@@ -1,0 +1,401 @@
+{
+ "calls": [
+  "call.purge('scope1')",
+  "call.start_vies_retry_loop('scope1', ['DE100', 'FR200'])",
+  "call.check_vat('FR', '40303265045')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "depth": 0,
+   "label": "📄 Certificat de Validité VIES (PDF)",
+   "type": "BLOCK:expander"
+  },
+  {
+   "body": "Générez un document PDF récapitulant l'historique complet des vérifications VIES de vos clients B2B — à conserver comme preuve de bonne foi en cas de contrôle fiscal.",
+   "depth": 1,
+   "type": "caption",
+   "value": "Générez un document PDF récapitulant l'historique complet des vérifications VIES de vos clients B2B — à conserver comme preuve de bonne foi en cas de contrôle fiscal."
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "index": 0,
+   "key": "vies_cert_scope",
+   "label": "Périmètre du certificat",
+   "options": [
+    "📄 Fichier importé",
+    "🗂️ Compte entier (historique complet)"
+   ],
+   "type": "radio",
+   "value": "file"
+  },
+  {
+   "body": "Ne liste que les numéros de TVA B2B présents dans le fichier actuellement chargé — utile pour isoler un client précis dans un cabinet suivant plusieurs comptes.",
+   "depth": 1,
+   "type": "caption",
+   "value": "Ne liste que les numéros de TVA B2B présents dans le fichier actuellement chargé — utile pour isoler un client précis dans un cabinet suivant plusieurs comptes."
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "vies_cert_history_mode",
+   "label": "Historique complet des vérifications (au lieu de la situation à date)",
+   "type": "checkbox",
+   "value": false
+  },
+  {
+   "body": "Chaque vérification VIES effectuée dans le temps, avec sa date et son heure (UTC) — piste d'audit détaillée, format paysage.",
+   "depth": 1,
+   "type": "caption",
+   "value": "Chaque vérification VIES effectuée dans le temps, avec sa date et son heure (UTC) — piste d'audit détaillée, format paysage."
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "btn_gen_vies_certificate",
+   "label": "Générer le certificat",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 0,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "2 / 0",
+   "depth": 2,
+   "label": "VIES / NIF détectés",
+   "type": "metric",
+   "value": "2 / 0"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "0",
+   "depth": 2,
+   "help": "Les NIF ne sont jamais valables pour les transactions transfrontalières.",
+   "label": "✅ VIES valides",
+   "type": "metric",
+   "value": "0"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "0",
+   "depth": 2,
+   "help": "Les NIF ne sont jamais valables pour les transactions transfrontalières.",
+   "label": "❌ VIES invalides",
+   "type": "metric",
+   "value": "0"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "2",
+   "depth": 2,
+   "help": "Le serveur VIES de l'Union Européenne est structurellement instable et plusieurs tentatives sont souvent requises pour valider tous les numéros. Dans certains cas critiques, les serveurs d'un pays entier peuvent être indisponibles pendant plusieurs jours. Ce comportement est entièrement indépendant du code de l'application.",
+   "label": "⚠️ VIES non vérifiés (erreur serveur)",
+   "type": "metric",
+   "value": "2"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "0 € / 0 €",
+   "depth": 2,
+   "label": "TVA récupérée via VIES / NIF",
+   "type": "metric",
+   "value": "0 € / 0 €"
+  },
+  {
+   "body": "**2 numéro(s)** non vérifiés (serveur VIES indisponible).",
+   "depth": 0,
+   "type": "warning",
+   "value": "**2 numéro(s)** non vérifiés (serveur VIES indisponible)."
+  },
+  {
+   "depth": 0,
+   "disabled": true,
+   "key": "retry_vies_btn",
+   "label": "🔄 Revérifier les numéros VIES en erreur",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "⏳ Nouvelle tentative en cours en arrière-plan…",
+   "depth": 0,
+   "type": "caption",
+   "value": "⏳ Nouvelle tentative en cours en arrière-plan…"
+  },
+  {
+   "body": "PROGRESS[vies_retry_scope1_DE100|FR200] Ré-essai VIES automatique",
+   "depth": 0,
+   "type": "caption",
+   "value": "PROGRESS[vies_retry_scope1_DE100|FR200] Ré-essai VIES automatique"
+  },
+  {
+   "body": "**100% des numéros sont non vérifiés.** Problème de connectivité probable vers ec.europa.eu.",
+   "depth": 0,
+   "type": "error",
+   "value": "**100% des numéros sont non vérifiés.** Problème de connectivité probable vers ec.europa.eu."
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "test_vies_conn",
+   "label": "🧪 Tester la connexion à VIES",
+   "type": "button",
+   "value": true
+  },
+  {
+   "body": "Connexion VIES OK : ACME-TEST",
+   "depth": 0,
+   "type": "success",
+   "value": "Connexion VIES OK : ACME-TEST"
+  },
+  {
+   "depth": 0,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 1,
+   "label": "🔎 Classifier manuellement les numéros non vérifiés",
+   "type": "BLOCK:expander"
+  },
+  {
+   "body": "Indiquez Valide (B2B exonéré) ou Invalide (B2C, TVA due) pour chaque numéro non vérifié.",
+   "depth": 2,
+   "type": "caption",
+   "value": "Indiquez Valide (B2B exonéré) ou Invalide (B2C, TVA due) pour chaque numéro non vérifié."
+  },
+  {
+   "depth": 2,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "Dernier statut vérifié auprès du serveur VIES (avant expiration du cache)",
+   "depth": 4,
+   "type": "caption",
+   "value": "Dernier statut vérifié auprès du serveur VIES (avant expiration du cache)"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "Statut",
+   "depth": 4,
+   "type": "caption",
+   "value": "Statut"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 2,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "**DE100** (DE)",
+   "depth": 4,
+   "type": "markdown",
+   "value": "**DE100** (DE)"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "Jamais vérifié par le serveur",
+   "depth": 4,
+   "type": "caption",
+   "value": "Jamais vérifié par le serveur"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "disabled": false,
+   "index": 0,
+   "key": "vies_override_DE100",
+   "label": "Statut",
+   "options": [
+    "⏳ Non classifié",
+    "✅ Valides (B2B)",
+    "❌ Invalides (B2C)"
+   ],
+   "type": "selectbox",
+   "value": "⏳ Non classifié"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "",
+   "depth": 4,
+   "type": "markdown",
+   "value": ""
+  },
+  {
+   "depth": 2,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "**FR200** (FR)",
+   "depth": 4,
+   "type": "markdown",
+   "value": "**FR200** (FR)"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "Jamais vérifié par le serveur",
+   "depth": 4,
+   "type": "caption",
+   "value": "Jamais vérifié par le serveur"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "disabled": false,
+   "index": 0,
+   "key": "vies_override_FR200",
+   "label": "Statut",
+   "options": [
+    "⏳ Non classifié",
+    "✅ Valides (B2B)",
+    "❌ Invalides (B2C)"
+   ],
+   "type": "selectbox",
+   "value": "⏳ Non classifié"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "",
+   "depth": 4,
+   "type": "markdown",
+   "value": ""
+  },
+  {
+   "body": "**0 / 2** numéros classifiés manuellement.",
+   "depth": 2,
+   "type": "caption",
+   "value": "**0 / 2** numéros classifiés manuellement."
+  },
+  {
+   "depth": 2,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "disabled": false,
+   "label": "↩️ Réinitialiser",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "Aucun numéro invalide confirmé pour le moment (certains restent à vérifier).",
+   "depth": 0,
+   "type": "info",
+   "value": "Aucun numéro invalide confirmé pour le moment (certains restent à vérifier)."
+  }
+ ],
+ "session_keys": [
+  "_bgjob_vies_retry_scope1_DE100|FR200",
+  "_tab_ctx",
+  "_vies_auto_retry_launched_scope1",
+  "btn_gen_vies_certificate",
+  "retry_vies_btn",
+  "test_vies_conn",
+  "vies_auto_purged_scope1",
+  "vies_cert_history_mode",
+  "vies_cert_scope",
+  "vies_override_DE100",
+  "vies_override_FR200"
+ ],
+ "session_values": {
+  "_vies_auto_retry_launched_scope1": true,
+  "btn_gen_vies_certificate": false,
+  "retry_vies_btn": false,
+  "test_vies_conn": false,
+  "vies_auto_purged_scope1": true,
+  "vies_cert_history_mode": false,
+  "vies_cert_scope": "file",
+  "vies_override_DE100": "⏳ Non classifié",
+  "vies_override_FR200": "⏳ Non classifié"
+ }
+}

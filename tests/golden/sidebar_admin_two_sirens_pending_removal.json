@@ -1,0 +1,403 @@
+{
+ "calls": [],
+ "elements": [
+  {
+   "body": "⚙️ Options",
+   "depth": 0,
+   "type": "header",
+   "value": "⚙️ Options"
+  },
+  {
+   "depth": 0,
+   "label": null,
+   "type": "BLOCK:popover"
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "help": "Pays où votre société est établie et immatriculée à la TVA à titre principal. Réglage global du compte (pas par SIREN) : conditionne la classification domestique/locale et l'ordre des déclarations téléchargeables. Par défaut : France.",
+   "index": 10,
+   "key": "home_country_select",
+   "label": "🏠 Pays d'origine (établissement)",
+   "options": [
+    "Autriche (AT)",
+    "Belgique (BE)",
+    "Bulgarie (BG)",
+    "Chypre (CY)",
+    "Tchèque (CZ)",
+    "Allemagne (DE)",
+    "Danemark (DK)",
+    "Estonie (EE)",
+    "Espagne (ES)",
+    "Finlande (FI)",
+    "France (FR)",
+    "Grèce (GR)",
+    "Croatie (HR)",
+    "Hongrie (HU)",
+    "Irlande (IE)",
+    "Italie (IT)",
+    "Lituanie (LT)",
+    "Luxembourg (LU)",
+    "Lettonie (LV)",
+    "Monaco (MC)",
+    "Malte (MT)",
+    "Pays-Bas (NL)",
+    "Pologne (PL)",
+    "Portugal (PT)",
+    "Roumanie (RO)",
+    "Suède (SE)",
+    "Slovénie (SI)",
+    "Slovaquie (SK)",
+    "Irlande du Nord (XI)"
+   ],
+   "type": "selectbox",
+   "value": "FR"
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "help": "Devise utilisée pour l'affichage des montants (KPIs, tableaux, graphiques, page de synthèse Excel). N'affecte ni le calcul fiscal (toujours en EUR) ni les déclarations légales (CA3, XML OSS, exports locaux — toujours en EUR). Par défaut, la devise du pays d'origine est utilisée.",
+   "index": 0,
+   "key": "display_currency_select",
+   "label": "Devise d'affichage",
+   "options": [
+    "Défaut (devise du pays d'origine : EUR)",
+    "AED (د.إ)",
+    "ALL (L)",
+    "AMD (֏)",
+    "ARS ($)",
+    "AUD ($)",
+    "AZN (₼)",
+    "BAM (KM)",
+    "BHD (BD)",
+    "BRL (R$)",
+    "BYN (Br)",
+    "CAD ($)",
+    "CHF (CHF)",
+    "CLP ($)",
+    "CNY (¥)",
+    "COP ($)",
+    "CRC (₡)",
+    "CZK (Kč)",
+    "DKK (kr.)",
+    "DOP (RD$)",
+    "DZD (DA)",
+    "EGP (E£)",
+    "ETB (Br)",
+    "EUR (€)",
+    "GBP (£)",
+    "GEL (₾)",
+    "GHS (GH₵)",
+    "HKD ($)",
+    "HUF (Ft)",
+    "IDR (Rp)",
+    "ILS (₪)",
+    "INR (₹)",
+    "ISK (kr)",
+    "JOD (JD)",
+    "JPY (¥)",
+    "KES (KSh)",
+    "KGS (с)",
+    "KHR (៛)",
+    "KRW (₩)",
+    "KWD (د.ك)",
+    "KZT (₸)",
+    "LAK (₭)",
+    "LBP (L£)",
+    "LYD (LD)",
+    "MAD (DH)",
+    "MDL (L)",
+    "MKD (den)",
+    "MMK (K)",
+    "MRU (UM)",
+    "MUR (₨)",
+    "MXN ($)",
+    "MYR (RM)",
+    "NGN (₦)",
+    "NOK (kr)",
+    "NZD ($)",
+    "OMR (RO)",
+    "PAB (B/.)",
+    "PEN (S/)",
+    "PHP (₱)",
+    "PLN (zł)",
+    "QAR (ر.ق)",
+    "RON (lei)",
+    "RSD (din.)",
+    "RUB (₽)",
+    "SAR (ر.س)",
+    "SEK (kr)",
+    "SGD ($)",
+    "THB (฿)",
+    "TJS (SM)",
+    "TMT (T)",
+    "TND (DT)",
+    "TRY (₺)",
+    "TWD (NT$)",
+    "TZS (TSh)",
+    "UAH (₴)",
+    "USD ($)",
+    "UZS (soʻm)",
+    "VND (₫)",
+    "XAF (CFA)",
+    "XOF (CFA)",
+    "ZAR (R)"
+   ],
+   "type": "selectbox",
+   "value": "DEFAULT"
+  },
+  {
+   "depth": 0,
+   "label": "📅 Entreprise & Paramètres",
+   "type": "BLOCK:expander"
+  },
+  {
+   "body": "**Identité & Paramètres TVA**",
+   "depth": 1,
+   "type": "markdown",
+   "value": "**Identité & Paramètres TVA**"
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "help": "Liste triée par ordre alphabétique — cliquez et tapez pour rechercher un client.",
+   "index": 1,
+   "key": "siren_select_box",
+   "label": "SIREN client",
+   "options": [
+    "ACME SAS — 111222333",
+    "(sans nom) — 444555666",
+    "➕ Nouveau SIREN…"
+   ],
+   "type": "selectbox",
+   "value": "444555666"
+  },
+  {
+   "body": "🏢 ****",
+   "depth": 1,
+   "type": "markdown",
+   "value": "🏢 ****"
+  },
+  {
+   "body": "SIREN : **444555666**",
+   "depth": 1,
+   "type": "caption",
+   "value": "SIREN : **444555666**"
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "vat_countries_edit_444555666",
+   "label": "Pays où vous avez un numéro TVA local",
+   "options": [
+    "AT",
+    "BE",
+    "BG",
+    "CY",
+    "CZ",
+    "DE",
+    "DK",
+    "EE",
+    "ES",
+    "FI",
+    "FR",
+    "GR",
+    "HR",
+    "HU",
+    "IE",
+    "IT",
+    "LT",
+    "LU",
+    "LV",
+    "MC",
+    "MT",
+    "NL",
+    "PL",
+    "PT",
+    "RO",
+    "SE",
+    "SI",
+    "SK",
+    "XI"
+   ],
+   "type": "multiselect",
+   "value": [
+    "FR"
+   ]
+  },
+  {
+   "body": "Numéros de TVA locaux (obligatoires) :",
+   "depth": 1,
+   "type": "caption",
+   "value": "Numéros de TVA locaux (obligatoires) :"
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "vat_num_edit_444555666_FR",
+   "label": "Numéro de TVA FR",
+   "type": "text_input",
+   "value": ""
+  },
+  {
+   "body": "---",
+   "depth": 1,
+   "type": "markdown",
+   "value": "---"
+  },
+  {
+   "body": "**Paramètres fiscaux**",
+   "depth": 1,
+   "type": "markdown",
+   "value": "**Paramètres fiscaux**"
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "ddp_view_444555666",
+   "label": "Vendeur = importateur officiel (DDP)",
+   "type": "toggle",
+   "value": false
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "oss_thr_view_444555666",
+   "label": "Appliquer TVA FR sous le seuil OSS (10 000 €)",
+   "type": "toggle",
+   "value": false
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "help": "Si coché, le régime « sous seuil » ne s'applique pas pour l'année en cours, même si le cumul recalculé par l'outil reste sous 10 000 € (CGI art. 258 B).",
+   "key": "oss_thr_prevyear_view_444555666",
+   "label": "Seuil de 10 000 € déjà dépassé l'année civile précédente",
+   "type": "toggle",
+   "value": true
+  },
+  {
+   "depth": 1,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "body": "Vérifiez attentivement les numéros ci-dessous avant d'enregistrer : une fois un IOSS ou un numéro de TVA enregistré pour ce SIREN, il ne pourra plus être modifié (vous pourrez seulement en ajouter de nouveaux — ex. un IOSS non renseigné au départ, ou un numéro de TVA pour un pays supplémentaire).",
+   "depth": 2,
+   "type": "warning",
+   "value": "Vérifiez attentivement les numéros ci-dessous avant d'enregistrer : une fois un IOSS ou un numéro de TVA enregistré pour ce SIREN, il ne pourra plus être modifié (vous pourrez seulement en ajouter de nouveaux — ex. un IOSS non renseigné au départ, ou un numéro de TVA pour un pays supplémentaire)."
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "help": "Si renseigné, les imports B2C ≤ 150 € hors marketplace seront traités en IOSS_DIRECT.",
+   "key": "ioss_edit_444555666",
+   "label": "Numéro IOSS propre (optionnel)",
+   "type": "text_input",
+   "value": ""
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "btn_update_siren",
+   "label": "💾 Enregistrer les modifications",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "---",
+   "depth": 1,
+   "type": "divider",
+   "value": "---"
+  },
+  {
+   "body": "Retrait programmé le 01/01/2030.",
+   "depth": 1,
+   "type": "warning",
+   "value": "Retrait programmé le 01/01/2030."
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "key": "btn_cancel_removal_444555666",
+   "label": "↩️ Annuler le retrait",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 0,
+   "label": "🗄️ Cache VIES",
+   "type": "BLOCK:expander"
+  },
+  {
+   "depth": 1,
+   "disabled": false,
+   "help": "Durée avant revalidation automatique d'un numéro de TVA auprès de VIES (30 jours maximum).",
+   "label": "TTL du cache (jours)",
+   "type": "slider",
+   "value": 7
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "btn_open_account_dialog",
+   "label": "👤 Compte & Confidentialité",
+   "type": "button",
+   "value": false
+  }
+ ],
+ "exceptions": [],
+ "result": {
+  "apply_fr_under_threshold": false,
+  "convert_fx": true,
+  "countries_with_vat": [
+   "FR"
+  ],
+  "display_currency": "DEFAULT",
+  "enable_vies": true,
+  "encoding": "utf-8",
+  "file_format": "Amazon VAT Transactions Report (TSV), txt, CSV",
+  "home_country": "FR",
+  "ioss_number": "",
+  "ioss_own_number_active": false,
+  "local_vat_numbers": {},
+  "nom_entreprise": "",
+  "on_invalid_behavior": "reclassify",
+  "oss_period": "__auto__",
+  "oss_threshold_exceeded_prev_year": true,
+  "seller_is_importer": false,
+  "siren_entreprise": "444555666",
+  "siren_quota_status": {
+   "over_quota_by": 0,
+   "quota": 2,
+   "registered_count": 2
+  },
+  "tva_fr": ""
+ },
+ "session_keys": [
+  "_sb_dbcache_siren_quota_org1",
+  "_sb_dbcache_sirens_org1",
+  "btn_cancel_removal_444555666",
+  "btn_open_account_dialog",
+  "btn_remove_entreprise_111222333",
+  "btn_update_siren",
+  "ddp_view_111222333",
+  "ddp_view_444555666",
+  "display_currency_choice",
+  "display_currency_select",
+  "home_country_select",
+  "ioss_edit_444555666",
+  "ioss_own_active_view_111222333",
+  "oss_thr_prevyear_view_111222333",
+  "oss_thr_prevyear_view_444555666",
+  "oss_thr_view_111222333",
+  "oss_thr_view_444555666",
+  "siren_select_box",
+  "vat_countries_edit_111222333",
+  "vat_countries_edit_444555666",
+  "vat_num_edit_444555666_FR"
+ ],
+ "vies_stats_calls": [
+  "call('scope1')",
+  "call('scope1')"
+ ]
+}

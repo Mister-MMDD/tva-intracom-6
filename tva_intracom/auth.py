@@ -269,6 +269,7 @@ def resolve_org_id(email: str) -> str:
 
 
 def is_admin(user: "User") -> bool:
+    """Vérifie si l'utilisateur a le rôle admin."""
     return user.role == "admin"
 
 
@@ -888,8 +889,11 @@ def set_onboarding_seen(user_id: str, seen: bool) -> None:
 
 
 def create_magic_link(email: str) -> str:
-    """Génère un jeton de connexion à usage unique. L'envoi de l'e-mail
-    (provider transactionnel type Resend/Postmark) reste hors scope ici."""
+    """Crée un lien magique de connexion pour l'e-mail spécifié.
+    
+    Returns:
+        Token de connexion à usage unique.
+    """
     token = secrets.token_urlsafe(32)
     _email = email.strip().lower()
 

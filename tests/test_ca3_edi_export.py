@@ -142,3 +142,43 @@ def test_ca3_edi_regime_invalid_value_raises_value_error():
 
     with pytest.raises(ValueError):
         generate_ca3_edi_preparation_csv([], "E", "123456789", "2026-01", regime_periodicite="annuel")
+
+
+def test_ca3_edi_multi_year_quarterly_fc_transfers():
+    """Vérifie que la génération EDI CA3 fonctionne quand l'import couvre 2 années
+
+    civiles avec périodicité trimestrielle et transferts de stock FBA (all_fc_transfers).
+    Empêche les régressions d'AttributeError sur _round.
+    """
+    sale = Sale(
+        sale_id="CA3-MULTI-1",
+        amount_ht=Decimal("150.00"),
+        buyer_type=BuyerType.B2C,
+        stock_country="FR",
+        buyer_country="FR",
+        seller_country="FR",
+        transaction_date="2024-06-15",
+        product_category="STANDARD",
+        asin="ASIN-MULTI",
+    )
+    result = compute_vat(sale)
+    fc_transfers = [
+        {"DEPARTURE_COUNTRY": "DE", "ARRIVAL_COUNTRY": "FR", "ASIN": "ASIN-MULTI", "QTY": 5},
+    ]
+
+    csv_bytes = generate_ca3_edi_preparation_csv(
+        results=[result],
+        refund_results=[],
+        company_name="MultiYear SAS",
+        siren="987654321",
+        period_label="2024-2025",
+        all_fc_transfers=fc_transfers,
+        regime_periodicite="trimestriel",
+    )
+
+    rows = _rows(csv_bytes)
+    assert len(rows) > 0
+    values = {(row["formulaire"], row["chemin_edifact"]): row for row in rows if row["chemin_edifact"]}
+    assert ("3310CA3", "CC:C516:5004:1") in values
+    assert values[("3310CA3", "CC:C516:5004:1")]["statut"] == "estimé"
+

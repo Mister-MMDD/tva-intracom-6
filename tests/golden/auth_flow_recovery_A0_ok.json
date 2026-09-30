@@ -1,0 +1,58 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')",
+  "call.cm_get('tva_session_token')",
+  "call.cm_get('tva_session_token')",
+  "call.cm_get('tva_session_token')",
+  "call.update_password('AT', 'pw1')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "body": "Réinitialisation du mot de passe",
+   "depth": 0,
+   "type": "subheader",
+   "value": "Réinitialisation du mot de passe"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "reset_new_password_input",
+   "label": "Nouveau mot de passe",
+   "type": "text_input",
+   "value": "pw1"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "reset_new_password_confirm_input",
+   "label": "Nouveau mot de passe",
+   "type": "text_input",
+   "value": "pw1"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "btn_update_password",
+   "label": "Mettre à jour le mot de passe",
+   "type": "button",
+   "value": true
+  },
+  {
+   "body": "Mot de passe mis à jour avec succès. Vous pouvez maintenant vous connecter.",
+   "depth": 0,
+   "type": "success",
+   "value": "Mot de passe mis à jour avec succès. Vous pouvez maintenant vous connecter."
+  }
+ ],
+ "query_params_final": {},
+ "returned_context": null,
+ "session_keys": [
+  "auth_user",
+  "btn_update_password",
+  "manual_logout",
+  "reset_new_password_confirm_input",
+  "reset_new_password_input"
+ ],
+ "sidebar": []
+}

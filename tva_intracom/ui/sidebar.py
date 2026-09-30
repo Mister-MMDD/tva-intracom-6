@@ -150,6 +150,33 @@ def _oss_limit_label(home_country: str) -> str:
     return f"{_val:,.0f} {_sym}".replace(",", " ")
 
 
+def _resolve_oss_threshold_conflict(thr_key: str, prev_key: str,
+                                    thr_default: bool = False, prev_default: bool = False) -> bool:
+    """Exclusion mutuelle « seuil OSS 10 000 EUR » / « seuil dépassé l'an dernier ».
+
+    Règle fiscale inchangée : si le seuil a été dépassé l'année précédente, le
+    régime « sous le seuil » ne peut pas s'appliquer (le toggle « seuil OSS »
+    est donc ramené à False).
+
+    BUGFIX (2026-09-29) : la resynchronisation était faite APRÈS l'instanciation
+    du toggle « seuil OSS » (`st.session_state[thr_key] = False`), ce que
+    Streamlit interdit (StreamlitWidgetAlreadyInstantiatedError dès que les
+    deux cases étaient cochées). Elle est désormais faite ICI, à appeler AVANT
+    de créer les deux widgets : l'écriture est alors licite et le toggle
+    s'affiche directement décoché, sans rerun supplémentaire. Les valeurs
+    courantes sont lues dans `st.session_state` (clé du widget = valeur cliquée
+    par l'utilisateur à ce run), avec repli sur la valeur enregistrée en base
+    (`*_default`) au tout premier rendu.
+
+    Retourne True si un conflit a été corrigé (l'appelant affiche alors
+    l'avertissement sous les toggles).
+    """
+    if st.session_state.get(prev_key, prev_default) and st.session_state.get(thr_key, thr_default):
+        st.session_state[thr_key] = False
+        return True
+    return False
+
+
 # ── Cache TTL des lectures Postgres répétées à chaque rerun ─────────────────
 # `render_sidebar()` s'exécute intégralement à CHAQUE rerun Streamlit (tout
 # widget cliqué n'importe où dans l'app), ce qui déclenchait sans cache un
@@ -240,12 +267,16 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
             disabled=_is_reader_new,
         )
     seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new", disabled=_is_reader_new)
+    # BUGFIX (2026-09-29) : conflit résolu AVANT l'instanciation des toggles
+    # (voir _resolve_oss_threshold_conflict) — l'écriture après instanciation
+    # levait StreamlitWidgetAlreadyInstantiatedError.
+    _thr_conflict_new = _resolve_oss_threshold_conflict("oss_thr_new", "oss_thr_prevyear_new")
     apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=False, key="oss_thr_new", disabled=_is_reader_new)
     oss_threshold_exceeded_prev_year = st.toggle(
         _("oss_threshold_prev_year_label"), value=False, key="oss_thr_prevyear_new",
         help=_("oss_threshold_prev_year_help"), disabled=_is_reader_new,
     )
-    if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
+    if _thr_conflict_new:
         st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
         apply_fr_under_threshold = False
         # BUGFIX (2026-09-10, désync toggle) : la variable Python locale
@@ -255,7 +286,11 @@ def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: 
         # calcul utilisait bien apply_fr_under_threshold=False. On
         # resynchronise explicitement l'état affiché avec l'état réellement
         # appliqué.
-        st.session_state["oss_thr_new"] = False
+        # (2026-09-29) Écriture DÉPLACÉE avant l'instanciation du toggle, dans
+        # _resolve_oss_threshold_conflict() : ici, après instanciation, elle
+        # levait StreamlitWidgetAlreadyInstantiatedError. Ligne d'origine
+        # conservée en commentaire :
+        # st.session_state["oss_thr_new"] = False
 
     if st.button(_("save_siren_btn"), key="btn_register_siren", disabled=(current_user.role == "reader")):
         if not siren_entreprise.strip():
@@ -554,6 +589,685 @@ def _render_account_dialog_body(_current_user) -> None:
                 st.error(_("account_deletion_error", error=str(_del_err)))
 
 
+@dataclass
+class _CompanyState:
+    """Valeurs « entreprise / SIREN » produites par la section Entreprise de la sidebar
+    et recopiées dans `SidebarResult`. Les défauts sont les valeurs EFFECTIVES
+    historiques (aucun SIREN sélectionné/enregistré)."""
+
+    ioss_number: str = ""
+    seller_is_importer: bool = False
+    apply_fr_under_threshold: bool = False
+    oss_threshold_exceeded_prev_year: bool = False
+    ioss_own_number_active: bool = False
+    countries_with_vat: list[str] = field(default_factory=lambda: ["FR"])
+    nom_entreprise: str = ""
+    siren_entreprise: str = ""
+    tva_fr: str = ""
+    local_vat_numbers: dict[str, str] = field(default_factory=dict)
+    oss_period: str = "__auto__"
+    siren_quota_status: Any = None
+
+
+def _render_regional_settings(current_user: Any) -> tuple[str, str]:
+    """Popover « Paramètres régionaux » : pays d'origine + devise d'affichage.
+
+    Retourne (home_country, display_currency). Doit être appelée DANS le contexte
+    `with st.sidebar:` (ordre des widgets inchangé)."""
+    # ── Pays d'origine (établissement du vendeur) + Devise d'affichage
+    # regroupés dans un unique menu déroulant (st.popover) — refonte
+    # graphique lot 7 (2026-09-20), demande explicite de Matthieu.
+    # NOTE : le sélecteur de LANGUE (language_selector(), app.py L.129)
+    # n'est PAS regroupé ici : il doit rester utilisable AVANT
+    # l'authentification (écran de connexion compris, voir commentaire
+    # à son appel dans app.py), alors que ce bloc ne s'exécute qu'une
+    # fois l'utilisateur connecté (render_sidebar() est appelé après
+    # run_auth_flow()). Le fusionner créerait soit un doublon de
+    # sélecteur (langue affichée deux fois, une fois hors popover pour
+    # l'écran de connexion, une fois dans ce popover), soit ferait
+    # disparaître le choix de langue de l'écran de connexion — les deux
+    # sont des régressions. À valider avec Matthieu si un autre
+    # compromis est souhaité.
+    with st.popover(_("sidebar_regional_settings_label"), width="stretch"):
+        # ── Pays d'origine (établissement du vendeur) ──────────────────
+        # Réglage GLOBAL au compte (pas par SIREN) — conditionne la
+        # classification domestique/locale du moteur fiscal (engine.py,
+        # sale.seller_country) et l'ordre d'affichage des déclarations
+        # (déclaration du pays d'origine en premier, reste en "local").
+        # Persisté en base (tva_users.home_country), voir auth.py.
+        _home_countries = sorted(EU_COUNTRIES)
+        _current_home = getattr(current_user, "home_country", "FR") or "FR"
+        try:
+            _home_index = _home_countries.index(_current_home)
+        except ValueError:
+            _home_index = _home_countries.index("FR") if "FR" in _home_countries else 0
+        home_country = st.selectbox(
+            _("home_country_label"),
+            options=_home_countries,
+            index=_home_index,
+            format_func=lambda c: f"{country_label(c)} ({c})",
+            key="home_country_select",
+            help=_("home_country_help"),
+        )
+        if home_country != _current_home:
+            tva_auth.set_home_country(current_user.id, home_country)
+            current_user.home_country = home_country
+            preserve_upload_rerun()
+
+        # ── Devise d'affichage ──────────────────────────────────────────
+        # Indépendante du pays d'origine : par défaut, l'affichage utilise la
+        # devise du pays d'origine choisi ci-dessus (FR -> EUR, PL -> PLN...),
+        # mais l'utilisateur peut choisir n'importe quelle devise UE (+ GBP)
+        # pour la présentation, sans que cela n'affecte la classification
+        # fiscale ni les déclarations légales (toujours en EUR, voir README
+        # section "Devise d'affichage locale"). Persisté en base
+        # (tva_users.display_currency), comme `home_country`.
+        _currency_options = ["DEFAULT"] + sorted(set(COUNTRY_CURRENCIES.values()))
+        _current_display_choice = getattr(current_user, "display_currency", "DEFAULT") or "DEFAULT"
+        try:
+            _cur_idx = _currency_options.index(_current_display_choice)
+        except ValueError:
+            _cur_idx = 0
+
+        def _currency_option_label(code: str, _home=home_country) -> str:
+            if code == "DEFAULT":
+                _home_cur = COUNTRY_CURRENCIES.get((_home or "FR").upper(), "EUR")
+                return _("display_currency_default_label", currency=_home_cur)
+            return f"{code} ({CURRENCY_SYMBOLS.get(code, code)})"
+
+        display_currency = st.selectbox(
+            _("display_currency_label"),
+            options=_currency_options,
+            index=_cur_idx,
+            format_func=_currency_option_label,
+            key="display_currency_select",
+            help=_("display_currency_help"),
+        )
+        if display_currency != _current_display_choice:
+            tva_auth.set_display_currency(current_user.id, display_currency)
+            current_user.display_currency = display_currency
+        st.session_state["display_currency_choice"] = display_currency
+    return home_country, display_currency
+
+
+def _render_new_siren_branch(*, current_user: Any, home_country: str,
+                             registered_sirens: list[dict], siren_options: list[str]) -> _CompanyState:
+    """Branche « Nouveau SIREN » du sélecteur (quota atteint : valeurs du 1er SIREN
+    enregistré ; sinon valeurs par défaut + formulaire de création en fragment)."""
+    _can_add_siren, _siren_quota_msg = (True, "")
+    try:
+        _can_add_siren, _siren_quota_msg = tva_billing.can_register_new_siren(current_user.org_id)
+    except Exception as _quota_err:
+        _can_add_siren, _siren_quota_msg = True, ""
+        st.caption(_("quota_check_unavailable", error=_quota_err))
+
+    if not _can_add_siren:
+        st.error(f"🔒 {_siren_quota_msg}")
+        nom_entreprise = registered_sirens[0]["company_name"] if registered_sirens else ""
+        siren_entreprise = registered_sirens[0]["siren"] if registered_sirens else ""
+        tva_fr = registered_sirens[0]["tva_number"] if registered_sirens else ""
+        ioss_number = registered_sirens[0].get("ioss_number") or ""
+        seller_is_importer = registered_sirens[0].get("seller_is_importer") or False
+        apply_fr_under_threshold = registered_sirens[0].get("apply_fr_under_threshold") or False
+        ioss_own_number_active = registered_sirens[0].get("ioss_own_number_active") or False
+        oss_threshold_exceeded_prev_year = registered_sirens[0].get("oss_threshold_exceeded_prev_year") or False
+        if oss_threshold_exceeded_prev_year:
+            apply_fr_under_threshold = False
+        _countries_raw = registered_sirens[0].get("countries_with_vat") or "FR"
+        countries_with_vat = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
+        try:
+            local_vat_numbers = json.loads(registered_sirens[0].get("vat_numbers_json") or "{}")
+        except Exception:
+            local_vat_numbers = {}
+    else:
+        # Valeurs EFFECTIVES par défaut tant qu'aucun SIREN n'a
+        # été enregistré — indépendantes des widgets ci-dessous
+        # (isolés dans _new_siren_form_fragment) : évite qu'une
+        # simple frappe dans le formulaire de création ne
+        # déclenche un rerun complet de toute la page.
+        nom_entreprise, siren_entreprise, tva_fr = "", "", ""
+        ioss_number, seller_is_importer, apply_fr_under_threshold = "", False, False
+        ioss_own_number_active = False
+        oss_threshold_exceeded_prev_year = False
+        countries_with_vat, local_vat_numbers = ["FR"], {}
+
+        _new_siren_form_fragment(
+            current_user=current_user, home_country=home_country,
+            siren_options=siren_options,
+        )
+    return _CompanyState(
+        ioss_number=ioss_number, seller_is_importer=seller_is_importer,
+        apply_fr_under_threshold=apply_fr_under_threshold,
+        oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
+        ioss_own_number_active=ioss_own_number_active, countries_with_vat=countries_with_vat,
+        nom_entreprise=nom_entreprise, siren_entreprise=siren_entreprise,
+        tva_fr=tva_fr, local_vat_numbers=local_vat_numbers,
+    )
+
+
+def _render_siren_removal_controls(*, current_user: Any, match: dict | None,
+                                   siren_entreprise: str, is_reader: bool) -> None:
+    """Bouton de retrait différé / d'annulation de retrait d'un SIREN enregistré
+    (masqué pour un compte lecteur)."""
+    # Option de retrait du SIREN (toujours visible si déjà enregistré)
+    # RÔLES (2026-08-25) : masqué pour un compte lecteur (`is_reader`)
+    # plutôt que désactivé — un lecteur n'a rien à voir/faire ici,
+    # cette action restant du ressort de l'administrateur de
+    # l'organisation. `_require_write_access` (billing.py) reste la
+    # vraie protection côté serveur ; ce masquage évite seulement le
+    # PermissionError non catché qui remontait jusqu'ici en UI.
+    if match and not is_reader:
+        st.divider()
+        if match.get("pending_removal_at"):
+            import datetime as _dt
+            _eff_date = _dt.datetime.fromtimestamp(match["pending_removal_at"]).strftime("%d/%m/%Y")
+            st.warning(_("removal_pending", date=_eff_date))
+            if st.button(_("cancel_removal_btn"), key=f"btn_cancel_removal_{siren_entreprise}", width="stretch"):
+                tva_billing.cancel_siren_removal(current_user.org_id, current_user.id, siren_entreprise)
+                _invalidate_db_cache(f"sirens_{current_user.org_id}")
+                _invalidate_db_cache(f"siren_quota_{current_user.org_id}")
+                preserve_upload_rerun()
+        else:
+            if st.button(_("remove_siren_btn"), key=f"btn_remove_entreprise_{siren_entreprise}",
+                         help=_("remove_siren_help"),
+                         width="stretch"):
+                # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
+                try:
+                    # HORS-QUOTA (2026-09-08) : évalué AVANT l'appel, car ce
+                    # dernier peut déjà avoir invalidé l'état (list_registered_sirens
+                    # .clear()) une fois le retrait effectué -- on capture donc la
+                    # raison du message de succès sur l'état encore actuel.
+                    _payg_over_quota = tva_billing.is_payg_removal_over_quota(current_user.org_id)
+                    _eff = tva_billing.request_siren_removal(current_user.org_id, current_user.id, siren_entreprise)
+                except PermissionError as _lock_err:
+                    # Statut "Achat" (2026-09-05) : SIREN verrouillé pour un
+                    # compte PAYG n'ayant jamais souscrit d'abonnement.
+                    st.error(str(_lock_err))
+                else:
+                    _invalidate_db_cache(f"sirens_{current_user.org_id}")
+                    _invalidate_db_cache(f"siren_quota_{current_user.org_id}")
+                    import datetime as _dt
+                    if _eff <= time.time() + 5:
+                        if _payg_over_quota:
+                            # Dérogation hors-quota (2026-09-08) : ce SIREN aurait dû
+                            # être verrouillé (compte "Achat" PAYG) mais l'organisation
+                            # dépassait son quota de 1 SIREN -- message dédié plutôt que
+                            # le succès générique, pour ne pas laisser croire que le
+                            # verrou PAYG standard n'existe plus.
+                            st.success(_("remove_success_payg_over_quota"))
+                        else:
+                            st.success(_("remove_success"))
+                    else:
+                        st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
+                    preserve_upload_rerun()
+
+
+def _render_existing_siren_branch(*, current_user: Any, home_country: str,
+                                  registered_sirens: list[dict], siren_choice: str,
+                                  is_reader: bool) -> _CompanyState:
+    """Branche « SIREN enregistré » : identité, pays TVA locale, toggles fiscaux LIVE,
+    formulaire d'édition (fragment) et retrait différé du SIREN."""
+    _match = next((r for r in registered_sirens if r["siren"] == siren_choice), None)
+    nom_entreprise   = _match["company_name"] if _match else ""
+    siren_entreprise = _match["siren"] if _match else ""
+
+    # Affichage de l'identité (fixe)
+    st.markdown(f"🏢 **{nom_entreprise}**")
+    st.caption(f"{_('siren_label')} : **{siren_entreprise}**")
+
+    try:
+        _existing_vats = json.loads(_match.get("vat_numbers_json") or "{}") if _match else {}
+    except Exception:
+        _existing_vats = {}
+
+    _tva_fr_fixed = (_existing_vats.get("FR") or (_match.get("tva_number") if _match else None) or "")
+
+    _ioss_val = (_match.get("ioss_number") or "") if _match else ""
+    _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
+    _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
+
+    ioss_number = _ioss_val
+
+    # ── Pays où la TVA locale est enregistrée : remonté juste
+    # sous l'identité, au-dessus d'IOSS/DDP/seuil OSS. Priorité
+    # fiscale : ces immatriculations locales priment sur le
+    # régime DDP et les autres réglages. Zone d'AJOUT, pas de
+    # gestion de stock (voir README - évolution.md) — les pays
+    # déjà verrouillés (numéro enregistré) sont résumés en une
+    # seule ligne compacte, le multiselect ne sert qu'à ajouter
+    # un nouveau pays pas encore enregistré (ou à en retirer un,
+    # verrouillé ou non, de la liste active).
+    # BUGFIX (2026-08-26) : la clé de ce widget était statique
+    # ("vat_countries_edit"), partagée par TOUS les SIREN. Une
+    # fois qu'une valeur existe dans st.session_state pour cette
+    # clé, Streamlit ignore `default=` aux runs suivants et
+    # réaffiche la valeur mémorisée — donc changer de SIREN (ou
+    # revenir d'une création de SIREN) réaffichait la liste de
+    # pays du SIREN précédemment actif au lieu de celle du SIREN
+    # sélectionné. La clé est désormais scopée par `siren_choice`
+    # pour forcer Streamlit à traiter chaque SIREN comme un
+    # widget distinct, ce qui réapplique bien `default=` (donc
+    # les données réelles de CE SIREN) à chaque changement.
+    countries_with_vat = st.multiselect(
+        _("local_vat_countries_label"),
+        options=sorted(list(EU_COUNTRIES)),
+        default=_default_vat_countries,
+        key=f"vat_countries_edit_{siren_choice}",
+        disabled=is_reader,
+    )
+    _locked_selected = sorted(c for c in countries_with_vat if _existing_vats.get(c))
+    _new_vat_countries = sorted(c for c in countries_with_vat if not _existing_vats.get(c))
+    if _locked_selected:
+        st.caption(
+            "🔒 " + " · ".join(f"{c} {_existing_vats[c]}" for c in _locked_selected)
+            + f" — {_('fiscal_field_locked_note')}"
+        )
+
+    # Saisie des numéros de TVA pour les pays NOUVELLEMENT ajoutés
+    # (pas encore verrouillés) : rendue ICI, juste sous le
+    # multiselect, plutôt que dans `_edit_siren_form_fragment`
+    # (rendu bien plus bas, après IOSS/DDP/seuil OSS) — c'était la
+    # cause du champ "Numéro de TVA FR" retrouvé tout en bas de
+    # panneau alors que le pays est sélectionné ici. Ces champs
+    # restent des `st.text_input` normaux (hors fragment) : leur
+    # valeur est lue par `_edit_siren_form_fragment` via
+    # `st.session_state[key]` au moment de l'enregistrement (la
+    # clé du widget), donc aucune perte de saisie malgré le
+    # découplage — voir commentaire dans ce fragment.
+    # BUGFIX (2026-08-26) : clé scopée par SIREN pour la même
+    # raison que le multiselect ci-dessus — sinon un brouillon de
+    # numéro de TVA tapé pour le SIREN A pouvait réapparaître en
+    # changeant vers le SIREN B si celui-ci a le même pays à
+    # compléter.
+    if _new_vat_countries:
+        st.caption(_("local_vat_numbers_caption"))
+        for _ccode in _new_vat_countries:
+            st.text_input(_("vat_number_for", country=_ccode),
+                          key=f"vat_num_edit_{siren_choice}_{_ccode}",
+                          placeholder=f"ex: {_ccode}123456789",
+                          disabled=is_reader)
+
+    tva_fr = _tva_fr_fixed
+    local_vat_numbers = {c: _existing_vats[c] for c in _locked_selected}
+
+    st.markdown("---")
+    st.markdown(f"**{_('fiscal_params_title')}**")
+
+    # ── Toggles fiscaux : LIVE, hors fragment ──────────────────────
+    # BUGFIX (2026-08-21, voir README - évolution.md) : ces widgets
+    # vivaient auparavant dans _edit_siren_form_fragment (isolé).
+    # Un fragment ne redessinant que lui-même, cocher/décocher ici
+    # n'avait jamais d'effet sur `_cache_key` (app.py) tant que
+    # "Enregistrer les modifications" n'était pas cliqué : IOSS,
+    # DDP et seuil OSS semblaient ne "rien faire". Rendus ici, en
+    # dehors du fragment, leur valeur courante est immédiatement
+    # celle utilisée pour le calcul — un clic déclenche un rerun
+    # complet (coût attendu et voulu : ces réglages changent le
+    # résultat fiscal, contrairement à la frappe d'un nom ou d'un
+    # numéro de TVA, qui reste isolée dans le fragment).
+    # RÔLES (2026-08-24) : ces toggles sont LIVE (hors fragment,
+    # voir commentaire ci-dessus) — sans `disabled=is_reader`,
+    # un compte lecteur pouvait les basculer et voir le calcul
+    # fiscal affiché changer immédiatement, sans passer par
+    # "Enregistrer" (lui-même déjà désactivé pour les lecteurs).
+    # Contrairement aux pays TVA locale (juste au-dessus, sans
+    # grand impact tant que non enregistré), CES réglages
+    # (IOSS/DDP/seuil OSS) changent directement le résultat
+    # fiscal affiché/exporté pendant la session — critique à
+    # verrouiller, pas seulement à la sauvegarde.
+    # BUGFIX (2026-08-26) : ces 4 toggles utilisaient des clés
+    # STATIQUES ("ioss_own_active_view", "ddp_view", "oss_thr_view",
+    # "oss_thr_prevyear_view"), partagées par tous les SIREN. Comme
+    # pour le multiselect ci-dessus, `value=` est ignoré par
+    # Streamlit dès qu'une valeur existe déjà en session_state
+    # pour cette clé — donc en changeant de SIREN, les toggles
+    # affichés pouvaient rester ceux du SIREN précédemment
+    # sélectionné au lieu de refléter `match` (l'état réel en base
+    # pour LE SIREN affiché). Impact critique signalé : un compte
+    # lecteur changeant de SIREN pouvait voir un DDP ou un seuil
+    # 10k€ qui ne correspondait pas au SIREN réellement affiché,
+    # sans qu'il y ait moyen de s'en rendre compte à l'écran.
+    # Les clés sont désormais scopées par `siren_choice`, ce qui
+    # force Streamlit à réappliquer `value=` (donc l'état réel en
+    # base) à chaque changement de SIREN.
+    ioss_own_number_active = False
+    if _ioss_val:
+        ioss_own_number_active = st.toggle(
+            _("ioss_own_number_active_label"),
+            value=_match.get("ioss_own_number_active") or False if _match else False,
+            key=f"ioss_own_active_view_{siren_choice}",
+            help=_("ioss_own_number_active_help", platform="Amazon"),
+            disabled=is_reader,
+        )
+
+    seller_is_importer = st.toggle(
+        _("ddp_label"),
+        value=_match.get("seller_is_importer") or False if _match else False,
+        key=f"ddp_view_{siren_choice}",
+        disabled=is_reader,
+    )
+    # BUGFIX (2026-09-29) : conflit seuil OSS / seuil N-1 résolu AVANT
+    # l'instanciation des deux toggles (voir _resolve_oss_threshold_conflict) —
+    # la resynchronisation faite après l'instanciation levait
+    # StreamlitWidgetAlreadyInstantiatedError.
+    _thr_conflict = _resolve_oss_threshold_conflict(
+        f"oss_thr_view_{siren_choice}", f"oss_thr_prevyear_view_{siren_choice}",
+        thr_default=(_match.get("apply_fr_under_threshold") or False) if _match else False,
+        prev_default=(_match.get("oss_threshold_exceeded_prev_year") or False) if _match else False,
+    )
+    apply_fr_under_threshold = st.toggle(
+        _("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)),
+        # value=False en cas de conflit : évite l'avertissement Streamlit « default
+        # value + Session State » (l'état vient d'être forcé à False ci-dessus).
+        value=False if _thr_conflict else (_match.get("apply_fr_under_threshold") or False if _match else False),
+        key=f"oss_thr_view_{siren_choice}",
+        disabled=is_reader,
+    )
+    oss_threshold_exceeded_prev_year = st.toggle(
+        _("oss_threshold_prev_year_label"),
+        value=_match.get("oss_threshold_exceeded_prev_year") or False if _match else False,
+        key=f"oss_thr_prevyear_view_{siren_choice}",
+        help=_("oss_threshold_prev_year_help"),
+        disabled=is_reader,
+    )
+    if _thr_conflict:
+        st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
+        apply_fr_under_threshold = False
+        # BUGFIX (2026-09-10, désync toggle) : même correctif
+        # que le bloc "new SIREN" plus haut, adapté à la clé
+        # scopée par SIREN de ce bloc (voir BUGFIX 2026-08-26
+        # juste au-dessus sur le scoping par siren_choice).
+        # (2026-09-29) Écriture DÉPLACÉE avant l'instanciation du toggle, dans
+        # _resolve_oss_threshold_conflict() : ici, après instanciation, elle
+        # levait StreamlitWidgetAlreadyInstantiatedError. Ligne d'origine
+        # conservée en commentaire :
+        # st.session_state[f"oss_thr_view_{siren_choice}"] = False
+
+    _edit_siren_form_fragment(
+        current_user=current_user, home_country=home_country,
+        match=_match, siren_entreprise=siren_entreprise, nom_entreprise=nom_entreprise,
+        tva_fr_fixed=_tva_fr_fixed, existing_vats=_existing_vats, ioss_val=_ioss_val,
+        seller_is_importer=seller_is_importer,
+        apply_fr_under_threshold=apply_fr_under_threshold,
+        oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
+        ioss_own_number_active=ioss_own_number_active,
+        countries_with_vat=countries_with_vat,
+        new_vat_countries=_new_vat_countries,
+    )
+
+
+    _render_siren_removal_controls(
+        current_user=current_user, match=_match, siren_entreprise=siren_entreprise,
+        is_reader=is_reader,
+    )
+
+    return _CompanyState(
+        ioss_number=ioss_number, seller_is_importer=seller_is_importer,
+        apply_fr_under_threshold=apply_fr_under_threshold,
+        oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
+        ioss_own_number_active=ioss_own_number_active, countries_with_vat=countries_with_vat,
+        nom_entreprise=nom_entreprise, siren_entreprise=siren_entreprise,
+        tva_fr=tva_fr, local_vat_numbers=local_vat_numbers,
+    )
+
+
+def _render_company_section(*, current_user: Any, home_country: str, is_reader: bool) -> _CompanyState:
+    """Expander « Entreprise » : liste/sélecteur de SIREN puis branche création ou édition."""
+    with st.expander(_("company_header"), expanded=True):
+        if is_reader:
+            st.info(_("readonly_account_banner"))
+        # ── Section "Période fiscale" retirée (2026-08-21, voir README -
+        # évolution.md) : strictement redondante avec le status bar
+        # affiché sous le titre (app.py, `_status_bar_period_label`), qui
+        # montre déjà la période détectée. `oss_period` reste figé à
+        # "__auto__" (aucun sélecteur manuel n'existait réellement ici,
+        # seul l'affichage informatif est retiré) — ne pas réintroduire de
+        # logique de sélection de période sans concertation avec le
+        # cabinet comptable.
+        oss_period = "__auto__"
+
+        # ── Rappel de verrouillage (uniquement en création de SIREN) ──
+        # Lecture anticipée du statut, AVANT le sélecteur de SIREN rendu
+        # plus bas, pour pouvoir afficher le rappel au-dessus du titre
+        # "Identité & Paramètres TVA" comme demandé. `_cached_db_read`
+        # mémoïse en session_state (TTL 20s, voir plus haut) : cet appel
+        # anticipé ne déclenche PAS de requête DB supplémentaire, il
+        # réutilise la même valeur que la lecture "officielle" un peu
+        # plus bas.
+        #
+        # Avec au moins un SIREN déjà enregistré, la valeur du
+        # sélecteur lue ici est celle du run PRÉCÉDENT (le sélecteur
+        # n'a pas encore été redessiné ce run-ci) — même principe que
+        # `pulse_target`/`_period_label_shown_by_sidebar` ailleurs dans
+        # ce fichier : un rappel visuel tolère un décalage d'un run,
+        # aucune donnée fiscale n'en dépend. Le sélecteur est forcé sur
+        # le SIREN nouvellement créé juste après l'enregistrement (voir
+        # `_new_siren_form_fragment`), ce qui fait disparaître ce rappel
+        # dès le run suivant plutôt que de rester affiché indéfiniment.
+        try:
+            _registered_sirens_early = _cached_db_read(
+                f"sirens_{current_user.org_id}",
+                lambda: tva_billing.list_registered_sirens(current_user.org_id),
+            )
+        except Exception:
+            _registered_sirens_early = []
+        _new_siren_label_early = _("new_siren_option")
+        _creating_new_siren = (
+            not _registered_sirens_early
+            or st.session_state.get("siren_select_box") == _new_siren_label_early
+        )
+        # if _creating_new_siren:
+        #     st.warning(_("fiscal_fields_lock_warning_new"))
+
+        st.markdown(f"**{_('identity_vat_params_title')}**")
+        try:
+            registered_sirens = _cached_db_read(
+                f"sirens_{current_user.org_id}",
+                lambda: tva_billing.list_registered_sirens(current_user.org_id),
+            )
+            _siren_quota_status = _cached_db_read(
+                f"siren_quota_{current_user.org_id}",
+                lambda: tva_billing.get_siren_quota_status(current_user.org_id),
+            )
+        except Exception as _siren_list_err:
+            registered_sirens = []
+            _siren_quota_status = None
+            st.caption(_("siren_list_unavailable", error=_siren_list_err))
+
+        _siren_over_quota = bool(_siren_quota_status and _siren_quota_status.blocked)
+        if _siren_over_quota:
+            st.error(_("siren_quota_blocked", count=_siren_quota_status.registered_count, quota=_siren_quota_status.quota, over=_siren_quota_status.over_quota_by))
+
+        siren_options = [r["siren"] for r in registered_sirens]
+        _new_siren_label = _("new_siren_option")
+        _siren_label_by_value = {
+            r["siren"]: f"{r['company_name'] or _('no_name')} — {r['siren']}"
+            for r in registered_sirens
+        }
+        _siren_label_by_value[_new_siren_label] = _new_siren_label
+        # RECHERCHE (2026-08-25) : st.selectbox filtre déjà nativement
+        # les options à la frappe (composant BaseWeb Select) — pas
+        # besoin d'un champ de recherche séparé, qui ajouterait un état
+        # supplémentaire à synchroniser. Le `help` rend simplement cette
+        # capacité découvrable pour un cabinet avec de nombreux clients.
+        # Liste elle-même triée par ordre alphabétique côté
+        # list_registered_sirens() (billing.py).
+        siren_choice = st.selectbox(
+            _("siren_client_label"),
+            options=siren_options + [_new_siren_label],
+            index=0 if siren_options else 0,
+            format_func=lambda v: _siren_label_by_value.get(v, v),
+            key="siren_select_box",
+            help=_("siren_select_search_help"),
+        ) if siren_options else _new_siren_label
+
+        if siren_choice == _new_siren_label:
+            state = _render_new_siren_branch(
+                current_user=current_user, home_country=home_country,
+                registered_sirens=registered_sirens, siren_options=siren_options,
+            )
+        else:
+            state = _render_existing_siren_branch(
+                current_user=current_user, home_country=home_country,
+                registered_sirens=registered_sirens, siren_choice=siren_choice,
+                is_reader=is_reader,
+            )
+        state.oss_period = oss_period
+        state.siren_quota_status = _siren_quota_status
+    return state
+
+
+def _render_vies_certificate_block(*, vies_scope_id: str, nom_entreprise: str, siren_entreprise: str) -> None:
+    """Génération / téléchargement du certificat VIES PDF (compte entier, mode Détaillé)."""
+    # ── Certificat de Validité VIES (PDF) ──
+    # Bouton de génération globale uniquement
+    st.divider()
+    st.markdown(f"**{_('vies_certificate_expander')}**")
+    st.caption(_("vies_certificate_caption"))
+    _cert_history_mode_sb = st.checkbox(
+        _("vies_certificate_history_checkbox"),
+        key="vies_cert_history_mode_sidebar",
+    )
+    if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate_sidebar"):
+        try:
+            if _cert_history_mode_sb:
+                from tva_intracom.vies_engine import get_scope_vies_history_flat
+                from tva_intracom.vies_certificate import generate_vies_history_pdf
+                _history_rows = get_scope_vies_history_flat(vies_scope_id, full_vats=None)
+                _pdf_bytes = generate_vies_history_pdf(
+                    _history_rows,
+                    company_name=nom_entreprise or _("default_company_name"),
+                    siren=siren_entreprise or "",
+                    scope_id=vies_scope_id,
+                    period_label=_("vies_certificate_full_history"),
+                    country_label_fn=country_label,
+                    translator=_,
+                )
+                _is_empty_sb = not _history_rows
+            else:
+                from tva_intracom.vies_engine import get_scope_vies_snapshot
+                from tva_intracom.vies_certificate import generate_vies_certificate_pdf
+                _snapshot = get_scope_vies_snapshot(vies_scope_id)
+                _pdf_bytes = generate_vies_certificate_pdf(
+                    _snapshot,
+                    company_name=nom_entreprise or _("default_company_name"),
+                    siren=siren_entreprise or "",
+                    scope_id=vies_scope_id,
+                    period_label=_("vies_certificate_full_history"),
+                    country_label_fn=country_label,
+                    translator=_,
+                )
+                _is_empty_sb = not _snapshot
+            st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes
+            st.session_state["_vies_certificate_history_mode_sidebar"] = _cert_history_mode_sb
+            if _is_empty_sb:
+                st.info(_("vies_certificate_history_empty_info") if _cert_history_mode_sb else _("vies_certificate_empty_info"))
+        except Exception as _cert_err:
+            st.error(_("vies_certificate_error", error=_cert_err))
+
+    if st.session_state.get("_vies_certificate_pdf_sidebar"):
+        _suffix_sb = "complet_historique" if st.session_state.get("_vies_certificate_history_mode_sidebar") else "complet"
+        st.download_button(
+            _("vies_certificate_dl_btn"),
+            data=st.session_state["_vies_certificate_pdf_sidebar"],
+            file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_{_suffix_sb}"),
+            mime="application/pdf",
+            type="primary",
+            width="stretch",
+        )
+
+
+    # ── Cache VIES ────────────────────────────────────────────────────────────
+    # RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — le TTL
+    # (partagé par toute l'organisation, modifiable par l'admin seul), les stats
+    # de volumétrie VIES et le certificat PDF "compte entier" ne concernent/ne
+    # regardent que l'administrateur de l'organisation. Un lecteur garde accès
+    # au certificat VIES par fichier importé via l'onglet VIES (vies_ui.py).
+def _render_vies_cache_section(*, current_user: Any, vies_scope_id: str, pulse_target: str | None,
+                              nom_entreprise: str, siren_entreprise: str) -> None:
+    """Expander « Cache VIES » (administrateur uniquement)."""
+    if tva_auth.is_admin(current_user):
+        # BUGFIX (2026-08-22) : la durée de validité du cache VIES (slider
+        # TTL) est une donnée que l'utilisateur doit voir/régler dès la
+        # prise en main (checklist d'onboarding) — l'expander lui-même
+        # reste donc toujours visible, y compris en mode Simple. Seuls les
+        # réglages avancés (stats détaillées, purge, certificat PDF)
+        # restent réservés au mode Détaillé. N'alimente aucun champ de
+        # SidebarResult : masquage partiel sans risque de variable non
+        # définie plus bas.
+        if pulse_target == "vies_ttl":
+            with st.container(key="onb_pulse_vies"):
+                pass
+        with st.expander(_("cache_vies_header"), expanded=True):
+            try:
+                _cs = vies_cache_stats(vies_scope_id)
+                # Plafond réduit de 365 à 30 jours (2026-08-23) : une donnée
+                # VIES valide il y a plusieurs mois n'a plus de valeur
+                # probante fiscalement. `value` est bornée au même plafond
+                # pour ne pas planter st.slider() si un scope avait déjà une
+                # valeur > 30 enregistrée avant ce changement (le TTL réel
+                # stocké n'est PAS modifié tant que l'utilisateur ne
+                # retouche pas le slider — seul l'affichage est clampé).
+                _ttl_max_days = 30
+                _ttl_current = min(_cs["ttl_days"], _ttl_max_days)
+                _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=_ttl_max_days,
+                                      value=_ttl_current, step=1,
+                                      help=_("ttl_cache_help"))
+                if _ttl_days != _cs["ttl_days"]:
+                    set_cache_ttl(vies_scope_id, _ttl_days, acting_user_id=current_user.id)
+                    vies_cache_stats.clear()
+                    preserve_upload_rerun()
+                if is_detailed():
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.metric(_("total"), _cs["total"])
+                    _c2.metric(_("fresh"), _cs["fresh"])
+                    _c3.metric(_("expired"), _cs["expired"])
+                    if _cs["total"] > 0:
+                        st.caption(
+                            f"{_('valid')} : {_cs['valid']} · {_('invalid')} : {_cs['invalid']} · "
+                            f"{_('oldest_check')} : {(_cs['oldest_check'] or '—')[:10]}")
+                    if _cs.get("manual_total", 0) > 0:
+                        st.markdown(f"**{_('manual_classifications')}**")
+                        _m1, _m2 = st.columns(2)
+                        _m1.metric(_("manual_valid"), _cs["manual_valid"])
+                        _m2.metric(_("manual_invalid"), _cs["manual_invalid"])
+                    if _cs["expired"] > 0:
+                        if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
+                            n = purge_expired_cache(vies_scope_id, acting_user_id=current_user.id)
+                            st.success(_("purge_success", count=n))
+                            preserve_upload_rerun()
+
+                    _render_vies_certificate_block(
+                        vies_scope_id=vies_scope_id, nom_entreprise=nom_entreprise,
+                        siren_entreprise=siren_entreprise,
+                    )
+            except Exception as _e:
+                st.caption(_("cache_unavailable", error=_e))
+
+
+def _render_file_params() -> str:
+    """Expander « Paramètres du fichier » (mode Détaillé) ; retourne l'encodage retenu."""
+    # ── Paramètres du fichier ─────────────────────────────────────────────────
+    # "utf-8" couvre l'immense majorité des exports Amazon — réglage
+    # avancé masqué en mode Simple.
+    #
+    # BUGFIX (2026-08-21) : même classe de bug qu'avec l'ancien catalogue
+    # ASIN -> catégorie (supprimé, cf. chantier taux réduit dynamique CN/CPA) — `encoding` alimente `parse_key` (voir app.py) ; le
+    # re-fixer à "utf-8" par défaut à chaque run où l'expander n'est
+    # pas rendu aurait fait perdre un encodage explicitement choisi
+    # (ex. "latin-1") dès la bascule vers le mode Simple, et forcé un
+    # RE-PARSING complet des fichiers à chaque bascule de mode. La
+    # valeur choisie est donc mise en cache dans session_state.
+    encoding = st.session_state.get("_file_encoding_choice", "utf-8")
+    if is_detailed():
+        with st.expander(_("file_params_header"), expanded=False):
+            encoding = st.selectbox(_("file_encoding"), ["utf-8","latin-1","cp1252"],
+                                    index=["utf-8","latin-1","cp1252"].index(encoding),
+                                    key="file_encoding_select")
+            st.session_state["_file_encoding_choice"] = encoding
+    return encoding
+
+
 def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResult:
     """Affiche la sidebar complète et retourne les paramètres résolus.
 
@@ -590,99 +1304,13 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
     with st.sidebar:
         st.header(_("options_header"))
 
-
-        # ── Pays d'origine (établissement du vendeur) + Devise d'affichage
-        # regroupés dans un unique menu déroulant (st.popover) — refonte
-        # graphique lot 7 (2026-09-20), demande explicite de Matthieu.
-        # NOTE : le sélecteur de LANGUE (language_selector(), app.py L.129)
-        # n'est PAS regroupé ici : il doit rester utilisable AVANT
-        # l'authentification (écran de connexion compris, voir commentaire
-        # à son appel dans app.py), alors que ce bloc ne s'exécute qu'une
-        # fois l'utilisateur connecté (render_sidebar() est appelé après
-        # run_auth_flow()). Le fusionner créerait soit un doublon de
-        # sélecteur (langue affichée deux fois, une fois hors popover pour
-        # l'écran de connexion, une fois dans ce popover), soit ferait
-        # disparaître le choix de langue de l'écran de connexion — les deux
-        # sont des régressions. À valider avec Matthieu si un autre
-        # compromis est souhaité.
-        with st.popover(_("sidebar_regional_settings_label"), width="stretch"):
-            # ── Pays d'origine (établissement du vendeur) ──────────────────
-            # Réglage GLOBAL au compte (pas par SIREN) — conditionne la
-            # classification domestique/locale du moteur fiscal (engine.py,
-            # sale.seller_country) et l'ordre d'affichage des déclarations
-            # (déclaration du pays d'origine en premier, reste en "local").
-            # Persisté en base (tva_users.home_country), voir auth.py.
-            _home_countries = sorted(EU_COUNTRIES)
-            _current_home = getattr(_current_user, "home_country", "FR") or "FR"
-            try:
-                _home_index = _home_countries.index(_current_home)
-            except ValueError:
-                _home_index = _home_countries.index("FR") if "FR" in _home_countries else 0
-            home_country = st.selectbox(
-                _("home_country_label"),
-                options=_home_countries,
-                index=_home_index,
-                format_func=lambda c: f"{country_label(c)} ({c})",
-                key="home_country_select",
-                help=_("home_country_help"),
-            )
-            if home_country != _current_home:
-                tva_auth.set_home_country(_current_user.id, home_country)
-                _current_user.home_country = home_country
-                preserve_upload_rerun()
-
-            # ── Devise d'affichage ──────────────────────────────────────────
-            # Indépendante du pays d'origine : par défaut, l'affichage utilise la
-            # devise du pays d'origine choisi ci-dessus (FR -> EUR, PL -> PLN...),
-            # mais l'utilisateur peut choisir n'importe quelle devise UE (+ GBP)
-            # pour la présentation, sans que cela n'affecte la classification
-            # fiscale ni les déclarations légales (toujours en EUR, voir README
-            # section "Devise d'affichage locale"). Persisté en base
-            # (tva_users.display_currency), comme `home_country`.
-            _currency_options = ["DEFAULT"] + sorted(set(COUNTRY_CURRENCIES.values()))
-            _current_display_choice = getattr(_current_user, "display_currency", "DEFAULT") or "DEFAULT"
-            try:
-                _cur_idx = _currency_options.index(_current_display_choice)
-            except ValueError:
-                _cur_idx = 0
-
-            def _currency_option_label(code: str, _home=home_country) -> str:
-                if code == "DEFAULT":
-                    _home_cur = COUNTRY_CURRENCIES.get((_home or "FR").upper(), "EUR")
-                    return _("display_currency_default_label", currency=_home_cur)
-                return f"{code} ({CURRENCY_SYMBOLS.get(code, code)})"
-
-            display_currency = st.selectbox(
-                _("display_currency_label"),
-                options=_currency_options,
-                index=_cur_idx,
-                format_func=_currency_option_label,
-                key="display_currency_select",
-                help=_("display_currency_help"),
-            )
-            if display_currency != _current_display_choice:
-                tva_auth.set_display_currency(_current_user.id, display_currency)
-                _current_user.display_currency = display_currency
-            st.session_state["display_currency_choice"] = display_currency
-
+        home_country, display_currency = _render_regional_settings(_current_user)
 
         # Sélecteur de plateforme masqué : seul Amazon est géré pour le
         # moment (voir _PLATFORM_OPTIONS, ui/theme.py). On fixe la valeur
         # directement plutôt que d'afficher un choix à une seule option.
         file_format = _PLATFORM_OPTIONS[0]
 
-        # ── Entreprise & Paramètres ───────────────────────────────────────────────
-        # Ces paramètres sont liés au SIREN sélectionné et sauvegardés en base.
-        ioss_number = ""
-        seller_is_importer = False
-        apply_fr_under_threshold = False
-        oss_threshold_exceeded_prev_year = False
-        ioss_own_number_active = False
-        countries_with_vat = ["FR"]
-        nom_entreprise = ""
-        siren_entreprise = ""
-        tva_fr = ""
-        local_vat_numbers: dict[str, str] = {}
         enable_vies = True
         on_invalid_behavior = "reclassify"
         convert_fx = True
@@ -696,869 +1324,19 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         # protection restant côté serveur.
         _is_reader = _current_user.role == "reader"
 
-        with st.expander(_("company_header"), expanded=True):
-            if _is_reader:
-                st.info(_("readonly_account_banner"))
-            # ── Section "Période fiscale" retirée (2026-08-21, voir README -
-            # évolution.md) : strictement redondante avec le status bar
-            # affiché sous le titre (app.py, `_status_bar_period_label`), qui
-            # montre déjà la période détectée. `oss_period` reste figé à
-            # "__auto__" (aucun sélecteur manuel n'existait réellement ici,
-            # seul l'affichage informatif est retiré) — ne pas réintroduire de
-            # logique de sélection de période sans concertation avec le
-            # cabinet comptable.
-            oss_period = "__auto__"
+        company = _render_company_section(
+            current_user=_current_user, home_country=home_country, is_reader=_is_reader,
+        )
 
-            # ── Rappel de verrouillage (uniquement en création de SIREN) ──
-            # Lecture anticipée du statut, AVANT le sélecteur de SIREN rendu
-            # plus bas, pour pouvoir afficher le rappel au-dessus du titre
-            # "Identité & Paramètres TVA" comme demandé. `_cached_db_read`
-            # mémoïse en session_state (TTL 20s, voir plus haut) : cet appel
-            # anticipé ne déclenche PAS de requête DB supplémentaire, il
-            # réutilise la même valeur que la lecture "officielle" un peu
-            # plus bas.
-            #
-            # Avec au moins un SIREN déjà enregistré, la valeur du
-            # sélecteur lue ici est celle du run PRÉCÉDENT (le sélecteur
-            # n'a pas encore été redessiné ce run-ci) — même principe que
-            # `pulse_target`/`_period_label_shown_by_sidebar` ailleurs dans
-            # ce fichier : un rappel visuel tolère un décalage d'un run,
-            # aucune donnée fiscale n'en dépend. Le sélecteur est forcé sur
-            # le SIREN nouvellement créé juste après l'enregistrement (voir
-            # `_new_siren_form_fragment`), ce qui fait disparaître ce rappel
-            # dès le run suivant plutôt que de rester affiché indéfiniment.
-            try:
-                _registered_sirens_early = _cached_db_read(
-                    f"sirens_{_current_user.org_id}",
-                    lambda: tva_billing.list_registered_sirens(_current_user.org_id),
-                )
-            except Exception:
-                _registered_sirens_early = []
-            _new_siren_label_early = _("new_siren_option")
-            _creating_new_siren = (
-                not _registered_sirens_early
-                or st.session_state.get("siren_select_box") == _new_siren_label_early
-            )
-            # if _creating_new_siren:
-            #     st.warning(_("fiscal_fields_lock_warning_new"))
+        # (Blocs « Donation » et « Abonnements & forfaits » désactivés : code conservé, commenté,
+        # en fin de fichier — section LEGACY_DISABLED_SIDEBAR_BLOCKS.)
 
-            st.markdown(f"**{_('identity_vat_params_title')}**")
-            try:
-                _registered_sirens = _cached_db_read(
-                    f"sirens_{_current_user.org_id}",
-                    lambda: tva_billing.list_registered_sirens(_current_user.org_id),
-                )
-                _siren_quota_status = _cached_db_read(
-                    f"siren_quota_{_current_user.org_id}",
-                    lambda: tva_billing.get_siren_quota_status(_current_user.org_id),
-                )
-            except Exception as _siren_list_err:
-                _registered_sirens = []
-                _siren_quota_status = None
-                st.caption(_("siren_list_unavailable", error=_siren_list_err))
+        _render_vies_cache_section(
+            current_user=_current_user, vies_scope_id=_vies_scope_id, pulse_target=pulse_target,
+            nom_entreprise=company.nom_entreprise, siren_entreprise=company.siren_entreprise,
+        )
 
-            _siren_over_quota = bool(_siren_quota_status and _siren_quota_status.blocked)
-            if _siren_over_quota:
-                st.error(_("siren_quota_blocked", count=_siren_quota_status.registered_count, quota=_siren_quota_status.quota, over=_siren_quota_status.over_quota_by))
-
-            _siren_options = [r["siren"] for r in _registered_sirens]
-            _new_siren_label = _("new_siren_option")
-            _siren_label_by_value = {
-                r["siren"]: f"{r['company_name'] or _('no_name')} — {r['siren']}"
-                for r in _registered_sirens
-            }
-            _siren_label_by_value[_new_siren_label] = _new_siren_label
-            # RECHERCHE (2026-08-25) : st.selectbox filtre déjà nativement
-            # les options à la frappe (composant BaseWeb Select) — pas
-            # besoin d'un champ de recherche séparé, qui ajouterait un état
-            # supplémentaire à synchroniser. Le `help` rend simplement cette
-            # capacité découvrable pour un cabinet avec de nombreux clients.
-            # Liste elle-même triée par ordre alphabétique côté
-            # list_registered_sirens() (billing.py).
-            _siren_choice = st.selectbox(
-                _("siren_client_label"),
-                options=_siren_options + [_new_siren_label],
-                index=0 if _siren_options else 0,
-                format_func=lambda v: _siren_label_by_value.get(v, v),
-                key="siren_select_box",
-                help=_("siren_select_search_help"),
-            ) if _siren_options else _new_siren_label
-
-            if _siren_choice == _new_siren_label:
-                _can_add_siren, _siren_quota_msg = (True, "")
-                try:
-                    _can_add_siren, _siren_quota_msg = tva_billing.can_register_new_siren(_current_user.org_id)
-                except Exception as _quota_err:
-                    _can_add_siren, _siren_quota_msg = True, ""
-                    st.caption(_("quota_check_unavailable", error=_quota_err))
-
-                if not _can_add_siren:
-                    st.error(f"🔒 {_siren_quota_msg}")
-                    nom_entreprise = _registered_sirens[0]["company_name"] if _registered_sirens else ""
-                    siren_entreprise = _registered_sirens[0]["siren"] if _registered_sirens else ""
-                    tva_fr = _registered_sirens[0]["tva_number"] if _registered_sirens else ""
-                    ioss_number = _registered_sirens[0].get("ioss_number") or ""
-                    seller_is_importer = _registered_sirens[0].get("seller_is_importer") or False
-                    apply_fr_under_threshold = _registered_sirens[0].get("apply_fr_under_threshold") or False
-                    ioss_own_number_active = _registered_sirens[0].get("ioss_own_number_active") or False
-                    oss_threshold_exceeded_prev_year = _registered_sirens[0].get("oss_threshold_exceeded_prev_year") or False
-                    if oss_threshold_exceeded_prev_year:
-                        apply_fr_under_threshold = False
-                    _countries_raw = _registered_sirens[0].get("countries_with_vat") or "FR"
-                    countries_with_vat = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
-                    try:
-                        local_vat_numbers = json.loads(_registered_sirens[0].get("vat_numbers_json") or "{}")
-                    except Exception:
-                        local_vat_numbers = {}
-                else:
-                    # Valeurs EFFECTIVES par défaut tant qu'aucun SIREN n'a
-                    # été enregistré — indépendantes des widgets ci-dessous
-                    # (isolés dans _new_siren_form_fragment) : évite qu'une
-                    # simple frappe dans le formulaire de création ne
-                    # déclenche un rerun complet de toute la page.
-                    nom_entreprise, siren_entreprise, tva_fr = "", "", ""
-                    ioss_number, seller_is_importer, apply_fr_under_threshold = "", False, False
-                    ioss_own_number_active = False
-                    oss_threshold_exceeded_prev_year = False
-                    countries_with_vat, local_vat_numbers = ["FR"], {}
-
-                    _new_siren_form_fragment(
-                        current_user=_current_user, home_country=home_country,
-                        siren_options=_siren_options,
-                    )
-            else:
-                _match = next((r for r in _registered_sirens if r["siren"] == _siren_choice), None)
-                nom_entreprise   = _match["company_name"] if _match else ""
-                siren_entreprise = _match["siren"] if _match else ""
-
-                # Affichage de l'identité (fixe)
-                st.markdown(f"🏢 **{nom_entreprise}**")
-                st.caption(f"{_('siren_label')} : **{siren_entreprise}**")
-
-                try:
-                    _existing_vats = json.loads(_match.get("vat_numbers_json") or "{}") if _match else {}
-                except Exception:
-                    _existing_vats = {}
-
-                _tva_fr_fixed = (_existing_vats.get("FR") or (_match.get("tva_number") if _match else None) or "")
-
-                _ioss_val = (_match.get("ioss_number") or "") if _match else ""
-                _countries_raw = _match.get("countries_with_vat") or "FR" if _match else "FR"
-                _default_vat_countries = [c.strip().upper() for c in _countries_raw.split(",") if c.strip()]
-
-                ioss_number = _ioss_val
-
-                # ── Pays où la TVA locale est enregistrée : remonté juste
-                # sous l'identité, au-dessus d'IOSS/DDP/seuil OSS. Priorité
-                # fiscale : ces immatriculations locales priment sur le
-                # régime DDP et les autres réglages. Zone d'AJOUT, pas de
-                # gestion de stock (voir README - évolution.md) — les pays
-                # déjà verrouillés (numéro enregistré) sont résumés en une
-                # seule ligne compacte, le multiselect ne sert qu'à ajouter
-                # un nouveau pays pas encore enregistré (ou à en retirer un,
-                # verrouillé ou non, de la liste active).
-                # BUGFIX (2026-08-26) : la clé de ce widget était statique
-                # ("vat_countries_edit"), partagée par TOUS les SIREN. Une
-                # fois qu'une valeur existe dans st.session_state pour cette
-                # clé, Streamlit ignore `default=` aux runs suivants et
-                # réaffiche la valeur mémorisée — donc changer de SIREN (ou
-                # revenir d'une création de SIREN) réaffichait la liste de
-                # pays du SIREN précédemment actif au lieu de celle du SIREN
-                # sélectionné. La clé est désormais scopée par `_siren_choice`
-                # pour forcer Streamlit à traiter chaque SIREN comme un
-                # widget distinct, ce qui réapplique bien `default=` (donc
-                # les données réelles de CE SIREN) à chaque changement.
-                countries_with_vat = st.multiselect(
-                    _("local_vat_countries_label"),
-                    options=sorted(list(EU_COUNTRIES)),
-                    default=_default_vat_countries,
-                    key=f"vat_countries_edit_{_siren_choice}",
-                    disabled=_is_reader,
-                )
-                _locked_selected = sorted(c for c in countries_with_vat if _existing_vats.get(c))
-                _new_vat_countries = sorted(c for c in countries_with_vat if not _existing_vats.get(c))
-                if _locked_selected:
-                    st.caption(
-                        "🔒 " + " · ".join(f"{c} {_existing_vats[c]}" for c in _locked_selected)
-                        + f" — {_('fiscal_field_locked_note')}"
-                    )
-
-                # Saisie des numéros de TVA pour les pays NOUVELLEMENT ajoutés
-                # (pas encore verrouillés) : rendue ICI, juste sous le
-                # multiselect, plutôt que dans `_edit_siren_form_fragment`
-                # (rendu bien plus bas, après IOSS/DDP/seuil OSS) — c'était la
-                # cause du champ "Numéro de TVA FR" retrouvé tout en bas de
-                # panneau alors que le pays est sélectionné ici. Ces champs
-                # restent des `st.text_input` normaux (hors fragment) : leur
-                # valeur est lue par `_edit_siren_form_fragment` via
-                # `st.session_state[key]` au moment de l'enregistrement (la
-                # clé du widget), donc aucune perte de saisie malgré le
-                # découplage — voir commentaire dans ce fragment.
-                # BUGFIX (2026-08-26) : clé scopée par SIREN pour la même
-                # raison que le multiselect ci-dessus — sinon un brouillon de
-                # numéro de TVA tapé pour le SIREN A pouvait réapparaître en
-                # changeant vers le SIREN B si celui-ci a le même pays à
-                # compléter.
-                if _new_vat_countries:
-                    st.caption(_("local_vat_numbers_caption"))
-                    for _ccode in _new_vat_countries:
-                        st.text_input(_("vat_number_for", country=_ccode),
-                                      key=f"vat_num_edit_{_siren_choice}_{_ccode}",
-                                      placeholder=f"ex: {_ccode}123456789",
-                                      disabled=_is_reader)
-
-                tva_fr = _tva_fr_fixed
-                local_vat_numbers = {c: _existing_vats[c] for c in _locked_selected}
-
-                st.markdown("---")
-                st.markdown(f"**{_('fiscal_params_title')}**")
-
-                # ── Toggles fiscaux : LIVE, hors fragment ──────────────────────
-                # BUGFIX (2026-08-21, voir README - évolution.md) : ces widgets
-                # vivaient auparavant dans _edit_siren_form_fragment (isolé).
-                # Un fragment ne redessinant que lui-même, cocher/décocher ici
-                # n'avait jamais d'effet sur `_cache_key` (app.py) tant que
-                # "Enregistrer les modifications" n'était pas cliqué : IOSS,
-                # DDP et seuil OSS semblaient ne "rien faire". Rendus ici, en
-                # dehors du fragment, leur valeur courante est immédiatement
-                # celle utilisée pour le calcul — un clic déclenche un rerun
-                # complet (coût attendu et voulu : ces réglages changent le
-                # résultat fiscal, contrairement à la frappe d'un nom ou d'un
-                # numéro de TVA, qui reste isolée dans le fragment).
-                # RÔLES (2026-08-24) : ces toggles sont LIVE (hors fragment,
-                # voir commentaire ci-dessus) — sans `disabled=_is_reader`,
-                # un compte lecteur pouvait les basculer et voir le calcul
-                # fiscal affiché changer immédiatement, sans passer par
-                # "Enregistrer" (lui-même déjà désactivé pour les lecteurs).
-                # Contrairement aux pays TVA locale (juste au-dessus, sans
-                # grand impact tant que non enregistré), CES réglages
-                # (IOSS/DDP/seuil OSS) changent directement le résultat
-                # fiscal affiché/exporté pendant la session — critique à
-                # verrouiller, pas seulement à la sauvegarde.
-                # BUGFIX (2026-08-26) : ces 4 toggles utilisaient des clés
-                # STATIQUES ("ioss_own_active_view", "ddp_view", "oss_thr_view",
-                # "oss_thr_prevyear_view"), partagées par tous les SIREN. Comme
-                # pour le multiselect ci-dessus, `value=` est ignoré par
-                # Streamlit dès qu'une valeur existe déjà en session_state
-                # pour cette clé — donc en changeant de SIREN, les toggles
-                # affichés pouvaient rester ceux du SIREN précédemment
-                # sélectionné au lieu de refléter `match` (l'état réel en base
-                # pour LE SIREN affiché). Impact critique signalé : un compte
-                # lecteur changeant de SIREN pouvait voir un DDP ou un seuil
-                # 10k€ qui ne correspondait pas au SIREN réellement affiché,
-                # sans qu'il y ait moyen de s'en rendre compte à l'écran.
-                # Les clés sont désormais scopées par `_siren_choice`, ce qui
-                # force Streamlit à réappliquer `value=` (donc l'état réel en
-                # base) à chaque changement de SIREN.
-                ioss_own_number_active = False
-                if _ioss_val:
-                    ioss_own_number_active = st.toggle(
-                        _("ioss_own_number_active_label"),
-                        value=_match.get("ioss_own_number_active") or False if _match else False,
-                        key=f"ioss_own_active_view_{_siren_choice}",
-                        help=_("ioss_own_number_active_help", platform="Amazon"),
-                        disabled=_is_reader,
-                    )
-
-                seller_is_importer = st.toggle(
-                    _("ddp_label"),
-                    value=_match.get("seller_is_importer") or False if _match else False,
-                    key=f"ddp_view_{_siren_choice}",
-                    disabled=_is_reader,
-                )
-                apply_fr_under_threshold = st.toggle(
-                    _("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)),
-                    value=_match.get("apply_fr_under_threshold") or False if _match else False,
-                    key=f"oss_thr_view_{_siren_choice}",
-                    disabled=_is_reader,
-                )
-                oss_threshold_exceeded_prev_year = st.toggle(
-                    _("oss_threshold_prev_year_label"),
-                    value=_match.get("oss_threshold_exceeded_prev_year") or False if _match else False,
-                    key=f"oss_thr_prevyear_view_{_siren_choice}",
-                    help=_("oss_threshold_prev_year_help"),
-                    disabled=_is_reader,
-                )
-                if oss_threshold_exceeded_prev_year and apply_fr_under_threshold:
-                    st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
-                    apply_fr_under_threshold = False
-                    # BUGFIX (2026-09-10, désync toggle) : même correctif
-                    # que le bloc "new SIREN" plus haut, adapté à la clé
-                    # scopée par SIREN de ce bloc (voir BUGFIX 2026-08-26
-                    # juste au-dessus sur le scoping par _siren_choice).
-                    st.session_state[f"oss_thr_view_{_siren_choice}"] = False
-
-                _edit_siren_form_fragment(
-                    current_user=_current_user, home_country=home_country,
-                    match=_match, siren_entreprise=siren_entreprise, nom_entreprise=nom_entreprise,
-                    tva_fr_fixed=_tva_fr_fixed, existing_vats=_existing_vats, ioss_val=_ioss_val,
-                    seller_is_importer=seller_is_importer,
-                    apply_fr_under_threshold=apply_fr_under_threshold,
-                    oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
-                    ioss_own_number_active=ioss_own_number_active,
-                    countries_with_vat=countries_with_vat,
-                    new_vat_countries=_new_vat_countries,
-                )
-
-
-                # Option de retrait du SIREN (toujours visible si déjà enregistré)
-                # RÔLES (2026-08-25) : masqué pour un compte lecteur (`_is_reader`)
-                # plutôt que désactivé — un lecteur n'a rien à voir/faire ici,
-                # cette action restant du ressort de l'administrateur de
-                # l'organisation. `_require_write_access` (billing.py) reste la
-                # vraie protection côté serveur ; ce masquage évite seulement le
-                # PermissionError non catché qui remontait jusqu'ici en UI.
-                if _match and not _is_reader:
-                    st.divider()
-                    if _match.get("pending_removal_at"):
-                        import datetime as _dt
-                        _eff_date = _dt.datetime.fromtimestamp(_match["pending_removal_at"]).strftime("%d/%m/%Y")
-                        st.warning(_("removal_pending", date=_eff_date))
-                        if st.button(_("cancel_removal_btn"), key=f"btn_cancel_removal_{siren_entreprise}", width="stretch"):
-                            tva_billing.cancel_siren_removal(_current_user.org_id, _current_user.id, siren_entreprise)
-                            _invalidate_db_cache(f"sirens_{_current_user.org_id}")
-                            _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
-                            preserve_upload_rerun()
-                    else:
-                        if st.button(_("remove_siren_btn"), key=f"btn_remove_entreprise_{siren_entreprise}",
-                                     help=_("remove_siren_help"),
-                                     width="stretch"):
-                            # On autorise le retrait même si c'est le dernier (l'utilisateur peut vouloir arrêter)
-                            try:
-                                # HORS-QUOTA (2026-09-08) : évalué AVANT l'appel, car ce
-                                # dernier peut déjà avoir invalidé l'état (list_registered_sirens
-                                # .clear()) une fois le retrait effectué -- on capture donc la
-                                # raison du message de succès sur l'état encore actuel.
-                                _payg_over_quota = tva_billing.is_payg_removal_over_quota(_current_user.org_id)
-                                _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, siren_entreprise)
-                            except PermissionError as _lock_err:
-                                # Statut "Achat" (2026-09-05) : SIREN verrouillé pour un
-                                # compte PAYG n'ayant jamais souscrit d'abonnement.
-                                st.error(str(_lock_err))
-                            else:
-                                _invalidate_db_cache(f"sirens_{_current_user.org_id}")
-                                _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
-                                import datetime as _dt
-                                if _eff <= time.time() + 5:
-                                    if _payg_over_quota:
-                                        # Dérogation hors-quota (2026-09-08) : ce SIREN aurait dû
-                                        # être verrouillé (compte "Achat" PAYG) mais l'organisation
-                                        # dépassait son quota de 1 SIREN -- message dédié plutôt que
-                                        # le succès générique, pour ne pas laisser croire que le
-                                        # verrou PAYG standard n'existe plus.
-                                        st.success(_("remove_success_payg_over_quota"))
-                                    else:
-                                        st.success(_("remove_success"))
-                                else:
-                                    st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
-                                preserve_upload_rerun()
-
-        # ── Donation (Déplacé vers le haut de page dans app.py) ──────────────────
-        # with st.expander(_("donation_header"), expanded=True):
-        #     st.markdown(_("donation_help"))
-        #     _col1, _col2, _col3 = st.columns([1, 0.2, 1])
-        #     with _col1:
-        #         st.link_button(_("donation_btn"), "https://donate.stripe.com/fZu00jePda0f2cK0dw7Zu00", type="primary", width="stretch")
-        #     with _col2:
-        #         st.markdown(f"<div style='text-align: center; padding-top: 5px; color: var(--text-muted);'>{_('donation_or')}</div>", unsafe_allow_html=True)
-        #     with _col3:
-        #         st.link_button(f"🔵 {_('donation_paypal_btn')}", "https://paypal.me/MatthieuGossein", type="secondary", width="stretch")
-
-        # ── Abonnements & forfaits (Désactivé) ───────────────────────────────────
-        # RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — abonnement
-        # Stripe, crédits PAYG et grille tarifaire sont désormais partagés au niveau
-        # de l'organisation (org_id) ; un lecteur n'a ni le droit de les modifier
-        # (portail Stripe, retrait SIREN cabinet) ni besoin de les consulter — seul
-        # l'administrateur de l'organisation gère ces réglages.
-        # if tva_auth.is_admin(_current_user):
-        #     with st.expander(_("billing_header"), expanded=True):
-        #         _sub_status = None
-        #         try:
-        #             _sub_status = _cached_db_read(
-        #                 f"sub_status_{_current_user.org_id}",
-        #                 lambda: tva_billing.get_subscription_status(_current_user.org_id),
-        #             )
-        #         except Exception as _sub_err:
-        #             st.caption(_("sub_status_unavailable", error=_sub_err))
-        #
-        #         _plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
-        #             _sub_status.plan if _sub_status else None, _sub_status.plan if _sub_status else "—")
-        #
-        #         # Statut "Achat" (2026-09-05) : compte n'ayant jamais souscrit
-        #         # d'abonnement mais ayant déjà effectué un achat PAYG — affiché
-        #         # distinctement d'un compte gratuit n'ayant jamais payé.
-        #         _account_status = None
-        #         if not (_sub_status and _sub_status.active):
-        #             try:
-        #                 _account_status = _cached_db_read(
-        #                     f"account_status_{_current_user.org_id}",
-        #                     lambda: tva_billing.get_account_status(_current_user.org_id),
-        #                 )
-        #             except Exception:
-        #                 _account_status = None
-        #             if _account_status == tva_billing.ACCOUNT_STATUS_ACHAT:
-        #                 st.info(f"**{_('plan_achat')}** — {_('plan_achat_desc')}")
-        #         _interval_label = {"month": _("interval_monthly"), "year": _("interval_yearly")}.get(
-        #             _sub_status.billing_interval if _sub_status else None, "")
-        #
-        #         if _sub_status and _sub_status.active:
-        #             st.success(_("sub_active_msg", plan=_plan_label, interval=_interval_label)
-        #                        + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
-        #
-        #             # Downgrade différé (Subscription Schedule Stripe, 2026-08-16) :
-        #             # un changement de plan à venir en fin de période est signalé
-        #             # ici, distinctement du plan actif ci-dessus qui reste
-        #             # inchangé jusqu'à la date effective.
-        #             if _sub_status.scheduled_plan and _sub_status.scheduled_change_at:
-        #                 _sched_plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
-        #                     _sub_status.scheduled_plan, _sub_status.scheduled_plan)
-        #                 import datetime as _dt
-        #                 st.info(
-        #                     _("sub_scheduled_change_msg",
-        #                       plan=_sched_plan_label,
-        #                       date=_dt.datetime.fromtimestamp(_sub_status.scheduled_change_at).strftime("%d/%m/%Y"))
-        #                 )
-        #
-        #             # Gestion des SIREN pour un abonnement Cabinet (ajout via la section
-        #             # Entreprise, retrait différé ici, effectif à la date anniversaire).
-        #             if _sub_status.plan == "cabinet" and _registered_sirens:
-        #                 st.markdown(f"**{_('sirens_managed_title')}**")
-        #                 for _r in _registered_sirens:
-        #                     _c1, _c2 = st.columns([2, 1])
-        #                     _label = f"{_r['company_name'] or _('no_name')} — {_r['siren']}"
-        #                     if _r.get("pending_removal_at"):
-        #                         _c1.caption(f"{_label} · {_('removal_scheduled_short')}")
-        #                     else:
-        #                         _c1.caption(_label)
-        #                         if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", width="stretch"):
-        #                             _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, _r["siren"])
-        #                             _invalidate_db_cache(f"sirens_{_current_user.org_id}")
-        #                             _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
-        #                             import datetime as _dt
-        #                             st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
-        #                             preserve_upload_rerun()
-        #
-        #             # Session de portail Stripe générée UNIQUEMENT au clic — avant
-        #             # ce correctif, `create_billing_portal_session()` (un appel
-        #             # réseau à l'API Stripe, pas juste une lecture DB) était
-        #             # exécuté à chaque rerun de toute l'app, que l'utilisateur
-        #             # ait ou non l'intention de gérer son abonnement. Même
-        #             # pattern que le bouton PAYG ci-dessous (cache de l'URL en
-        #             # session_state entre le 1er clic qui la génère et le 2e qui
-        #             # y navigue réellement).
-        #             if st.button(_("manage_sub_stripe_btn"), key="btn_open_billing_portal"):
-        #                 try:
-        #                     st.session_state["_billing_portal_url"] = tva_billing.create_billing_portal_session(
-        #                         _current_user.org_id,
-        #                         return_url=_stripe_cancel_url(),
-        #                         acting_user_id=_current_user.id,
-        #                     )
-        #                 except Exception as _portal_err:
-        #                     st.session_state.pop("_billing_portal_url", None)
-        #                     st.error(_("sub_status_unavailable", error=_portal_err))
-        #             if st.session_state.get("_billing_portal_url"):
-        #                 st.link_button(_("continue_to_payment_btn"), st.session_state["_billing_portal_url"])
-        #
-        #         # ── Crédits PAYG (Achats uniques) ─────────────────────────────────────
-        #         try:
-        #             _credits = _cached_db_read(
-        #                 f"purchased_credits_{_current_user.org_id}",
-        #                 lambda: tva_billing.list_purchased_credits(_current_user.org_id),
-        #             )
-        #             if _credits:
-        #                 st.markdown("---")
-        #                 st.markdown(f"**{_('unlocked_periods_title')}**")
-        #                 for _c in _credits:
-        #                     from datetime import datetime as _dt
-        #                     _at = _dt.fromtimestamp(_c["at"]).strftime("%d/%m/%Y")
-        #                     st.caption(f"✅ **{_c['period']}** — {_('purchased_at', date=_at)}")
-        #         except Exception as _credit_err:
-        #             st.caption(_("purchase_history_unavailable", error=_credit_err))
-        #         if True:
-        #             # CORRECTIF 2026-09-01 (audit) : tout ce qui suit à cette
-        #             # indentation (bannière Premium, grille tarifaire, boutons
-        #             # d'abonnement/achat ponctuel — plusieurs blocs, pas un
-        #             # seul) vivait auparavant dans le `else:` du try/except
-        #             # ci-dessus, dont le seul rôle est de lire l'historique des
-        #             # crédits déjà achetés. Une panne transitoire de CETTE
-        #             # lecture seule (aléa Supabase, réseau...), sans rapport
-        #             # avec le statut d'abonnement lui-même, faisait donc
-        #             # disparaître TOUT le chemin de conversion pour un compte
-        #             # non premium, sans aucun message expliquant pourquoi
-        #             # (juste "historique d'achat indisponible" puis plus
-        #             # rien). `if True:` (plutôt qu'un `else:`) rend ce bloc
-        #             # inconditionnel vis-à-vis du try/except, SANS ré-indenter
-        #             # les ~230 lignes qui suivent (risque de transcription sur
-        #             # un bloc de cette taille) : il ne dépend plus que de
-        #             # `_sub_status`, déjà résolu plus haut.
-        #             if not (_sub_status and _sub_status.active):
-        #                 if _sub_status and _sub_status.status:
-        #                     # Abonnement existant mais inactif (annulé/expiré) : état actuel
-        #                     # affiché pour information, sans historique complet.
-        #                     st.warning(_("last_sub_msg", plan=_plan_label, status=_sub_status.status)
-        #                                + (f" ({_('expired_at', date=__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y'))})"
-        #                                   if _sub_status.current_period_end else ""))
-        #
-        #                 # ── Bannière d'incitation Premium (utilisateurs gratuits) ───────
-        #                 st.markdown(
-        #                     f"""
-        #                     <div style="
-        #                         background-color: #EEEDFE;
-        #                         border-radius: 12px;
-        #                         padding: 14px 16px;
-        #                         margin-bottom: 12px;
-        #                     ">
-        #                         <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
-        #                             {_("premium_banner_title")}
-        #                         </p>
-        #                         <p style="margin: 0; font-size: 12px; color: #3C3489;">
-        #                             {_("premium_banner_body")}
-        #                         </p>
-        #                     </div>
-        #                     """,
-        #                     unsafe_allow_html=True,
-        #                 )
-        #                 st.caption(_("billing_caption"))
-        #
-        #                 with st.expander(_("pricing_grid_expander"), expanded=False):
-        #                     # NOTE (2026-08-30, correctif) : ces deux appels passaient
-        #                     # auparavant par `_cached_db_read` (cache session_state,
-        #                     # TTL 20s) — un TTL bien trop court pour des données Stripe
-        #                     # peu volatiles, alors que `get_pricing_grid` et
-        #                     # `list_available_promotions` ont DÉJÀ leur propre cache
-        #                     # `@st.cache_data(ttl=600)` dans billing.py. Comme le corps
-        #                     # d'un `st.expander` s'exécute à CHAQUE rerun complet même
-        #                     # replié, le TTL 20s provoquait un aller-retour Stripe
-        #                     # (Charge/PromotionCode/Coupon/Price, ~7 requêtes) à chaque
-        #                     # rerun complet espaced de plus de 20s (ex. juste avant le
-        #                     # traitement d'un upload) pour tout compte non abonné. On
-        #                     # appelle désormais directement les fonctions déjà cachées
-        #                     # à 600s, sans passer par le cache 20s.
-        #                     try:
-        #                         _grid = tva_billing.get_pricing_grid(_current_user.org_id)
-        #                     except Exception as _grid_err:
-        #                         _grid = None
-        #                         st.caption(_("pricing_grid_unavailable", error=_grid_err))
-        #
-        #                     if _grid:
-        #                         try:
-        #                             _promotions = tva_billing.list_available_promotions(_current_user.org_id)
-        #                         except Exception as _promo_list_err:
-        #                             _promotions = []
-        #                             st.error(_("promo_codes_unavailable", error=_promo_list_err))
-        #
-        #                         if _promotions:
-        #                             st.markdown(f"**{_('available_promo_codes_title')}**")
-        #                             for _promo_item in _promotions:
-        #                                 if _promo_item.get("percent_off") is not None:
-        #                                     _reduc = f"{_promo_item['percent_off']:g}%"
-        #                                 elif _promo_item.get("amount_off") is not None:
-        #                                     _reduc = f"{_promo_item['amount_off']:.2f} {(_promo_item.get('currency') or 'eur').upper()}"
-        #                                 else:
-        #                                     _reduc = "—"
-        #
-        #                                 _conditions = []
-        #                                 if _promo_item.get("first_time_only"):
-        #                                     _conditions.append(_("promo_first_time"))
-        #                                 if _promo_item.get("minimum_amount") is not None:
-        #                                     _conditions.append(
-        #                                         _("promo_min_amount", amount=_promo_item['minimum_amount'], currency=(_promo_item.get('minimum_amount_currency') or 'eur').upper())
-        #                                     )
-        #                                 if _promo_item.get("stock_remaining") is not None:
-        #                                     _conditions.append(_("promo_stock_remaining", count=_promo_item['stock_remaining']))
-        #                                 if _promo_item.get("expires_at"):
-        #                                     import datetime as _dt
-        #                                     _conditions.append(
-        #                                         _("promo_expires_at", date=_dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y"))
-        #                                     )
-        #                                 _conditions_txt = " · ".join(_conditions) if _conditions else _("promo_no_conditions")
-        #
-        #                                 _eligible = _promo_item.get("eligible")
-        #                                 if _eligible is True:
-        #                                     st.success(f"✅ **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
-        #                                 elif _eligible is False:
-        #                                     _reasons_txt = ", ".join(_promo_item.get("ineligible_reasons", []))
-        #                                     st.warning(_("promo_ineligible_msg", code=_promo_item['code'], reduc=_reduc, conditions=_conditions_txt, reasons=_reasons_txt))
-        #                                 else:
-        #                                     st.markdown(f"- **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
-        #
-        #                         if _grid.get("payg"):
-        #                             _p = _grid["payg"]
-        #                             _payg_label = _p.get("name") or _("payg_label_default")
-        #                             if _p.get("discounted_amount") is not None:
-        #                                 st.markdown(
-        #                                     f"**{_payg_label}** — "
-        #                                     f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
-        #                                     f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
-        #                                     f"({_p['discount_label']}, code {_p['discount_code']}) / {_('per_declaration')}",
-        #                                     unsafe_allow_html=True,
-        #                                 )
-        #                             else:
-        #                                 st.markdown(f"**{_payg_label}** — {_p['amount']:.2f} "
-        #                                             f"{_p['currency'].upper()} / {_('per_declaration')}")
-        #
-        #                         if _grid.get("business"):
-        #                             _biz_lines = []
-        #                             _biz_label = None
-        #                             for _iv, _lbl in (("month", _("per_month")), ("year", _("per_year"))):
-        #                                 _b = _grid["business"].get(_iv)
-        #                                 if _b and _b["amount"] is not None:
-        #                                     if _biz_label is None:
-        #                                         _biz_label = _b.get("name") or _("plan_pro")
-        #                                     if _b.get("discounted_amount") is not None:
-        #                                         _biz_lines.append(
-        #                                             f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
-        #                                             f"→ <span style='color:#2ca02c;font-weight:bold'>{_b['discounted_amount']:.2f} {_b['currency'].upper()}</span> "
-        #                                             f"({_b['discount_label']}, code {_b['discount_code']}) / {_lbl}"
-        #                                         )
-        #                                     else:
-        #                                         _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
-        #                             if _biz_lines:
-        #                                 st.markdown(f"**{_biz_label}** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
-        #
-        #                         if _grid.get("cabinet"):
-        #                             st.markdown("""
-        #                                 <style>
-        #                                 .cabinet-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
-        #                                 .cabinet-table th { text-align: left; padding: 8px; border-bottom: 2px solid rgba(250, 250, 250, 0.2); background-color: rgba(250, 250, 250, 0.05); }
-        #                                 .cabinet-table td { padding: 8px; border-bottom: 1px solid rgba(250, 250, 250, 0.1); }
-        #                                 </style>
-        #                             """, unsafe_allow_html=True)
-        #                             for _iv, _lbl in (("month", _("billing_monthly")), ("year", _("billing_yearly"))):
-        #                                 _c = _grid["cabinet"].get(_iv)
-        #                                 if not _c or not _c.get("tiers"):
-        #                                     continue
-        #                                 _cab_label = _c.get("name") or _("plan_cabinet")
-        #                                 st.markdown(f"**{_cab_label} — {_lbl}** ({_('min_3_sirens')})")
-        #                                 _rows = []
-        #                                 _prev_bound = 0
-        #                                 for _t in _c["tiers"]:
-        #                                     _up_to = _t["up_to"]
-        #                                     _range = f"{_prev_bound + 1} – {_up_to}" if _up_to is not None else f"{_prev_bound + 1}+"
-        #                                     if _t["unit_amount"] is not None:
-        #                                         if _t.get("discounted_unit_amount") is not None:
-        #                                             _price_txt = (
-        #                                                 f"<span style='text-decoration:line-through;color:gray'>{_t['unit_amount']:.2f} {_c['currency'].upper()}</span> "
-        #                                                 f"→ <span style='color:#2ca02c;font-weight:bold'>{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()}</span> "
-        #                                                 f"({_t['discount_label']}, code {_t['discount_code']}) / {_('siren_label')}"
-        #                                             )
-        #                                         else:
-        #                                             _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / {_('siren_label')}"
-        #                                     else:
-        #                                         _price_txt = "—"
-        #                                     if _t.get("flat_amount") is not None:
-        #                                         _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} {_('fixed_amount')})"
-        #                                     _rows.append({_("col_managed_sirens"): _range, _("col_price"): _price_txt})
-        #                                     _prev_bound = _up_to if _up_to is not None else _prev_bound
-        #                                 # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown
-        #                                 # avec l'export HTML du DataFrame pour conserver le formattage.
-        #                                 st.markdown(
-        #                                     pd.DataFrame(_rows).to_html(escape=False, index=False, classes="cabinet-table"),
-        #                                     unsafe_allow_html=True
-        #                                 )
-        #
-        #             if not (_sub_status and _sub_status.active):
-        #                 _detected_period_for_payg = st.session_state.get("_period_label", "")
-        #                 st.markdown(f"**{_('payg_title')}** — {_('payg_subtitle')}")
-        #                 if not _detected_period_for_payg:
-        #                     st.caption(_("payg_no_period_warning"))
-        #                 else:
-        #                     st.caption(_("payg_detected_period_msg", period=_detected_period_for_payg))
-        #                     if st.button(_("payg_buy_btn"), key="btn_payg_sidebar"):
-        #                         try:
-        #                             # BUGFIX (2026-09-04) : la clé de cache incluait
-        #                             # seulement la période — voir même correctif dans
-        #                             # ui/billing_gate.py::get_payg_checkout_url. Le
-        #                             # SIREN doit aussi être scellé dans la metadata
-        #                             # Stripe pour que le crédit octroyé ne débloque
-        #                             # que ce SIREN (voir create_payg_checkout_session/
-        #                             # billing.has_export_credit).
-        #                             _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}::{siren_entreprise}"
-        #                             if _payg_cache_key not in st.session_state:
-        #                                 st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
-        #                                     org_id=_current_user.org_id, acting_user_id=_current_user.id,
-        #                                     email=_current_user.email,
-        #                                     period_label=_detected_period_for_payg,
-        #                                     success_url=_stripe_success_url("export_ok=1"),
-        #                                     cancel_url=_stripe_cancel_url(),
-        #                                     siren=siren_entreprise,
-        #                                 )
-        #                             st.link_button(_("continue_to_payment_btn"), st.session_state[_payg_cache_key])
-        #                         except Exception as _payg_err:
-        #                             st.session_state.pop(_payg_cache_key, None)
-        #                             st.error(_("generic_error_prefix", error=str(_payg_err)))
-        #
-        #                 _sub_interval = st.radio(_("billing_interval_label"), [_("billing_monthly_choice"), _("billing_yearly_choice")],
-        #                                          horizontal=True, key="sub_interval_choice")
-        #                 _interval_code = "month" if _sub_interval == _("billing_monthly_choice") else "year"
-        #
-        #                 st.markdown(f"**{_('plan_pro')}** — {_('plan_pro_desc')}")
-        #                 if st.button(_("subscribe_pro_btn"), key="btn_sub_business"):
-        #                     try:
-        #                         _url = tva_billing.create_subscription_checkout_session(
-        #                             org_id=_current_user.org_id, acting_user_id=_current_user.id,
-        #                             email=_current_user.email,
-        #                             plan="business", interval=_interval_code,
-        #                             success_url=_stripe_success_url("export_ok=1"),
-        #                             cancel_url=_stripe_cancel_url(),
-        #                         )
-        #                         st.link_button(_("continue_to_payment_btn"), _url)
-        #                     except Exception as _biz_err:
-        #                         st.error(_("generic_error_prefix", error=str(_biz_err)))
-        #
-        #                 st.markdown(f"**{_('plan_cabinet')}** — {_('plan_cabinet_desc')}")
-        #                 _cabinet_qty = st.number_input(_("managed_sirens_qty_label"), min_value=3, max_value=500,
-        #                                                value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
-        #                                                key="cabinet_siren_qty",
-        #                                                help=_("managed_sirens_qty_help"))
-        #                 if st.button(_("subscribe_cabinet_btn"), key="btn_sub_cabinet"):
-        #                     try:
-        #                         _url = tva_billing.create_subscription_checkout_session(
-        #                             org_id=_current_user.org_id, acting_user_id=_current_user.id,
-        #                             email=_current_user.email,
-        #                             plan="cabinet", interval=_interval_code,
-        #                             quantity=int(_cabinet_qty),
-        #                             success_url=_stripe_success_url("export_ok=1"),
-        #                             cancel_url=_stripe_cancel_url(),
-        #                         )
-        #                         st.link_button(_("continue_to_payment_btn"), _url)
-        #                     except Exception as _cab_err:
-        #                         st.error(_("generic_error_prefix", error=str(_cab_err)))
-
-        # ── Cache VIES ────────────────────────────────────────────────────────────
-        # RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — le TTL
-        # (partagé par toute l'organisation, modifiable par l'admin seul), les stats
-        # de volumétrie VIES et le certificat PDF "compte entier" ne concernent/ne
-        # regardent que l'administrateur de l'organisation. Un lecteur garde accès
-        # au certificat VIES par fichier importé via l'onglet VIES (vies_ui.py).
-        if tva_auth.is_admin(_current_user):
-            # BUGFIX (2026-08-22) : la durée de validité du cache VIES (slider
-            # TTL) est une donnée que l'utilisateur doit voir/régler dès la
-            # prise en main (checklist d'onboarding) — l'expander lui-même
-            # reste donc toujours visible, y compris en mode Simple. Seuls les
-            # réglages avancés (stats détaillées, purge, certificat PDF)
-            # restent réservés au mode Détaillé. N'alimente aucun champ de
-            # SidebarResult : masquage partiel sans risque de variable non
-            # définie plus bas.
-            if pulse_target == "vies_ttl":
-                with st.container(key="onb_pulse_vies"):
-                    pass
-            with st.expander(_("cache_vies_header"), expanded=True):
-                try:
-                    _cs = vies_cache_stats(_vies_scope_id)
-                    # Plafond réduit de 365 à 30 jours (2026-08-23) : une donnée
-                    # VIES valide il y a plusieurs mois n'a plus de valeur
-                    # probante fiscalement. `value` est bornée au même plafond
-                    # pour ne pas planter st.slider() si un scope avait déjà une
-                    # valeur > 30 enregistrée avant ce changement (le TTL réel
-                    # stocké n'est PAS modifié tant que l'utilisateur ne
-                    # retouche pas le slider — seul l'affichage est clampé).
-                    _ttl_max_days = 30
-                    _ttl_current = min(_cs["ttl_days"], _ttl_max_days)
-                    _ttl_days = st.slider(_("ttl_cache_slider"), min_value=1, max_value=_ttl_max_days,
-                                          value=_ttl_current, step=1,
-                                          help=_("ttl_cache_help"))
-                    if _ttl_days != _cs["ttl_days"]:
-                        set_cache_ttl(_vies_scope_id, _ttl_days, acting_user_id=_current_user.id)
-                        vies_cache_stats.clear()
-                        preserve_upload_rerun()
-                    if is_detailed():
-                        _c1, _c2, _c3 = st.columns(3)
-                        _c1.metric(_("total"), _cs["total"])
-                        _c2.metric(_("fresh"), _cs["fresh"])
-                        _c3.metric(_("expired"), _cs["expired"])
-                        if _cs["total"] > 0:
-                            st.caption(
-                                f"{_('valid')} : {_cs['valid']} · {_('invalid')} : {_cs['invalid']} · "
-                                f"{_('oldest_check')} : {(_cs['oldest_check'] or '—')[:10]}")
-                        if _cs.get("manual_total", 0) > 0:
-                            st.markdown(f"**{_('manual_classifications')}**")
-                            _m1, _m2 = st.columns(2)
-                            _m1.metric(_("manual_valid"), _cs["manual_valid"])
-                            _m2.metric(_("manual_invalid"), _cs["manual_invalid"])
-                        if _cs["expired"] > 0:
-                            if st.button(_("purge_expired_btn", count=_cs['expired']), key="purge_vies_cache"):
-                                n = purge_expired_cache(_vies_scope_id, acting_user_id=_current_user.id)
-                                st.success(_("purge_success", count=n))
-                                preserve_upload_rerun()
-
-                        # ── Certificat de Validité VIES (PDF) ──
-                        # Bouton de génération globale uniquement
-                        st.divider()
-                        st.markdown(f"**{_('vies_certificate_expander')}**")
-                        st.caption(_("vies_certificate_caption"))
-                        _cert_history_mode_sb = st.checkbox(
-                            _("vies_certificate_history_checkbox"),
-                            key="vies_cert_history_mode_sidebar",
-                        )
-                        if st.button(_("vies_certificate_btn"), key="btn_gen_vies_certificate_sidebar"):
-                            try:
-                                if _cert_history_mode_sb:
-                                    from tva_intracom.vies_engine import get_scope_vies_history_flat
-                                    from tva_intracom.vies_certificate import generate_vies_history_pdf
-                                    _history_rows = get_scope_vies_history_flat(_vies_scope_id, full_vats=None)
-                                    _pdf_bytes = generate_vies_history_pdf(
-                                        _history_rows,
-                                        company_name=nom_entreprise or _("default_company_name"),
-                                        siren=siren_entreprise or "",
-                                        scope_id=_vies_scope_id,
-                                        period_label=_("vies_certificate_full_history"),
-                                        country_label_fn=country_label,
-                                        translator=_,
-                                    )
-                                    _is_empty_sb = not _history_rows
-                                else:
-                                    from tva_intracom.vies_engine import get_scope_vies_snapshot
-                                    from tva_intracom.vies_certificate import generate_vies_certificate_pdf
-                                    _snapshot = get_scope_vies_snapshot(_vies_scope_id)
-                                    _pdf_bytes = generate_vies_certificate_pdf(
-                                        _snapshot,
-                                        company_name=nom_entreprise or _("default_company_name"),
-                                        siren=siren_entreprise or "",
-                                        scope_id=_vies_scope_id,
-                                        period_label=_("vies_certificate_full_history"),
-                                        country_label_fn=country_label,
-                                        translator=_,
-                                    )
-                                    _is_empty_sb = not _snapshot
-                                st.session_state["_vies_certificate_pdf_sidebar"] = _pdf_bytes
-                                st.session_state["_vies_certificate_history_mode_sidebar"] = _cert_history_mode_sb
-                                if _is_empty_sb:
-                                    st.info(_("vies_certificate_history_empty_info") if _cert_history_mode_sb else _("vies_certificate_empty_info"))
-                            except Exception as _cert_err:
-                                st.error(_("vies_certificate_error", error=_cert_err))
-
-                        if st.session_state.get("_vies_certificate_pdf_sidebar"):
-                            _suffix_sb = "complet_historique" if st.session_state.get("_vies_certificate_history_mode_sidebar") else "complet"
-                            st.download_button(
-                                _("vies_certificate_dl_btn"),
-                                data=st.session_state["_vies_certificate_pdf_sidebar"],
-                                file_name=_("vies_certificate_filename", company=f"{nom_entreprise or 'Export'}_{_suffix_sb}"),
-                                mime="application/pdf",
-                                type="primary",
-                                width="stretch",
-                            )
-                except Exception as _e:
-                    st.caption(_("cache_unavailable", error=_e))
-
-        # ── Paramètres du fichier ─────────────────────────────────────────────────
-        # "utf-8" couvre l'immense majorité des exports Amazon — réglage
-        # avancé masqué en mode Simple.
-        #
-        # BUGFIX (2026-08-21) : même classe de bug qu'avec l'ancien catalogue
-        # ASIN -> catégorie (supprimé, cf. chantier taux réduit dynamique CN/CPA) — `encoding` alimente `parse_key` (voir app.py) ; le
-        # re-fixer à "utf-8" par défaut à chaque run où l'expander n'est
-        # pas rendu aurait fait perdre un encodage explicitement choisi
-        # (ex. "latin-1") dès la bascule vers le mode Simple, et forcé un
-        # RE-PARSING complet des fichiers à chaque bascule de mode. La
-        # valeur choisie est donc mise en cache dans session_state.
-        encoding = st.session_state.get("_file_encoding_choice", "utf-8")
-        if is_detailed():
-            with st.expander(_("file_params_header"), expanded=False):
-                encoding = st.selectbox(_("file_encoding"), ["utf-8","latin-1","cp1252"],
-                                        index=["utf-8","latin-1","cp1252"].index(encoding),
-                                        key="file_encoding_select")
-                st.session_state["_file_encoding_choice"] = encoding
+        encoding = _render_file_params()
 
         # ── Compte & Confidentialité ──────────────────────────────────────────────
         # Sorti du corps de la sidebar (validé) : accessible via un bouton
@@ -1590,18 +1368,398 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
         on_invalid_behavior=on_invalid_behavior,
         convert_fx=convert_fx,
         encoding=encoding,
-        ioss_number=ioss_number,
-        seller_is_importer=seller_is_importer,
-        apply_fr_under_threshold=apply_fr_under_threshold,
-        oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
-        countries_with_vat=countries_with_vat,
-        nom_entreprise=nom_entreprise,
-        siren_entreprise=siren_entreprise,
-        tva_fr=tva_fr,
-        local_vat_numbers=local_vat_numbers,
-        oss_period=oss_period,
-        siren_quota_status=_siren_quota_status,
+        ioss_number=company.ioss_number,
+        seller_is_importer=company.seller_is_importer,
+        apply_fr_under_threshold=company.apply_fr_under_threshold,
+        oss_threshold_exceeded_prev_year=company.oss_threshold_exceeded_prev_year,
+        countries_with_vat=company.countries_with_vat,
+        nom_entreprise=company.nom_entreprise,
+        siren_entreprise=company.siren_entreprise,
+        tva_fr=company.tva_fr,
+        local_vat_numbers=company.local_vat_numbers,
+        oss_period=company.oss_period,
+        siren_quota_status=company.siren_quota_status,
         home_country=home_country,
         display_currency=display_currency,
-        ioss_own_number_active=ioss_own_number_active,
+        ioss_own_number_active=company.ioss_own_number_active,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LEGACY_DISABLED_SIDEBAR_BLOCKS — code désactivé, CONSERVÉ EN COMMENTAIRE (ne pas
+# supprimer). Anciennement dans render_sidebar() entre la section Entreprise et le
+# Cache VIES. Déplacé tel quel (texte inchangé) lors du découpage de render_sidebar.
+# Les variables référencées (_sub_status, _registered_sirens, _current_user, ...) étaient
+# des locales de render_sidebar : à reconstruire si ces blocs sont réactivés.
+# ─────────────────────────────────────────────────────────────────────────────
+# ── Donation (Déplacé vers le haut de page dans app.py) ──────────────────
+# with st.expander(_("donation_header"), expanded=True):
+#     st.markdown(_("donation_help"))
+#     _col1, _col2, _col3 = st.columns([1, 0.2, 1])
+#     with _col1:
+#         st.link_button(_("donation_btn"), "https://donate.stripe.com/fZu00jePda0f2cK0dw7Zu00", type="primary", width="stretch")
+#     with _col2:
+#         st.markdown(f"<div style='text-align: center; padding-top: 5px; color: var(--text-muted);'>{_('donation_or')}</div>", unsafe_allow_html=True)
+#     with _col3:
+#         st.link_button(f"🔵 {_('donation_paypal_btn')}", "https://paypal.me/MatthieuGossein", type="secondary", width="stretch")
+
+# ── Abonnements & forfaits (Désactivé) ───────────────────────────────────
+# RÔLES (2026-08-25) : bloc entier masqué pour un compte lecteur — abonnement
+# Stripe, crédits PAYG et grille tarifaire sont désormais partagés au niveau
+# de l'organisation (org_id) ; un lecteur n'a ni le droit de les modifier
+# (portail Stripe, retrait SIREN cabinet) ni besoin de les consulter — seul
+# l'administrateur de l'organisation gère ces réglages.
+# if tva_auth.is_admin(_current_user):
+#     with st.expander(_("billing_header"), expanded=True):
+#         _sub_status = None
+#         try:
+#             _sub_status = _cached_db_read(
+#                 f"sub_status_{_current_user.org_id}",
+#                 lambda: tva_billing.get_subscription_status(_current_user.org_id),
+#             )
+#         except Exception as _sub_err:
+#             st.caption(_("sub_status_unavailable", error=_sub_err))
+#
+#         _plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
+#             _sub_status.plan if _sub_status else None, _sub_status.plan if _sub_status else "—")
+#
+#         # Statut "Achat" (2026-09-05) : compte n'ayant jamais souscrit
+#         # d'abonnement mais ayant déjà effectué un achat PAYG — affiché
+#         # distinctement d'un compte gratuit n'ayant jamais payé.
+#         _account_status = None
+#         if not (_sub_status and _sub_status.active):
+#             try:
+#                 _account_status = _cached_db_read(
+#                     f"account_status_{_current_user.org_id}",
+#                     lambda: tva_billing.get_account_status(_current_user.org_id),
+#                 )
+#             except Exception:
+#                 _account_status = None
+#             if _account_status == tva_billing.ACCOUNT_STATUS_ACHAT:
+#                 st.info(f"**{_('plan_achat')}** — {_('plan_achat_desc')}")
+#         _interval_label = {"month": _("interval_monthly"), "year": _("interval_yearly")}.get(
+#             _sub_status.billing_interval if _sub_status else None, "")
+#
+#         if _sub_status and _sub_status.active:
+#             st.success(_("sub_active_msg", plan=_plan_label, interval=_interval_label)
+#                        + (f" — {_sub_status.siren_quantity} SIREN" if _sub_status.plan == "cabinet" else ""))
+#
+#             # Downgrade différé (Subscription Schedule Stripe, 2026-08-16) :
+#             # un changement de plan à venir en fin de période est signalé
+#             # ici, distinctement du plan actif ci-dessus qui reste
+#             # inchangé jusqu'à la date effective.
+#             if _sub_status.scheduled_plan and _sub_status.scheduled_change_at:
+#                 _sched_plan_label = {"business": _("plan_pro"), "cabinet": _("plan_cabinet")}.get(
+#                     _sub_status.scheduled_plan, _sub_status.scheduled_plan)
+#                 import datetime as _dt
+#                 st.info(
+#                     _("sub_scheduled_change_msg",
+#                       plan=_sched_plan_label,
+#                       date=_dt.datetime.fromtimestamp(_sub_status.scheduled_change_at).strftime("%d/%m/%Y"))
+#                 )
+#
+#             # Gestion des SIREN pour un abonnement Cabinet (ajout via la section
+#             # Entreprise, retrait différé ici, effectif à la date anniversaire).
+#             if _sub_status.plan == "cabinet" and _registered_sirens:
+#                 st.markdown(f"**{_('sirens_managed_title')}**")
+#                 for _r in _registered_sirens:
+#                     _c1, _c2 = st.columns([2, 1])
+#                     _label = f"{_r['company_name'] or _('no_name')} — {_r['siren']}"
+#                     if _r.get("pending_removal_at"):
+#                         _c1.caption(f"{_label} · {_('removal_scheduled_short')}")
+#                     else:
+#                         _c1.caption(_label)
+#                         if _c2.button(_("remove_btn"), key=f"btn_remove_{_r['siren']}", width="stretch"):
+#                             _eff = tva_billing.request_siren_removal(_current_user.org_id, _current_user.id, _r["siren"])
+#                             _invalidate_db_cache(f"sirens_{_current_user.org_id}")
+#                             _invalidate_db_cache(f"siren_quota_{_current_user.org_id}")
+#                             import datetime as _dt
+#                             st.info(_("remove_scheduled", date=_dt.datetime.fromtimestamp(_eff).strftime('%d/%m/%Y')))
+#                             preserve_upload_rerun()
+#
+#             # Session de portail Stripe générée UNIQUEMENT au clic — avant
+#             # ce correctif, `create_billing_portal_session()` (un appel
+#             # réseau à l'API Stripe, pas juste une lecture DB) était
+#             # exécuté à chaque rerun de toute l'app, que l'utilisateur
+#             # ait ou non l'intention de gérer son abonnement. Même
+#             # pattern que le bouton PAYG ci-dessous (cache de l'URL en
+#             # session_state entre le 1er clic qui la génère et le 2e qui
+#             # y navigue réellement).
+#             if st.button(_("manage_sub_stripe_btn"), key="btn_open_billing_portal"):
+#                 try:
+#                     st.session_state["_billing_portal_url"] = tva_billing.create_billing_portal_session(
+#                         _current_user.org_id,
+#                         return_url=_stripe_cancel_url(),
+#                         acting_user_id=_current_user.id,
+#                     )
+#                 except Exception as _portal_err:
+#                     st.session_state.pop("_billing_portal_url", None)
+#                     st.error(_("sub_status_unavailable", error=_portal_err))
+#             if st.session_state.get("_billing_portal_url"):
+#                 st.link_button(_("continue_to_payment_btn"), st.session_state["_billing_portal_url"])
+#
+#         # ── Crédits PAYG (Achats uniques) ─────────────────────────────────────
+#         try:
+#             _credits = _cached_db_read(
+#                 f"purchased_credits_{_current_user.org_id}",
+#                 lambda: tva_billing.list_purchased_credits(_current_user.org_id),
+#             )
+#             if _credits:
+#                 st.markdown("---")
+#                 st.markdown(f"**{_('unlocked_periods_title')}**")
+#                 for _c in _credits:
+#                     from datetime import datetime as _dt
+#                     _at = _dt.fromtimestamp(_c["at"]).strftime("%d/%m/%Y")
+#                     st.caption(f"✅ **{_c['period']}** — {_('purchased_at', date=_at)}")
+#         except Exception as _credit_err:
+#             st.caption(_("purchase_history_unavailable", error=_credit_err))
+#         if True:
+#             # CORRECTIF 2026-09-01 (audit) : tout ce qui suit à cette
+#             # indentation (bannière Premium, grille tarifaire, boutons
+#             # d'abonnement/achat ponctuel — plusieurs blocs, pas un
+#             # seul) vivait auparavant dans le `else:` du try/except
+#             # ci-dessus, dont le seul rôle est de lire l'historique des
+#             # crédits déjà achetés. Une panne transitoire de CETTE
+#             # lecture seule (aléa Supabase, réseau...), sans rapport
+#             # avec le statut d'abonnement lui-même, faisait donc
+#             # disparaître TOUT le chemin de conversion pour un compte
+#             # non premium, sans aucun message expliquant pourquoi
+#             # (juste "historique d'achat indisponible" puis plus
+#             # rien). `if True:` (plutôt qu'un `else:`) rend ce bloc
+#             # inconditionnel vis-à-vis du try/except, SANS ré-indenter
+#             # les ~230 lignes qui suivent (risque de transcription sur
+#             # un bloc de cette taille) : il ne dépend plus que de
+#             # `_sub_status`, déjà résolu plus haut.
+#             if not (_sub_status and _sub_status.active):
+#                 if _sub_status and _sub_status.status:
+#                     # Abonnement existant mais inactif (annulé/expiré) : état actuel
+#                     # affiché pour information, sans historique complet.
+#                     st.warning(_("last_sub_msg", plan=_plan_label, status=_sub_status.status)
+#                                + (f" ({_('expired_at', date=__import__('datetime').datetime.fromtimestamp(_sub_status.current_period_end).strftime('%d/%m/%Y'))})"
+#                                   if _sub_status.current_period_end else ""))
+#
+#                 # ── Bannière d'incitation Premium (utilisateurs gratuits) ───────
+#                 st.markdown(
+#                     f"""
+#                     <div style="
+#                         background-color: #EEEDFE;
+#                         border-radius: 12px;
+#                         padding: 14px 16px;
+#                         margin-bottom: 12px;
+#                     ">
+#                         <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #26215C;">
+#                             {_("premium_banner_title")}
+#                         </p>
+#                         <p style="margin: 0; font-size: 12px; color: #3C3489;">
+#                             {_("premium_banner_body")}
+#                         </p>
+#                     </div>
+#                     """,
+#                     unsafe_allow_html=True,
+#                 )
+#                 st.caption(_("billing_caption"))
+#
+#                 with st.expander(_("pricing_grid_expander"), expanded=False):
+#                     # NOTE (2026-08-30, correctif) : ces deux appels passaient
+#                     # auparavant par `_cached_db_read` (cache session_state,
+#                     # TTL 20s) — un TTL bien trop court pour des données Stripe
+#                     # peu volatiles, alors que `get_pricing_grid` et
+#                     # `list_available_promotions` ont DÉJÀ leur propre cache
+#                     # `@st.cache_data(ttl=600)` dans billing.py. Comme le corps
+#                     # d'un `st.expander` s'exécute à CHAQUE rerun complet même
+#                     # replié, le TTL 20s provoquait un aller-retour Stripe
+#                     # (Charge/PromotionCode/Coupon/Price, ~7 requêtes) à chaque
+#                     # rerun complet espaced de plus de 20s (ex. juste avant le
+#                     # traitement d'un upload) pour tout compte non abonné. On
+#                     # appelle désormais directement les fonctions déjà cachées
+#                     # à 600s, sans passer par le cache 20s.
+#                     try:
+#                         _grid = tva_billing.get_pricing_grid(_current_user.org_id)
+#                     except Exception as _grid_err:
+#                         _grid = None
+#                         st.caption(_("pricing_grid_unavailable", error=_grid_err))
+#
+#                     if _grid:
+#                         try:
+#                             _promotions = tva_billing.list_available_promotions(_current_user.org_id)
+#                         except Exception as _promo_list_err:
+#                             _promotions = []
+#                             st.error(_("promo_codes_unavailable", error=_promo_list_err))
+#
+#                         if _promotions:
+#                             st.markdown(f"**{_('available_promo_codes_title')}**")
+#                             for _promo_item in _promotions:
+#                                 if _promo_item.get("percent_off") is not None:
+#                                     _reduc = f"{_promo_item['percent_off']:g}%"
+#                                 elif _promo_item.get("amount_off") is not None:
+#                                     _reduc = f"{_promo_item['amount_off']:.2f} {(_promo_item.get('currency') or 'eur').upper()}"
+#                                 else:
+#                                     _reduc = "—"
+#
+#                                 _conditions = []
+#                                 if _promo_item.get("first_time_only"):
+#                                     _conditions.append(_("promo_first_time"))
+#                                 if _promo_item.get("minimum_amount") is not None:
+#                                     _conditions.append(
+#                                         _("promo_min_amount", amount=_promo_item['minimum_amount'], currency=(_promo_item.get('minimum_amount_currency') or 'eur').upper())
+#                                     )
+#                                 if _promo_item.get("stock_remaining") is not None:
+#                                     _conditions.append(_("promo_stock_remaining", count=_promo_item['stock_remaining']))
+#                                 if _promo_item.get("expires_at"):
+#                                     import datetime as _dt
+#                                     _conditions.append(
+#                                         _("promo_expires_at", date=_dt.datetime.fromtimestamp(_promo_item["expires_at"]).strftime("%d/%m/%Y"))
+#                                     )
+#                                 _conditions_txt = " · ".join(_conditions) if _conditions else _("promo_no_conditions")
+#
+#                                 _eligible = _promo_item.get("eligible")
+#                                 if _eligible is True:
+#                                     st.success(f"✅ **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
+#                                 elif _eligible is False:
+#                                     _reasons_txt = ", ".join(_promo_item.get("ineligible_reasons", []))
+#                                     st.warning(_("promo_ineligible_msg", code=_promo_item['code'], reduc=_reduc, conditions=_conditions_txt, reasons=_reasons_txt))
+#                                 else:
+#                                     st.markdown(f"- **{_promo_item['code']}** — {_reduc} — {_conditions_txt}")
+#
+#                         if _grid.get("payg"):
+#                             _p = _grid["payg"]
+#                             _payg_label = _p.get("name") or _("payg_label_default")
+#                             if _p.get("discounted_amount") is not None:
+#                                 st.markdown(
+#                                     f"**{_payg_label}** — "
+#                                     f"<span style='text-decoration:line-through;color:gray'>{_p['amount']:.2f} {_p['currency'].upper()}</span> "
+#                                     f"&nbsp;→&nbsp; <span style='color:#2ca02c;font-weight:bold'>{_p['discounted_amount']:.2f} {_p['currency'].upper()}</span> "
+#                                     f"({_p['discount_label']}, code {_p['discount_code']}) / {_('per_declaration')}",
+#                                     unsafe_allow_html=True,
+#                                 )
+#                             else:
+#                                 st.markdown(f"**{_payg_label}** — {_p['amount']:.2f} "
+#                                             f"{_p['currency'].upper()} / {_('per_declaration')}")
+#
+#                         if _grid.get("business"):
+#                             _biz_lines = []
+#                             _biz_label = None
+#                             for _iv, _lbl in (("month", _("per_month")), ("year", _("per_year"))):
+#                                 _b = _grid["business"].get(_iv)
+#                                 if _b and _b["amount"] is not None:
+#                                     if _biz_label is None:
+#                                         _biz_label = _b.get("name") or _("plan_pro")
+#                                     if _b.get("discounted_amount") is not None:
+#                                         _biz_lines.append(
+#                                             f"<span style='text-decoration:line-through;color:gray'>{_b['amount']:.2f} {_b['currency'].upper()}</span> "
+#                                             f"→ <span style='color:#2ca02c;font-weight:bold'>{_b['discounted_amount']:.2f} {_b['currency'].upper()}</span> "
+#                                             f"({_b['discount_label']}, code {_b['discount_code']}) / {_lbl}"
+#                                         )
+#                                     else:
+#                                         _biz_lines.append(f"{_b['amount']:.2f} {_b['currency'].upper()} / {_lbl}")
+#                             if _biz_lines:
+#                                 st.markdown(f"**{_biz_label}** (1 SIREN) — " + " · ".join(_biz_lines), unsafe_allow_html=True)
+#
+#                         if _grid.get("cabinet"):
+#                             st.markdown("""
+#                                 <style>
+#                                 .cabinet-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+#                                 .cabinet-table th { text-align: left; padding: 8px; border-bottom: 2px solid rgba(250, 250, 250, 0.2); background-color: rgba(250, 250, 250, 0.05); }
+#                                 .cabinet-table td { padding: 8px; border-bottom: 1px solid rgba(250, 250, 250, 0.1); }
+#                                 </style>
+#                             """, unsafe_allow_html=True)
+#                             for _iv, _lbl in (("month", _("billing_monthly")), ("year", _("billing_yearly"))):
+#                                 _c = _grid["cabinet"].get(_iv)
+#                                 if not _c or not _c.get("tiers"):
+#                                     continue
+#                                 _cab_label = _c.get("name") or _("plan_cabinet")
+#                                 st.markdown(f"**{_cab_label} — {_lbl}** ({_('min_3_sirens')})")
+#                                 _rows = []
+#                                 _prev_bound = 0
+#                                 for _t in _c["tiers"]:
+#                                     _up_to = _t["up_to"]
+#                                     _range = f"{_prev_bound + 1} – {_up_to}" if _up_to is not None else f"{_prev_bound + 1}+"
+#                                     if _t["unit_amount"] is not None:
+#                                         if _t.get("discounted_unit_amount") is not None:
+#                                             _price_txt = (
+#                                                 f"<span style='text-decoration:line-through;color:gray'>{_t['unit_amount']:.2f} {_c['currency'].upper()}</span> "
+#                                                 f"→ <span style='color:#2ca02c;font-weight:bold'>{_t['discounted_unit_amount']:.2f} {_c['currency'].upper()}</span> "
+#                                                 f"({_t['discount_label']}, code {_t['discount_code']}) / {_('siren_label')}"
+#                                             )
+#                                         else:
+#                                             _price_txt = f"{_t['unit_amount']:.2f} {_c['currency'].upper()} / {_('siren_label')}"
+#                                     else:
+#                                         _price_txt = "—"
+#                                     if _t.get("flat_amount") is not None:
+#                                         _price_txt += f" (+ {_t['flat_amount']:.2f} {_c['currency'].upper()} {_('fixed_amount')})"
+#                                     _rows.append({_("col_managed_sirens"): _range, _("col_price"): _price_txt})
+#                                     _prev_bound = _up_to if _up_to is not None else _prev_bound
+#                                 # st.dataframe n'interprète pas le HTML (barré/couleur). On utilise st.markdown
+#                                 # avec l'export HTML du DataFrame pour conserver le formattage.
+#                                 st.markdown(
+#                                     pd.DataFrame(_rows).to_html(escape=False, index=False, classes="cabinet-table"),
+#                                     unsafe_allow_html=True
+#                                 )
+#
+#             if not (_sub_status and _sub_status.active):
+#                 _detected_period_for_payg = st.session_state.get("_period_label", "")
+#                 st.markdown(f"**{_('payg_title')}** — {_('payg_subtitle')}")
+#                 if not _detected_period_for_payg:
+#                     st.caption(_("payg_no_period_warning"))
+#                 else:
+#                     st.caption(_("payg_detected_period_msg", period=_detected_period_for_payg))
+#                     if st.button(_("payg_buy_btn"), key="btn_payg_sidebar"):
+#                         try:
+#                             # BUGFIX (2026-09-04) : la clé de cache incluait
+#                             # seulement la période — voir même correctif dans
+#                             # ui/billing_gate.py::get_payg_checkout_url. Le
+#                             # SIREN doit aussi être scellé dans la metadata
+#                             # Stripe pour que le crédit octroyé ne débloque
+#                             # que ce SIREN (voir create_payg_checkout_session/
+#                             # billing.has_export_credit).
+#                             _payg_cache_key = f"_stripe_checkout_url::{_detected_period_for_payg}::{siren_entreprise}"
+#                             if _payg_cache_key not in st.session_state:
+#                                 st.session_state[_payg_cache_key] = tva_billing.create_payg_checkout_session(
+#                                     org_id=_current_user.org_id, acting_user_id=_current_user.id,
+#                                     email=_current_user.email,
+#                                     period_label=_detected_period_for_payg,
+#                                     success_url=_stripe_success_url("export_ok=1"),
+#                                     cancel_url=_stripe_cancel_url(),
+#                                     siren=siren_entreprise,
+#                                 )
+#                             st.link_button(_("continue_to_payment_btn"), st.session_state[_payg_cache_key])
+#                         except Exception as _payg_err:
+#                             st.session_state.pop(_payg_cache_key, None)
+#                             st.error(_("generic_error_prefix", error=str(_payg_err)))
+#
+#                 _sub_interval = st.radio(_("billing_interval_label"), [_("billing_monthly_choice"), _("billing_yearly_choice")],
+#                                          horizontal=True, key="sub_interval_choice")
+#                 _interval_code = "month" if _sub_interval == _("billing_monthly_choice") else "year"
+#
+#                 st.markdown(f"**{_('plan_pro')}** — {_('plan_pro_desc')}")
+#                 if st.button(_("subscribe_pro_btn"), key="btn_sub_business"):
+#                     try:
+#                         _url = tva_billing.create_subscription_checkout_session(
+#                             org_id=_current_user.org_id, acting_user_id=_current_user.id,
+#                             email=_current_user.email,
+#                             plan="business", interval=_interval_code,
+#                             success_url=_stripe_success_url("export_ok=1"),
+#                             cancel_url=_stripe_cancel_url(),
+#                         )
+#                         st.link_button(_("continue_to_payment_btn"), _url)
+#                     except Exception as _biz_err:
+#                         st.error(_("generic_error_prefix", error=str(_biz_err)))
+#
+#                 st.markdown(f"**{_('plan_cabinet')}** — {_('plan_cabinet_desc')}")
+#                 _cabinet_qty = st.number_input(_("managed_sirens_qty_label"), min_value=3, max_value=500,
+#                                                value=max(3, _siren_quota_status.registered_count if _siren_quota_status else 3), step=1,
+#                                                key="cabinet_siren_qty",
+#                                                help=_("managed_sirens_qty_help"))
+#                 if st.button(_("subscribe_cabinet_btn"), key="btn_sub_cabinet"):
+#                     try:
+#                         _url = tva_billing.create_subscription_checkout_session(
+#                             org_id=_current_user.org_id, acting_user_id=_current_user.id,
+#                             email=_current_user.email,
+#                             plan="cabinet", interval=_interval_code,
+#                             quantity=int(_cabinet_qty),
+#                             success_url=_stripe_success_url("export_ok=1"),
+#                             cancel_url=_stripe_cancel_url(),
+#                         )
+#                         st.link_button(_("continue_to_payment_btn"), _url)
+#                     except Exception as _cab_err:
+#                         st.error(_("generic_error_prefix", error=str(_cab_err)))

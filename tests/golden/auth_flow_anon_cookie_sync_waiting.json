@@ -1,0 +1,26 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "depth": 0,
+   "type": "iframe"
+  },
+  {
+   "body": "Bienvenue ! Cliquez sur le bouton ci-dessous pour finaliser votre connexion.",
+   "depth": 0,
+   "type": "warning",
+   "value": "Bienvenue ! Cliquez sur le bouton ci-dessous pour finaliser votre connexion."
+  }
+ ],
+ "query_params_final": {},
+ "returned_context": null,
+ "session_keys": [
+  "_cookie_sync_attempts",
+  "auth_user",
+  "manual_logout"
+ ],
+ "sidebar": []
+}

@@ -1,0 +1,37 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "body": "Erreur OAuth (access_denied) : User said no",
+   "depth": 0,
+   "type": "error",
+   "value": "Erreur OAuth (access_denied) : User said no"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "clear_oauth_error",
+   "label": "Annuler",
+   "type": "button",
+   "value": false
+  }
+ ],
+ "query_params_final": {
+  "error_code": [
+   "access_denied"
+  ],
+  "error_description": [
+   "User said no"
+  ]
+ },
+ "returned_context": null,
+ "session_keys": [
+  "auth_user",
+  "clear_oauth_error",
+  "manual_logout"
+ ],
+ "sidebar": []
+}

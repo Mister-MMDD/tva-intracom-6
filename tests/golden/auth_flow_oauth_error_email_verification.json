@@ -1,0 +1,34 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "body": "Votre adresse e-mail Amazon n'est pas vérifiée. Un e-mail de confirmation vient de vous être envoyé. Cliquez sur le lien qu'il contient pour finaliser votre inscription, puis reconnectez-vous ici.",
+   "depth": 0,
+   "type": "warning",
+   "value": "Votre adresse e-mail Amazon n'est pas vérifiée. Un e-mail de confirmation vient de vous être envoyé. Cliquez sur le lien qu'il contient pour finaliser votre inscription, puis reconnectez-vous ici."
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "clear_oauth_error",
+   "label": "Annuler",
+   "type": "button",
+   "value": false
+  }
+ ],
+ "query_params_final": {
+  "error_code": [
+   "provider_email_needs_verification"
+  ]
+ },
+ "returned_context": null,
+ "session_keys": [
+  "auth_user",
+  "clear_oauth_error",
+  "manual_logout"
+ ],
+ "sidebar": []
+}

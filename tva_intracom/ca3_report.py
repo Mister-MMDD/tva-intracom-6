@@ -56,7 +56,7 @@ from __future__ import annotations
 import html
 import logging
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any, overload
 
 from tva_intracom.i18n import _
 from tva_intracom.models import VatResult, Scenario, Channel
@@ -65,8 +65,20 @@ from tva_intracom.rates import fiscal_equivalent_country
 logger = logging.getLogger(__name__)
 
 
-def _round(amount: Decimal) -> Decimal:
-    return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+@overload
+def _round(amount: Decimal) -> Decimal: ...
+@overload
+def _round(amount: int) -> int: ...
+@overload
+def _round(amount: float) -> Decimal: ...
+def _round(amount: Decimal | int | float) -> Any:
+    if isinstance(amount, int) and not isinstance(amount, bool):
+        return amount
+    if isinstance(amount, float):
+        amount = Decimal(str(amount))
+    if isinstance(amount, Decimal):
+        return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return amount
 
 
 # ---------------------------------------------------------------------------
@@ -146,11 +158,11 @@ def _compute_aic_from_fc_transfers(
         all_fc_transfers: list,
         results: List[VatResult],
         seller_country: str = "FR",
-) -> tuple[Decimal, Decimal]:
+) -> tuple[Decimal, Decimal, int, int]:
     """Calcule la base AIC et la TVA AIC estimées pour la CA3.
 
     Périmètre : flux ENTRANT vers seller_country (introductions).
-    Retourne (base_aic_ht, tva_aic) — nets cumulés sur la période.
+    Retourne (base_aic_ht, tva_aic, n_qty_malformed, n_asin_unpriced) — nets cumulés sur la période.
 
     ⚠ Valeur estimée : prix de vente moyen HT × qté (art. 83 impose la
     valeur d'achat, inconnue depuis Amazon). Approximation par excès.
@@ -259,7 +271,7 @@ def _compute_aic_from_fc_transfers(
             n_qty_malformed, n_asin_unpriced,
         )
 
-    return _round(base_aic), _round(tva_aic)
+    return _round(base_aic), _round(tva_aic), n_qty_malformed, n_asin_unpriced
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +339,7 @@ def compute_ca3_lines_v2(
     _BASE_LINES = ("A1", "F2", "E1")
     _RATE_LINES = ("L08", "L09", "LT6", "L9B")
 
-    lines: Dict[str, Decimal] = {
+    lines: Dict[str, Any] = {
         "B2_base_ht":   Decimal("0.00"),   # AIC — base (cadre A, case B2)
         "L17_tva_aic":  Decimal("0.00"),   # AIC — mémo TVA (Ligne 17)
         "L18_tva_mc":   Decimal("0.00"),   # Mémo TVA sur opérations à destination de Monaco (Ligne 18, case 0038)
@@ -433,11 +445,14 @@ def compute_ca3_lines_v2(
     # la totalité de l'AIC est supposée au taux standard, donc additionnée
     # dans L08 (base + TVA), avec un mémo distinct en Ligne 17.
     if all_fc_transfers:
-        b, t = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country)
+        b, t, n_qty_malformed, n_asin_unpriced = _compute_aic_from_fc_transfers(all_fc_transfers, results, seller_country)
         lines["B2_base_ht"]  = b
         lines["L17_tva_aic"] = t
         lines["L08_base_ht"] += b
         lines["L08_tva_due"] += t
+        # Stocker les métriques de dégradation pour affichage dans le rapport
+        lines["aic_degradation_qty"] = n_qty_malformed
+        lines["aic_degradation_asin"] = n_asin_unpriced
         # NB affichage (rapport HTML uniquement, aucun impact sur le Cerfa) :
         # L08_base_ht/L08_tva_due incluent l'AIC ci-dessus, mais
         # L08_base_vente/L08_tva_due_vente n'en sont volontairement PAS
@@ -617,11 +632,24 @@ def generate_ca3_html_report_v2(
 
     AIC_BLOC = ""
     if has_aic:
+        # Récupérer les métriques de dégradation
+        aic_degradation_qty = lines.get("aic_degradation_qty", 0)
+        aic_degradation_asin = lines.get("aic_degradation_asin", 0)
+        
+        degradation_note = ""
+        if aic_degradation_qty > 0 or aic_degradation_asin > 0:
+            degradation_note = f"<br><br><strong>⚠️ {_("ca3_aic_degradation_warning")}</strong>"
+            if aic_degradation_qty > 0:
+                degradation_note += f"<br>{_("ca3_aic_degradation_qty", count=aic_degradation_qty)}"
+            if aic_degradation_asin > 0:
+                degradation_note += f"<br>{_("ca3_aic_degradation_asin", count=aic_degradation_asin)}"
+        
         AIC_BLOC = f"""
         <div class="aic-note">
             <strong>{_("ca3_aic_note_title")}</strong>
             {_("ca3_aic_note_text", country=seller_country)}
             {_("ca3_aic_note_warning")}
+            {degradation_note}
         </div>"""
 
     B2_ROW = ""

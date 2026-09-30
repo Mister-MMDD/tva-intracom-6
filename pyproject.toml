@@ -43,12 +43,12 @@ tva_intracom = ["data/*.csv", "i18n/*.toml"]
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"  # aligné sur runtime.txt (3.12.8) et la CI
 warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
-check_untyped_defs = false
+check_untyped_defs = true
 no_implicit_optional = false
 warn_redundant_casts = false
 warn_unused_ignores = false
@@ -84,3 +84,11 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "extra_streamlit_components.*"
 ignore_missing_imports = true
+
+# TEMPORAIRE (2026-09-28) : check_untyped_defs est activé globalement, mais ces
+# deux modules sont en cours de modification en parallèle et portent les 6
+# seules erreurs que ce contrôle révèle (billing.py : 1, telechargements.py : 5).
+# À supprimer dès que leurs correctifs de typage sont livrés.
+[[tool.mypy.overrides]]
+module = ["tva_intracom.billing", "tva_intracom.ui.tabs.telechargements"]
+check_untyped_defs = false

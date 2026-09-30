@@ -1,0 +1,76 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')",
+  "call.consume_pkce_verifier('NONCE123456789', 'recovery')",
+  "call.exchange_pkce('CODE', 'V-DB', redirect_uri='https://tva-intracom-ue.streamlit.app/?sb_provider=recovery&sb_nonce=NONCE123456789')",
+  "call.cm_get('tva_session_token')",
+  "call.consume_pkce_verifier('NONCE123456789', 'recovery')",
+  "call.exchange_pkce('CODE', 'V-DB', redirect_uri='https://tva-intracom-ue.streamlit.app/?sb_provider=recovery&sb_nonce=NONCE123456789')",
+  "call.cm_get('tva_session_token')",
+  "call.consume_pkce_verifier('NONCE123456789', 'recovery')",
+  "call.exchange_pkce('CODE', 'V-DB', redirect_uri='https://tva-intracom-ue.streamlit.app/?sb_provider=recovery&sb_nonce=NONCE123456789')",
+  "call.cm_get('tva_session_token')",
+  "call.consume_pkce_verifier('NONCE123456789', 'recovery')",
+  "call.exchange_pkce('CODE', 'V-DB', redirect_uri='https://tva-intracom-ue.streamlit.app/?sb_provider=recovery&sb_nonce=NONCE123456789')",
+  "call.update_password('ACCESS', 'pw1')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "body": "Réinitialisation du mot de passe",
+   "depth": 0,
+   "type": "subheader",
+   "value": "Réinitialisation du mot de passe"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "reset_new_password_input",
+   "label": "Nouveau mot de passe",
+   "type": "text_input",
+   "value": "pw1"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "reset_new_password_confirm_input",
+   "label": "Nouveau mot de passe",
+   "type": "text_input",
+   "value": "pw1"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "btn_update_password",
+   "label": "Mettre à jour le mot de passe",
+   "type": "button",
+   "value": true
+  },
+  {
+   "body": "Erreur lors de la mise à jour du mot de passe : boom",
+   "depth": 0,
+   "type": "error",
+   "value": "Erreur lors de la mise à jour du mot de passe : boom"
+  }
+ ],
+ "query_params_final": {
+  "code": [
+   "CODE"
+  ],
+  "sb_nonce": [
+   "NONCE123456789"
+  ],
+  "sb_provider": [
+   "recovery"
+  ]
+ },
+ "returned_context": null,
+ "session_keys": [
+  "auth_user",
+  "btn_update_password",
+  "manual_logout",
+  "reset_new_password_confirm_input",
+  "reset_new_password_input"
+ ],
+ "sidebar": []
+}

@@ -1,0 +1,37 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')",
+  "call.user_from_token('AT')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "body": "Erreur access_token : boom",
+   "depth": 0,
+   "type": "error",
+   "value": "Erreur access_token : boom"
+  },
+  {
+   "body": "Erreur OAuth (access_denied) : Denied",
+   "depth": 0,
+   "type": "error",
+   "value": "Erreur OAuth (access_denied) : Denied"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "clear_oauth_error",
+   "label": "Annuler",
+   "type": "button",
+   "value": false
+  }
+ ],
+ "query_params_final": {},
+ "returned_context": null,
+ "session_keys": [
+  "auth_user",
+  "clear_oauth_error",
+  "manual_logout"
+ ],
+ "sidebar": []
+}

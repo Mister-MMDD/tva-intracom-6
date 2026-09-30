@@ -1,0 +1,38 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "depth": 0,
+   "type": "iframe"
+  },
+  {
+   "body": "Bienvenue ! Cliquez sur le bouton ci-dessous pour finaliser votre connexion.",
+   "depth": 0,
+   "type": "info",
+   "value": "Bienvenue ! Cliquez sur le bouton ci-dessous pour finaliser votre connexion."
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "confirm_magic_link",
+   "label": "🚀 Confirmer la connexion",
+   "type": "button",
+   "value": false
+  }
+ ],
+ "query_params_final": {
+  "login_token": [
+   "MAGIC"
+  ]
+ },
+ "returned_context": null,
+ "session_keys": [
+  "auth_user",
+  "confirm_magic_link",
+  "manual_logout"
+ ],
+ "sidebar": []
+}

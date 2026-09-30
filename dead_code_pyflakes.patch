@@ -1,0 +1,115 @@
+diff --git a/README - evolution.md b/README - evolution.md
+index f14cb23..b1411bd 100644
+--- a/README - evolution.md	
++++ b/README - evolution.md	
+@@ -8621,3 +8621,19 @@ Fichiers modifiés : `tva_intracom/ca3_edi_export.py`, `tva_intracom/ui/tabs/tel
+ **3. Nouvelle baseline de tests** : **469 passed / 7 skipped / 0 failed** (environnement bac à sable, sans Postgres ni secrets configurés) au 2026-09-28. Elle remplace la baseline de mes notes de travail (383/26/27 au 2026-09-20), obsolète : 465 passed / 7 skipped relevés le matin du 2026-09-28 (entrée précédente) + 4 tests ajoutés par le lot EDI ci-dessus. L'écart avec 383/26/27 (26 échecs autrefois) n'a pas été investigué en tant que tel ; il coïncide avec des environnements différents (base/secrets absents, `ENCRYPTION_KEY`), mais je ne l'affirme pas comme cause établie. i18n : 1331 clés × 7 langues (la mention « 1171 clés » de mes notes était antérieure au nettoyage de septembre et aux ajouts suivants).
+ 
+ Fichiers modifiés : `README.md`, `README - evolution.md`.
++
++## 2026-09-30 — Code mort et variables inutilisées (pyflakes) : 4 fichiers traités
++
++**Contexte** : liste `pyflakes` fournie par Matthieu (sidebar, auth_flow, fec_export, classify). Le rapport Excel (figé) n'est pas concerné : il sera traité séparément.
++
++**1. `ui/sidebar.py`** : `_stripe_success_url` / `_stripe_cancel_url` commentées (reliquat du don libre, conservées pour réactivation). Cascade détectée par pyflakes après correction : `_creating_new_siren` (déjà utilisée uniquement dans un `st.warning` commenté) et la lecture DB « early » `_registered_sirens_early` / `_new_siren_label_early` sont commentées aussi ; `_registered_sirens` relit la même clé de cache `sirens_{org_id}` juste après, aucune donnée perdue et une lecture redondante en moins.
++
++**2. `ui/auth_flow.py`** : `_acct_plan_label` / `_acct_plan_css` (badge figé « Gratuit ») commentées, la logique d'origine de réactivation était déjà en commentaire.
++
++**3. `fec_export.py`** : `unused_results = results` remplacé par `del results` (l'argument est conservé dans la signature pour l'extension achats, comportement inchangé).
++
++**4. `parsers/amazon/classify.py`** : `_is_exception :=` (walrus jamais relu) retiré dans `apply_vat_exception` ; la condition `if is_vat_exception_territory(...)` est strictement équivalente. Intention du code vérifiée : la variable ne servait qu'à la condition.
++
++**Validation** : `py_compile` + `pyflakes` propres sur les 4 fichiers ; suite de tests : 469 passed / 7 skipped / 0 failed (inchangé).
++
++Fichiers modifiés : `tva_intracom/ui/sidebar.py`, `tva_intracom/ui/auth_flow.py`, `tva_intracom/fec_export.py`, `tva_intracom/parsers/amazon/classify.py`, `README - evolution.md`.
+diff --git a/tva_intracom/fec_export.py b/tva_intracom/fec_export.py
+index 825776a..8324059 100644
+--- a/tva_intracom/fec_export.py
++++ b/tva_intracom/fec_export.py
+@@ -136,7 +136,7 @@ def _journal_info_for(results: Iterable[VatResult]) -> tuple[str, str]:
+     Pour l'instant, ce module agrège des ventes Amazon -> 'VEN'.
+     L'argument 'results' est conservé pour une extension future aux achats.
+     """
+-    unused_results = results  # Utilisation future
++    del results  # Conservé dans la signature pour une extension future (achats)
+     code = "VEN"
+     lib = JOURNALS.get(code, _("fec_journal_sales"))
+     return code, lib
+diff --git a/tva_intracom/parsers/amazon/classify.py b/tva_intracom/parsers/amazon/classify.py
+index 2fa5583..809f8f6 100644
+--- a/tva_intracom/parsers/amazon/classify.py
++++ b/tva_intracom/parsers/amazon/classify.py
+@@ -244,7 +244,7 @@ def apply_vat_exception(arrival: str, postal_code: str) -> str:
+     "XX" est le code sentinelle → EXPORT dans engine.py.
+     Sinon retourne le pays d'arrivée inchangé.
+     """
+-    if _is_exception := is_vat_exception_territory(arrival, postal_code):
++    if is_vat_exception_territory(arrival, postal_code):
+         logger.debug(
+             "Territoire d'exception TVA détecté (pays=%s, CP=%s) → EXPORT.",
+             arrival, postal_code,
+diff --git a/tva_intracom/ui/auth_flow.py b/tva_intracom/ui/auth_flow.py
+index 6d463b9..0f93261 100644
+--- a/tva_intracom/ui/auth_flow.py
++++ b/tva_intracom/ui/auth_flow.py
+@@ -738,8 +738,9 @@ def run_auth_flow(cookie_manager: "stx.CookieManager") -> AuthContext:
+         # ce changement, alors qu'aucun abonnement ne peut plus être souscrit
+         # pour en sortir. Badge figé sur "Gratuit" pour tout le monde ;
+         # logique d'origine conservée en commentaire pour réactivation.
+-        _acct_plan_label = _("plan_free")
+-        _acct_plan_css = "plan-free"
++        # Badge figé sur "Gratuit" : variables non lues tant que le badge n'est pas réactivé.
++        # _acct_plan_label = _("plan_free")
++        # _acct_plan_css = "plan-free"
+         # try:
+         #     _acct_sub_status = _cached_db_read(
+         #         f"sub_status_{_current_user.org_id}",
+diff --git a/tva_intracom/ui/sidebar.py b/tva_intracom/ui/sidebar.py
+index a815d5f..f1ff837 100644
+--- a/tva_intracom/ui/sidebar.py
++++ b/tva_intracom/ui/sidebar.py
+@@ -584,8 +584,9 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
+ 
+     _current_user = auth_ctx.current_user
+     _vies_scope_id = auth_ctx.vies_scope_id
+-    _stripe_success_url = auth_ctx.stripe_success_url
+-    _stripe_cancel_url = auth_ctx.stripe_cancel_url
++    # Don libre : URLs Stripe success/cancel plus utilisées ici (conservées pour réactivation).
++    # _stripe_success_url = auth_ctx.stripe_success_url
++    # _stripe_cancel_url = auth_ctx.stripe_cancel_url
+ 
+     with st.sidebar:
+         st.header(_("options_header"))
+@@ -727,18 +728,20 @@ def render_sidebar(auth_ctx, *, pulse_target: str | None = None) -> SidebarResul
+             # le SIREN nouvellement créé juste après l'enregistrement (voir
+             # `_new_siren_form_fragment`), ce qui fait disparaître ce rappel
+             # dès le run suivant plutôt que de rester affiché indéfiniment.
+-            try:
+-                _registered_sirens_early = _cached_db_read(
+-                    f"sirens_{_current_user.org_id}",
+-                    lambda: tva_billing.list_registered_sirens(_current_user.org_id),
+-                )
+-            except Exception:
+-                _registered_sirens_early = []
+-            _new_siren_label_early = _("new_siren_option")
+-            _creating_new_siren = (
+-                not _registered_sirens_early
+-                or st.session_state.get("siren_select_box") == _new_siren_label_early
+-            )
++            # (Lecture "early" désactivée avec l'avertissement ci-dessous : plus lue,
++            # et `_registered_sirens` relit la même clé de cache juste après.)
++            # try:
++            #     _registered_sirens_early = _cached_db_read(
++            #         f"sirens_{_current_user.org_id}",
++            #         lambda: tva_billing.list_registered_sirens(_current_user.org_id),
++            #     )
++            # except Exception:
++            #     _registered_sirens_early = []
++            # _new_siren_label_early = _("new_siren_option")
++            # _creating_new_siren = (
++            #     not _registered_sirens_early
++            #     or st.session_state.get("siren_select_box") == _new_siren_label_early
++            # )
+             # if _creating_new_siren:
+             #     st.warning(_("fiscal_fields_lock_warning_new"))
+ 

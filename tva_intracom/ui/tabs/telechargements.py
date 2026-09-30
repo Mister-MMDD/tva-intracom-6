@@ -12,11 +12,14 @@ intentionnelle entre onglets.
 from __future__ import annotations
 
 import gc
+import logging
 import os
 import tempfile
 from decimal import Decimal
 
 import streamlit as st
+
+logger = logging.getLogger(__name__)
 
 from tva_intracom.ca3_report import generate_ca3_html_report_v2
 from tva_intracom.ca3_edi_export import (
@@ -49,6 +52,7 @@ from tva_intracom.rates_evidence_pdf import generate_rates_evidence_pdf
 from tva_intracom.ui.formatting import _fec_period_end_date, _fmt
 from tva_intracom.ui.tabs.context import TabContext
 from tva_intracom.ui.display_mode import is_detailed
+from tva_intracom.parsers.amazon.detect import detect_format3_grouped_risk
 
 
 @st.fragment
@@ -191,6 +195,33 @@ def render_telechargements() -> None:
         st.info(_("gate_payment_pending_info"))
     elif not _can_export and not _billing_ok and period_label:
         st.warning(_("period_gated_warning", period=period_label, suffix=_unlock_label_suffix))
+
+    # Warning Format Amazon 3 (ventes groupées)
+    if ctx.amazon_format == 3 and ctx.all_sales:
+        try:
+            # Échantillon de 1000 lignes pour la détection
+            sample_size = min(1000, len(ctx.all_sales))
+            sample = ctx.all_sales[:sample_size]
+            
+            # Convertir les objets Sale en dict pour la détection
+            sample_dicts = []
+            for sale in sample:
+                sale_dict = {
+                    "order_id": getattr(sale, "sale_id", ""),
+                    "total_activity_value_amt_vat_excl": str(getattr(sale, "amount_ht", "0"))
+                }
+                sample_dicts.append(sale_dict)
+            
+            if detect_format3_grouped_risk(sample_dicts):
+                st.warning(
+                    "⚠️ **Format Amazon 3 avec ventes groupées détecté** : Ce format ne contient pas de colonne quantité. "
+                    "Le calcul de l'AIC peut être surévalué car les quantités sont forcées à 1. "
+                    "Considérez la migration vers le Format 4 ou 5 dans Amazon Seller Central. "
+                    "Voir [la documentation](docs/FORMAT_AMAZON_MIGRATION.md) pour plus d'informations."
+                )
+        except Exception as e:
+            # Erreur silencieuse pour ne pas bloquer l'interface
+            logger.warning(f"Erreur lors de la détection Format 3 : {e}")
 
     st.subheader(_("tab_downloads"))
     with st.container():

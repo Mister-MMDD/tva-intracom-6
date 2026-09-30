@@ -1,0 +1,210 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')",
+  "call.save_pkce_verifier('NONCE-FIXED-0123456789ABCDEF', 'google', 'VERIFIER-FIXED')",
+  "call.save_pkce_verifier('NONCE-FIXED-0123456789ABCDEF', 'github', 'VERIFIER-FIXED')",
+  "call.save_pkce_verifier('NONCE-FIXED-0123456789ABCDEF', 'cognito', 'VERIFIER-FIXED')",
+  "call.cm_get('tva_session_token')",
+  "call.cm_get('tva_session_token')",
+  "call.cm_get('tva_session_token')",
+  "call.sign_in('user@example.com', 'secret')",
+  "call.get_or_create_user('user@example.com')",
+  "call.cm_get('tva_session_token')",
+  "call.cm_get('tva_session_token')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "depth": 0,
+   "type": "iframe"
+  },
+  {
+   "body": "Connectez-vous pour utiliser le moteur de TVA.",
+   "depth": 0,
+   "type": "info",
+   "value": "Connectez-vous pour utiliser le moteur de TVA."
+  },
+  {
+   "body": "[Site Web](https://www.tvacalculator.eu/)",
+   "depth": 0,
+   "type": "caption",
+   "value": "[Site Web](https://www.tvacalculator.eu/)"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "login_email_input",
+   "label": "Adresse e-mail",
+   "type": "text_input",
+   "value": "autre@example.com"
+  },
+  {
+   "depth": 0,
+   "label": null,
+   "type": "BLOCK:tab_container"
+  },
+  {
+   "depth": 1,
+   "label": "Se connecter",
+   "type": "BLOCK:tab"
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "login_password_input",
+   "label": "Mot de passe",
+   "type": "text_input",
+   "value": "secret"
+  },
+  {
+   "depth": 2,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "disabled": false,
+   "key": "btn_password_signin",
+   "label": "Se connecter",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "disabled": false,
+   "key": "btn_password_signup",
+   "label": "Créer un compte",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 2,
+   "label": "Mot de passe oublié ?",
+   "type": "BLOCK:expander"
+  },
+  {
+   "body": "Saisissez votre e-mail pour recevoir un lien de réinitialisation.",
+   "depth": 3,
+   "type": "caption",
+   "value": "Saisissez votre e-mail pour recevoir un lien de réinitialisation."
+  },
+  {
+   "depth": 3,
+   "disabled": false,
+   "key": "reset_password_email_input",
+   "label": "Adresse e-mail",
+   "type": "text_input",
+   "value": ""
+  },
+  {
+   "depth": 3,
+   "disabled": false,
+   "key": "btn_send_reset_password",
+   "label": "Mot de passe oublié ?",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 1,
+   "label": "Recevoir un lien de connexion",
+   "type": "BLOCK:tab"
+  },
+  {
+   "body": "Lien magique par e-mail (en préparation)",
+   "depth": 2,
+   "type": "caption",
+   "value": "Lien magique par e-mail (en préparation)"
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "btn_send_magic_link",
+   "label": "Recevoir un lien de connexion",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "— ou continuer avec —",
+   "depth": 0,
+   "type": "caption",
+   "value": "— ou continuer avec —"
+  },
+  {
+   "depth": 0,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "oauth_btn_google",
+   "label": "Google",
+   "type": "link_button",
+   "value": "Google"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "oauth_btn_github",
+   "label": "GitHub",
+   "type": "link_button",
+   "value": "GitHub"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "oauth_btn_cognito",
+   "label": "Amazon",
+   "type": "link_button",
+   "value": "Amazon"
+  },
+  {
+   "body": "<style>\n.st-key-oauth_btn_google a[data-testid^=\"stBaseLinkButton\"] {\n    background-color: #FFFFFF !important;\n    color: #3C4043 !important;\n    border: 1px solid #dadce0 !important;\n    background-image: url('https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/google/google-original.svg');\n    background-repeat: no-repeat;\n    background-position: 14px center;\n    background-size: 18px 18px;\n    padding-left: 38px !important;\n}\n.st-key-oauth_btn_google a[data-testid^=\"stBaseLinkButton\"] p { color: #3C4043 !important; }\n.st-key-oauth_btn_github a[data-testid^=\"stBaseLinkButton\"] {\n    background-color: #24292E !important;\n    color: #FFFFFF !important;\n    border: 1px solid #24292E !important;\n    background-image: url('https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/github/github-original.svg');\n    background-repeat: no-repeat;\n    background-position: 14px center;\n    background-size: 18px 18px;\n    padding-left: 38px !important;\n}\n.st-key-oauth_btn_github a[data-testid^=\"stBaseLinkButton\"] p { color: #FFFFFF !important; }\n.st-key-oauth_btn_cognito a[data-testid^=\"stBaseLinkButton\"] {\n    background-color: #FF9900 !important;\n    color: #000000 !important;\n    border: 1px solid #FF9900 !important;\n    background-image: url('https://upload.wikimedia.org/wikipedia/commons/4/4a/Amazon_icon.svg');\n    background-repeat: no-repeat;\n    background-position: 14px center;\n    background-size: 18px 18px;\n    padding-left: 38px !important;\n}\n.st-key-oauth_btn_cognito a[data-testid^=\"stBaseLinkButton\"] p { color: #000000 !important; }\n</style>",
+   "depth": 0,
+   "type": "markdown",
+   "value": "<style>\n.st-key-oauth_btn_google a[data-testid^=\"stBaseLinkButton\"] {\n    background-color: #FFFFFF !important;\n    color: #3C4043 !important;\n    border: 1px solid #dadce0 !important;\n    background-image: url('https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/google/google-original.svg');\n    background-repeat: no-repeat;\n    background-position: 14px center;\n    background-size: 18px 18px;\n    padding-left: 38px !important;\n}\n.st-key-oauth_btn_google a[data-testid^=\"stBaseLinkButton\"] p { color: #3C4043 !important; }\n.st-key-oauth_btn_github a[data-testid^=\"stBaseLinkButton\"] {\n    background-color: #24292E !important;\n    color: #FFFFFF !important;\n    border: 1px solid #24292E !important;\n    background-image: url('https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/github/github-original.svg');\n    background-repeat: no-repeat;\n    background-position: 14px center;\n    background-size: 18px 18px;\n    padding-left: 38px !important;\n}\n.st-key-oauth_btn_github a[data-testid^=\"stBaseLinkButton\"] p { color: #FFFFFF !important; }\n.st-key-oauth_btn_cognito a[data-testid^=\"stBaseLinkButton\"] {\n    background-color: #FF9900 !important;\n    color: #000000 !important;\n    border: 1px solid #FF9900 !important;\n    background-image: url('https://upload.wikimedia.org/wikipedia/commons/4/4a/Amazon_icon.svg');\n    background-repeat: no-repeat;\n    background-position: 14px center;\n    background-size: 18px 18px;\n    padding-left: 38px !important;\n}\n.st-key-oauth_btn_cognito a[data-testid^=\"stBaseLinkButton\"] p { color: #000000 !important; }\n</style>"
+  }
+ ],
+ "query_params_final": {},
+ "returned_context": null,
+ "session_keys": [
+  "_sb_pkce_cognito",
+  "_sb_pkce_github",
+  "_sb_pkce_google",
+  "auth_user",
+  "btn_password_signin",
+  "btn_password_signup",
+  "btn_send_magic_link",
+  "btn_send_reset_password",
+  "login_email_input",
+  "login_password_input",
+  "manual_logout",
+  "reset_password_email_input"
+ ],
+ "sidebar": []
+}

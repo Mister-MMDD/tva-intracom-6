@@ -1,0 +1,65 @@
+{
+ "calls": [
+  "call.cm_get('tva_session_token')",
+  "call.cm_get('tva_session_token')",
+  "call.cm_get('tva_session_token')",
+  "call.get_or_create_user('dev@example.com')",
+  "call.cm_get('tva_session_token')"
+ ],
+ "exceptions": [],
+ "main": [
+  {
+   "depth": 0,
+   "type": "iframe"
+  },
+  {
+   "body": "not-allowed",
+   "depth": 0,
+   "type": "error",
+   "value": "not-allowed"
+  },
+  {
+   "body": "Connectez-vous pour utiliser le moteur de TVA.",
+   "depth": 0,
+   "type": "info",
+   "value": "Connectez-vous pour utiliser le moteur de TVA."
+  },
+  {
+   "body": "[Site Web](https://www.tvacalculator.eu/)",
+   "depth": 0,
+   "type": "caption",
+   "value": "[Site Web](https://www.tvacalculator.eu/)"
+  },
+  {
+   "body": "Mode développement local — connexion directe, sans envoi de mail.",
+   "depth": 0,
+   "type": "warning",
+   "value": "Mode développement local — connexion directe, sans envoi de mail."
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "dev_login_email_input",
+   "label": "Adresse e-mail (n'importe laquelle, pour test)",
+   "type": "text_input",
+   "value": "dev@example.com"
+  },
+  {
+   "depth": 0,
+   "disabled": false,
+   "key": "btn_dev_login",
+   "label": "Se connecter (dev)",
+   "type": "button",
+   "value": false
+  }
+ ],
+ "query_params_final": {},
+ "returned_context": null,
+ "session_keys": [
+  "auth_user",
+  "btn_dev_login",
+  "dev_login_email_input",
+  "manual_logout"
+ ],
+ "sidebar": []
+}

@@ -138,3 +138,48 @@ def parse_date(date_str: str | None) -> str:
             except ValueError:
                 pass
     return s  # déjà YYYY-MM-DD ou format inconnu
+
+
+def detect_format3_grouped_risk(data_sample: list[dict]) -> bool:
+    """Détecte si un fichier Format 3 contient potentiellement des ventes groupées.
+
+    Heuristique : si plusieurs lignes partagent le même order_id mais ont des
+    amount_ht différents, cela suggère des articles groupés (quantité > 1)
+    représentés comme une seule ligne avec montant total.
+
+    Args:
+        data_sample: Échantillon de données du fichier (liste de dict)
+
+    Returns:
+        True si risque détecté, False sinon
+    """
+    if not data_sample:
+        return False
+
+    # Grouper par order_id
+    order_amounts = {}
+    for row in data_sample:
+        order_id = row.get("order_id", "").strip()
+        amount_key = "total_activity_value_amt_vat_excl"
+        amount = row.get(amount_key, "0")
+        
+        if order_id and amount:
+            try:
+                amount_float = float(amount)
+                if order_id not in order_amounts:
+                    order_amounts[order_id] = set()
+                order_amounts[order_id].add(amount_float)
+            except (ValueError, TypeError):
+                continue
+
+    # Détecter si un order_id a des montants différents
+    for order_id, amounts in order_amounts.items():
+        if len(amounts) > 1:
+            logger.warning(
+                "Format 3 : détection de ventes groupées potentielles pour order_id=%s "
+                "(montants différents : %s). Le calcul de l'AIC peut être surévalué.",
+                order_id, sorted(amounts)
+            )
+            return True
+
+    return False

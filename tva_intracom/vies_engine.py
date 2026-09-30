@@ -1604,7 +1604,11 @@ def normalize_full_vat(buyer_vat: str, buyer_country: str) -> str:
 # ---------------------------------------------------------------------------
 
 def check_vat(country_code: str, vat_number: str, timeout: int = DEFAULT_TIMEOUT) -> ViesResult:
-    """Interroge l'API REST officielle de la Commission Européenne pour un numéro."""
+    """Vérifie un numéro de TVA via l'API VIES.
+    
+    Returns:
+        ViesResult avec statut valid/invalid et détails.
+    """
     payload = {
         "countryCode": country_code.upper(),
         "vatNumber": vat_number.upper()
@@ -2048,18 +2052,10 @@ def validate_vat_numbers(
 # ---------------------------------------------------------------------------
 
 def purge_expired_cache(scope_id: str, acting_user_id: str | None = None) -> int:
-    """Purge manuellement les entrées expirées DU SCOPE COURANT.
-
-    N'affecte jamais le cache global mutualisé — voir
-    purge_expired_global_cache() pour une purge administrative globale.
-
-    RÔLES (2026-08-26) : `acting_user_id` optionnel (défaut None,
-    rétrocompatible), même pattern que `set_cache_ttl()` ci-dessus. Repéré
-    lors de l'audit systématique "tous les blocages UI ont-ils un
-    verrouillage serveur ?" : seul le gating UI protégeait cette action
-    jusqu'ici (impact réel limité — ne supprime que des entrées déjà
-    expirées, sans risque fiscal — mais ajouté par cohérence avec le reste
-    des réglages partagés par l'organisation).
+    """Purge manuellement les entrées expirées du scope courant.
+    
+    Returns:
+        Nombre d'entrées supprimées.
     """
     if acting_user_id is not None:
         from .auth import get_user_by_id, is_admin
