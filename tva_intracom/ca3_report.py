@@ -633,17 +633,20 @@ def generate_ca3_html_report_v2(
     AIC_BLOC = ""
     if has_aic:
         # Récupérer les métriques de dégradation
-        aic_degradation_qty = lines.get("aic_degradation_qty", 0)
-        aic_degradation_asin = lines.get("aic_degradation_asin", 0)
-        
+        aic_degradation_qty = int(lines.get("aic_degradation_qty", 0) or 0)
+        aic_degradation_asin = int(lines.get("aic_degradation_asin", 0) or 0)
+
         degradation_note = ""
         if aic_degradation_qty > 0 or aic_degradation_asin > 0:
-            degradation_note = f"<br><br><strong>⚠️ {_("ca3_aic_degradation_warning")}</strong>"
+            _deg_title = _("ca3_aic_degradation_warning")
+            degradation_note = f"<br><br><strong>⚠️ {html.escape(_deg_title)}</strong>"
             if aic_degradation_qty > 0:
-                degradation_note += f"<br>{_("ca3_aic_degradation_qty", count=aic_degradation_qty)}"
+                _deg_qty = _("ca3_aic_degradation_qty", count=aic_degradation_qty)
+                degradation_note += f"<br>{html.escape(_deg_qty)}"
             if aic_degradation_asin > 0:
-                degradation_note += f"<br>{_("ca3_aic_degradation_asin", count=aic_degradation_asin)}"
-        
+                _deg_asin = _("ca3_aic_degradation_asin", count=aic_degradation_asin)
+                degradation_note += f"<br>{html.escape(_deg_asin)}"
+
         AIC_BLOC = f"""
         <div class="aic-note">
             <strong>{_("ca3_aic_note_title")}</strong>

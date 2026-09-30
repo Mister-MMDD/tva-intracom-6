@@ -199,29 +199,18 @@ def render_telechargements() -> None:
     # Warning Format Amazon 3 (ventes groupées)
     if ctx.amazon_format == 3 and ctx.all_sales:
         try:
-            # Échantillon de 1000 lignes pour la détection
-            sample_size = min(1000, len(ctx.all_sales))
-            sample = ctx.all_sales[:sample_size]
-            
-            # Convertir les objets Sale en dict pour la détection
-            sample_dicts = []
-            for sale in sample:
-                sale_dict = {
-                    "order_id": getattr(sale, "sale_id", ""),
-                    "total_activity_value_amt_vat_excl": str(getattr(sale, "amount_ht", "0"))
+            sample_dicts = [
+                {
+                    "asin": getattr(sale, "asin", "") or "",
+                    "total_activity_value_amt_vat_excl": str(getattr(sale, "amount_ht", "0")),
                 }
-                sample_dicts.append(sale_dict)
-            
+                for sale in ctx.all_sales
+            ]
             if detect_format3_grouped_risk(sample_dicts):
-                st.warning(
-                    "⚠️ **Format Amazon 3 avec ventes groupées détecté** : Ce format ne contient pas de colonne quantité. "
-                    "Le calcul de l'AIC peut être surévalué car les quantités sont forcées à 1. "
-                    "Considérez la migration vers le Format 4 ou 5 dans Amazon Seller Central. "
-                    "Voir [la documentation](docs/FORMAT_AMAZON_MIGRATION.md) pour plus d'informations."
-                )
+                st.warning(_("amazon_format3_grouped_warning"))
         except Exception as e:
             # Erreur silencieuse pour ne pas bloquer l'interface
-            logger.warning(f"Erreur lors de la détection Format 3 : {e}")
+            logger.warning("Erreur lors de la détection Format 3 : %s", e)
 
     st.subheader(_("tab_downloads"))
     with st.container():

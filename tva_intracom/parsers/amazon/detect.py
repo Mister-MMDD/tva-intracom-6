@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import logging
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 
@@ -140,46 +141,64 @@ def parse_date(date_str: str | None) -> str:
     return s  # déjà YYYY-MM-DD ou format inconnu
 
 
-def detect_format3_grouped_risk(data_sample: list[dict]) -> bool:
-    """Détecte si un fichier Format 3 contient potentiellement des ventes groupées.
+def detect_format3_grouped_risk(data_sample: list[dict], min_multiple: int = 2,
+                                max_multiple: int = 20, rel_tol: float = 0.005) -> bool:
+    """Détecte un risque de ventes groupées (quantité > 1) dans un fichier Format 3.
 
-    Heuristique : si plusieurs lignes partagent le même order_id mais ont des
-    amount_ht différents, cela suggère des articles groupés (quantité > 1)
-    représentés comme une seule ligne avec montant total.
+    Le Format 3 n'a pas de colonne quantité : `_Format3Parser.qty()` force 1.
+    Une ligne représentant N unités apparaît donc comme UNE unité au prix N × p.
+
+    Heuristique (par ASIN) : on prend le plus petit montant HT positif observé
+    comme prix unitaire de référence ; si un autre montant du même ASIN en est
+    un multiple entier (2..max_multiple, tolérance relative `rel_tol`), la
+    ligne est probablement groupée. Un simple order_id partagé par plusieurs
+    lignes de montants différents NE suffit PAS : c'est le cas normal d'une
+    commande multi-articles (faux positif de l'ancienne heuristique).
 
     Args:
-        data_sample: Échantillon de données du fichier (liste de dict)
+        data_sample: liste de dict avec au minimum les clés ``asin`` et
+            ``total_activity_value_amt_vat_excl`` (montant HT, str/nombre/None).
+            Les lignes sans ASIN ou sans montant exploitable sont ignorées.
 
     Returns:
-        True si risque détecté, False sinon
+        True si au moins un ASIN présente un montant multiple du prix unitaire.
     """
     if not data_sample:
         return False
 
-    # Grouper par order_id
-    order_amounts: dict[str, set[float]] = {}
+    amount_key = "total_activity_value_amt_vat_excl"
+    by_asin: dict[str, set[Decimal]] = {}
     for row in data_sample:
-        order_id = row.get("order_id", "").strip()
-        amount_key = "total_activity_value_amt_vat_excl"
-        amount = row.get(amount_key, "0")
-        
-        if order_id and amount:
-            try:
-                amount_float = float(amount)
-                if order_id not in order_amounts:
-                    order_amounts[order_id] = set()
-                order_amounts[order_id].add(amount_float)
-            except (ValueError, TypeError):
-                continue
+        asin = str(row.get("asin") or "").strip().upper()
+        if not asin:
+            continue
+        raw = row.get(amount_key)
+        if raw is None or raw == "":
+            continue
+        try:
+            amount = abs(Decimal(str(raw).strip().replace(",", ".")))
+        except (InvalidOperation, ValueError, TypeError):
+            continue
+        if amount > 0:
+            by_asin.setdefault(asin, set()).add(amount)
 
-    # Détecter si un order_id a des montants différents
-    for order_id, amounts in order_amounts.items():
-        if len(amounts) > 1:
-            logger.warning(
-                "Format 3 : détection de ventes groupées potentielles pour order_id=%s "
-                "(montants différents : %s). Le calcul de l'AIC peut être surévalué.",
-                order_id, sorted(amounts)
-            )
-            return True
+    tol = Decimal(str(rel_tol))
+    for asin, amounts in by_asin.items():
+        if len(amounts) < 2:
+            continue
+        unit = min(amounts)
+        for amount in amounts:
+            if amount == unit:
+                continue
+            ratio = amount / unit
+            k = int(ratio.to_integral_value(rounding=ROUND_HALF_UP))
+            if min_multiple <= k <= max_multiple and abs(amount - unit * k) <= unit * k * tol:
+                logger.warning(
+                    "Format 3 : ventes groupées potentielles pour ASIN=%s "
+                    "(montant %s ≈ %d × prix unitaire %s). Le calcul de l'AIC peut être "
+                    "sur- ou sous-évalué (quantité forcée à 1).",
+                    asin, amount, k, unit,
+                )
+                return True
 
     return False

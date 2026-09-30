@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import tempfile
 import gzip
 import logging
-from typing import Optional, Callable
+from typing import Optional, Callable, TYPE_CHECKING
 from decimal import Decimal
 from datetime import datetime
 
@@ -68,6 +68,10 @@ from tva_intracom.ui.onboarding import (
 )
 from tva_intracom.ui.glossary import render_glossary_dialog
 from tva_intracom.ui.import_warnings import warning_to_table_row
+
+if TYPE_CHECKING:
+    from tva_intracom.parsers import ParseResult
+    from tva_intracom.parsers.amazon.loader import AmazonImportResult
 
 _ZERO = Decimal("0.00")
 
@@ -520,7 +524,7 @@ if uploaded_files:
 elif _preserve_upload_this_run and st.session_state.get("_last_uploaded_files_bytes"):
     st.session_state["_had_uploaded_files"] = True
     uploaded_files = [
-        _CachedUploadedFile(_name, _compressed, _size, _hash)
+        _CachedUploadedFile(_name, _compressed, _size, _hash)  # type: ignore[misc]  # duck-typing volontaire de UploadedFile
         for (_name, _size, _hash), _compressed in st.session_state["_last_uploaded_files_bytes"].items()
     ]
 else:
@@ -696,8 +700,10 @@ if uploaded_files:
             Plage de progression : 0.0-0.4 parsing, 0.4-1.0 VIES/OSS (même
             répartition d'esprit que _run_full_calc plus bas dans ce fichier)."""
             _p_all_sales, _p_all_refunds, _p_all_fc_transfers = [], [], []
-            _p_all_invoice_credit_notes = []
-            _p_all_stock_countries, _p_all_warnings, _p_all_platforms = set(), [], []
+            _p_all_invoice_credit_notes: list = []
+            _p_all_stock_countries: set[str] = set()
+            _p_all_warnings: list[str] = []
+            _p_all_platforms: list[str] = []
             _p_all_account_identifiers: set = set()
             _p_total_rows_sum = _p_skipped_rows_sum = 0
             _p_file_summaries, _p_parse_results = [], []
@@ -938,7 +944,7 @@ if uploaded_files:
         # Identifiants de compte Amazon (UNIQUE_ACCOUNT_IDENTIFIER) rencontrés dans
         # les fichiers importés — utilisés pour le gating anti-abus SIREN
         # (voir tva_intracom/ui/billing_gate.py). Vide pour les autres plateformes.
-        all_account_identifiers: set = set()
+        all_account_identifiers = set()
         total_rows_sum = skipped_rows_sum = 0
         file_summaries, tmp_paths, _parse_results = [], [], []
         _amazon_format = 0
@@ -953,7 +959,7 @@ if uploaded_files:
                 tmp_path = Path(tmp.name)
             tmp_paths.append(tmp_path)
             try:
-                parse_result = None
+                parse_result: ParseResult | AmazonImportResult | None = None
                 if "Amazon" in file_format:
                     _progress_label = (
                         _("analysis_progress", name=uploaded_file.name)
@@ -1105,7 +1111,7 @@ if uploaded_files:
                     hide_index=True,
                 )
 
-    all_period_mismatches = []
+    all_period_mismatches: list[dict] = []
     for pr in _parse_results:
         all_period_mismatches.extend(getattr(pr, "period_mismatches", []))
     if all_period_mismatches and _is_detailed:
@@ -1357,7 +1363,7 @@ if uploaded_files:
                 preserve_upload_rerun()
 
         # Segmentation écarts pour KPI
-        _vies_ids_kpi     = getattr(vies_summary, 'vies_affected_sale_ids', set()) if vies_summary else set()
+        _vies_ids_kpi: set[str] = getattr(vies_summary, 'vies_affected_sale_ids', set()) if vies_summary else set()
         _vies_rc_ids_kpi:  set[str] = set()
         _dom_rc_ids_kpi:   set[str] = set()
         if vies_summary and hasattr(vies_summary, "reclassifications"):
@@ -1486,7 +1492,7 @@ if uploaded_files:
 
                     render_historical_rates_alert(results, calc_key=_cache_key)
 
-                    _fx_records = []
+                    _fx_records: list = []
                     if convert_fx and _fx_currencies_used:
                         _vat_records, _fx_records = extract_rates_evidence_records(results, period_label)
                     _daily_type = str(_("rates_evidence_daily"))
@@ -1559,7 +1565,7 @@ if uploaded_files:
                        } - set(countries_with_vat)
         unregistered_local = pay_eu - set(countries_with_vat)
 
-        registration_needed = {}
+        registration_needed: dict[str, dict[str, bool]] = {}
         for c in unregistered:
             if c: registration_needed.setdefault(c, {"stock": False, "sales": False, "ddp": False})["stock"] = True
         for c in unregistered_local:

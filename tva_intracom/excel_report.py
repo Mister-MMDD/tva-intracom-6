@@ -2331,10 +2331,14 @@ def export_xlsx(
         display_currency: str | None = None,
         invoice_credit_notes: list | None = None,
 ) -> Path:
-    """Génère le fichier Excel complet avec tous les onglets.
-    
-    Returns:
-        Path du fichier généré.
+    """Genere le fichier Excel complet avec tous les onglets.
+
+    Args:
+        scope_id: portée de cache VIES du compte appelant (voir
+                  vies.resolve_scope_id) — transmise à l'onglet Historique
+                  VIES pour n'afficher que les vérifications de ce compte.
+        display_currency: devise d'affichage choisie pour le rapport (ex: PLN).
+                          Si None, utilise la devise du pays d'origine.
     """
 
     if summary is None:

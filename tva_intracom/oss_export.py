@@ -163,10 +163,52 @@ def convert_ht_tva_for_oss_period(res: VatResult, period: str) -> tuple[Decimal,
 
 
 def aggregate_oss_results(results: list[VatResult], period: str = "") -> OssAggType:
-    """Agrège les résultats OSS par pays de destination et taux de TVA.
-    
-    Returns:
-        Dictionnaire structuré: départ→arrivée→taux→{ht, tva, nb}.
+    """Agrège les VatResult OSS_B2C par pays de départ puis pays d'arrivée.
+
+    ⚠️ CORRECTIF 2026-08-09 : ne traite PLUS Scenario.IOSS_DIRECT (voir
+    aggregate_ioss_results() ci-dessous, ajoutée séparément). OSS et IOSS
+    sont deux régimes distincts avec des périodicités différentes
+    (trimestrielle pour l'OSS, mensuelle pour l'IOSS — art. 369a-k vs.
+    art. 369l-x dir. 2006/112/CE) et des numéros d'identification distincts.
+    Les mélanger dans une même agrégation produisait un double problème :
+    un total OSS trimestriel incluant à tort des montants IOSS mensuels
+    dans l'Excel/CSV URSSAF, ET une disparition SILENCIEUSE des montants
+    IOSS dans le XML officiel (oss_xml.py filtre les pays de départ hors UE,
+    qui est systématiquement le cas pour l'IOSS — import depuis un pays
+    tiers). Voir aggregate_ioss_results() + build_ioss_excel/build_ioss_csv
+    pour l'export IOSS désormais séparé.
+
+    Structure retournée (utilisée par oss_xml.py pour le XML officiel et
+    par oss_export.py pour l'Excel/CSV URSSAF) :
+
+        {
+          "FR": {
+            "DE": {
+              Decimal("19"): {
+                  "ht": Decimal(...), "tva": Decimal(...),        # net (vente+avoir)
+                  "ht_vente": Decimal(...), "tva_vente": Decimal(...),   # ventes seules (brut)
+                  "ht_remb":  Decimal(...), "tva_remb":  Decimal(...),   # avoirs seuls (négatif)
+                  "nb": int,
+              },
+              ...
+            },
+          },
+          "DE": { ... },
+        }
+
+    Les clés "ht"/"tva" (net) sont historiques — c'est ce que consomme
+    oss_xml.py et find_oss_negative_buckets(). Les clés "*_vente"/"*_remb"
+    sont ajoutées pour permettre un affichage brut/avoir/net séparé
+    (OSS_Résumé) sans changer le comportement du XML officiel.
+
+    Args:
+        period: période OSS déclarée (ex: "2026-Q1"). Si fournie et reconnue,
+            les ventes/avoirs en devise étrangère sont reconvertis en EUR au
+            taux BCE du DERNIER JOUR de cette période (Règl. UE 2020/194,
+            art. 5 bis) au lieu du taux du jour de la vente déjà figé sur
+            `sale.amount_ht` lors de l'import. Si `period` est vide ou non
+            reconnu, on retombe sur `sale.amount_ht`/`res.vat_amount` tels
+            quels (comportement historique).
     """
     return _aggregate_by_scenario(results, period, scenarios=(Scenario.OSS_B2C,))
 
@@ -1314,21 +1356,22 @@ def _fmt_dec(value: Optional[Decimal]) -> str:
 
 
 def build_oss_excel(
-        results: List[VatResult],
-        output_path: str | Path,
-        period: str = "",
-        seller_country: str = "FR",
-        display_currency: str = "EUR",
-        data: "OssExportData | None" = None,
+    results: List[VatResult],
+    output_path: str | Path,
+    period: str = "",
+    data: "OssExportData | None" = None,
 ) -> Path:
-    """Génère le fichier Excel OSS avec les onglets résumé et détail.
-    
+    """Génère le fichier Excel multi-onglets OSS uniquement.
+
     Args:
-        results: Liste des résultats TVA filtrés pour OSS.
-        output_path: Chemin du fichier Excel à créer.
-        period: Période fiscale (ex: "2024-T1").
-        seller_country: Pays du vendeur.
-        display_currency: Devise d'affichage.
+        results: liste de VatResult issus du moteur.
+        output_path: chemin de sortie du fichier .xlsx.
+        period: libellé de la période (ex: "2024-T1", "Mars 2024").
+        data: OssExportData déjà agrégé (évite un recalcul si l'appelant l'a
+              déjà — voir build_oss_export). Si omis, agrège `results` ici.
+
+    Returns:
+        Path du fichier généré.
     """
     if data is None:
         data = _aggregate(results, period=period)
