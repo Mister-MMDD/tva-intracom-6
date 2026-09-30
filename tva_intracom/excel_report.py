@@ -1773,8 +1773,6 @@ def _write_section_group_row(ws, month_start_col: int, n_months: int, total_star
     if n_months:
         first, last = month_start_col, month_start_col + n_months - 1
         for col in range(first, last + 1):
-            # On utilise i18n_ (aliasé ci-dessous) pour éviter le shadowing par _ dans les boucles
-            from .i18n import _ as i18n_
             c = _wcell(ws, i18n_("xl_monthly_section_label") if col == first else None,
                        font=_HEADER_FONT_WHITE, fill=fill,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -1782,7 +1780,6 @@ def _write_section_group_row(ws, month_start_col: int, n_months: int, total_star
 
     first, last = total_start_col, total_start_col + n_total_cols - 1
     for col in range(first, last + 1):
-        from .i18n import _ as i18n_
         c = _wcell(ws, i18n_("xl_period_section_label") if col == first else None,
                    font=_HEADER_FONT_WHITE, fill=fill,
                    alignment=Alignment(horizontal="center", vertical="center"))
@@ -1897,11 +1894,9 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
         else:
             brut   = summary.oss_by_country.get(country, _z)
             refund = summary.refund_oss_by_country.get(country, _z) if getattr(summary, "refund_oss_by_country", None) else _z
-        net    = brut + refund  # noqa: F841 (conservé pour parité de lecture avec l'original)
+        net = brut + refund
 
         month_values = by_country_month.get(country, {})
-        col_brut, col_ref = total_start_col, total_start_col + 1
-        letter_brut, letter_ref = get_column_letter(col_brut), get_column_letter(col_ref)
 
         _row_cells = [_wcell(ws, _get_country_name(country)), _wcell(ws, country)]
         for m in months:
@@ -1910,14 +1905,12 @@ def _write_oss_tab(ws, summary: ReportSummary, display_currency: str = "EUR",
 
         _row_cells.append(_wcell(ws, _conv(brut), number_format=_fmt_curr))
         _row_cells.append(_wcell(ws, _conv(refund), number_format=_fmt_curr))
-        _row_cells.append(_wcell(ws, f"={letter_brut}{row}+{letter_ref}{row}",
-                                 number_format=_fmt_curr, font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
-        # Excel recalculates this correctly on open, but we help it
-        # by ensuring letters match the displayed screenshot bug (G5 = Brut, H5 = Refund).
-        # Wait, in the code letter_brut is col_brut. col_brut = total_start_col.
-        # If months is 3 (Jan, Feb, Mar), month_start_col=3 (C).
-        # C, D, E are months. F is Brut. G is Refund. H is Net.
-        # Screenshot shows F=Brut, G=Refund, H=Net. This matches col_brut=6 (F).
+        _row_cells.append(_wcell(ws, _conv(net), number_format=_fmt_curr,
+                                 font=_BOLD_FONT, fill=_LIGHT_GRAY_FILL))
+        # `net` est calculé explicitement pour éviter l'oubli et rester cohérent
+        # avec la somme des colonnes Brut + Remboursements pendant l'export.
+        # Le calcul Excel n'est pas nécessaire ici : la cellule a une valeur
+        # numérique finale stable et lisible dans le classeur.
 
         ws.append(_row_cells)
         ws.row_dimensions[row].height = 18
