@@ -216,7 +216,7 @@ def _run(name: str) -> dict:
         "calls": st.get("calls", []),
         # Lus côté AppTest : après st.stop(), tout accès st.* depuis le script relève StopException.
         "query_params_final": {k: at.query_params[k] for k in at.query_params},
-        "session_keys": sorted(str(k) for k in at.session_state),
+        "session_keys": sorted(str(k) for k in at.session_state.filtered_state),
         "main": walk(at.main),
         "sidebar": walk(at.sidebar),
     }

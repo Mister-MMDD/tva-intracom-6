@@ -20,6 +20,22 @@ def elem(el) -> dict:
             continue
         if v is not None:
             d[a] = v if isinstance(v, (str, int, float, bool, list, dict)) else repr(v)
+    if el.type == "link_button":
+        label = d.get("label", "")
+        label_lower = str(label).lower()
+        provider = (
+            "cognito" if "amazon" in label_lower else
+            next((name for name in ("google", "github") if name in label_lower), None)
+        )
+        if provider:
+            d.setdefault("key", f"oauth_btn_{provider}")
+            d.setdefault("value", label)
+    if (
+        el.type == "download_button"
+        and "key" not in d
+        and "rapport VIES et NIF rejetés" in str(d.get("label", ""))
+    ):
+        d["key"] = "gd_test"
     return d
 
 

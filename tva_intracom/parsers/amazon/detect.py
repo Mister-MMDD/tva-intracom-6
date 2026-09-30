@@ -157,7 +157,7 @@ def detect_format3_grouped_risk(data_sample: list[dict]) -> bool:
         return False
 
     # Grouper par order_id
-    order_amounts = {}
+    order_amounts: dict[str, set[float]] = {}
     for row in data_sample:
         order_id = row.get("order_id", "").strip()
         amount_key = "total_activity_value_amt_vat_excl"

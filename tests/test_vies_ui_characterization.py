@@ -200,12 +200,13 @@ def _run(name: str) -> dict:
             at.checkbox(key=act[1]).set_value(act[2])
         at.run()
     st_ = builtins.__vies_store__
-    prim = {k: at.session_state[k] for k in at.session_state
-            if isinstance(at.session_state[k], (bool, int, str, float)) and not str(k).startswith("$$")}
+    state = at.session_state.filtered_state
+    prim = {k: v for k, v in state.items()
+            if isinstance(v, (bool, int, str, float)) and not str(k).startswith("$$")}
     return {
         "exceptions": [e.value for e in at.exception],
         "calls": st_.get("calls", []),
-        "session_keys": sorted(str(k) for k in at.session_state),
+        "session_keys": sorted(str(k) for k in state),
         "session_values": prim,
         "main": walk(at.main),
     }

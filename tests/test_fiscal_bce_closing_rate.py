@@ -13,6 +13,8 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from tva_intracom import ecb_rates
+from tva_intracom.oss_export import total_vat_due_for_period
+from tva_intracom.report import ReportSummary
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +39,16 @@ class TestBCEClosingRate:
 
         assert ecb_rates.get_closing_rate("usd", closing_date) == Decimal("1.08")
         forward_lookup.assert_called_once_with("USD", closing_date)
+
+    def test_dashboard_total_uses_period_closing_rate(self, monkeypatch):
+        summary = ReportSummary(oss_by_country={"DE": Decimal("72948.59")})
+        monkeypatch.setattr(
+            "tva_intracom.oss_export.aggregate_period_vat_due",
+            lambda results, refunds, period: Decimal("72947.02"),
+        )
+
+        assert summary.total_you_owe == Decimal("72948.59")
+        assert total_vat_due_for_period(summary, [], [], "2026-Q2") == Decimal("72947.02")
 
     def test_forward_vs_historical_lookup(self):
         """Vérifie la distinction entre lookup historique et forward."""

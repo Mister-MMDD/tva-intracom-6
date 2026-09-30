@@ -348,6 +348,12 @@
    "value": false
   },
   {
+   "body": "Classification appliquée — recalcul en cours…",
+   "depth": 4,
+   "type": "success",
+   "value": "Classification appliquée — recalcul en cours…"
+  },
+  {
    "depth": 3,
    "label": null,
    "type": "BLOCK:column"

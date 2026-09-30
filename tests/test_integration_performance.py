@@ -113,7 +113,7 @@ class TestParsingPerformance:
             parsing_time = time.time() - start
             
             # Vérifier le parsing
-            assert len(results) == 10000
+            assert len(results.sales) == 10000
             
             # Vérifier la performance (< 30 secondes pour 10k lignes)
             assert parsing_time < 30.0, f"Parsing trop lent: {parsing_time:.2f}s"
@@ -140,7 +140,7 @@ class TestParsingPerformance:
             parsing_time = time.time() - start
             
             # Vérifier le parsing
-            assert len(results) == 50000
+            assert len(results.sales) == 50000
             
             # Vérifier la performance (< 120 secondes pour 50k lignes)
             assert parsing_time < 120.0, f"Parsing trop lent: {parsing_time:.2f}s"
@@ -167,7 +167,7 @@ class TestParsingPerformance:
             parsing_time = time.time() - start
             
             # Vérifier le parsing
-            assert len(results) == 100000
+            assert len(results.sales) == 100000
             
             # Vérifier la performance (< 240 secondes pour 100k lignes)
             assert parsing_time < 240.0, f"Parsing trop lent: {parsing_time:.2f}s"
@@ -323,7 +323,7 @@ class TestEndToEndPerformance:
             start = time.time()
             
             # Parsing
-            sales = load_amazon_report(temp_file)
+            sales = load_amazon_report(temp_file).sales
             
             # Calcul
             results = [compute_vat(sale) for sale in sales]
@@ -356,7 +356,7 @@ class TestEndToEndPerformance:
             start = time.time()
             
             # Parsing
-            sales = load_amazon_report(temp_file)
+            sales = load_amazon_report(temp_file).sales
             
             # Calcul
             results = [compute_vat(sale) for sale in sales]
@@ -395,7 +395,7 @@ class TestPerformanceRegression:
             
             # Mesurer le temps de parsing
             start = time.time()
-            sales = load_amazon_report(temp_file)
+            sales = load_amazon_report(temp_file).sales
             parsing_time = time.time() - start
             
             # Mesurer le temps de calcul

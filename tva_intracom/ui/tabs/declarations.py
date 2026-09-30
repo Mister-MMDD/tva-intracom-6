@@ -89,13 +89,19 @@ def _aggregate_declarations_raw(_results: list, _refund_results: list, calc_key)
         _acc["tva_remb"] += r.vat_amount
 
     local_ht_brut_by_country: dict = {}
+    local_vat_brut_by_country: dict = {}
     for r in _results:
-        if r.channel == Channel.LOCAL_REGISTRATION:
+        if (r.channel == Channel.LOCAL_REGISTRATION
+                and r.scenario.value != "IMPORT_SELLER_AS_IMPORTER"):
             local_ht_brut_by_country[r.vat_country] = local_ht_brut_by_country.get(r.vat_country, _ZERO) + r.sale.amount_ht
+            local_vat_brut_by_country[r.vat_country] = local_vat_brut_by_country.get(r.vat_country, _ZERO) + r.vat_amount
     local_ht_remb_by_country: dict = {}
+    local_vat_remb_by_country: dict = {}
     for r in _refund_results:
-        if r.channel == Channel.LOCAL_REGISTRATION:
+        if (r.channel == Channel.LOCAL_REGISTRATION
+                and r.scenario.value != "IMPORT_SELLER_AS_IMPORTER"):
             local_ht_remb_by_country[r.vat_country] = local_ht_remb_by_country.get(r.vat_country, _ZERO) + r.sale.amount_ht
+            local_vat_remb_by_country[r.vat_country] = local_vat_remb_by_country.get(r.vat_country, _ZERO) + r.vat_amount
 
     return {
         "home_ht_brut": home_ht_brut,
@@ -103,6 +109,8 @@ def _aggregate_declarations_raw(_results: list, _refund_results: list, calc_key)
         "ddp_agg": ddp_agg,
         "local_ht_brut_by_country": local_ht_brut_by_country,
         "local_ht_remb_by_country": local_ht_remb_by_country,
+        "local_vat_brut_by_country": local_vat_brut_by_country,
+        "local_vat_remb_by_country": local_vat_remb_by_country,
     }
 
 
@@ -314,14 +322,22 @@ def render_declarations(ctx: TabContext) -> None:
                 })
 
         # 5. Déclarations Locales (hors pays d'origine)
-        if summary.local_by_country:
-            local_ht_brut_by_country = _decl_agg["local_ht_brut_by_country"]
-            local_ht_remb_by_country = _decl_agg["local_ht_remb_by_country"]
+        local_vat_brut_by_country = _decl_agg["local_vat_brut_by_country"]
+        local_vat_remb_by_country = _decl_agg["local_vat_remb_by_country"]
+        local_ht_brut_by_country = _decl_agg["local_ht_brut_by_country"]
+        local_ht_remb_by_country = _decl_agg["local_ht_remb_by_country"]
+        local_countries = sorted(
+            set(local_ht_brut_by_country)
+            | set(local_ht_remb_by_country)
+            | set(local_vat_brut_by_country)
+            | set(local_vat_remb_by_country)
+        )
+        if local_countries:
 
             _local_ht_brut_total = sum(local_ht_brut_by_country.values(), _ZERO)
             _local_ht_remb_total = sum(local_ht_remb_by_country.values(), _ZERO)
-            _local_tva_brute_total = sum(summary.local_by_country.values(), _ZERO)
-            _local_tva_remb_total = sum(getattr(summary, "refund_local_by_country", {}).values(), _ZERO)
+            _local_tva_brute_total = sum(local_vat_brut_by_country.values(), _ZERO)
+            _local_tva_remb_total = sum(local_vat_remb_by_country.values(), _ZERO)
 
             if home_country == "FR":
                 local_label = _("canal_local_hors_fr")
@@ -344,19 +360,19 @@ def render_declarations(ctx: TabContext) -> None:
                 _("col_tva_remb"): float(_local_tva_remb_total) if summary.refund_count else None,
                 _("col_tva_nette"): float(_local_tva_brute_total + _local_tva_remb_total)
             })
-            for country in sorted(summary.local_by_country):
+            for country in local_countries:
                 _ht_brut = local_ht_brut_by_country.get(country, _ZERO)
                 _ht_remb = local_ht_remb_by_country.get(country, _ZERO)
-                _tva_brute = summary.local_by_country[country]
-                _tva_remb = float(getattr(summary, "refund_local_by_country", {}).get(country, 0))
+                _tva_brute = local_vat_brut_by_country.get(country, _ZERO)
+                _tva_remb = local_vat_remb_by_country.get(country, _ZERO)
                 recap_data.append({
                     _("col_canal"): f"  → {country_label(country)} ({country})",
                     _("col_ca_ht_brut"): float(_ht_brut),
                     _("col_ca_ht_remb"): float(_ht_remb) if _ht_remb else None,
                     _("col_ca_ht_net"): float(_ht_brut + _ht_remb),
                     _("col_tva_brute"): float(_tva_brute),
-                    _("col_tva_remb"): float(_tva_remb) if summary.refund_count else None,
-                    _("col_tva_nette"): float(_tva_brute + Decimal(str(_tva_remb)))
+                    _("col_tva_remb"): float(_tva_remb) if _tva_remb else None,
+                    _("col_tva_nette"): float(_tva_brute + _tva_remb)
                 })
         _recap_cols = [
             _("col_ca_ht_brut"), _("col_ca_ht_remb"), _("col_ca_ht_net"),

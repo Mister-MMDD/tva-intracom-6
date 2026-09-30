@@ -16,7 +16,12 @@ import pytest
 from openpyxl import load_workbook
 
 from tva_intracom import BuyerType, Sale, compute_all_with_vies
-from tva_intracom.oss_export import build_oss_excel, build_b2b_excel, build_oss_csv
+from tva_intracom.oss_export import (
+    build_b2b_excel,
+    build_oss_csv,
+    build_oss_excel,
+    build_oss_export,
+)
 from tva_intracom.vies_engine import ViesResult
 
 
@@ -84,6 +89,17 @@ def test_oss_detail_sheet_one_row_per_sale(sample_results, tmp_path):
     assert ids == {"A", "B"}
     assert ws.cell(row=5, column=6).value == "=SUM(F3:F4)"
     assert ws.cell(row=5, column=8).value == "=SUM(H3:H4)"
+
+
+def test_build_oss_export_returns_written_xlsx(sample_results, tmp_path):
+    xlsx_path, oss_csv, b2b_csv = build_oss_export(
+        sample_results, tmp_path, period="2026-T2"
+    )
+
+    assert xlsx_path.exists()
+    assert xlsx_path.name == "etat_recapitulatif_oss.xlsx"
+    assert oss_csv.startswith(b"\xef\xbb\xbf")
+    assert b2b_csv.startswith(b"\xef\xbb\xbf")
 
 
 def test_b2b_excel_sheet_and_rows(sample_results, tmp_path):

@@ -45,6 +45,8 @@ from tva_intracom.ui.background_calc import (
     dequeue,
 )
 from tva_intracom.report import build_report
+from tva_intracom.oss_export import total_vat_due_for_period
+from tva_intracom.mem_utils import heavy_cache_data
 from tva_intracom.rates import is_eu, COUNTRY_CURRENCIES, CURRENCY_SYMBOLS
 from tva_intracom.ui.theme import apply_theme
 from tva_intracom.ui.formatting import _fmt
@@ -68,6 +70,20 @@ from tva_intracom.ui.glossary import render_glossary_dialog
 from tva_intracom.ui.import_warnings import warning_to_table_row
 
 _ZERO = Decimal("0.00")
+
+
+@heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
+def _cached_period_oss_ioss_vat_due(
+        _summary,
+        _results: list,
+        _refund_results: list,
+        period: str,
+        calc_key: str,
+) -> Decimal:
+    return total_vat_due_for_period(
+        _summary, _results, _refund_results, period
+    )
+
 
 # Initialisation I18N
 init_i18n()
@@ -1620,7 +1636,11 @@ if uploaded_files:
                                       _("kpi_ca_ht_help", gross=_fmt(ca_brut), refunds=_fmt(ca_remb)),
                                       icon="\U0001f4c8"), unsafe_allow_html=True)
             with c2:
-                st.markdown(_kpi_card(_("kpi_vat_you_owe"), _fmt(float(summary.total_you_owe)), "#d97706",
+                _period_oss_ioss_vat = _cached_period_oss_ioss_vat_due(
+                    summary, results, refund_results or [],
+                    period_label, str(_cache_key)
+                )
+                st.markdown(_kpi_card(_("kpi_vat_you_owe"), _fmt(float(_period_oss_ioss_vat)), "#d97706",
                                       _("kpi_vat_you_owe_help"), icon="\U0001f4b6", featured=True), unsafe_allow_html=True)
             with c3:
                 st.markdown(_kpi_card(_("kpi_vat_amazon", platform=platform_name), _fmt(float(summary.amazon_vat)), "#2ca02c",

@@ -78,6 +78,27 @@ def test_ddp_to_home_country_not_double_counted_in_dashboard():
     )
 
 
+def test_ddp_local_country_is_not_repeated_in_local_declaration_row():
+    """Une vente DDP vers un pays tiers apparaît dans sa ligne DDP, pas
+    une seconde fois dans l'agrégat des immatriculations locales."""
+    from tva_intracom.report import build_report
+
+    sale = Sale(
+        "ddp-de", Decimal("1000"), BuyerType.B2C,
+        stock_country="CN", buyer_country="DE",
+        seller_is_importer=True, seller_country="FR",
+    )
+    results = compute_all_with_vies([sale], scope_id="test-ddp-local")[0]
+    raw = _aggregate_declarations_raw(results, [], "test-ddp-local-calc-key")
+
+    assert raw["ddp_agg"]["DE"]["ht_brut"] == Decimal("1000")
+    assert raw["local_ht_brut_by_country"] == {}
+    assert raw["local_vat_brut_by_country"] == {}
+
+    summary = build_report(results)
+    assert summary.net_local_total == results[0].vat_amount
+
+
 # ---------------------------------------------------------------------------
 # Bug 6 : taux de change OSS (vendredi/lundi) et IOSS (mois/trimestre)
 # ---------------------------------------------------------------------------

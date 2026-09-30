@@ -484,6 +484,12 @@
    "value": false
   },
   {
+   "body": "Override supprimé pour FR200.",
+   "depth": 1,
+   "type": "success",
+   "value": "Override supprimé pour FR200."
+  },
+  {
    "body": "Aucun numéro invalide confirmé pour le moment (certains restent à vérifier).",
    "depth": 0,
    "type": "info",

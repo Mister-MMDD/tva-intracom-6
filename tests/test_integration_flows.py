@@ -29,9 +29,13 @@ from tva_intracom.models import (
     Sale,
     Scenario,
 )
+from tva_intracom import ecb_rates
 from tva_intracom.parsers.amazon.loader import load_amazon_report
-from tva_intracom.billing import has_export_credit, consume_export_credit
-from tva_intracom.vies_engine import validate_vat, normalize_full_vat
+from tva_intracom.vies_engine import (
+    ViesResult,
+    normalize_full_vat,
+    validate_vat_numbers_parallel,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -48,15 +52,37 @@ def mock_stripe():
 
 @pytest.fixture
 def mock_vies_api():
-    """Mock du service VIES."""
-    with patch('tva_intracom.vies_engine._call_vies_service') as mock:
-        mock.return_value = {
-            'valid': True,
-            'name': 'Test Company',
-            'address': 'Test Address',
-            'request_date': '2026-01-01'
-        }
+    """Mocke l'appel VIES et les couches cache DB du validateur batch."""
+    from tva_intracom import vies_engine
+
+    cache = {}
+    result = ViesResult(
+        valid=True, country_code="DE", vat_number="123456789",
+        name="Test Company", address="Test Address",
+    )
+
+    def get_scope(_scope_id, vat_ids):
+        return {vat_id: (cache[vat_id], True) for vat_id in vat_ids if vat_id in cache}
+
+    def set_scope(_scope_id, items, **_kwargs):
+        cache.update(items)
+
+    with patch.object(vies_engine, "check_vat_with_retry", return_value=result) as mock, \
+         patch.object(vies_engine, "_db_get_scope_batch", side_effect=get_scope), \
+         patch.object(vies_engine, "_db_get_global_batch", return_value={}), \
+         patch.object(vies_engine, "_db_get_history_latest_batch", return_value={}), \
+         patch.object(vies_engine, "_db_set_global_batch"), \
+         patch.object(vies_engine, "_db_set_scope_batch", side_effect=set_scope):
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def reset_ecb_cache():
+    ecb_rates._rate_cache.clear()
+    ecb_rates._failed_pairs.clear()
+    yield
+    ecb_rates._rate_cache.clear()
+    ecb_rates._failed_pairs.clear()
 
 
 @pytest.fixture
@@ -70,8 +96,8 @@ def mock_ecb_api():
 @pytest.fixture
 def mock_tedb_api():
     """Mock de l'API TEDB."""
-    with patch('tva_intracom.vat_rates_db._fetch_tedb_rate') as mock:
-        mock.return_value = Decimal('0.20')  # 20%
+    with patch('tva_intracom.vat_rates_db._fetch_tedb_rates') as mock:
+        mock.return_value = ({"STANDARD": Decimal("0.20")}, b"")
         yield mock
 
 
@@ -167,7 +193,7 @@ class TestAuthBillingCalcFlow:
 class TestUploadParsingCalcFlow:
     """Test du flux complet Upload → Parsing → Calcul."""
 
-    def test_amazon_format3_parsing_and_calc(self, mock_vies_api, mock_ecb_api, mock_tedb_api):
+    def test_amazon_format3_parsing_and_calc(self):
         """Test du parsing et calcul d'un fichier Amazon Format 3."""
         # Créer un fichier CSV Format 3 de test
         csv_content = """transaction_type	order_id	sale_depart_country	sale_arrival_country	buyer_vat_number	total_activity_value_amt_vat_excl	transaction_currency_code	transaction_complete_date	tax_collection_model	asin
@@ -183,7 +209,7 @@ sale	ORD-002	FR	IT	IT12345678901	50.00	EUR	2026-01-15	facilitator	B002
         
         try:
             # Parser le fichier
-            results = load_amazon_report(temp_file)
+            results = load_amazon_report(temp_file).sales
             
             # Vérifier le parsing
             assert len(results) == 2
@@ -200,7 +226,7 @@ sale	ORD-002	FR	IT	IT12345678901	50.00	EUR	2026-01-15	facilitator	B002
             # Nettoyer le fichier temporaire
             os.unlink(temp_file)
 
-    def test_amazon_format5_parsing_and_calc(self, mock_vies_api, mock_ecb_api, mock_tedb_api):
+    def test_amazon_format5_parsing_and_calc(self):
         """Test du parsing et calcul d'un fichier Amazon Format 5."""
         # Créer un fichier CSV Format 5 de test
         csv_content = """transaction_id	order_date	transaction_type	our_price_tax_exclusive_selling_price	shipping_tax_exclusive_selling_price	giftwrap_tax_exclusive_selling_price	ship_from_country	ship_to_country	tax_collection_responsibility	jurisdiction_level	currency	invoice_level_exchange_rate
@@ -216,7 +242,7 @@ TXN-002	2026-01-15	sale	50.00	2.50	0.00	FR	IT	seller	country	EUR	1.0
         
         try:
             # Parser le fichier
-            results = load_amazon_report(temp_file)
+            results = load_amazon_report(temp_file).sales
             
             # Vérifier le parsing
             assert len(results) == 2
@@ -231,7 +257,7 @@ TXN-002	2026-01-15	sale	50.00	2.50	0.00	FR	IT	seller	country	EUR	1.0
             # Nettoyer le fichier temporaire
             os.unlink(temp_file)
 
-    def test_large_file_parsing_performance(self, mock_vies_api, mock_ecb_api, mock_tedb_api):
+    def test_large_file_parsing_performance(self):
         """Test de performance pour un fichier volumineux."""
         import time
         
@@ -251,7 +277,7 @@ TXN-002	2026-01-15	sale	50.00	2.50	0.00	FR	IT	seller	country	EUR	1.0
         try:
             # Mesurer le temps de parsing
             start = time.time()
-            results = load_amazon_report(temp_file)
+            results = load_amazon_report(temp_file).sales
             parsing_time = time.time() - start
             
             # Vérifier le parsing
@@ -278,12 +304,12 @@ class TestViesCacheFlow:
         scope_id = "test-scope"
         
         # Premier appel (devrait appeler l'API)
-        result1 = validate_vat(vat_number, scope_id)
-        assert result1['valid'] == True
+        result1 = validate_vat_numbers_parallel(scope_id, [vat_number])[vat_number]
+        assert result1.valid
         
         # Deuxième appel (devrait utiliser le cache)
-        result2 = validate_vat(vat_number, scope_id)
-        assert result2['valid'] == True
+        result2 = validate_vat_numbers_parallel(scope_id, [vat_number])[vat_number]
+        assert result2.valid
         
         # Vérifier que l'API n'a été appelée qu'une fois
         assert mock_vies_api.call_count == 1
@@ -291,9 +317,9 @@ class TestViesCacheFlow:
     def test_vies_normalization(self):
         """Test de la normalisation des numéros TVA."""
         # Test différents formats
-        assert normalize_full_vat("FR 12 345 678 901") == "FR12345678901"
-        assert normalize_full_vat("DE123456789") == "DE123456789"
-        assert normalize_full_vat("IT12345678901") == "IT12345678901"
+        assert normalize_full_vat("FR 12 345 678 901", "FR") == "FR12345678901"
+        assert normalize_full_vat("DE123456789", "DE") == "DE123456789"
+        assert normalize_full_vat("IT12345678901", "IT") == "IT12345678901"
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +329,8 @@ class TestViesCacheFlow:
 class TestEcbCacheFlow:
     """Test du flux BCE avec cache."""
 
-    def test_ecb_cache_hit(self, mock_ecb_api):
+    @patch("tva_intracom.ecb_rates._db_get_rate", return_value=None)
+    def test_ecb_cache_hit(self, _mock_db, mock_ecb_api):
         """Test que le cache BCE est utilisé après un premier appel."""
         from tva_intracom.ecb_rates import get_rate
         from datetime import date
@@ -342,7 +369,7 @@ class TestTedbFallbackFlow:
         test_date = date(2026, 1, 15)
         
         # L'appel devrait réussir grâce au repli statique
-        rate = vat_rate(country, test_date)
+        rate = vat_rate(country, "STANDARD", test_date)
         assert rate is not None  # Le repli statique retourne un taux
 
 

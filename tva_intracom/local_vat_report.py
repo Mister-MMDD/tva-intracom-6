@@ -128,7 +128,7 @@ def compute_local_vat_lines(
         # n'importe pas local_vat_report), et garde ce module utilisable
         # sans all_fc_transfers si l'appelant ne les fournit pas.
         from tva_intracom.ca3_report import _compute_aic_from_fc_transfers
-        aic_base_ht, aic_vat = _compute_aic_from_fc_transfers(
+        aic_base_ht, aic_vat, _, _ = _compute_aic_from_fc_transfers(
             all_fc_transfers, results, seller_country=vat_country,
         )
 

@@ -58,5 +58,23 @@ def test_summary_sheet_has_total(sample_results, tmp_path):
     assert 400.0 in values
 
 
+def test_export_creates_ioss_sheet(tmp_path):
+    sale = Sale(
+        "IOSS-1", Decimal("100"), BuyerType.B2C,
+        stock_country="CN", buyer_country="FR",
+        ioss_number="IM1234567890",
+    )
+    results = compute_all_with_vies(
+        [sale], scope_id="test-ioss-export", ioss_own_number_active=True
+    )[0]
+    summary = build_report(results)
+    output = tmp_path / "ioss.xlsx"
+
+    export_xlsx(results, output, scope_id="test", summary=summary)
+
+    wb = load_workbook(output)
+    assert any("IOSS" in name.upper() for name in wb.sheetnames)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

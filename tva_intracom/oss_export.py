@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date as _date
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
@@ -35,6 +35,9 @@ from .ecb_rates import convert_to_currency_for_oss, get_oss_rate_date, get_ioss_
 from .i18n import _, country_label
 from .models import Scenario, VatResult
 from .rates import fiscal_equivalent_country
+
+if TYPE_CHECKING:
+    from .report import ReportSummary
 
 _CENT = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -186,6 +189,39 @@ def aggregate_ioss_results(results: list[VatResult], period: str = "") -> OssAgg
             période non reconnu (repli sur sale.amount_ht tel quel).
     """
     return _aggregate_by_scenario(results, period, scenarios=(Scenario.IOSS_DIRECT,))
+
+
+def aggregate_period_vat_due(
+        results: list[VatResult],
+        refund_results: list[VatResult] | None = None,
+        period: str = "",
+) -> Decimal:
+    """Retourne la TVA OSS + IOSS nette reconvertie aux taux BCE de clôture."""
+    all_results = results + (refund_results or [])
+    total = Decimal("0.00")
+    for aggregate in (
+        aggregate_oss_results(all_results, period=period),
+        aggregate_ioss_results(all_results, period=""),
+    ):
+        for destinations in aggregate.values():
+            for rates in destinations.values():
+                for amounts in rates.values():
+                    total += amounts["tva"]
+    return total
+
+
+def total_vat_due_for_period(
+        summary: "ReportSummary",
+        results: list[VatResult],
+        refund_results: list[VatResult] | None = None,
+        period: str = "",
+) -> Decimal:
+    """Calcule le total à reverser avec les taux de clôture OSS/IOSS."""
+    return (
+        summary.net_fr_domestic_vat
+        + summary.net_local_total
+        + aggregate_period_vat_due(results, refund_results, period)
+    )
 
 
 def _aggregate_by_scenario(
@@ -1279,11 +1315,12 @@ def _fmt_dec(value: Optional[Decimal]) -> str:
 
 def build_oss_excel(
         results: List[VatResult],
-        output_path: str,
+        output_path: str | Path,
         period: str = "",
         seller_country: str = "FR",
         display_currency: str = "EUR",
-) -> None:
+        data: "OssExportData | None" = None,
+) -> Path:
     """Génère le fichier Excel OSS avec les onglets résumé et détail.
     
     Args:
@@ -1293,10 +1330,8 @@ def build_oss_excel(
         seller_country: Pays du vendeur.
         display_currency: Devise d'affichage.
     """
-    if not results:
-        return
-
-    data = _aggregate(results, period=period)
+    if data is None:
+        data = _aggregate(results, period=period)
     data.period = period
 
     wb = Workbook(write_only=True)
@@ -1308,6 +1343,7 @@ def build_oss_excel(
 
     output_path = Path(output_path)
     wb.save(str(output_path))
+    return output_path
 
 
 def build_b2b_excel(
