@@ -101,6 +101,39 @@ def test_monaco_stock_cross_border_oss():
     assert res.vat_rate == Decimal("19")
 
 
+def test_monaco_stock_counts_toward_oss_threshold():
+    """Un stock MC assimilé à FR doit alimenter le seuil OSS de 10 000 €."""
+    sales = [
+        make_sale(
+            sale_id="MC-DE-1",
+            amount_ht=Decimal("9000.00"),
+            stock_country="MC",
+            buyer_country="DE",
+            transaction_date="2024-01-01",
+        ),
+        make_sale(
+            sale_id="MC-IT-2",
+            amount_ht=Decimal("1001.00"),
+            stock_country="MC",
+            buyer_country="IT",
+            transaction_date="2024-01-02",
+        ),
+    ]
+
+    results, _, _, summary = compute_all_with_vies(
+        sales,
+        scope_id="test-monaco-oss-threshold",
+        apply_fr_under_threshold=True,
+    )
+
+    assert results[0].scenario == Scenario.DOMESTIC
+    assert results[0].vat_country == "FR"
+    assert results[1].scenario == Scenario.OSS_B2C
+    assert results[1].vat_country == "IT"
+    assert summary.oss_ht_by_year["2024"] == Decimal("10001.00")
+    assert summary.is_threshold_exceeded is True
+
+
 def test_monaco_stock_oss_aggregation_departure_is_fr_not_mc():
     """CORRECTIF 2026-08-26 : la clé de regroupement "pays de départ" utilisée
     par aggregate_oss_results() (et consommée telle quelle par oss_xml.py pour

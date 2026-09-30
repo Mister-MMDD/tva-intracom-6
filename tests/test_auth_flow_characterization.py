@@ -246,3 +246,53 @@ def test_oauth_buttons_css_is_valid():
     # Chaque règle « bouton » porte bien logo + couleur ; chaque règle « libellé » sa couleur de texte.
     assert css.count("background-image: url(") == 3
     assert css.count("background-color:") == 3
+
+
+@pytest.mark.parametrize("value", ["false", "0", "1", "yes", "", 1, None])
+def test_local_dev_bypass_requires_explicit_true(monkeypatch, value):
+    from tva_intracom.ui import auth_flow
+
+    monkeypatch.setattr(
+        auth_flow,
+        "get_secret",
+        lambda key, default=None: value if key == "LOCAL_DEV_BYPASS_AUTH" else default,
+    )
+
+    assert auth_flow._is_local_dev_bypass() is False
+
+
+@pytest.mark.parametrize("value", [True, "true", " TRUE "])
+def test_local_dev_bypass_accepts_explicit_true_outside_production(monkeypatch, value):
+    from tva_intracom.ui import auth_flow
+
+    monkeypatch.setattr(
+        auth_flow,
+        "get_secret",
+        lambda key, default=None: value if key == "LOCAL_DEV_BYPASS_AUTH" else default,
+    )
+
+    assert auth_flow._is_local_dev_bypass() is True
+
+
+@pytest.mark.parametrize("environment_key", [
+    "APP_ENV", "ENVIRONMENT", "NODE_ENV", "VERCEL_ENV", "RAILWAY_ENVIRONMENT_NAME",
+])
+def test_local_dev_bypass_is_disabled_in_production(monkeypatch, environment_key):
+    from tva_intracom.ui import auth_flow
+
+    secrets = {"LOCAL_DEV_BYPASS_AUTH": "true", environment_key: "production"}
+    monkeypatch.setattr(auth_flow, "get_secret", lambda key, default=None: secrets.get(key, default))
+
+    assert auth_flow._is_local_dev_bypass() is False
+
+
+@pytest.mark.parametrize("cloud_marker", [
+    "VERCEL_ENV", "RAILWAY_ENVIRONMENT_NAME", "K_SERVICE", "DYNO",
+])
+def test_local_dev_bypass_is_disabled_on_cloud_preview(monkeypatch, cloud_marker):
+    from tva_intracom.ui import auth_flow
+
+    secrets = {"LOCAL_DEV_BYPASS_AUTH": "true", cloud_marker: "preview"}
+    monkeypatch.setattr(auth_flow, "get_secret", lambda key, default=None: secrets.get(key, default))
+
+    assert auth_flow._is_local_dev_bypass() is False

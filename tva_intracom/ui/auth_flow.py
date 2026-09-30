@@ -541,7 +541,43 @@ def _render_fragment_bridge() -> None:
 def _is_local_dev_bypass() -> bool:
     """Vrai si le secret LOCAL_DEV_BYPASS_AUTH est activé (développement local uniquement)."""
     try:
-        return bool(get_secret("LOCAL_DEV_BYPASS_AUTH", False))
+        enabled = get_secret("LOCAL_DEV_BYPASS_AUTH", False)
+        if isinstance(enabled, bool):
+            is_enabled = enabled
+        elif isinstance(enabled, str):
+            is_enabled = enabled.strip().lower() == "true"
+        else:
+            is_enabled = False
+
+        if not is_enabled:
+            return False
+
+        deployment_envs = (
+            get_secret("APP_ENV", ""),
+            get_secret("ENVIRONMENT", ""),
+            get_secret("NODE_ENV", ""),
+        )
+        if any(
+            isinstance(env, str) and env.strip().lower() in {"prod", "production"}
+            for env in deployment_envs
+        ):
+            return False
+
+        # The passwordless bypass is for a developer's local instance only.
+        # Disable it on hosted environments, including previews/staging where
+        # the deployment environment is not literally named "production".
+        cloud_markers = (
+            "VERCEL",
+            "VERCEL_ENV",
+            "RAILWAY_ENVIRONMENT_NAME",
+            "RAILWAY_SERVICE_NAME",
+            "RAILWAY_PROJECT_ID",
+            "RAILWAY_PUBLIC_DOMAIN",
+            "K_SERVICE",
+            "DYNO",
+            "STREAMLIT_SHARING_MODE",
+        )
+        return not any(get_secret(marker, "") for marker in cloud_markers)
     except Exception:
         return False
 
