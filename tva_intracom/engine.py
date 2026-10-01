@@ -170,6 +170,636 @@ def _round(amount: Decimal) -> Decimal:
 def _vat_amount(base: Decimal, rate: Decimal) -> Decimal:
     return _round(base * (rate / Decimal("100")))
 
+
+# Date de transaction (déplacée ici, avant le cas Monaco ET le cas export,
+# pour que les deux puissent appliquer un taux historique correct — ex:
+# changement de taux FR au fil du temps).
+#
+# BUGFIX (2026-09-10, taux historique erroné sur avoir à cheval sur 2
+# années) : pour un avoir/remboursement (amount_ht < 0), `transaction_date`
+# porte la date de LA LIGNE D'AVOIR elle-même (ex: 2026), pas celle de la
+# vente d'origine qu'il rembourse (ex: 2025). Si le taux du pays a changé
+# entre les deux, le taux 2026 était appliqué à tort à un avoir 2025. Le
+# loader Amazon (`parsers/amazon/loader.py`) remplit `order_date` avec la
+# date de la commande d'origine UNIQUEMENT quand elle diffère de
+# `transaction_date` (voir son commentaire) — c'est donc le signal fiable
+# qu'on est sur un avoir différé. On préfère `order_date` à
+# `transaction_date` dans ce cas précis pour résoudre le taux historique.
+def _resolve_tx_date(sale: Sale, tx_date: _date | None) -> _date | None:
+    """Date de transaction pour le taux historique (order_date pour un avoir différé)."""
+    _tx_date: _date | None = tx_date
+    if _tx_date is None:
+        _date_str = sale.transaction_date
+        if sale.amount_ht < 0 and sale.order_date:
+            _date_str = sale.order_date
+        if _date_str:
+            try:
+                _tx_date = _date.fromisoformat(_date_str[:10])
+            except ValueError:
+                pass  # date malformée → taux courant (pas de correctif historique)
+    return _tx_date
+
+
+# ------------------------------------------------------------------
+# Hors champ TVA (2026-09-16, PRODUCT_TAX_CODE Amazon A_GEN_NOTAX) :
+# court-circuit total, avant Monaco/OSS/export/tout le reste. Aucun taux,
+# aucun redevable, aucune déclaration nulle part (ni CA3, ni OSS/IOSS, ni
+# DEB/EMEBI) — contrairement à EXPORT/B2B_REVERSE_CHARGE qui sont des
+# opérations réelles mais exonérées. La ligne reste néanmoins visible
+# dans le détail des ventes (traçabilité/audit) via `note`, simplement
+# exclue de tout calcul et de toute déclaration (VatResult.scenario ==
+# Scenario.OUT_OF_SCOPE, non repris par les filtres à liste blanche de
+# oss_export.py / ui/tabs/declarations.py). Plus léger pour le système :
+# évite tout appel réseau/DB (TEDB, VIES, taux de change) inutile sur une
+# vente qui de toute façon ne sera jamais taxée.
+# ------------------------------------------------------------------
+def _out_of_scope_result(sale: Sale, lang: str) -> VatResult:
+    """Résultat d'une vente hors champ TVA (A_GEN_NOTAX) : aucun calcul, aucune déclaration."""
+    return VatResult._new_unchecked(
+        sale=sale,
+        scenario=Scenario.OUT_OF_SCOPE,
+        vat_country="",
+        vat_rate=Decimal("0"),
+        vat_amount=Decimal("0.00"),
+        collector=Collector.NONE,
+        channel=Channel.OUT_OF_SCOPE,
+        note=_note(
+            "Hors champ TVA : opération non soumise à la TVA par nature "
+            "(PRODUCT_TAX_CODE Amazon A_GEN_NOTAX). Aucun calcul, aucune "
+            "déclaration.",
+            "engine_note_out_of_scope", lang=lang,
+        ),
+    )
+
+
+
+# ------------------------------------------------------------------
+# Monaco (MC) : assimilé au territoire français pour la TVA (convention
+# fiscale franco-monégasque du 18 mai 1963, droits indirects). Sans ce
+# cas spécial, "MC" n'étant reconnu ni par is_eu() ni par is_fiscal_eu(),
+# une vente vers Monaco tomberait à tort dans EXPORT (exonérée) alors
+# qu'elle doit être taxée comme une vente domestique française standard.
+# ------------------------------------------------------------------
+def _monaco_buyer_result(sale: Sale, effective_category: str, _tx_date: _date | None, lang: str) -> VatResult:
+    """Vente dont l'acheteur est à Monaco : assimilée à la France (convention franco-monégasque de 1963)."""
+    mc_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
+    mc_amount = _vat_amount(sale.amount_ht, mc_rate)
+
+    # Correctif 2026-09-11 (bug d'isolation Stock/Acheteur à Monaco) :
+    # on utilise fiscal_equivalent_country() plutôt que la comparaison
+    # littérale "== FR", pour couvrir deux angles morts :
+    #   - stock_country == "MC" (vente MC -> MC) : fiscalement FR -> FR,
+    #     donc domestique, et non OSS vers la France comme avant.
+    #   - stock_country ailleurs en UE mais seller_country == "FR" (ou
+    #     "MC") : la destination (Monaco = France) coïncide avec le pays
+    #     d'établissement du vendeur, donc domestique (Art. 59 ter
+    #     Directive 2006/112/CE — l'OSS ne s'applique pas quand la
+    #     destination est le pays d'établissement), symétrique du
+    #     traitement du "Cas 1bis" plus bas pour les autres pays UE.
+    stock_is_fr_equiv = fiscal_equivalent_country(sale.stock_country) == "FR"
+    seller_is_fr_equiv = fiscal_equivalent_country(sale.seller_country) == "FR"
+
+    if stock_is_fr_equiv or seller_is_fr_equiv:
+        # Si le vendeur est établi en France (ou à Monaco), c'est du
+        # domestique FR_DOMESTIC. Sinon (stock FR/MC mais vendeur non
+        # établi en France), c'est du LOCAL_REGISTRATION en France.
+        channel = Channel.FR_DOMESTIC if seller_is_fr_equiv else Channel.LOCAL_REGISTRATION
+
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.DOMESTIC,
+            vat_country="FR",
+            vat_rate=mc_rate,
+            vat_amount=mc_amount,
+            collector=Collector.SELLER,
+            channel=channel,
+            note=_note(
+                f"Vente vers Monaco depuis un stock {sale.stock_country} : assimilée à une "
+                "vente domestique française (convention fiscale franco-monégasque "
+                "du 18 mai 1963 — https://bit.ly/Conv-FR-MC) — TVA FR "
+                f"{mc_rate}% collectée.",
+                "engine_note_monaco_home", lang=lang, rate=mc_rate,
+            ),
+        )
+    else:
+        # Stock hors FR/MC ET vendeur non établi en France : Monaco
+        # étant fiscalement la France, c'est une vente OSS vers la France.
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.OSS_B2C,
+            vat_country="FR",
+            vat_rate=mc_rate,
+            vat_amount=mc_amount,
+            collector=Collector.SELLER,
+            channel=Channel.OSS,
+            note=_note(
+                f"Vente vers Monaco depuis un stock {sale.stock_country} : "
+                "assimilée à une vente OSS vers la France (Convention fiscale "
+                "franco-monégasque — Monaco est traité comme le territoire "
+                f"français pour la TVA) — TVA FR {mc_rate}%.",
+                "engine_note_monaco_oss", lang=lang, stock=sale.stock_country, rate=mc_rate,
+            ),
+        )
+
+
+
+# ------------------------------------------------------------------
+# Cas symétrique : stock physiquement à Monaco (sale.buyer_country != "MC",
+# déjà traité ci-dessus). Monaco étant fiscalement la France (convention
+# franco-monégasque du 18 mai 1963), un stock à Monaco doit être traité
+# exactement comme un stock en France : vente vers la France = domestique,
+# vente vers un autre pays UE = OSS classique vers ce pays. Sans ce cas
+# (angle mort confirmé le 2026-08-26), stock=MC / buyer=FR tombait à tort
+# en Scenario.OSS_B2C (comparaison stock_country == buyer_country échouant
+# sur "MC" != "FR"), et le pays de départ "MC" fuyait tel quel jusque dans
+# le XML officiel OSS (<MemberStateOfSupply>MC</MemberStateOfSupply>,
+# invalide — Monaco n'est pas un État membre UE). Voir
+# rates.fiscal_equivalent_country(), qui documente aussi les points
+# d'agrégation (oss_export.py, ca3_report.py) normalisés en parallèle.
+# ------------------------------------------------------------------
+def _monaco_stock_result(sale: Sale, effective_category: str, _tx_date: _date | None, lang: str) -> VatResult | None:
+    """Stock à Monaco (acheteur != MC) : traité comme un stock français. Renvoie None si l'acheteur est hors UE fiscale (la logique générale prend le relais)."""
+    mc_stock_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
+
+    if sale.buyer_country == "FR":
+        # Stock à Monaco, vente vers la France : vente domestique française.
+        is_home = sale.seller_country in ("FR", "MC")
+        channel = Channel.FR_DOMESTIC if is_home else Channel.LOCAL_REGISTRATION
+        mc_stock_amount = _vat_amount(sale.amount_ht, mc_stock_rate)
+
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.DOMESTIC,
+            vat_country="FR",
+            vat_rate=mc_stock_rate,
+            vat_amount=mc_stock_amount,
+            collector=Collector.SELLER,
+            channel=channel,
+            note=_note(
+                "Vente depuis un stock à Monaco vers la France : assimilée "
+                "à une vente domestique française (convention fiscale "
+                "franco-monégasque du 18 mai 1963 — https://bit.ly/Conv-FR-MC) "
+                f"— TVA FR {mc_stock_rate}% collectée.",
+                "engine_note_monaco_stock_home", lang=lang, rate=mc_stock_rate,
+            ),
+        )
+    elif is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None):
+        # BUGFIX fiscal (audit 2026-09-13, bug non listé, trouvé via
+        # tests/test_fiscal_monaco.py::test_monaco_stock_monaco_buyer_germany_b2b_valid_vat) :
+        # ce branchement spécifique "stock == MC" renvoyait toujours
+        # OSS_B2C, y compris pour un acheteur B2B avec n° de TVA
+        # intracommunautaire valide — contrairement au "Cas 3" général
+        # (~ligne 454, `if sale.buyer_type == BuyerType.B2B: ...`) qui
+        # n'est jamais atteint ici puisqu'on retourne avant. Résultat :
+        # une livraison B2B au départ de Monaco (= France) vers un
+        # acheteur UE assujetti perdait à tort l'exonération intracom
+        # (Art. 262 ter CGI / Art. 138 Dir. 2006/112/CE) et se
+        # retrouvait taxée en OSS_B2C. On réplique ici la même
+        # condition que le Cas 3 général avant de retomber sur OSS_B2C.
+        if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_valid:
+            return VatResult._new_unchecked(
+                sale=sale,
+                scenario=Scenario.B2B_REVERSE_CHARGE,
+                vat_country="",
+                vat_rate=Decimal("0"),
+                vat_amount=Decimal("0.00"),
+                collector=Collector.BUYER,
+                channel=Channel.EXONERATION,
+                note=_note(
+                    f"Livraison intracommunautaire B2B depuis un stock à Monaco "
+                    f"(assimilé France) vers {sale.buyer_country} : exonérée "
+                    "avec autoliquidation par l'acquéreur (Art. 262 ter du CGI "
+                    "— https://bit.ly/Art262ter).",
+                    "engine_note_monaco_stock_b2b_reverse_charge", lang=lang,
+                    buyer=sale.buyer_country,
+                ),
+            )
+
+        # Stock à Monaco, vente vers un autre pays UE : OSS classique
+        # vers ce pays, exactement comme si le stock était en France.
+        mc_stock_dest_rate = vat_rate(sale.buyer_country, effective_category, tx_date=_tx_date)
+        mc_stock_dest_amount = _vat_amount(sale.amount_ht, mc_stock_dest_rate)
+
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.OSS_B2C,
+            vat_country=sale.buyer_country,
+            vat_rate=mc_stock_dest_rate,
+            vat_amount=mc_stock_dest_amount,
+            collector=Collector.SELLER,
+            channel=Channel.OSS,
+            note=_note(
+                f"Vente depuis un stock à Monaco vers {sale.buyer_country} : "
+                "Monaco étant assimilé à la France pour la TVA, traitée "
+                "comme une vente OSS classique au départ de la France "
+                f"— TVA {sale.buyer_country} {mc_stock_dest_rate}%.",
+                "engine_note_monaco_stock_oss", lang=lang,
+                buyer=sale.buyer_country, rate=mc_stock_dest_rate,
+            ),
+        )
+    # Sinon (buyer hors UE fiscal) : on laisse tomber dans la logique
+    # générale ci-dessous (export / territoire exclu), qui gère déjà
+    # correctement ces cas pour un stock "FR" classique.
+    return None
+
+
+
+# ------------------------------------------------------------------
+# SÉCURITÉ IMMÉDIATE : Cas d'exportation hors UE (ex: GB, US...)
+# On traite ce cas EN PREMIER pour éviter d'interroger vat_rate inutilement
+# ------------------------------------------------------------------
+def _export_result(sale: Sale, lang: str) -> VatResult:
+    """Exportation hors UE ou territoire exclu du territoire fiscal de l'UE : exonérée."""
+    # On affine la note selon que le pays est hors-UE ou s'il s'agit d'un
+    # territoire d'un pays membre exclu du territoire fiscal (ex: Canaries).
+    is_excl_territory = is_eu(sale.buyer_country) and is_non_fiscal_eu(sale.buyer_country, sale.arrival_post_code)
+    prefix_note = (
+        "Territoire exclu du territoire fiscal de l'UE"
+        if is_excl_territory
+        else "Exportation hors UE"
+    )
+    return VatResult._new_unchecked(
+        sale=sale,
+        scenario=Scenario.EXPORT,
+        vat_country="",
+        vat_rate=Decimal("0"),
+        vat_amount=Decimal("0.00"),
+        collector=Collector.SELLER,
+        channel=Channel.EXONERATION,
+        note=_note(
+            f"{prefix_note} : exonérée de TVA (Art. 262 du CGI — "
+            "https://bit.ly/Art262CGI). Justificatif de sortie du "
+            "territoire requis.",
+            "engine_note_export", lang=lang,
+        ),
+    )
+
+
+
+# ------------------------------------------------------------------
+# Cas IOSS_DIRECT : import B2C ≤ 150 EUR, vendeur avec son propre
+# numéro IOSS (hors deemed supplier / marketplace).
+# Priorité avant le bloc deemed supplier car le vendeur a opté pour
+# le guichet IOSS en propre.
+# ------------------------------------------------------------------
+def _ioss_direct_result(sale: Sale, buyer_eu: bool, stock_eu: bool, ioss_own_number_active: bool,
+                        tax_rate: Decimal, tax_amount: Decimal, lang: str) -> VatResult | None:
+    """Import B2C <= 150 EUR avec n° IOSS propre du vendeur (guichet IOSS). Renvoie None sinon."""
+    if not (
+            sale.buyer_type == BuyerType.B2C
+            and buyer_eu
+            and not stock_eu
+            and sale.amount_ht <= IOSS_THRESHOLD
+            and sale.ioss_number
+            and ioss_own_number_active
+    ):
+        return None
+    return VatResult._new_unchecked(
+        sale=sale,
+        scenario=Scenario.IOSS_DIRECT,
+        vat_country=sale.buyer_country,
+        vat_rate=tax_rate,
+        vat_amount=tax_amount,
+        collector=Collector.SELLER,
+        channel=Channel.IOSS,
+        note=_note(
+            f"Import ≤ {IOSS_THRESHOLD} EUR : TVA {tax_rate}% collectée par le vendeur "
+            f"via son guichet IOSS ({sale.ioss_number}) — déclaration sur portail IOSS "
+            "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-IOSS).",
+            "engine_note_ioss_direct", lang=lang, rate=tax_rate, ioss=sale.ioss_number,
+        ),
+    )
+
+
+
+# ------------------------------------------------------------------
+# Cas 2 : Place de marché assujettie presumee (deemed supplier)
+# ------------------------------------------------------------------
+def _deemed_supplier_result(sale: Sale, marketplace_name: str, seller_eu: bool, stock_eu: bool, buyer_eu: bool,
+                            tax_rate: Decimal, tax_amount: Decimal, lang: str) -> VatResult | None:
+    """Place de marché assujettie présumée (vendeur hors UE ou import <= 150 EUR). Renvoie None sinon."""
+    if not (sale.buyer_type == BuyerType.B2C and buyer_eu):
+        return None
+    seller_non_eu = not seller_eu
+    low_value_import = (not stock_eu) and sale.amount_ht <= IOSS_THRESHOLD
+    if seller_non_eu or low_value_import:
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.DEEMED_SUPPLIER,
+            vat_country=sale.buyer_country,
+            vat_rate=tax_rate,
+            vat_amount=tax_amount,
+            collector=Collector.AMAZON,
+            channel=Channel.EXONERATION,
+            note=_note(
+                f"{marketplace_name} collecte la TVA ({tax_rate}%) sur {sale.buyer_country}.",
+                "engine_note_deemed_supplier", lang=lang, platform=marketplace_name, rate=tax_rate, country=sale.buyer_country,
+            )
+        )
+    return None
+
+
+
+# ------------------------------------------------------------------
+# Cas 3 : vente B2B intra-UE avec n° de TVA valide -> autoliquidation
+# ------------------------------------------------------------------
+def _b2b_intra_eu_result(sale: Sale, effective_category: str, _tx_date: _date | None, stock_eu: bool,
+                         buyer_eu: bool, cross_border: bool, tax_rate: Decimal, tax_amount: Decimal,
+                         lang: str) -> VatResult | None:
+    """Vente B2B intra-UE : autoliquidation (n° TVA valide) ou refus d'exonération (n° invalide). Renvoie None si aucun cas ne s'applique."""
+    if sale.buyer_type != BuyerType.B2B:
+        return None
+    if stock_eu and buyer_eu and cross_border and sale.buyer_vat_valid:
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.B2B_REVERSE_CHARGE,
+            vat_country="",
+            vat_rate=Decimal("0"),
+            vat_amount=Decimal("0.00"),
+            collector=Collector.BUYER,
+            channel=Channel.EXONERATION,
+            note=_note(
+                "Livraison intracommunautaire B2B exonérée avec autoliquidation "
+                "par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+                "engine_note_b2b_reverse_charge", lang=lang,
+            )
+        )
+
+    # B2B cross-border sans TVA intracom valide (buyer_vat_valid=False) :
+    # La livraison ne peut pas être exonérée (Art. 138 Directive 2006/112/CE).
+    #
+    # L'art.194 dir. 2006/112/CE (autoliquidation domestique) n'a AUCUN effet
+    # en cross-border — c'était l'erreur historique (exonération à tort). Il
+    # ne sert ici qu'à identifier les pays où l'ancien moteur appliquait à
+    # tort cette exonération (ES, IT, PL, CZ, SK, HU, RO…) :
+    #
+    #   a) buyer_country dans cette liste : on corrige l'ancienne exonération
+    #      à tort. Le lieu de livraison reste le pays de départ (Art. 31
+    #      Directive 2006/112/CE) → le vendeur collecte la TVA de départ.
+    #
+    #   b) buyer_country hors de cette liste : pas d'exonération à corriger
+    #      ici — la vente est simplement reclassifiée B2C (numéro TVA
+    #      invalide = pas de preuve de statut assujetti) et suit le régime
+    #      normal des ventes à distance (Art. 33) : OSS, taxation à
+    #      destination — exactement comme n'importe quelle vente B2C
+    #      cross-border (voir Cas 1 plus bas).
+    #
+    # Note : Si la vente est reclassifiée en B2C par le moteur VIES, elle basculera
+    # alors dans le régime OSS (TVA destination) — voir bloc Cas 1 plus bas.
+    if stock_eu and buyer_eu and cross_border:
+        if sale.buyer_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
+            departure_rate = vat_rate(sale.stock_country, effective_category, tx_date=_tx_date)
+            departure_amount = _vat_amount(sale.amount_ht, departure_rate)
+
+            is_stock_home = sale.stock_country == sale.seller_country
+            channel = Channel.FR_DOMESTIC if is_stock_home else Channel.LOCAL_REGISTRATION
+
+            return VatResult._new_unchecked(
+                sale=sale,
+                scenario=Scenario.DOMESTIC,
+                vat_country=sale.stock_country,
+                vat_rate=departure_rate,
+                vat_amount=departure_amount,
+                collector=Collector.SELLER,
+                channel=channel,
+                note=_note(
+                    f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
+                    f"numéro TVA acheteur non valide VIES. L'art.194 (adopté en "
+                    f"{sale.buyer_country}) ne s'applique qu'au national, pas en "
+                    f"cross-border — l'exonération est refusée (Art. 138 Directive "
+                    f"2006/112/CE) — taxation au pays de départ ({sale.stock_country}) "
+                    f"au taux de {departure_rate}% collecté par le vendeur.",
+                    "engine_note_b2b_no_vies_departure", lang=lang, stock=sale.stock_country,
+                    buyer=sale.buyer_country, rate=departure_rate,
+                ),
+            )
+        else:
+            # Le numéro TVA est invalide : l'exonération B2B (Art. 138) est
+            # refusée. Contrairement à la branche ci-dessus, le pays de
+            # destination n'a pas de régime d'autoliquidation généralisée
+            # concurrent à écarter — il n'y a donc pas d'obstacle à traiter
+            # la vente comme une vente à distance B2C classique (Art. 33
+            # Directive 2006/112/CE) : la vente est reclassifiée B2C et
+            # suit le régime OSS, taxée au pays de destination.
+            return VatResult._new_unchecked(
+                sale=sale,
+                scenario=Scenario.OSS_B2C,
+                vat_country=sale.buyer_country,
+                vat_rate=tax_rate,
+                vat_amount=tax_amount,
+                collector=Collector.SELLER,
+                channel=Channel.OSS,
+                note=_note(
+                    f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
+                    f"numéro TVA acheteur non valide VIES. L'exonération est refusée "
+                    f"(Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C "
+                    f"et taxée au pays de destination ({sale.buyer_country}) au taux de "
+                    f"{tax_rate}% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — "
+                    f"https://bit.ly/Bofip-OSS).",
+                    "engine_note_b2b_no_vies_destination_oss", lang=lang, stock=sale.stock_country,
+                    buyer=sale.buyer_country, rate=tax_rate,
+                ),
+            )
+    return None
+
+
+
+# ------------------------------------------------------------------
+# Cas 1bis : vente B2C transfrontalière (stock ≠ acheteur) MAIS dont la
+# destination est le pays d'ÉTABLISSEMENT du vendeur (sale.seller_country).
+#
+# BUGFIX (voir README - évolution.md) : l'art. 59 ter Directive 2006/112/CE
+# (régime OSS / seuil 10 000 €) ne s'applique qu'aux ventes à distance
+# EXPÉDIÉES DEPUIS le pays d'établissement du vendeur VERS un autre État
+# membre. Une vente expédiée depuis un stock étranger (ex: DE) mais reçue
+# par un acheteur situé dans le pays d'établissement du vendeur (ex: FR
+# pour un vendeur français) n'entre PAS dans ce champ : la destination
+# coïncide avec le pays où le vendeur est déjà immatriculé, donc la TVA
+# locale s'applique directement (déclaration domestique CA3), sans passer
+# par le guichet OSS. Avant ce correctif, `cross_border` (stock_country
+# != buyer_country) suffisait à faire tomber ces ventes dans le Cas 1
+# (OSS_B2C) — same-country arrival was never distinguished from a real
+# cross-border destination.
+# ------------------------------------------------------------------
+def _domestic_home_foreign_stock_result(sale: Sale, tax_rate: Decimal, tax_amount: Decimal, lang: str) -> VatResult:
+    """Vente B2C dont la destination est le pays d'établissement du vendeur, expédiée depuis un stock étranger (Cas 1bis)."""
+    return VatResult._new_unchecked(
+        sale=sale,
+        scenario=Scenario.DOMESTIC,
+        vat_country=sale.buyer_country,
+        vat_rate=tax_rate,
+        vat_amount=tax_amount,
+        collector=Collector.SELLER,
+        channel=Channel.FR_DOMESTIC,
+        note=_note(
+            f"Vente vers {sale.buyer_country} (pays d'établissement du vendeur) "
+            f"expédiée depuis un stock {sale.stock_country} : la destination "
+            f"coïncidant avec le pays d'origine du vendeur, la vente est traitée "
+            f"comme une vente domestique {sale.buyer_country} (déclaration locale "
+            f"CA3, hors OSS — Art. 59 ter Directive 2006/112/CE ne s'applique "
+            f"qu'aux expéditions depuis le pays d'établissement) — TVA {tax_rate}%.",
+            "engine_note_domestic_home_foreign_stock", lang=lang,
+            country=sale.buyer_country, stock=sale.stock_country, rate=tax_rate,
+        )
+    )
+
+
+
+# ------------------------------------------------------------------
+# Cas 1 : vente B2C intra-UE transfrontaliere (OSS par défaut)
+# ------------------------------------------------------------------
+def _oss_b2c_result(sale: Sale, tax_rate: Decimal, tax_amount: Decimal, lang: str) -> VatResult:
+    """Vente B2C intra-UE transfrontalière : OSS, TVA du pays de destination (Cas 1)."""
+    return VatResult._new_unchecked(
+        sale=sale,
+        scenario=Scenario.OSS_B2C,
+        vat_country=sale.buyer_country,
+        vat_rate=tax_rate,
+        vat_amount=tax_amount,
+        collector=Collector.SELLER,
+        channel=Channel.OSS,
+        note=_note(
+            f"Vente OSS vers {sale.buyer_country} au taux de {tax_rate}% "
+            "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+            "engine_note_oss_b2c", lang=lang, country=sale.buyer_country, rate=tax_rate,
+        )
+    )
+
+
+
+def _domestic_sale_result(sale: Sale, tax_rate: Decimal, tax_amount: Decimal, lang: str) -> VatResult:
+    """Vente locale (stock et acheteur dans le même pays) : domestique, ou autoliquidation nationale B2B."""
+    # is_home : le stock est dans le pays d'origine (établissement) du
+    # vendeur — sale.seller_country, pas littéralement "FR" (réglage de
+    # compte global, voir auth.py). Nommé is_fr historiquement, renommé
+    # is_home pour éviter toute confusion : reste vrai pour un vendeur
+    # français par défaut (seller_country="FR"), mais se généralise à
+    # tout pays d'origine choisi par le compte.
+    is_home = sale.stock_country == sale.seller_country
+    is_fr = is_home  # alias conservé pour lisibilité du reste du bloc
+
+    # Vente B2B domestique hors France : autoliquidation nationale.
+    # En droit ES/IT/DE/etc., une vente entre deux assujettis dans le même pays
+    # est soumise à autoliquidation par l'acheteur — que son n° TVA soit validé
+    # par VIES ou non (VIES ne couvre que l'intracommunautaire).
+    # Cas inclus :
+    #   1. buyer_type = B2B (n° TVA intracom présent, validé ou non)
+    #   2. buyer_type = B2C mais avec un numéro fiscal fourni (NIF national ES/IT/etc.)
+    #      → Amazon transmet le NIF sans préfixe pays, _is_valid_vat_intracom le rejette
+    #        et l'adaptateur classe la vente en B2C par précaution. Mais un NIF national
+    #        sur une vente domestique indique un professionnel assujetti local.
+    #        Le cabinet comptable ne taxe pas ces ventes (autoliquidation nationale).
+    is_b2b_domestic = (
+            sale.buyer_type == BuyerType.B2B
+            or (sale.buyer_type == BuyerType.B2C and bool(sale.buyer_vat_number))
+    )
+    if is_b2b_domestic and not is_fr and sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
+        # BUGFIX (2026-09-09) : channel=EXONERATION rendait ces ventes
+        # totalement invisibles des rapports locaux (local_vat_report.py
+        # ne filtre que sur LOCAL/FR_DOMESTIC) alors qu'elles sont
+        # obligatoires pour les déclarations et états récapitulatifs
+        # (ESL) locaux du pays de stockage — seule la TVA n'est pas due
+        # par le vendeur (autoliquidation), pas la vente elle-même.
+        # collector reste BUYER (le vendeur ne collecte toujours pas la
+        # TVA — ceci ne change pas la position fiscale validée par le
+        # cabinet comptable) ; seul le canal de reporting change, pour
+        # que ces lignes remontent dans le rapport TVA local (base à 0
+        # de TVA mais base HT et nombre de lignes présents). Le bucket
+        # dashboard dédié (report.py, "bucket_reverse_charge_nat") reste
+        # inchangé : il teste scenario==DOMESTIC et collector==BUYER
+        # AVANT de tester le channel, donc l'affichage distinct de ces
+        # ventes en autoliquidation nationale n'est pas affecté.
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.DOMESTIC,
+            vat_country=sale.stock_country,
+            vat_rate=Decimal("0"),
+            vat_amount=Decimal("0.00"),
+            collector=Collector.BUYER,
+            channel=Channel.LOCAL_REGISTRATION,
+            note=_note(
+                f"Vente B2B domestique {sale.stock_country} : autoliquidation nationale. "
+                f"L'acheteur assujetti (n° {'TVA: ' + sale.buyer_vat_number if sale.buyer_vat_number else 'inconnu'}) "
+                f"déclare et reverse la TVA — le vendeur ne collecte pas.",
+                "engine_note_b2b_domestic_rc", lang=lang, country=sale.stock_country,
+            ),
+        )
+
+    channel = Channel.FR_DOMESTIC if is_fr else Channel.LOCAL_REGISTRATION
+    note = (
+        _note(
+            f"Vente domestique {sale.seller_country} : TVA {tax_rate}% à déclarer en local.",
+            "engine_note_domestic_home", lang=lang, country=sale.seller_country, rate=tax_rate,
+        )
+        if is_fr else
+        _note(
+            f"Vente domestique {sale.stock_country} : TVA {tax_rate}%. "
+            f"Immatriculation TVA locale requise en {sale.stock_country}.",
+            "engine_note_domestic_local", lang=lang, country=sale.stock_country, rate=tax_rate,
+        )
+    )
+    return VatResult._new_unchecked(
+        sale=sale,
+        scenario=Scenario.DOMESTIC,
+        vat_country=sale.stock_country,
+        vat_rate=tax_rate,
+        vat_amount=tax_amount,
+        collector=Collector.SELLER,
+        channel=channel,
+        note=note,
+    )
+
+
+
+def _import_result(sale: Sale, tax_rate: Decimal, tax_amount: Decimal, lang: str) -> VatResult:
+    """Import hors UE > 150 EUR : vendeur importateur (DDP) ou TVA d'importation due à la douane."""
+    # Import hors-UE > 150 EUR : deux sous-cas selon qui est l'importateur.
+    if sale.seller_is_importer:
+        # DDP (Delivered Duty Paid) : le vendeur dédouane la marchandise,
+        # la vente redevient une livraison locale dans le pays de destination.
+        # Une immatriculation TVA locale dans ce pays est obligatoire.
+        is_dest_home = sale.buyer_country == sale.seller_country
+        channel = Channel.FR_DOMESTIC if is_dest_home else Channel.LOCAL_REGISTRATION
+        note = _note(
+            f"Import > {IOSS_THRESHOLD} EUR, vendeur importateur officiel (DDP) : "
+            f"vente requalifiée en livraison domestique {sale.buyer_country}. "
+            f"TVA locale {tax_rate}% — "
+            + (
+                f"déclaration domestique ({sale.seller_country})."
+                if is_dest_home else
+                f"immatriculation TVA locale requise en {sale.buyer_country}."
+            ),
+            "engine_note_ddp_import", lang=lang, country=sale.buyer_country, rate=tax_rate, home=sale.seller_country,
+            )
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.IMPORT_SELLER_AS_IMPORTER,
+            vat_country=sale.buyer_country,
+            vat_rate=tax_rate,
+            vat_amount=tax_amount,
+            collector=Collector.SELLER,
+            channel=channel,
+            note=note,
+        )
+    else:
+        # Régime standard : TVA d'importation due à la douane par l'acheteur.
+        return VatResult._new_unchecked(
+            sale=sale,
+            scenario=Scenario.IMPORT_STANDARD,
+            vat_country=sale.buyer_country,
+            vat_rate=tax_rate,
+            vat_amount=tax_amount,
+            collector=Collector.BUYER,
+            channel=Channel.EXONERATION,
+            note=_note(
+                f"Import > {IOSS_THRESHOLD} EUR depuis pays tiers : TVA d'importation "
+                f"{sale.buyer_country} ({tax_rate}%) due a la douane par l'importateur "
+                "(hors guichet IOSS).",
+                "engine_note_import_standard", lang=lang, country=sale.buyer_country, rate=tax_rate,
+            ),
+        )
+
+
 def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: str = "", lang: str | None = None,
                  ioss_own_number_active: bool = False, tx_date: _date | None = None) -> VatResult:
     """Calcule le regime et le montant de TVA d'une vente en prenant en compte la catégorie produit.
@@ -197,35 +827,11 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     # et le champ Sale prime sur le fallback STANDARD.
     effective_category = (product_category or sale.product_category or "STANDARD").strip().upper()
 
-    # ------------------------------------------------------------------
-    # Hors champ TVA (2026-09-16, PRODUCT_TAX_CODE Amazon A_GEN_NOTAX) :
-    # court-circuit total, avant Monaco/OSS/export/tout le reste. Aucun taux,
-    # aucun redevable, aucune déclaration nulle part (ni CA3, ni OSS/IOSS, ni
-    # DEB/EMEBI) — contrairement à EXPORT/B2B_REVERSE_CHARGE qui sont des
-    # opérations réelles mais exonérées. La ligne reste néanmoins visible
-    # dans le détail des ventes (traçabilité/audit) via `note`, simplement
-    # exclue de tout calcul et de toute déclaration (VatResult.scenario ==
-    # Scenario.OUT_OF_SCOPE, non repris par les filtres à liste blanche de
-    # oss_export.py / ui/tabs/declarations.py). Plus léger pour le système :
-    # évite tout appel réseau/DB (TEDB, VIES, taux de change) inutile sur une
-    # vente qui de toute façon ne sera jamais taxée.
-    # ------------------------------------------------------------------
+    # Ordre de dispatch = ordre de priorité fiscale (ne pas permuter) :
+    # hors champ > Monaco (acheteur puis stock) > export > IOSS direct >
+    # deemed supplier > B2B intra-UE > Cas 1bis > OSS > local / import.
     if effective_category == "OUT_OF_SCOPE":
-        return VatResult._new_unchecked(
-            sale=sale,
-            scenario=Scenario.OUT_OF_SCOPE,
-            vat_country="",
-            vat_rate=Decimal("0"),
-            vat_amount=Decimal("0.00"),
-            collector=Collector.NONE,
-            channel=Channel.OUT_OF_SCOPE,
-            note=_note(
-                "Hors champ TVA : opération non soumise à la TVA par nature "
-                "(PRODUCT_TAX_CODE Amazon A_GEN_NOTAX). Aucun calcul, aucune "
-                "déclaration.",
-                "engine_note_out_of_scope", lang=lang,
-            ),
-        )
+        return _out_of_scope_result(sale, lang)
 
     seller_eu = is_eu(sale.seller_country)
     stock_eu = is_eu(sale.stock_country)
@@ -235,565 +841,46 @@ def compute_vat(sale: Sale, marketplace_name: str = "Amazon", product_category: 
     buyer_eu = is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None)
     cross_border = sale.stock_country != sale.buyer_country
 
-    # Date de transaction (déplacée ici, avant le cas Monaco ET le cas export,
-    # pour que les deux puissent appliquer un taux historique correct — ex:
-    # changement de taux FR au fil du temps).
-    #
-    # BUGFIX (2026-09-10, taux historique erroné sur avoir à cheval sur 2
-    # années) : pour un avoir/remboursement (amount_ht < 0), `transaction_date`
-    # porte la date de LA LIGNE D'AVOIR elle-même (ex: 2026), pas celle de la
-    # vente d'origine qu'il rembourse (ex: 2025). Si le taux du pays a changé
-    # entre les deux, le taux 2026 était appliqué à tort à un avoir 2025. Le
-    # loader Amazon (`parsers/amazon/loader.py`) remplit `order_date` avec la
-    # date de la commande d'origine UNIQUEMENT quand elle diffère de
-    # `transaction_date` (voir son commentaire) — c'est donc le signal fiable
-    # qu'on est sur un avoir différé. On préfère `order_date` à
-    # `transaction_date` dans ce cas précis pour résoudre le taux historique.
-    _tx_date: _date | None = tx_date
-    if _tx_date is None:
-        _date_str = sale.transaction_date
-        if sale.amount_ht < 0 and sale.order_date:
-            _date_str = sale.order_date
-        if _date_str:
-            try:
-                _tx_date = _date.fromisoformat(_date_str[:10])
-            except ValueError:
-                pass  # date malformée → taux courant (pas de correctif historique)
+    _tx_date = _resolve_tx_date(sale, tx_date)
 
-    # ------------------------------------------------------------------
-    # Monaco (MC) : assimilé au territoire français pour la TVA (convention
-    # fiscale franco-monégasque du 18 mai 1963, droits indirects). Sans ce
-    # cas spécial, "MC" n'étant reconnu ni par is_eu() ni par is_fiscal_eu(),
-    # une vente vers Monaco tomberait à tort dans EXPORT (exonérée) alors
-    # qu'elle doit être taxée comme une vente domestique française standard.
-    # ------------------------------------------------------------------
     if sale.buyer_country == "MC":
-        mc_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
-        mc_amount = _vat_amount(sale.amount_ht, mc_rate)
+        return _monaco_buyer_result(sale, effective_category, _tx_date, lang)
 
-        # Correctif 2026-09-11 (bug d'isolation Stock/Acheteur à Monaco) :
-        # on utilise fiscal_equivalent_country() plutôt que la comparaison
-        # littérale "== FR", pour couvrir deux angles morts :
-        #   - stock_country == "MC" (vente MC -> MC) : fiscalement FR -> FR,
-        #     donc domestique, et non OSS vers la France comme avant.
-        #   - stock_country ailleurs en UE mais seller_country == "FR" (ou
-        #     "MC") : la destination (Monaco = France) coïncide avec le pays
-        #     d'établissement du vendeur, donc domestique (Art. 59 ter
-        #     Directive 2006/112/CE — l'OSS ne s'applique pas quand la
-        #     destination est le pays d'établissement), symétrique du
-        #     traitement du "Cas 1bis" plus bas pour les autres pays UE.
-        stock_is_fr_equiv = fiscal_equivalent_country(sale.stock_country) == "FR"
-        seller_is_fr_equiv = fiscal_equivalent_country(sale.seller_country) == "FR"
-
-        if stock_is_fr_equiv or seller_is_fr_equiv:
-            # Si le vendeur est établi en France (ou à Monaco), c'est du
-            # domestique FR_DOMESTIC. Sinon (stock FR/MC mais vendeur non
-            # établi en France), c'est du LOCAL_REGISTRATION en France.
-            channel = Channel.FR_DOMESTIC if seller_is_fr_equiv else Channel.LOCAL_REGISTRATION
-
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.DOMESTIC,
-                vat_country="FR",
-                vat_rate=mc_rate,
-                vat_amount=mc_amount,
-                collector=Collector.SELLER,
-                channel=channel,
-                note=_note(
-                    f"Vente vers Monaco depuis un stock {sale.stock_country} : assimilée à une "
-                    "vente domestique française (convention fiscale franco-monégasque "
-                    "du 18 mai 1963 — https://bit.ly/Conv-FR-MC) — TVA FR "
-                    f"{mc_rate}% collectée.",
-                    "engine_note_monaco_home", lang=lang, rate=mc_rate,
-                ),
-            )
-        else:
-            # Stock hors FR/MC ET vendeur non établi en France : Monaco
-            # étant fiscalement la France, c'est une vente OSS vers la France.
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.OSS_B2C,
-                vat_country="FR",
-                vat_rate=mc_rate,
-                vat_amount=mc_amount,
-                collector=Collector.SELLER,
-                channel=Channel.OSS,
-                note=_note(
-                    f"Vente vers Monaco depuis un stock {sale.stock_country} : "
-                    "assimilée à une vente OSS vers la France (Convention fiscale "
-                    "franco-monégasque — Monaco est traité comme le territoire "
-                    f"français pour la TVA) — TVA FR {mc_rate}%.",
-                    "engine_note_monaco_oss", lang=lang, stock=sale.stock_country, rate=mc_rate,
-                ),
-            )
-
-    # ------------------------------------------------------------------
-    # Cas symétrique : stock physiquement à Monaco (sale.buyer_country != "MC",
-    # déjà traité ci-dessus). Monaco étant fiscalement la France (convention
-    # franco-monégasque du 18 mai 1963), un stock à Monaco doit être traité
-    # exactement comme un stock en France : vente vers la France = domestique,
-    # vente vers un autre pays UE = OSS classique vers ce pays. Sans ce cas
-    # (angle mort confirmé le 2026-08-26), stock=MC / buyer=FR tombait à tort
-    # en Scenario.OSS_B2C (comparaison stock_country == buyer_country échouant
-    # sur "MC" != "FR"), et le pays de départ "MC" fuyait tel quel jusque dans
-    # le XML officiel OSS (<MemberStateOfSupply>MC</MemberStateOfSupply>,
-    # invalide — Monaco n'est pas un État membre UE). Voir
-    # rates.fiscal_equivalent_country(), qui documente aussi les points
-    # d'agrégation (oss_export.py, ca3_report.py) normalisés en parallèle.
-    # ------------------------------------------------------------------
     if sale.stock_country == "MC":
-        mc_stock_rate = vat_rate("FR", effective_category, tx_date=_tx_date)
+        mc_stock = _monaco_stock_result(sale, effective_category, _tx_date, lang)
+        if mc_stock is not None:
+            return mc_stock
 
-        if sale.buyer_country == "FR":
-            # Stock à Monaco, vente vers la France : vente domestique française.
-            is_home = sale.seller_country in ("FR", "MC")
-            channel = Channel.FR_DOMESTIC if is_home else Channel.LOCAL_REGISTRATION
-            mc_stock_amount = _vat_amount(sale.amount_ht, mc_stock_rate)
-
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.DOMESTIC,
-                vat_country="FR",
-                vat_rate=mc_stock_rate,
-                vat_amount=mc_stock_amount,
-                collector=Collector.SELLER,
-                channel=channel,
-                note=_note(
-                    "Vente depuis un stock à Monaco vers la France : assimilée "
-                    "à une vente domestique française (convention fiscale "
-                    "franco-monégasque du 18 mai 1963 — https://bit.ly/Conv-FR-MC) "
-                    f"— TVA FR {mc_stock_rate}% collectée.",
-                    "engine_note_monaco_stock_home", lang=lang, rate=mc_stock_rate,
-                ),
-            )
-        elif is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None):
-            # BUGFIX fiscal (audit 2026-09-13, bug non listé, trouvé via
-            # tests/test_fiscal_monaco.py::test_monaco_stock_monaco_buyer_germany_b2b_valid_vat) :
-            # ce branchement spécifique "stock == MC" renvoyait toujours
-            # OSS_B2C, y compris pour un acheteur B2B avec n° de TVA
-            # intracommunautaire valide — contrairement au "Cas 3" général
-            # (~ligne 454, `if sale.buyer_type == BuyerType.B2B: ...`) qui
-            # n'est jamais atteint ici puisqu'on retourne avant. Résultat :
-            # une livraison B2B au départ de Monaco (= France) vers un
-            # acheteur UE assujetti perdait à tort l'exonération intracom
-            # (Art. 262 ter CGI / Art. 138 Dir. 2006/112/CE) et se
-            # retrouvait taxée en OSS_B2C. On réplique ici la même
-            # condition que le Cas 3 général avant de retomber sur OSS_B2C.
-            if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_valid:
-                return VatResult._new_unchecked(
-                    sale=sale,
-                    scenario=Scenario.B2B_REVERSE_CHARGE,
-                    vat_country="",
-                    vat_rate=Decimal("0"),
-                    vat_amount=Decimal("0.00"),
-                    collector=Collector.BUYER,
-                    channel=Channel.EXONERATION,
-                    note=_note(
-                        f"Livraison intracommunautaire B2B depuis un stock à Monaco "
-                        f"(assimilé France) vers {sale.buyer_country} : exonérée "
-                        "avec autoliquidation par l'acquéreur (Art. 262 ter du CGI "
-                        "— https://bit.ly/Art262ter).",
-                        "engine_note_monaco_stock_b2b_reverse_charge", lang=lang,
-                        buyer=sale.buyer_country,
-                    ),
-                )
-
-            # Stock à Monaco, vente vers un autre pays UE : OSS classique
-            # vers ce pays, exactement comme si le stock était en France.
-            mc_stock_dest_rate = vat_rate(sale.buyer_country, effective_category, tx_date=_tx_date)
-            mc_stock_dest_amount = _vat_amount(sale.amount_ht, mc_stock_dest_rate)
-
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.OSS_B2C,
-                vat_country=sale.buyer_country,
-                vat_rate=mc_stock_dest_rate,
-                vat_amount=mc_stock_dest_amount,
-                collector=Collector.SELLER,
-                channel=Channel.OSS,
-                note=_note(
-                    f"Vente depuis un stock à Monaco vers {sale.buyer_country} : "
-                    "Monaco étant assimilé à la France pour la TVA, traitée "
-                    "comme une vente OSS classique au départ de la France "
-                    f"— TVA {sale.buyer_country} {mc_stock_dest_rate}%.",
-                    "engine_note_monaco_stock_oss", lang=lang,
-                    buyer=sale.buyer_country, rate=mc_stock_dest_rate,
-                ),
-            )
-        # Sinon (buyer hors UE fiscal) : on laisse tomber dans la logique
-        # générale ci-dessous (export / territoire exclu), qui gère déjà
-        # correctement ces cas pour un stock "FR" classique.
-
-    # ------------------------------------------------------------------
-    # SÉCURITÉ IMMÉDIATE : Cas d'exportation hors UE (ex: GB, US...)
-    # On traite ce cas EN PREMIER pour éviter d'interroger vat_rate inutilement
-    # ------------------------------------------------------------------
     if not buyer_eu:
-        # On affine la note selon que le pays est hors-UE ou s'il s'agit d'un
-        # territoire d'un pays membre exclu du territoire fiscal (ex: Canaries).
-        is_excl_territory = is_eu(sale.buyer_country) and is_non_fiscal_eu(sale.buyer_country, sale.arrival_post_code)
-        prefix_note = (
-            "Territoire exclu du territoire fiscal de l'UE"
-            if is_excl_territory
-            else "Exportation hors UE"
-        )
-        return VatResult._new_unchecked(
-            sale=sale,
-            scenario=Scenario.EXPORT,
-            vat_country="",
-            vat_rate=Decimal("0"),
-            vat_amount=Decimal("0.00"),
-            collector=Collector.SELLER,
-            channel=Channel.EXONERATION,
-            note=_note(
-                f"{prefix_note} : exonérée de TVA (Art. 262 du CGI — "
-                "https://bit.ly/Art262CGI). Justificatif de sortie du "
-                "territoire requis.",
-                "engine_note_export", lang=lang,
-            ),
-        )
+        return _export_result(sale, lang)
 
-    # 1. Calcul du taux dynamique basé sur le pays, la catégorie et la date
-    # La date de transaction est utilisée pour appliquer le taux historique correct
+    # Taux dynamique (pays, catégorie, date) — taux historique correct
     # (ex: EE 22% avant juil.2025, RO 19% avant août 2025).
     tax_rate = vat_rate(sale.buyer_country, effective_category, tx_date=_tx_date)
     tax_amount = _vat_amount(sale.amount_ht, tax_rate)
 
-    # ------------------------------------------------------------------
-    # Cas IOSS_DIRECT : import B2C ≤ 150 EUR, vendeur avec son propre
-    # numéro IOSS (hors deemed supplier / marketplace).
-    # Priorité avant le bloc deemed supplier car le vendeur a opté pour
-    # le guichet IOSS en propre.
-    # ------------------------------------------------------------------
-    if (
-            sale.buyer_type == BuyerType.B2C
-            and buyer_eu
-            and not stock_eu
-            and sale.amount_ht <= IOSS_THRESHOLD
-            and sale.ioss_number
-            and ioss_own_number_active
-    ):
-        return VatResult._new_unchecked(
-            sale=sale,
-            scenario=Scenario.IOSS_DIRECT,
-            vat_country=sale.buyer_country,
-            vat_rate=tax_rate,
-            vat_amount=tax_amount,
-            collector=Collector.SELLER,
-            channel=Channel.IOSS,
-            note=_note(
-                f"Import ≤ {IOSS_THRESHOLD} EUR : TVA {tax_rate}% collectée par le vendeur "
-                f"via son guichet IOSS ({sale.ioss_number}) — déclaration sur portail IOSS "
-                "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-IOSS).",
-                "engine_note_ioss_direct", lang=lang, rate=tax_rate, ioss=sale.ioss_number,
-            ),
-        )
+    # Évaluation paresseuse et séquentielle (jamais en avance) : chaque helper
+    # renvoie None si son cas ne s'applique pas.
+    result = _ioss_direct_result(sale, buyer_eu, stock_eu, ioss_own_number_active, tax_rate, tax_amount, lang)
+    if result is None:
+        result = _deemed_supplier_result(sale, marketplace_name, seller_eu, stock_eu, buyer_eu,
+                                         tax_rate, tax_amount, lang)
+    if result is None:
+        result = _b2b_intra_eu_result(sale, effective_category, _tx_date, stock_eu, buyer_eu, cross_border,
+                                      tax_rate, tax_amount, lang)
+    if result is not None:
+        return result
 
-    # ------------------------------------------------------------------
-    # Cas 2 : Place de marché assujettie presumee (deemed supplier)
-    # ------------------------------------------------------------------
-    if sale.buyer_type == BuyerType.B2C and buyer_eu:
-        seller_non_eu = not seller_eu
-        low_value_import = (not stock_eu) and sale.amount_ht <= IOSS_THRESHOLD
-        if seller_non_eu or low_value_import:
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.DEEMED_SUPPLIER,
-                vat_country=sale.buyer_country,
-                vat_rate=tax_rate,
-                vat_amount=tax_amount,
-                collector=Collector.AMAZON,
-                channel=Channel.EXONERATION,
-                note=_note(
-                    f"{marketplace_name} collecte la TVA ({tax_rate}%) sur {sale.buyer_country}.",
-                    "engine_note_deemed_supplier", lang=lang, platform=marketplace_name, rate=tax_rate, country=sale.buyer_country,
-                )
-            )
-
-    # ------------------------------------------------------------------
-    # Cas 3 : vente B2B intra-UE avec n° de TVA valide -> autoliquidation
-    # ------------------------------------------------------------------
-    if sale.buyer_type == BuyerType.B2B:
-        if stock_eu and buyer_eu and cross_border and sale.buyer_vat_valid:
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.B2B_REVERSE_CHARGE,
-                vat_country="",
-                vat_rate=Decimal("0"),
-                vat_amount=Decimal("0.00"),
-                collector=Collector.BUYER,
-                channel=Channel.EXONERATION,
-                note=_note(
-                    "Livraison intracommunautaire B2B exonérée avec autoliquidation "
-                    "par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
-                    "engine_note_b2b_reverse_charge", lang=lang,
-                )
-            )
-
-        # B2B cross-border sans TVA intracom valide (buyer_vat_valid=False) :
-        # La livraison ne peut pas être exonérée (Art. 138 Directive 2006/112/CE).
-        #
-        # L'art.194 dir. 2006/112/CE (autoliquidation domestique) n'a AUCUN effet
-        # en cross-border — c'était l'erreur historique (exonération à tort). Il
-        # ne sert ici qu'à identifier les pays où l'ancien moteur appliquait à
-        # tort cette exonération (ES, IT, PL, CZ, SK, HU, RO…) :
-        #
-        #   a) buyer_country dans cette liste : on corrige l'ancienne exonération
-        #      à tort. Le lieu de livraison reste le pays de départ (Art. 31
-        #      Directive 2006/112/CE) → le vendeur collecte la TVA de départ.
-        #
-        #   b) buyer_country hors de cette liste : pas d'exonération à corriger
-        #      ici — la vente est simplement reclassifiée B2C (numéro TVA
-        #      invalide = pas de preuve de statut assujetti) et suit le régime
-        #      normal des ventes à distance (Art. 33) : OSS, taxation à
-        #      destination — exactement comme n'importe quelle vente B2C
-        #      cross-border (voir Cas 1 plus bas).
-        #
-        # Note : Si la vente est reclassifiée en B2C par le moteur VIES, elle basculera
-        # alors dans le régime OSS (TVA destination) — voir bloc Cas 1 plus bas.
-        if stock_eu and buyer_eu and cross_border:
-            if sale.buyer_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
-                departure_rate = vat_rate(sale.stock_country, effective_category, tx_date=_tx_date)
-                departure_amount = _vat_amount(sale.amount_ht, departure_rate)
-
-                is_stock_home = sale.stock_country == sale.seller_country
-                channel = Channel.FR_DOMESTIC if is_stock_home else Channel.LOCAL_REGISTRATION
-
-                return VatResult._new_unchecked(
-                    sale=sale,
-                    scenario=Scenario.DOMESTIC,
-                    vat_country=sale.stock_country,
-                    vat_rate=departure_rate,
-                    vat_amount=departure_amount,
-                    collector=Collector.SELLER,
-                    channel=channel,
-                    note=_note(
-                        f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
-                        f"numéro TVA acheteur non valide VIES. L'art.194 (adopté en "
-                        f"{sale.buyer_country}) ne s'applique qu'au national, pas en "
-                        f"cross-border — l'exonération est refusée (Art. 138 Directive "
-                        f"2006/112/CE) — taxation au pays de départ ({sale.stock_country}) "
-                        f"au taux de {departure_rate}% collecté par le vendeur.",
-                        "engine_note_b2b_no_vies_departure", lang=lang, stock=sale.stock_country,
-                        buyer=sale.buyer_country, rate=departure_rate,
-                    ),
-                )
-            else:
-                # Le numéro TVA est invalide : l'exonération B2B (Art. 138) est
-                # refusée. Contrairement à la branche ci-dessus, le pays de
-                # destination n'a pas de régime d'autoliquidation généralisée
-                # concurrent à écarter — il n'y a donc pas d'obstacle à traiter
-                # la vente comme une vente à distance B2C classique (Art. 33
-                # Directive 2006/112/CE) : la vente est reclassifiée B2C et
-                # suit le régime OSS, taxée au pays de destination.
-                return VatResult._new_unchecked(
-                    sale=sale,
-                    scenario=Scenario.OSS_B2C,
-                    vat_country=sale.buyer_country,
-                    vat_rate=tax_rate,
-                    vat_amount=tax_amount,
-                    collector=Collector.SELLER,
-                    channel=Channel.OSS,
-                    note=_note(
-                        f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
-                        f"numéro TVA acheteur non valide VIES. L'exonération est refusée "
-                        f"(Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C "
-                        f"et taxée au pays de destination ({sale.buyer_country}) au taux de "
-                        f"{tax_rate}% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — "
-                        f"https://bit.ly/Bofip-OSS).",
-                        "engine_note_b2b_no_vies_destination_oss", lang=lang, stock=sale.stock_country,
-                        buyer=sale.buyer_country, rate=tax_rate,
-                    ),
-                )
-
-    # ------------------------------------------------------------------
-    # Cas 1bis : vente B2C transfrontalière (stock ≠ acheteur) MAIS dont la
-    # destination est le pays d'ÉTABLISSEMENT du vendeur (sale.seller_country).
-    #
-    # BUGFIX (voir README - évolution.md) : l'art. 59 ter Directive 2006/112/CE
-    # (régime OSS / seuil 10 000 €) ne s'applique qu'aux ventes à distance
-    # EXPÉDIÉES DEPUIS le pays d'établissement du vendeur VERS un autre État
-    # membre. Une vente expédiée depuis un stock étranger (ex: DE) mais reçue
-    # par un acheteur situé dans le pays d'établissement du vendeur (ex: FR
-    # pour un vendeur français) n'entre PAS dans ce champ : la destination
-    # coïncide avec le pays où le vendeur est déjà immatriculé, donc la TVA
-    # locale s'applique directement (déclaration domestique CA3), sans passer
-    # par le guichet OSS. Avant ce correctif, `cross_border` (stock_country
-    # != buyer_country) suffisait à faire tomber ces ventes dans le Cas 1
-    # (OSS_B2C) — same-country arrival was never distinguished from a real
-    # cross-border destination.
-    # ------------------------------------------------------------------
     if stock_eu and buyer_eu and cross_border and sale.buyer_country == sale.seller_country:
-        return VatResult._new_unchecked(
-            sale=sale,
-            scenario=Scenario.DOMESTIC,
-            vat_country=sale.buyer_country,
-            vat_rate=tax_rate,
-            vat_amount=tax_amount,
-            collector=Collector.SELLER,
-            channel=Channel.FR_DOMESTIC,
-            note=_note(
-                f"Vente vers {sale.buyer_country} (pays d'établissement du vendeur) "
-                f"expédiée depuis un stock {sale.stock_country} : la destination "
-                f"coïncidant avec le pays d'origine du vendeur, la vente est traitée "
-                f"comme une vente domestique {sale.buyer_country} (déclaration locale "
-                f"CA3, hors OSS — Art. 59 ter Directive 2006/112/CE ne s'applique "
-                f"qu'aux expéditions depuis le pays d'établissement) — TVA {tax_rate}%.",
-                "engine_note_domestic_home_foreign_stock", lang=lang,
-                country=sale.buyer_country, stock=sale.stock_country, rate=tax_rate,
-            )
-        )
+        return _domestic_home_foreign_stock_result(sale, tax_rate, tax_amount, lang)
 
-    # ------------------------------------------------------------------
-    # Cas 1 : vente B2C intra-UE transfrontaliere (OSS par défaut)
-    # ------------------------------------------------------------------
     if stock_eu and buyer_eu and cross_border:
-        return VatResult._new_unchecked(
-            sale=sale,
-            scenario=Scenario.OSS_B2C,
-            vat_country=sale.buyer_country,
-            vat_rate=tax_rate,
-            vat_amount=tax_amount,
-            collector=Collector.SELLER,
-            channel=Channel.OSS,
-            note=_note(
-                f"Vente OSS vers {sale.buyer_country} au taux de {tax_rate}% "
-                "(BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
-                "engine_note_oss_b2c", lang=lang, country=sale.buyer_country, rate=tax_rate,
-            )
-        )
+        return _oss_b2c_result(sale, tax_rate, tax_amount, lang)
 
-    # ------------------------------------------------------------------
-    # Fin de fonction : Différenciation Vente Locale / Importation
-    # ------------------------------------------------------------------
-    is_domestic = sale.stock_country == sale.buyer_country
-
-    if is_domestic:
-        # is_home : le stock est dans le pays d'origine (établissement) du
-        # vendeur — sale.seller_country, pas littéralement "FR" (réglage de
-        # compte global, voir auth.py). Nommé is_fr historiquement, renommé
-        # is_home pour éviter toute confusion : reste vrai pour un vendeur
-        # français par défaut (seller_country="FR"), mais se généralise à
-        # tout pays d'origine choisi par le compte.
-        is_home = sale.stock_country == sale.seller_country
-        is_fr = is_home  # alias conservé pour lisibilité du reste du bloc
-
-        # Vente B2B domestique hors France : autoliquidation nationale.
-        # En droit ES/IT/DE/etc., une vente entre deux assujettis dans le même pays
-        # est soumise à autoliquidation par l'acheteur — que son n° TVA soit validé
-        # par VIES ou non (VIES ne couvre que l'intracommunautaire).
-        # Cas inclus :
-        #   1. buyer_type = B2B (n° TVA intracom présent, validé ou non)
-        #   2. buyer_type = B2C mais avec un numéro fiscal fourni (NIF national ES/IT/etc.)
-        #      → Amazon transmet le NIF sans préfixe pays, _is_valid_vat_intracom le rejette
-        #        et l'adaptateur classe la vente en B2C par précaution. Mais un NIF national
-        #        sur une vente domestique indique un professionnel assujetti local.
-        #        Le cabinet comptable ne taxe pas ces ventes (autoliquidation nationale).
-        is_b2b_domestic = (
-                sale.buyer_type == BuyerType.B2B
-                or (sale.buyer_type == BuyerType.B2C and bool(sale.buyer_vat_number))
-        )
-        if is_b2b_domestic and not is_fr and sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
-            # BUGFIX (2026-09-09) : channel=EXONERATION rendait ces ventes
-            # totalement invisibles des rapports locaux (local_vat_report.py
-            # ne filtre que sur LOCAL/FR_DOMESTIC) alors qu'elles sont
-            # obligatoires pour les déclarations et états récapitulatifs
-            # (ESL) locaux du pays de stockage — seule la TVA n'est pas due
-            # par le vendeur (autoliquidation), pas la vente elle-même.
-            # collector reste BUYER (le vendeur ne collecte toujours pas la
-            # TVA — ceci ne change pas la position fiscale validée par le
-            # cabinet comptable) ; seul le canal de reporting change, pour
-            # que ces lignes remontent dans le rapport TVA local (base à 0
-            # de TVA mais base HT et nombre de lignes présents). Le bucket
-            # dashboard dédié (report.py, "bucket_reverse_charge_nat") reste
-            # inchangé : il teste scenario==DOMESTIC et collector==BUYER
-            # AVANT de tester le channel, donc l'affichage distinct de ces
-            # ventes en autoliquidation nationale n'est pas affecté.
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.DOMESTIC,
-                vat_country=sale.stock_country,
-                vat_rate=Decimal("0"),
-                vat_amount=Decimal("0.00"),
-                collector=Collector.BUYER,
-                channel=Channel.LOCAL_REGISTRATION,
-                note=_note(
-                    f"Vente B2B domestique {sale.stock_country} : autoliquidation nationale. "
-                    f"L'acheteur assujetti (n° {'TVA: ' + sale.buyer_vat_number if sale.buyer_vat_number else 'inconnu'}) "
-                    f"déclare et reverse la TVA — le vendeur ne collecte pas.",
-                    "engine_note_b2b_domestic_rc", lang=lang, country=sale.stock_country,
-                ),
-            )
-
-        channel = Channel.FR_DOMESTIC if is_fr else Channel.LOCAL_REGISTRATION
-        note = (
-            _note(
-                f"Vente domestique {sale.seller_country} : TVA {tax_rate}% à déclarer en local.",
-                "engine_note_domestic_home", lang=lang, country=sale.seller_country, rate=tax_rate,
-            )
-            if is_fr else
-            _note(
-                f"Vente domestique {sale.stock_country} : TVA {tax_rate}%. "
-                f"Immatriculation TVA locale requise en {sale.stock_country}.",
-                "engine_note_domestic_local", lang=lang, country=sale.stock_country, rate=tax_rate,
-            )
-        )
-        return VatResult._new_unchecked(
-            sale=sale,
-            scenario=Scenario.DOMESTIC,
-            vat_country=sale.stock_country,
-            vat_rate=tax_rate,
-            vat_amount=tax_amount,
-            collector=Collector.SELLER,
-            channel=channel,
-            note=note,
-        )
-    else:
-        # Import hors-UE > 150 EUR : deux sous-cas selon qui est l'importateur.
-        if sale.seller_is_importer:
-            # DDP (Delivered Duty Paid) : le vendeur dédouane la marchandise,
-            # la vente redevient une livraison locale dans le pays de destination.
-            # Une immatriculation TVA locale dans ce pays est obligatoire.
-            is_dest_home = sale.buyer_country == sale.seller_country
-            channel = Channel.FR_DOMESTIC if is_dest_home else Channel.LOCAL_REGISTRATION
-            note = _note(
-                f"Import > {IOSS_THRESHOLD} EUR, vendeur importateur officiel (DDP) : "
-                f"vente requalifiée en livraison domestique {sale.buyer_country}. "
-                f"TVA locale {tax_rate}% — "
-                + (
-                    f"déclaration domestique ({sale.seller_country})."
-                    if is_dest_home else
-                    f"immatriculation TVA locale requise en {sale.buyer_country}."
-                ),
-                "engine_note_ddp_import", lang=lang, country=sale.buyer_country, rate=tax_rate, home=sale.seller_country,
-                )
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.IMPORT_SELLER_AS_IMPORTER,
-                vat_country=sale.buyer_country,
-                vat_rate=tax_rate,
-                vat_amount=tax_amount,
-                collector=Collector.SELLER,
-                channel=channel,
-                note=note,
-            )
-        else:
-            # Régime standard : TVA d'importation due à la douane par l'acheteur.
-            return VatResult._new_unchecked(
-                sale=sale,
-                scenario=Scenario.IMPORT_STANDARD,
-                vat_country=sale.buyer_country,
-                vat_rate=tax_rate,
-                vat_amount=tax_amount,
-                collector=Collector.BUYER,
-                channel=Channel.EXONERATION,
-                note=_note(
-                    f"Import > {IOSS_THRESHOLD} EUR depuis pays tiers : TVA d'importation "
-                    f"{sale.buyer_country} ({tax_rate}%) due a la douane par l'importateur "
-                    "(hors guichet IOSS).",
-                    "engine_note_import_standard", lang=lang, country=sale.buyer_country, rate=tax_rate,
-                ),
-            )
+    # Fin de fonction : vente locale ou importation hors UE.
+    if sale.stock_country == sale.buyer_country:
+        return _domestic_sale_result(sale, tax_rate, tax_amount, lang)
+    return _import_result(sale, tax_rate, tax_amount, lang)
 
 
 def _oss_eligible(sale: Sale) -> bool:
@@ -848,25 +935,27 @@ def _oss_eligible(sale: Sale) -> bool:
     même cas dans ca3_report.py et oss_export.py) pour normaliser
     stock_country, buyer_country ET seller_country avant comparaison.
     """
-    is_b2c_like = (
+    # Court-circuit : les tests les moins coûteux / les plus sélectifs d'abord (toutes ces fonctions
+    # sont pures — l'ordre d'évaluation ne change pas le résultat, seulement le coût par ligne).
+    if not (
             sale.buyer_type == BuyerType.B2C
             or (
                     sale.buyer_type == BuyerType.B2B
                     and not sale.buyer_vat_valid
                     and sale.buyer_country not in DOMESTIC_REVERSE_CHARGE_COUNTRIES
             )
-    )
+    ):
+        return False
+    if not is_eu(sale.stock_country):
+        return False
+    if not is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None):
+        return False
     _fiscal_stock = fiscal_equivalent_country(sale.stock_country)
     _fiscal_buyer = fiscal_equivalent_country(sale.buyer_country)
+    if _fiscal_stock == _fiscal_buyer:
+        return False
     _fiscal_seller = fiscal_equivalent_country(sale.seller_country)
-    return (
-            is_b2c_like
-            and is_eu(sale.stock_country)
-            and is_fiscal_eu(sale.buyer_country, sale.arrival_post_code or None)
-            and _fiscal_stock != _fiscal_buyer
-            and _fiscal_buyer != _fiscal_seller
-            and _fiscal_stock == _fiscal_seller
-    )
+    return _fiscal_buyer != _fiscal_seller and _fiscal_stock == _fiscal_seller
 
 
 def _oss_threshold_display(cumulative_eur: Decimal, currency: str = "EUR", symbol: str = "€",
@@ -1090,6 +1179,59 @@ def _chronological_sort_key(sale: Sale) -> str:
         return "9999-12-31"
 
 
+# Seuil OSS (art. 59 ter) et valeur de « préchargement » forçant l'éligibilité OSS dès le 1er euro.
+# Constantes de module : évite de reconstruire un Decimal depuis une chaîne à chaque ligne.
+_OSS_THRESHOLD = Decimal("10000.00")
+_OSS_THRESHOLD_CROSSED = Decimal("10000.01")
+
+# Tous les 500 éléments : compromis entre fraîcheur de l'affichage et coût du callback
+# (potentiel rerun Streamlit côté appelant) sur un fichier de plusieurs dizaines de milliers de lignes.
+_OSS_PROGRESS_TICK_EVERY = 500
+
+
+def _iso_date_or_none(raw: str) -> _date | None:
+    """`date.fromisoformat` tolérant : None si la chaîne n'est pas une date ISO valide."""
+    try:
+        return _date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _roll_oss_year(oss_ht_by_year: dict[str, Decimal], current_year: str, cumulative_oss_ht: Decimal,
+                   year: str, ever_crossed: bool) -> tuple[Decimal, bool]:
+    """Changement d'année civile dans la boucle OSS.
+
+    Sauvegarde le cumul de l'année qui se termine, repart du cumul déjà connu de la nouvelle année
+    (0 si inédite) et, si un franchissement a déjà eu lieu dans ce traitement (ou a été déclaré pour
+    l'année précédente), précharge le cumul au-dessus du seuil : art. 59 ter §2, OSS dès le 1er euro.
+    Renvoie (nouveau cumul, drapeau « seuil franchi cette année »).
+    """
+    if current_year:
+        oss_ht_by_year[current_year] = cumulative_oss_ht
+    cumulative = oss_ht_by_year.get(year, Decimal("0.00"))
+    crossed = cumulative > _OSS_THRESHOLD
+    if ever_crossed:
+        cumulative = max(cumulative, _OSS_THRESHOLD_CROSSED)
+        crossed = True
+    return cumulative, crossed
+
+
+def _tick_oss_progress(progress_callback, done: int, total: int) -> None:
+    """Notifie la progression. Un callback défaillant (widget Streamlit fermé entre temps, etc.) ne doit
+    jamais faire échouer le calcul — même posture que _tick() dans validate_vat_numbers_parallel.
+
+    Point de respiration CPU (voir README - évolution.md, même correctif que _process_rows dans
+    loader.py) : cédé au même rythme que le tick de progression, pas à chaque ligne, pour un coût
+    quasi nul. Filet de sécurité en complément de la file d'attente (background_calc.py), pas un
+    remplacement — la boucle OSS reste inhérentement séquentielle (cumul chronologique).
+    """
+    try:
+        progress_callback(done, total)
+    except Exception:
+        pass
+    time.sleep(0)
+
+
 def _run_oss_loop(
         sorted_items: list[Sale],
         refund_keys: set[tuple[str, Decimal]],
@@ -1204,10 +1346,8 @@ def _run_oss_loop(
     _last_tx_date_raw: str | None = None
     _last_tx_date_parsed: _date | None = None
 
-    # Tous les 500 éléments : compromis entre fraîcheur de l'affichage et
-    # coût du callback (potentiel rerun Streamlit côté appelant) sur un
-    # fichier de plusieurs dizaines de milliers de lignes.
-    _OSS_PROGRESS_TICK_EVERY = 500
+    # Optimisation : un set d'avoirs vide (cas courant) évite de construire la clé (id, montant) par ligne.
+    has_refunds = bool(refund_keys)
 
     # BUGFIX (2026-09-10, seuil OSS définitivement franchi, voir docstring
     # de `_build_oss_note` / `already_crossed`) : drapeau monotone par
@@ -1235,7 +1375,7 @@ def _run_oss_loop(
     _oss_ever_crossed_in_run = bool(oss_threshold_exceeded_prev_year)
 
     for _idx, sale in enumerate(sorted_items, start=1):
-        is_from_refunds = _sale_key(sale) in refund_keys
+        is_from_refunds = has_refunds and _sale_key(sale) in refund_keys
         # Chantier taux réduit dynamique CN/CPA (2026-09-15) : product_category
         # est désormais résolue une seule fois à l'import (product_tax_code_category.py,
         # voir parsers/amazon/loader.py), et stockée directement sur Sale.
@@ -1247,14 +1387,9 @@ def _run_oss_loop(
 
         year = _year_of(sale)
         if year and year != current_year:
-            if current_year:
-                oss_ht_by_year[current_year] = cumulative_oss_ht
+            cumulative_oss_ht, _oss_threshold_crossed_this_year = _roll_oss_year(
+                oss_ht_by_year, current_year, cumulative_oss_ht, year, _oss_ever_crossed_in_run)
             current_year = year
-            cumulative_oss_ht = oss_ht_by_year.get(year, Decimal("0.00"))
-            _oss_threshold_crossed_this_year = cumulative_oss_ht > Decimal("10000.00")
-            if _oss_ever_crossed_in_run:
-                cumulative_oss_ht = max(cumulative_oss_ht, Decimal("10000.01"))
-                _oss_threshold_crossed_this_year = True
 
         effective_sale = (
             effective_sale_fn(sale, product_category)
@@ -1274,10 +1409,7 @@ def _run_oss_loop(
             if _raw_tx_date == _last_tx_date_raw:
                 _sale_tx_date = _last_tx_date_parsed
             else:
-                try:
-                    _sale_tx_date = _date.fromisoformat(_raw_tx_date)
-                except ValueError:
-                    _sale_tx_date = None
+                _sale_tx_date = _iso_date_or_none(_raw_tx_date)
                 _last_tx_date_raw = _raw_tx_date
                 _last_tx_date_parsed = _sale_tx_date
 
@@ -1293,10 +1425,9 @@ def _run_oss_loop(
         # `_sale_tx_date` partagé avec `_build_oss_note`.
         _vat_rate_tx_date = _sale_tx_date
         if effective_sale.amount_ht < 0 and effective_sale.order_date:
-            try:
-                _vat_rate_tx_date = _date.fromisoformat(effective_sale.order_date[:10])
-            except ValueError:
-                _vat_rate_tx_date = _sale_tx_date
+            _order_date = _iso_date_or_none(effective_sale.order_date[:10])
+            if _order_date is not None:
+                _vat_rate_tx_date = _order_date
 
         res = compute_vat(effective_sale, marketplace_name, product_category=product_category, lang=_lang,
                           ioss_own_number_active=ioss_own_number_active, tx_date=_vat_rate_tx_date)
@@ -1309,7 +1440,7 @@ def _run_oss_loop(
             _already_crossed_before = _oss_threshold_crossed_this_year
             cumulative_oss_ht += effective_sale.amount_ht
             res = _build_oss_note(
-                res, cumulative_oss_ht, Decimal("10000.00"),
+                res, cumulative_oss_ht, _OSS_THRESHOLD,
                 effective_sale, product_category, apply_fr_under_threshold,
                 lang=_lang, currency=currency, symbol=symbol, oss_period=oss_period,
                 tx_date=_sale_tx_date, rate_cache=_oss_rate_cache,
@@ -1319,7 +1450,7 @@ def _run_oss_loop(
             # Drapeau monotone (voir docstring _build_oss_note) : ne fait
             # que passer à True, jamais l'inverse — un avoir qui fait
             # redescendre cumulative_oss_ht ne le réinitialise pas.
-            if cumulative_oss_ht > Decimal("10000.00"):
+            if cumulative_oss_ht > _OSS_THRESHOLD:
                 _oss_threshold_crossed_this_year = True
                 _oss_ever_crossed_in_run = True
 
@@ -1331,28 +1462,14 @@ def _run_oss_loop(
         if progress_callback is not None and (
             _idx % _OSS_PROGRESS_TICK_EVERY == 0 or _idx == total_items
         ):
-            try:
-                progress_callback(_idx, total_items)
-            except Exception:
-                # Un callback défaillant (widget Streamlit fermé entre
-                # temps, etc.) ne doit jamais faire échouer le calcul —
-                # même posture que _tick() dans validate_vat_numbers_parallel.
-                pass
-            # Point de respiration CPU (voir README - évolution.md, même
-            # correctif que _process_rows dans loader.py) : cédé au même
-            # rythme que le tick de progression (_OSS_PROGRESS_TICK_EVERY),
-            # pas à chaque ligne, pour un coût quasi nul. Filet de sécurité
-            # en complément de la file d'attente (background_calc.py), pas
-            # un remplacement — cette boucle reste inhérentement séquentielle
-            # (cumul OSS chronologique, voir docstring du module).
-            time.sleep(0)
+            _tick_oss_progress(progress_callback, _idx, total_items)
 
     if current_year:
         oss_ht_by_year[current_year] = cumulative_oss_ht
 
     oss_summary = OssThresholdSummary(
         total_oss_ht=cumulative_oss_ht,
-        is_threshold_exceeded=any(v > Decimal("10000.00") for v in oss_ht_by_year.values()),
+        is_threshold_exceeded=any(v > _OSS_THRESHOLD for v in oss_ht_by_year.values()),
         oss_ht_by_year=oss_ht_by_year,
     )
     return results, refund_results, oss_summary
@@ -1403,6 +1520,392 @@ def _collect_vat_rate_prefetch_pairs(all_items_sorted: list[Sale]):
             yield (sale.stock_country, tx_date)
         if sale.buyer_country:
             yield (sale.buyer_country, tx_date)
+
+
+def _collect_vies_targets(all_items_sorted: list[Sale]) -> tuple[list[str], set[str], dict[tuple[str, str], str], dict[str, list[str]]]:
+    """Collecte les n° de TVA à vérifier (ventes ET avoirs) : renvoie
+    (vats_to_check, vat_seen, sale_vat_index, vat_to_sale_ids)."""
+    # ------------------------------------------------------------------------
+    # PREPARATION : normalisation des numéros TVA + index sale_id -> full_vat
+    # On construit l'index ici pour éviter de recalculer full_vat dans la boucle
+    # principale (source du bug de non-matching).
+    #
+    # IMPORTANT (fix comptage VIES) : on parcourt all_items_sorted (ventes +
+    # avoirs), PAS uniquement les ventes. Avant ce correctif, un numéro de TVA
+    # présent UNIQUEMENT sur un avoir (ex: remboursement d'une vente d'une
+    # période antérieure non présente dans l'import courant) n'était jamais
+    # ajouté à vats_to_check ici : il n'était donc jamais compté dans
+    # vies_summary (le total "vérifiés" affiché à l'écran), alors même qu'il
+    # était bel et bien interrogé et écrit en cache (vies_scope_cache) par le
+    # second appel dédié aux avoirs dans app.py (compute_all_with_vies(refunds,
+    # ...)) — d'où l'écart observé entre le compteur affiché et le certificat
+    # PDF (qui lit, lui, TOUT le cache scope via get_scope_vies_snapshot()).
+    # Le fait de checker les avoirs ici ne casse pas le compteur OSS cumulatif
+    # (_run_oss_loop reste inchangé : is_from_refunds continue d'exclure les
+    # avoirs de `results` et de la note OSS) — on ne touche qu'à la collecte
+    # des numéros à vérifier / au comptage, pas à la boucle de calcul.
+    # ------------------------------------------------------------------------
+    vats_to_check = []
+    vat_seen = set()
+    # Clé composite (sale_id, buyer_vat_number) → full_vat normalisé.
+    # sale_id seul n'est pas unique (commandes multi-articles / avoirs partagent
+    # le même identifiant) ; l'ajout du numéro TVA brut garantit l'unicité de
+    # la correspondance vente ↔ résultat VIES.
+    sale_vat_index: dict[tuple[str, str], str] = {}  # (sale_id, buyer_vat_number) -> full_vat
+
+    # _normalize_full_vat est la fonction canonique définie dans vies.py
+    # et importée en tête de module comme _normalize_full_vat_canonical.
+    _normalize_full_vat = _normalize_full_vat_canonical
+
+    vat_to_sale_ids: dict[str, list[str]] = {}  # full_vat -> [sale_id, ...]
+
+    for sale in all_items_sorted:
+        # buyer_vat_valid=False dès classify.py signale un NIF/identifiant fiscal
+        # national (pas un vrai n° de TVA intracom, cf. is_national_tax_id) — que
+        # ce soit un cas domestique (buyer_vat_number conservé pour l'autoliquidation
+        # art.194) ou cross-border (déjà écarté plus haut via national_tax_id).
+        # On ne l'envoie JAMAIS à VIES : ce n'est pas un numéro interrogeable, et
+        # l'autoliquidation domestique ne dépend pas de sa validité (engine.py
+        # ligne ~375). Sans ce filtre, ces NIF apparaissent à tort dans la liste
+        # "N° TVA rejeté" alors qu'ils n'ont jamais été un numéro de TVA valide.
+        if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number and sale.buyer_vat_valid:
+            full_vat = _normalize_full_vat(sale.buyer_vat_number, sale.buyer_country)
+            sale_vat_index[(sale.sale_id, sale.buyer_vat_number)] = full_vat
+            if full_vat:
+                # On utilise l'identifiant d'affichage (TRANSACTION_EVENT_ID) s'il existe
+                display_label = getattr(sale, "display_id", "") or sale.sale_id
+                vat_to_sale_ids.setdefault(full_vat, []).append(display_label)
+                if full_vat not in vat_seen:
+                    vat_seen.add(full_vat)
+                    vats_to_check.append(full_vat)
+    return vats_to_check, vat_seen, sale_vat_index, vat_to_sale_ids
+
+
+def _run_vies_validation(scope_id: str, vats_to_check: list[str], vies_progress_callback, validate_vat_numbers_parallel) -> dict[str, Any]:
+    """Validation VIES en lot avec dégradation parallèle -> séquentiel -> aucune validation."""
+    # Appel de la validation VIES parallèle (validate_vat_numbers_parallel importée
+    # en tête de fonction depuis vies.py). En cas d'erreur réseau ou VIES indisponible,
+    # on dégrade vers la version séquentielle, puis vers un dict vide avec log explicite.
+    checked_vats: dict[str, Any] = {}
+    if vats_to_check:
+        try:
+            checked_vats = validate_vat_numbers_parallel(
+                scope_id, vats_to_check, progress_callback=vies_progress_callback
+            )
+        except Exception as exc_parallel:
+            logger.warning(
+                "validate_vat_numbers_parallel a échoué (%s) — "
+                "tentative avec validate_vat_numbers (séquentiel).",
+                exc_parallel,
+            )
+            try:
+                from .vies_engine import validate_vat_numbers
+                checked_vats = validate_vat_numbers(
+                    scope_id, vats_to_check, progress_callback=vies_progress_callback
+                )
+            except Exception as exc_seq:
+                logger.error(
+                    "Validation VIES entièrement indisponible (%s). "
+                    "Toutes les ventes B2B seront traitées sans validation — "
+                    "aucune reclassification ne sera effectuée.",
+                    exc_seq,
+                )
+                checked_vats = {}
+    return checked_vats
+
+
+def _apply_manual_overrides(scope_id: str, checked_vats: dict[str, Any], vat_seen: set[str], _is_uncertain) -> None:
+    """Injecte les classifications manuelles dans `checked_vats` (mutation en place) et
+    nettoie celles devenues inutiles car VIES est concluant."""
+    # Injection des classifications manuelles (overrides utilisateur).
+    # On n'applique l'override QUE si la validation VIES automatique a échoué
+    # (inconclusif, erreur serveur ou réponse vide) ou n'a pas été effectuée.
+    # Si VIES répond avec un résultat net (Valide ou Invalide), il reprend la priorité
+    # et on supprime l'override de la base (nettoyage automatique).
+    try:
+        from .vies_engine import get_manual_overrides, delete_manual_override
+        from types import SimpleNamespace as _SN
+        # On récupère tous les overrides, même expirés, pour pouvoir les nettoyer
+        _all_overrides = get_manual_overrides(scope_id, include_expired=True)
+
+        for _fv, _is_valid in _all_overrides.items():
+            _current_res = checked_vats.get(_fv)
+            # Un résultat est considéré comme un "échec de vérification" si :
+            # 1. Il est absent (non testé ou erreur fatale)
+            # 2. Il est marqué comme non fiable (erreur transitoire/timeout explicite)
+            # Une réponse "vide" (VIES répond False sans nom/adresse et sans erreur)
+            # n'est PAS un échec : c'est la forme normale et définitive d'un numéro
+            # réellement invalide — elle doit être acceptée comme résultat automatique
+            # concluant (voir vies_engine.validate_vat_numbers_parallel, qui la met
+            # désormais en cache comme telle, protégée par _is_downgrade contre une
+            # vraie dégradation silencieuse d'un numéro précédemment valide).
+            _is_failed = (
+                    _current_res is None
+                    or _is_uncertain(_current_res)
+            )
+
+            if _fv in vat_seen and _is_failed:
+                checked_vats[_fv] = _SN(
+                    valid=_is_valid,
+                    error=None,
+                    name="[Classification manualle]",
+                    address="",
+                    stale_fallback=False,
+                    is_manual_override=True,
+                )
+            elif _fv in checked_vats and not _is_failed:
+                # VIES a réussi (concluant), on nettoie l'override devenu inutile
+                try:
+                    delete_manual_override(scope_id, _fv)
+                    logger.info("Override VIES [%s] : nettoyage auto car VIES est désormais concluant.", _fv)
+                except Exception:
+                    pass
+    except Exception as exc_overrides:
+        logger.warning(
+            "Impossible de charger les overrides manuels VIES (%s). "
+            "Les classifications manuelles ne seront pas appliquées.",
+            exc_overrides,
+        )
+
+
+def _tally_vies_counts(vies_summary: ViesValidationSummary, checked_vats: dict[str, Any], vat_seen: set[str],
+                       vat_to_sale_ids: dict[str, list[str]], _vies_is_unreliable) -> None:
+    """Compteurs sur numéros UNIQUES (voir ViesValidationSummary) : mute `vies_summary`."""
+    # Compteurs sur numéros UNIQUES (pas par vente)
+    #
+    # Quatre catégories distinctes (voir ViesValidationSummary) :
+    #   - valid_count / invalid_count : vérification AUTOMATIQUE fraîche
+    #     (VIES ou cache non expiré), seule catégorie fiable à 100%.
+    #   - manual_override_count : classification saisie par l'utilisateur,
+    #     pas une vérification automatique — comptée à part, jamais fusionnée
+    #     avec valid_count/invalid_count pour ne pas gonfler artificiellement
+    #     le taux de vérification automatique affiché.
+    #   - inconclusive_count : aucun résultat exploitable du tout (ni cache
+    #     frais, ni override disponible).
+    vies_summary.total_checked = len(vat_seen)
+    for fv, vr in checked_vats.items():
+        if getattr(vr, "is_manual_override", False):
+            # BUGFIX 2026-08-17 : `manual_override_count` n'existe pas comme
+            # champ sur ViesValidationSummary (slots=True) — cette ligne
+            # levait AttributeError au premier override manuel rencontré.
+            # `total_manual_override` (property, models.py) fait déjà la
+            # somme manual_valid_count + manual_invalid_count ci-dessous,
+            # aucun champ dédié n'est nécessaire.
+            # `manual_override_count` seul ne distinguait pas les overrides
+            # "valide" des "invalide" : `manual_valid_count`/
+            # `manual_invalid_count` (voir models.py, ViesValidationSummary)
+            # n'étaient jamais incrémentés, ce qui faisait toujours renvoyer
+            # 0 à `total_manual_override` (= leur somme) et faussait le taux
+            # de fiabilité affiché (`total_checked_or_covered`,
+            # `automatic_reliability_rate`, qui en dépendent). Le
+            # SimpleNamespace construit plus haut porte déjà `valid=_is_valid`
+            # (l'état choisi par l'utilisateur au moment de l'override) : on
+            # l'utilise pour ventiler correctement, sans changer le sens de
+            # `manual_override_count` qui reste le total des deux.
+            if getattr(vr, "valid", False):
+                vies_summary.manual_valid_count += 1
+            else:
+                vies_summary.manual_invalid_count += 1
+        elif getattr(vr, "stale_fallback", False):
+            # BUGFIX (2026-09-08) : ce cas DOIT être testé avant `vr.valid`
+            # (ci-dessous) — un résultat stale_fallback conserve `valid=True`
+            # (dernier statut automatique connu, affiché à l'utilisateur)
+            # mais ne doit PLUS être compté/traité comme une vérification
+            # automatique fiable : voir docstring de ViesResult.stale_fallback
+            # et de _is_uncertain ci-dessus. `stale_fallback_count` existe
+            # déjà sur ViesValidationSummary (models.py) mais n'était jamais
+            # incrémenté nulle part avant ce correctif.
+            vies_summary.stale_fallback_count += 1
+            vies_summary.inconclusive_vats.append(fv)
+            vies_summary.inconclusive_vat_details.append({
+                "vat": fv,
+                "country": fv[:2] if len(fv) >= 2 and fv[:2].isalpha() else "",
+                "sale_ids": vat_to_sale_ids.get(fv, []),
+                "reason": "stale_fallback",
+                # Dernier statut automatique connu et sa date, pour aider
+                # l'utilisateur à décider d'une classification manuelle
+                # (voir render_manual_vies_classification, colonne dédiée).
+                "last_auto_status": bool(getattr(vr, "valid", False)),
+                "last_checked_at": getattr(vr, "checked_at", "") or "",
+            })
+        elif getattr(vr, "valid", False):
+            vies_summary.valid_count += 1
+        elif _vies_is_unreliable(vr):
+            vies_summary.inconclusive_count += 1
+            vies_summary.inconclusive_vats.append(fv)
+            vies_summary.inconclusive_vat_details.append({
+                "vat": fv,
+                "country": fv[:2] if len(fv) >= 2 and fv[:2].isalpha() else "",
+                "sale_ids": vat_to_sale_ids.get(fv, []),
+                "reason": "inconclusive",
+                "last_auto_status": None,
+                "last_checked_at": "",
+            })
+        else:
+            vies_summary.invalid_count += 1
+
+
+def _make_vies_effective_sale_fn(vies_summary: ViesValidationSummary, refund_keys: set[tuple[str, Decimal]],
+                                sale_vat_index: dict[tuple[str, str], str], checked_vats: dict[str, Any],
+                                national_ids_seen: set[str], _vies_is_unreliable):
+    """Construit la closure `effective_sale_fn` de `_run_oss_loop` : applique la classification
+    VIES à chaque vente/avoir (mute `vies_summary` et `national_ids_seen`)."""
+    # État mutable partagé avec la closure (suivi des reclassifications)
+    _vies_state: dict[str, str | None] = {"last_classified_sale_id": None}
+
+    def _effective_sale_with_vies(sale: Sale, product_category: str) -> Sale:
+        """Applique la classification VIES sur la vente et retourne l'objet effectif.
+
+        Les avoirs (refunds) passent par la MÊME classification VIES que les
+        ventes (leur numéro est bien vérifié, voir la boucle de collecte plus
+        haut qui itère sur all_items_sorted = chain(sales, refunds)). Avant
+        le 2026-08-11, un `return sale` précoce ici faisait qu'un avoir dont
+        le n° de TVA était invalide selon VIES restait taxé en Reverse Charge
+        (B2B) au lieu d'être reclassé B2C/OSS comme la vente qu'il annule,
+        créant un décalage entre la déclaration OSS et le CA3. On applique
+        donc désormais le même résultat effectif, mais SANS dupliquer
+        d'entrée dans vies_summary.reclassifications / vies_affected_sale_ids
+        (déjà renseignées via la vente d'origine) pour ne pas fausser les
+        compteurs affichés dans l'onglet VIES.
+        """
+        is_refund = _sale_key(sale) in refund_keys
+
+        product_asin = getattr(sale, "asin", "")
+
+        # Cas particulier : NIF national sans préfixe EU en cross-border
+        # (classify.py Cas 2). buyer_vat_number est vide par construction —
+        # aucun appel VIES n'est jamais tenté — mais la vente est bien taxée
+        # au départ ou à destination selon le même arbitrage art.194 dans
+        # compute_vat. On l'enregistre quand même dans les reclassifications
+        # pour qu'elle apparaisse dans l'onglet VIES (sinon invisible).
+        _national_tax_id = getattr(sale, "national_tax_id", "")
+        if (
+                sale.buyer_type == BuyerType.B2B
+                and not sale.buyer_vat_number
+                and _national_tax_id
+                and sale.stock_country != sale.buyer_country
+        ):
+            if not is_refund:
+                vies_summary.reclassifications.append(ViesReclassification(
+                    sale_id=sale.sale_id,
+                    buyer_vat_number=sale.national_tax_id,
+                    buyer_country=sale.buyer_country,
+                    amount_ht=sale.amount_ht,
+                    vat_avoided=Decimal("0.00"),
+                    reason="Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
+                    display_id=getattr(sale, "display_id", ""),
+                    stock_country=sale.stock_country,
+                    is_national_tax_id=True,
+                ))
+                if sale.national_tax_id not in national_ids_seen:
+                    national_ids_seen.add(sale.national_tax_id)
+                    vies_summary.national_id_count += 1
+                vies_summary.vies_affected_sale_ids.add(_sale_key(sale))
+            _vies_state["last_classified_sale_id"] = sale.sale_id
+            return sale
+
+        if not (sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number and sale.buyer_vat_valid):
+            return sale
+        full_vat = sale_vat_index.get((sale.sale_id, sale.buyer_vat_number), "")
+        vies_res = checked_vats.get(full_vat) if full_vat else None
+
+        # Un résultat VIES n'est valide que si valid=True ET qu'il ne s'agit
+        # pas d'un repli sur cache périmé (stale_fallback) — voir BUGFIX
+        # 2026-09-08 : un stale_fallback conserve vr.valid=True (dernier
+        # statut automatique connu, à but informatif uniquement) mais ne doit
+        # plus déclencher l'autoliquidation B2B tant qu'il n'a pas été
+        # reconfirmé par VIES ou classifié manuellement.
+        _is_stale = bool(getattr(vies_res, "stale_fallback", False)) if vies_res else False
+        is_valid = bool(getattr(vies_res, "valid", False)) and not _is_stale if vies_res else False
+        is_inconclusive = (
+                vies_res is not None and not is_valid
+                and (_vies_is_unreliable(vies_res) or _is_stale)
+        )
+
+        if is_valid:
+            effective = Sale._replace_fast(sale, buyer_vat_valid=True,
+                                            product_category=product_category, asin=product_asin)
+        else:
+            # Numéro invalide ou inconclusive (service VIES indisponible).
+            # On l'ajoute à la liste des anomalies VIES pour affichage dans l'onglet VIES,
+            # même si on ne change pas forcément le type en B2C.
+            reason = "Numéro invalide ou introuvable"
+            if _is_stale:
+                reason = "Revalidation VIES impossible depuis expiration du TTL (à classifier manuellement)"
+            elif is_inconclusive:
+                reason = "Service VIES indisponible (incertain)"
+
+            if not is_refund:
+                vies_summary.reclassifications.append(ViesReclassification(
+                    sale_id=sale.sale_id, buyer_vat_number=sale.buyer_vat_number,
+                    buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
+                    vat_avoided=Decimal("0.00"), reason=reason,
+                    display_id=getattr(sale, "display_id", ""),
+                    stock_country=sale.stock_country,
+                ))
+
+            # IMPORTANT : Pour les ventes B2B cross-border dont le n° TVA est invalide,
+            # on ne reclassifie PLUS en B2C. On garde BuyerType. B2B mais avec
+            # buyer_vat_valid=False. Cela permet à compute_vat d'appliquer la TVA
+            # au départ (Origin VAT) plutôt que l'OSS (Destination VAT).
+            # Pour les ventes domestiques, le comportement reste identique.
+            effective = Sale._replace_fast(sale, buyer_vat_valid=False,
+                                            product_category=product_category, asin=product_asin)
+
+            if not is_refund and sale.stock_country != sale.buyer_country:
+                vies_summary.vies_affected_sale_ids.add(_sale_key(effective))
+
+        _vies_state["last_classified_sale_id"] = sale.sale_id
+        return effective
+    return _effective_sale_with_vies
+
+
+def _fill_reclassification_vat_details(vies_summary: ViesValidationSummary, results: list[VatResult]) -> None:
+    """Renseigne, après compute_vat, la TVA évitée / le canal de chaque reclassification VIES."""
+    # Mise à jour des montants TVA évités dans les reclassifications
+    # (on ne peut le faire qu'après compute_vat, donc en post-processing sur results).
+    # Indexé par _sale_key() (sale_id + montant), PAS par sale_id seul : un
+    # sale_id seul n'est pas unique (commande multi-articles, ou avoir
+    # partageant le même identifiant que sa vente d'origine — voir _sale_key
+    # et sale_vat_index plus haut). Indexer par sale_id seul écraserait
+    # silencieusement les résultats en cas de doublon et attribuerait un
+    # montant de TVA évitée à la mauvaise ligne dans l'onglet reclassifications VIES.
+    result_by_key: dict[tuple[str, Decimal], VatResult] = {_sale_key(r.sale): r for r in results}
+    for reclass in vies_summary.reclassifications:
+        # ATTENTION : la clé DOIT être le Decimal brut (voir docstring de
+        # _sale_key()) — result_by_key est indexé par (sale_id, Decimal),
+        # pas (sale_id, str). Un str(reclass.amount_ht) ici ferait échouer
+        # ce .get() à tous les coups (bug corrigé le 2026-08-11 : vat_avoided
+        # restait systématiquement à 0.00 dans l'onglet VIES).
+        res = result_by_key.get((reclass.sale_id, reclass.amount_ht))
+        if res is None:
+            continue
+        is_cross_border = res.sale.stock_country != res.sale.buyer_country
+        real_vat_avoided = res.vat_amount if is_cross_border else Decimal("0.00")
+        is_dom_rc = (
+                not is_cross_border
+                and res.sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES
+        )
+        taxed_at_departure = (
+                is_cross_border and res.vat_country == res.sale.stock_country
+        )
+        # Mutation en place plutôt que reconstruction : ViesReclassification
+        # n'est PAS frozen et n'a pas de __post_init__ (contrairement à
+        # Sale/VatResult) — `reclass` EST déjà l'objet stocké dans
+        # vies_summary.reclassifications[i] (référence, pas une copie), donc
+        # le modifier directement suffit, sans reconstruire ni réassigner
+        # dans la liste. Profiling 2026-09-06 (voir README - évolution.md) :
+        # cette reconstruction se produisait pour chaque anomalie VIES en
+        # plus de sa construction initiale (double coût Pydantic par ligne
+        # concernée). Seuls 5 champs changent réellement ici ; les autres
+        # (sale_id, buyer_vat_number, buyer_country, amount_ht, reason,
+        # display_id, stock_country, is_national_tax_id) restent identiques
+        # et n'ont donc pas besoin d'être réécrits.
+        reclass.vat_avoided = real_vat_avoided
+        reclass.vat_delta = real_vat_avoided
+        reclass.is_domestic_reverse_charge = is_dom_rc
+        reclass.taxed_at_departure = taxed_at_departure
+        reclass.scenario = res.scenario.value if hasattr(res.scenario, "value") else str(res.scenario)
 
 
 def compute_all_with_vies(
@@ -1511,216 +2014,14 @@ def compute_all_with_vies(
     refund_keys: set[tuple[str, Decimal]] = {_sale_key(r) for r in (refunds or [])}
     all_items_sorted = sorted(chain(sales, refunds or []), key=_chronological_sort_key)
 
-    # ------------------------------------------------------------------------
-    # PREPARATION : normalisation des numéros TVA + index sale_id -> full_vat
-    # On construit l'index ici pour éviter de recalculer full_vat dans la boucle
-    # principale (source du bug de non-matching).
-    #
-    # IMPORTANT (fix comptage VIES) : on parcourt all_items_sorted (ventes +
-    # avoirs), PAS uniquement les ventes. Avant ce correctif, un numéro de TVA
-    # présent UNIQUEMENT sur un avoir (ex: remboursement d'une vente d'une
-    # période antérieure non présente dans l'import courant) n'était jamais
-    # ajouté à vats_to_check ici : il n'était donc jamais compté dans
-    # vies_summary (le total "vérifiés" affiché à l'écran), alors même qu'il
-    # était bel et bien interrogé et écrit en cache (vies_scope_cache) par le
-    # second appel dédié aux avoirs dans app.py (compute_all_with_vies(refunds,
-    # ...)) — d'où l'écart observé entre le compteur affiché et le certificat
-    # PDF (qui lit, lui, TOUT le cache scope via get_scope_vies_snapshot()).
-    # Le fait de checker les avoirs ici ne casse pas le compteur OSS cumulatif
-    # (_run_oss_loop reste inchangé : is_from_refunds continue d'exclure les
-    # avoirs de `results` et de la note OSS) — on ne touche qu'à la collecte
-    # des numéros à vérifier / au comptage, pas à la boucle de calcul.
-    # ------------------------------------------------------------------------
-    vats_to_check = []
-    vat_seen = set()
-    # NIF/identifiants fiscaux nationaux vus (dédupliqués), pour compter des
-    # numéros uniques comme vat_seen et non un par vente.
-    national_ids_seen = set()
-    # Clé composite (sale_id, buyer_vat_number) → full_vat normalisé.
-    # sale_id seul n'est pas unique (commandes multi-articles / avoirs partagent
-    # le même identifiant) ; l'ajout du numéro TVA brut garantit l'unicité de
-    # la correspondance vente ↔ résultat VIES.
-    sale_vat_index: dict[tuple[str, str], str] = {}  # (sale_id, buyer_vat_number) -> full_vat
-
-    # _normalize_full_vat est la fonction canonique définie dans vies.py
-    # et importée en tête de module comme _normalize_full_vat_canonical.
-    _normalize_full_vat = _normalize_full_vat_canonical
-
-    vat_to_sale_ids: dict[str, list[str]] = {}  # full_vat -> [sale_id, ...]
-
-    for sale in all_items_sorted:
-        # buyer_vat_valid=False dès classify.py signale un NIF/identifiant fiscal
-        # national (pas un vrai n° de TVA intracom, cf. is_national_tax_id) — que
-        # ce soit un cas domestique (buyer_vat_number conservé pour l'autoliquidation
-        # art.194) ou cross-border (déjà écarté plus haut via national_tax_id).
-        # On ne l'envoie JAMAIS à VIES : ce n'est pas un numéro interrogeable, et
-        # l'autoliquidation domestique ne dépend pas de sa validité (engine.py
-        # ligne ~375). Sans ce filtre, ces NIF apparaissent à tort dans la liste
-        # "N° TVA rejeté" alors qu'ils n'ont jamais été un numéro de TVA valide.
-        if sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number and sale.buyer_vat_valid:
-            full_vat = _normalize_full_vat(sale.buyer_vat_number, sale.buyer_country)
-            sale_vat_index[(sale.sale_id, sale.buyer_vat_number)] = full_vat
-            if full_vat:
-                # On utilise l'identifiant d'affichage (TRANSACTION_EVENT_ID) s'il existe
-                display_label = getattr(sale, "display_id", "") or sale.sale_id
-                vat_to_sale_ids.setdefault(full_vat, []).append(display_label)
-                if full_vat not in vat_seen:
-                    vat_seen.add(full_vat)
-                    vats_to_check.append(full_vat)
-
+    vats_to_check, vat_seen, sale_vat_index, vat_to_sale_ids = _collect_vies_targets(all_items_sorted)
     vies_summary.vat_to_display_ids = vat_to_sale_ids
 
-    # Appel de la validation VIES parallèle (validate_vat_numbers_parallel importée
-    # en tête de fonction depuis vies.py). En cas d'erreur réseau ou VIES indisponible,
-    # on dégrade vers la version séquentielle, puis vers un dict vide avec log explicite.
-    checked_vats: dict[str, Any] = {}
-    if vats_to_check:
-        try:
-            checked_vats = validate_vat_numbers_parallel(
-                scope_id, vats_to_check, progress_callback=vies_progress_callback
-            )
-        except Exception as exc_parallel:
-            logger.warning(
-                "validate_vat_numbers_parallel a échoué (%s) — "
-                "tentative avec validate_vat_numbers (séquentiel).",
-                exc_parallel,
-            )
-            try:
-                from .vies_engine import validate_vat_numbers
-                checked_vats = validate_vat_numbers(
-                    scope_id, vats_to_check, progress_callback=vies_progress_callback
-                )
-            except Exception as exc_seq:
-                logger.error(
-                    "Validation VIES entièrement indisponible (%s). "
-                    "Toutes les ventes B2B seront traitées sans validation — "
-                    "aucune reclassification ne sera effectuée.",
-                    exc_seq,
-                )
-                checked_vats = {}
+    checked_vats = _run_vies_validation(scope_id, vats_to_check, vies_progress_callback, validate_vat_numbers_parallel)
 
-    # Injection des classifications manuelles (overrides utilisateur).
-    # On n'applique l'override QUE si la validation VIES automatique a échoué
-    # (inconclusif, erreur serveur ou réponse vide) ou n'a pas été effectuée.
-    # Si VIES répond avec un résultat net (Valide ou Invalide), il reprend la priorité
-    # et on supprime l'override de la base (nettoyage automatique).
-    try:
-        from .vies_engine import get_manual_overrides, delete_manual_override
-        from types import SimpleNamespace as _SN
-        # On récupère tous les overrides, même expirés, pour pouvoir les nettoyer
-        _all_overrides = get_manual_overrides(scope_id, include_expired=True)
+    _apply_manual_overrides(scope_id, checked_vats, vat_seen, _is_uncertain)
 
-        for _fv, _is_valid in _all_overrides.items():
-            _current_res = checked_vats.get(_fv)
-            # Un résultat est considéré comme un "échec de vérification" si :
-            # 1. Il est absent (non testé ou erreur fatale)
-            # 2. Il est marqué comme non fiable (erreur transitoire/timeout explicite)
-            # Une réponse "vide" (VIES répond False sans nom/adresse et sans erreur)
-            # n'est PAS un échec : c'est la forme normale et définitive d'un numéro
-            # réellement invalide — elle doit être acceptée comme résultat automatique
-            # concluant (voir vies_engine.validate_vat_numbers_parallel, qui la met
-            # désormais en cache comme telle, protégée par _is_downgrade contre une
-            # vraie dégradation silencieuse d'un numéro précédemment valide).
-            _is_failed = (
-                    _current_res is None
-                    or _is_uncertain(_current_res)
-            )
-
-            if _fv in vat_seen and _is_failed:
-                checked_vats[_fv] = _SN(
-                    valid=_is_valid,
-                    error=None,
-                    name="[Classification manualle]",
-                    address="",
-                    stale_fallback=False,
-                    is_manual_override=True,
-                )
-            elif _fv in checked_vats and not _is_failed:
-                # VIES a réussi (concluant), on nettoie l'override devenu inutile
-                try:
-                    delete_manual_override(scope_id, _fv)
-                    logger.info("Override VIES [%s] : nettoyage auto car VIES est désormais concluant.", _fv)
-                except Exception:
-                    pass
-    except Exception as exc_overrides:
-        logger.warning(
-            "Impossible de charger les overrides manuels VIES (%s). "
-            "Les classifications manuelles ne seront pas appliquées.",
-            exc_overrides,
-        )
-
-    # Compteurs sur numéros UNIQUES (pas par vente)
-    #
-    # Quatre catégories distinctes (voir ViesValidationSummary) :
-    #   - valid_count / invalid_count : vérification AUTOMATIQUE fraîche
-    #     (VIES ou cache non expiré), seule catégorie fiable à 100%.
-    #   - manual_override_count : classification saisie par l'utilisateur,
-    #     pas une vérification automatique — comptée à part, jamais fusionnée
-    #     avec valid_count/invalid_count pour ne pas gonfler artificiellement
-    #     le taux de vérification automatique affiché.
-    #   - inconclusive_count : aucun résultat exploitable du tout (ni cache
-    #     frais, ni override disponible).
-    vies_summary.total_checked = len(vat_seen)
-    for fv, vr in checked_vats.items():
-        if getattr(vr, "is_manual_override", False):
-            # BUGFIX 2026-08-17 : `manual_override_count` n'existe pas comme
-            # champ sur ViesValidationSummary (slots=True) — cette ligne
-            # levait AttributeError au premier override manuel rencontré.
-            # `total_manual_override` (property, models.py) fait déjà la
-            # somme manual_valid_count + manual_invalid_count ci-dessous,
-            # aucun champ dédié n'est nécessaire.
-            # `manual_override_count` seul ne distinguait pas les overrides
-            # "valide" des "invalide" : `manual_valid_count`/
-            # `manual_invalid_count` (voir models.py, ViesValidationSummary)
-            # n'étaient jamais incrémentés, ce qui faisait toujours renvoyer
-            # 0 à `total_manual_override` (= leur somme) et faussait le taux
-            # de fiabilité affiché (`total_checked_or_covered`,
-            # `automatic_reliability_rate`, qui en dépendent). Le
-            # SimpleNamespace construit plus haut porte déjà `valid=_is_valid`
-            # (l'état choisi par l'utilisateur au moment de l'override) : on
-            # l'utilise pour ventiler correctement, sans changer le sens de
-            # `manual_override_count` qui reste le total des deux.
-            if getattr(vr, "valid", False):
-                vies_summary.manual_valid_count += 1
-            else:
-                vies_summary.manual_invalid_count += 1
-        elif getattr(vr, "stale_fallback", False):
-            # BUGFIX (2026-09-08) : ce cas DOIT être testé avant `vr.valid`
-            # (ci-dessous) — un résultat stale_fallback conserve `valid=True`
-            # (dernier statut automatique connu, affiché à l'utilisateur)
-            # mais ne doit PLUS être compté/traité comme une vérification
-            # automatique fiable : voir docstring de ViesResult.stale_fallback
-            # et de _is_uncertain ci-dessus. `stale_fallback_count` existe
-            # déjà sur ViesValidationSummary (models.py) mais n'était jamais
-            # incrémenté nulle part avant ce correctif.
-            vies_summary.stale_fallback_count += 1
-            vies_summary.inconclusive_vats.append(fv)
-            vies_summary.inconclusive_vat_details.append({
-                "vat": fv,
-                "country": fv[:2] if len(fv) >= 2 and fv[:2].isalpha() else "",
-                "sale_ids": vat_to_sale_ids.get(fv, []),
-                "reason": "stale_fallback",
-                # Dernier statut automatique connu et sa date, pour aider
-                # l'utilisateur à décider d'une classification manuelle
-                # (voir render_manual_vies_classification, colonne dédiée).
-                "last_auto_status": bool(getattr(vr, "valid", False)),
-                "last_checked_at": getattr(vr, "checked_at", "") or "",
-            })
-        elif getattr(vr, "valid", False):
-            vies_summary.valid_count += 1
-        elif _vies_is_unreliable(vr):
-            vies_summary.inconclusive_count += 1
-            vies_summary.inconclusive_vats.append(fv)
-            vies_summary.inconclusive_vat_details.append({
-                "vat": fv,
-                "country": fv[:2] if len(fv) >= 2 and fv[:2].isalpha() else "",
-                "sale_ids": vat_to_sale_ids.get(fv, []),
-                "reason": "inconclusive",
-                "last_auto_status": None,
-                "last_checked_at": "",
-            })
-        else:
-            vies_summary.invalid_count += 1
+    _tally_vies_counts(vies_summary, checked_vats, vat_seen, vat_to_sale_ids, _vies_is_unreliable)
 
     # -----------------------------------------------------------------------
     # Boucle principale : classification VIES + OSS via _run_oss_loop
@@ -1729,113 +2030,12 @@ def compute_all_with_vies(
     # à _run_oss_loop.
     # -----------------------------------------------------------------------
 
-    # État mutable partagé avec la closure (suivi des reclassifications)
-    _vies_state: dict[str, str | None] = {"last_classified_sale_id": None}
+    # NIF/identifiants fiscaux nationaux vus (dédupliqués), pour compter des
+    # numéros uniques comme vat_seen et non un par vente.
+    national_ids_seen = set()
 
-    def _effective_sale_with_vies(sale: Sale, product_category: str) -> Sale:
-        """Applique la classification VIES sur la vente et retourne l'objet effectif.
-
-        Les avoirs (refunds) passent par la MÊME classification VIES que les
-        ventes (leur numéro est bien vérifié, voir la boucle de collecte plus
-        haut qui itère sur all_items_sorted = chain(sales, refunds)). Avant
-        le 2026-08-11, un `return sale` précoce ici faisait qu'un avoir dont
-        le n° de TVA était invalide selon VIES restait taxé en Reverse Charge
-        (B2B) au lieu d'être reclassé B2C/OSS comme la vente qu'il annule,
-        créant un décalage entre la déclaration OSS et le CA3. On applique
-        donc désormais le même résultat effectif, mais SANS dupliquer
-        d'entrée dans vies_summary.reclassifications / vies_affected_sale_ids
-        (déjà renseignées via la vente d'origine) pour ne pas fausser les
-        compteurs affichés dans l'onglet VIES.
-        """
-        is_refund = _sale_key(sale) in refund_keys
-
-        product_asin = getattr(sale, "asin", "")
-
-        # Cas particulier : NIF national sans préfixe EU en cross-border
-        # (classify.py Cas 2). buyer_vat_number est vide par construction —
-        # aucun appel VIES n'est jamais tenté — mais la vente est bien taxée
-        # au départ ou à destination selon le même arbitrage art.194 dans
-        # compute_vat. On l'enregistre quand même dans les reclassifications
-        # pour qu'elle apparaisse dans l'onglet VIES (sinon invisible).
-        _national_tax_id = getattr(sale, "national_tax_id", "")
-        if (
-                sale.buyer_type == BuyerType.B2B
-                and not sale.buyer_vat_number
-                and _national_tax_id
-                and sale.stock_country != sale.buyer_country
-        ):
-            if not is_refund:
-                vies_summary.reclassifications.append(ViesReclassification(
-                    sale_id=sale.sale_id,
-                    buyer_vat_number=sale.national_tax_id,
-                    buyer_country=sale.buyer_country,
-                    amount_ht=sale.amount_ht,
-                    vat_avoided=Decimal("0.00"),
-                    reason="Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
-                    display_id=getattr(sale, "display_id", ""),
-                    stock_country=sale.stock_country,
-                    is_national_tax_id=True,
-                ))
-                if sale.national_tax_id not in national_ids_seen:
-                    national_ids_seen.add(sale.national_tax_id)
-                    vies_summary.national_id_count += 1
-                vies_summary.vies_affected_sale_ids.add(_sale_key(sale))
-            _vies_state["last_classified_sale_id"] = sale.sale_id
-            return sale
-
-        if not (sale.buyer_type == BuyerType.B2B and sale.buyer_vat_number and sale.buyer_vat_valid):
-            return sale
-        full_vat = sale_vat_index.get((sale.sale_id, sale.buyer_vat_number), "")
-        vies_res = checked_vats.get(full_vat) if full_vat else None
-
-        # Un résultat VIES n'est valide que si valid=True ET qu'il ne s'agit
-        # pas d'un repli sur cache périmé (stale_fallback) — voir BUGFIX
-        # 2026-09-08 : un stale_fallback conserve vr.valid=True (dernier
-        # statut automatique connu, à but informatif uniquement) mais ne doit
-        # plus déclencher l'autoliquidation B2B tant qu'il n'a pas été
-        # reconfirmé par VIES ou classifié manuellement.
-        _is_stale = bool(getattr(vies_res, "stale_fallback", False)) if vies_res else False
-        is_valid = bool(getattr(vies_res, "valid", False)) and not _is_stale if vies_res else False
-        is_inconclusive = (
-                vies_res is not None and not is_valid
-                and (_vies_is_unreliable(vies_res) or _is_stale)
-        )
-
-        if is_valid:
-            effective = Sale._replace_fast(sale, buyer_vat_valid=True,
-                                            product_category=product_category, asin=product_asin)
-        else:
-            # Numéro invalide ou inconclusive (service VIES indisponible).
-            # On l'ajoute à la liste des anomalies VIES pour affichage dans l'onglet VIES,
-            # même si on ne change pas forcément le type en B2C.
-            reason = "Numéro invalide ou introuvable"
-            if _is_stale:
-                reason = "Revalidation VIES impossible depuis expiration du TTL (à classifier manuellement)"
-            elif is_inconclusive:
-                reason = "Service VIES indisponible (incertain)"
-
-            if not is_refund:
-                vies_summary.reclassifications.append(ViesReclassification(
-                    sale_id=sale.sale_id, buyer_vat_number=sale.buyer_vat_number,
-                    buyer_country=sale.buyer_country, amount_ht=sale.amount_ht,
-                    vat_avoided=Decimal("0.00"), reason=reason,
-                    display_id=getattr(sale, "display_id", ""),
-                    stock_country=sale.stock_country,
-                ))
-
-            # IMPORTANT : Pour les ventes B2B cross-border dont le n° TVA est invalide,
-            # on ne reclassifie PLUS en B2C. On garde BuyerType. B2B mais avec
-            # buyer_vat_valid=False. Cela permet à compute_vat d'appliquer la TVA
-            # au départ (Origin VAT) plutôt que l'OSS (Destination VAT).
-            # Pour les ventes domestiques, le comportement reste identique.
-            effective = Sale._replace_fast(sale, buyer_vat_valid=False,
-                                            product_category=product_category, asin=product_asin)
-
-            if not is_refund and sale.stock_country != sale.buyer_country:
-                vies_summary.vies_affected_sale_ids.add(_sale_key(effective))
-
-        _vies_state["last_classified_sale_id"] = sale.sale_id
-        return effective
+    _effective_sale_with_vies = _make_vies_effective_sale_fn(
+        vies_summary, refund_keys, sale_vat_index, checked_vats, national_ids_seen, _vies_is_unreliable)
 
     _lang, _curr, _sym = lang, currency, symbol
 
@@ -1862,49 +2062,5 @@ def compute_all_with_vies(
         oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
     )
 
-    # Mise à jour des montants TVA évités dans les reclassifications
-    # (on ne peut le faire qu'après compute_vat, donc en post-processing sur results).
-    # Indexé par _sale_key() (sale_id + montant), PAS par sale_id seul : un
-    # sale_id seul n'est pas unique (commande multi-articles, ou avoir
-    # partageant le même identifiant que sa vente d'origine — voir _sale_key
-    # et sale_vat_index plus haut). Indexer par sale_id seul écraserait
-    # silencieusement les résultats en cas de doublon et attribuerait un
-    # montant de TVA évitée à la mauvaise ligne dans l'onglet reclassifications VIES.
-    result_by_key: dict[tuple[str, Decimal], VatResult] = {_sale_key(r.sale): r for r in results}
-    for reclass in vies_summary.reclassifications:
-        # ATTENTION : la clé DOIT être le Decimal brut (voir docstring de
-        # _sale_key()) — result_by_key est indexé par (sale_id, Decimal),
-        # pas (sale_id, str). Un str(reclass.amount_ht) ici ferait échouer
-        # ce .get() à tous les coups (bug corrigé le 2026-08-11 : vat_avoided
-        # restait systématiquement à 0.00 dans l'onglet VIES).
-        res = result_by_key.get((reclass.sale_id, reclass.amount_ht))
-        if res is None:
-            continue
-        is_cross_border = res.sale.stock_country != res.sale.buyer_country
-        real_vat_avoided = res.vat_amount if is_cross_border else Decimal("0.00")
-        is_dom_rc = (
-                not is_cross_border
-                and res.sale.stock_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES
-        )
-        taxed_at_departure = (
-                is_cross_border and res.vat_country == res.sale.stock_country
-        )
-        # Mutation en place plutôt que reconstruction : ViesReclassification
-        # n'est PAS frozen et n'a pas de __post_init__ (contrairement à
-        # Sale/VatResult) — `reclass` EST déjà l'objet stocké dans
-        # vies_summary.reclassifications[i] (référence, pas une copie), donc
-        # le modifier directement suffit, sans reconstruire ni réassigner
-        # dans la liste. Profiling 2026-09-06 (voir README - évolution.md) :
-        # cette reconstruction se produisait pour chaque anomalie VIES en
-        # plus de sa construction initiale (double coût Pydantic par ligne
-        # concernée). Seuls 5 champs changent réellement ici ; les autres
-        # (sale_id, buyer_vat_number, buyer_country, amount_ht, reason,
-        # display_id, stock_country, is_national_tax_id) restent identiques
-        # et n'ont donc pas besoin d'être réécrits.
-        reclass.vat_avoided = real_vat_avoided
-        reclass.vat_delta = real_vat_avoided
-        reclass.is_domestic_reverse_charge = is_dom_rc
-        reclass.taxed_at_departure = taxed_at_departure
-        reclass.scenario = res.scenario.value if hasattr(res.scenario, "value") else str(res.scenario)
-
+    _fill_reclassification_vat_details(vies_summary, results)
     return results, refund_results, vies_summary, oss_summary

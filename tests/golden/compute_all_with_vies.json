@@ -1,0 +1,5440 @@
+{
+ "apply_fr_under_threshold": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 10))",
+     "('ES', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "10000.00"
+   },
+   "total_oss_ht": "10000.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (100.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "T6",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "9900.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (10,000.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "T7",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "1980.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "b2b_flag_false_skipped": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE000000000",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "F1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "b2c_only_no_vies": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('ES', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "200.00"
+   },
+   "total_oss_ht": "200.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "A1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers ES au taux de 21.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "A2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "21.00",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente domestique FR : TVA 20.0% à déclarer en local.",
+    "product_category": "STANDARD",
+    "sale_id": "A3",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "category_and_asin_propagation": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789",
+     "DE000000000"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "B00ASIN",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "BOOKS",
+    "sale_id": "K1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "B00XYZ",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE000000000",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 7% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "BOOKS",
+    "sale_id": "K2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "7.00",
+    "vat_country": "DE",
+    "vat_rate": "7"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 1,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE000000000",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "K2",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "7.00",
+     "vat_delta": "7.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 2,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE000000000": [
+     "K2"
+    ],
+    "DE123456789": [
+     "K1"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "K2",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "check_vies_func_ignored": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "Z1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "Z1"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "domestic_b2b_invalid_fr": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "FR12345678901"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "FR12345678901",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente domestique FR : TVA 20.0% à déclarer en local.",
+    "product_category": "STANDARD",
+    "sale_id": "D1",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 1,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "FR",
+     "buyer_vat_number": "FR12345678901",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "D1",
+     "scenario": "DOMESTIC",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "0.00",
+     "vat_delta": "0.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "FR12345678901": [
+     "D1"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "domestic_b2b_valid_es": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "ESB12345678"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('ES', datetime.date(2026, 2, 10))",
+     "('ES', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "ESB12345678",
+    "buyer_vat_valid": true,
+    "channel": "Channel.LOCAL_REGISTRATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Vente B2B domestique ES : autoliquidation nationale. L'acheteur assujetti (n° TVA: ESB12345678) déclare et reverse la TVA — le vendeur ne collecte pas.",
+    "product_category": "STANDARD",
+    "sale_id": "D3",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "0.00",
+    "vat_country": "ES",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "ESB12345678": [
+     "D3"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "domestic_reverse_charge_es": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "ESB12345678"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('ES', datetime.date(2026, 2, 10))",
+     "('ES', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "ESB12345678",
+    "buyer_vat_valid": false,
+    "channel": "Channel.LOCAL_REGISTRATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Vente B2B domestique ES : autoliquidation nationale. L'acheteur assujetti (n° TVA: ESB12345678) déclare et reverse la TVA — le vendeur ne collecte pas.",
+    "product_category": "STANDARD",
+    "sale_id": "D2",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "0.00",
+    "vat_country": "ES",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 1,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "ES",
+     "buyer_vat_number": "ESB12345678",
+     "display_id": "",
+     "is_domestic_reverse_charge": true,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "D2",
+     "scenario": "DOMESTIC",
+     "stock_country": "ES",
+     "taxed_at_departure": false,
+     "vat_avoided": "0.00",
+     "vat_delta": "0.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "ESB12345678": [
+     "D2"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "empty": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {},
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "empty_transaction_date": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('ES', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "220.00"
+   },
+   "total_oss_ht": "220.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "50.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers ES au taux de 21.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "Q2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "10.50",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "Q1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19"
+   },
+   {
+    "amount_ht": "70.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers IT au taux de 22% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "Q3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "15.40",
+    "vat_country": "IT",
+    "vat_rate": "22"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "invalid_number": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE000000000"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE000000000",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "D-B2",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "B2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 1,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE000000000",
+     "display_id": "D-B2",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "B2",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE000000000": [
+     "D-B2"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "B2",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "ioss_own_number_active": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 3, 10))",
+     "('FR', datetime.date(2026, 3, 10))",
+     "('US', datetime.date(2026, 3, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.AMAZON",
+    "display_id": "",
+    "note": "Amazon collecte la TVA (19.0%) sur DE.",
+    "product_category": "STANDARD",
+    "sale_id": "I1",
+    "scenario": "Scenario.DEEMED_SUPPLIER",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "mixed_vies_batch": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE222222222",
+     "DE111111111",
+     "DE000000000",
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 1))",
+     "('DE', datetime.date(2026, 1, 2))",
+     "('DE', datetime.date(2026, 1, 3))",
+     "('DE', datetime.date(2026, 1, 4))",
+     "('DE', datetime.date(2026, 1, 5))",
+     "('DE', datetime.date(2026, 1, 6))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('FR', datetime.date(2026, 1, 6))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "400.00"
+   },
+   "total_oss_ht": "400.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "M6",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE222222222",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "M4",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE111111111",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "M3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE000000000",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "D-M2",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "M2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "M1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "D-M5",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "M5",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 1,
+   "inconclusive_vat_details": [
+    {
+     "country": "DE",
+     "last_auto_status": true,
+     "last_checked_at": "2026-01-02T00:00:00+00:00",
+     "reason": "stale_fallback",
+     "sale_ids": [
+      "M4"
+     ],
+     "vat": "DE222222222"
+    },
+    {
+     "country": "DE",
+     "last_auto_status": null,
+     "last_checked_at": "",
+     "reason": "inconclusive",
+     "sale_ids": [
+      "M3"
+     ],
+     "vat": "DE111111111"
+    }
+   ],
+   "inconclusive_vats": [
+    "DE222222222",
+    "DE111111111"
+   ],
+   "invalid_count": 1,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE222222222",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Revalidation VIES impossible depuis expiration du TTL (à classifier manuellement)",
+     "sale_id": "M4",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    },
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE111111111",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Service VIES indisponible (incertain)",
+     "sale_id": "M3",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    },
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE000000000",
+     "display_id": "D-M2",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "M2",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 1,
+   "total_checked": 4,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE000000000": [
+     "D-M2"
+    ],
+    "DE111111111": [
+     "M3"
+    ],
+    "DE123456789": [
+     "M1",
+     "D-M5"
+    ],
+    "DE222222222": [
+     "M4"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "M2",
+     "100.00"
+    ],
+    [
+     "M3",
+     "100.00"
+    ],
+    [
+     "M4",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "multi_year_reset": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2025, 11, 10))",
+     "('DE', datetime.date(2025, 12, 10))",
+     "('DE', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2025, 11, 10))",
+     "('FR', datetime.date(2025, 11, 10))",
+     "('FR', datetime.date(2025, 12, 10))",
+     "('FR', datetime.date(2025, 12, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": true,
+   "oss_ht_by_year": {
+    "2025": "11000.00",
+    "2026": "10100.01",
+    "not-": "10100.01"
+   },
+   "total_oss_ht": "10100.01"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "9000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "Y1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "1710.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "2000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "Y2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "380.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "Y3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "Y5",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "national_id_cross_border": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('ES', datetime.date(2026, 1, 2))",
+     "('ES', datetime.date(2026, 1, 3))",
+     "('ES', datetime.date(2026, 1, 4))",
+     "('ES', datetime.date(2026, 1, 5))",
+     "('ES', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 5))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→ES : numéro TVA acheteur non valide VIES. L'art.194 (adopté en ES) ne s'applique qu'au national, pas en cross-border — l'exonération est refusée (Art. 138 Directive 2006/112/CE) — taxation au pays de départ (FR) au taux de 20.0% collecté par le vendeur.",
+    "product_category": "STANDARD",
+    "sale_id": "N1",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→ES : numéro TVA acheteur non valide VIES. L'art.194 (adopté en ES) ne s'applique qu'au national, pas en cross-border — l'exonération est refusée (Art. 138 Directive 2006/112/CE) — taxation au pays de départ (FR) au taux de 20.0% collecté par le vendeur.",
+    "product_category": "STANDARD",
+    "sale_id": "N2",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→ES : numéro TVA acheteur non valide VIES. L'art.194 (adopté en ES) ne s'applique qu'au national, pas en cross-border — l'exonération est refusée (Art. 138 Directive 2006/112/CE) — taxation au pays de départ (FR) au taux de 20.0% collecté par le vendeur.",
+    "product_category": "STANDARD",
+    "sale_id": "N3",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.LOCAL_REGISTRATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Vente B2B domestique ES : autoliquidation nationale. L'acheteur assujetti (n° inconnu) déclare et reverse la TVA — le vendeur ne collecte pas.",
+    "product_category": "STANDARD",
+    "sale_id": "N4",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "0.00",
+    "vat_country": "ES",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 2,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "ES",
+     "buyer_vat_number": "X1234567L",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": true,
+     "reason": "Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
+     "sale_id": "N1",
+     "scenario": "DOMESTIC",
+     "stock_country": "FR",
+     "taxed_at_departure": true,
+     "vat_avoided": "20.00",
+     "vat_delta": "20.00"
+    },
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "ES",
+     "buyer_vat_number": "X1234567L",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": true,
+     "reason": "Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
+     "sale_id": "N2",
+     "scenario": "DOMESTIC",
+     "stock_country": "FR",
+     "taxed_at_departure": true,
+     "vat_avoided": "20.00",
+     "vat_delta": "20.00"
+    },
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "ES",
+     "buyer_vat_number": "Y7654321K",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": true,
+     "reason": "Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
+     "sale_id": "N3",
+     "scenario": "DOMESTIC",
+     "stock_country": "FR",
+     "taxed_at_departure": true,
+     "vat_avoided": "20.00",
+     "vat_delta": "20.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": [
+    [
+     "N1",
+     "100.00"
+    ],
+    [
+     "N2",
+     "100.00"
+    ],
+    [
+     "N3",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "national_id_refund": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('ES', datetime.date(2026, 2, 10))",
+     "('ES', datetime.date(2026, 2, 20))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 20))",
+     "('FR', datetime.date(2026, 2, 20))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→ES : numéro TVA acheteur non valide VIES. L'art.194 (adopté en ES) ne s'applique qu'au national, pas en cross-border — l'exonération est refusée (Art. 138 Directive 2006/112/CE) — taxation au pays de départ (FR) au taux de 20.0% collecté par le vendeur.",
+    "product_category": "STANDARD",
+    "sale_id": "N5",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "-20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→ES : numéro TVA acheteur non valide VIES. L'art.194 (adopté en ES) ne s'applique qu'au national, pas en cross-border — l'exonération est refusée (Art. 138 Directive 2006/112/CE) — taxation au pays de départ (FR) au taux de 20.0% collecté par le vendeur.",
+    "product_category": "STANDARD",
+    "sale_id": "N5",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 1,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "ES",
+     "buyer_vat_number": "X1234567L",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": true,
+     "reason": "Identifiant fiscal national (pas un n° de TVA intracommunautaire)",
+     "sale_id": "N5",
+     "scenario": "DOMESTIC",
+     "stock_country": "FR",
+     "taxed_at_departure": true,
+     "vat_avoided": "20.00",
+     "vat_delta": "20.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": [
+    [
+     "N5",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "non_eu_and_marketplace_en": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('DE', datetime.date(2026, 2, 10))",
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('MC', datetime.date(2026, 2, 10))",
+     "('US', datetime.date(2026, 2, 10))",
+     "('US', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "300.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Import > EUR 150 from a third country: import VAT in DE (19.0%) due to customs by the importer.",
+    "product_category": "STANDARD",
+    "sale_id": "E1",
+    "scenario": "Scenario.IMPORT_STANDARD",
+    "vat_amount": "57.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "40.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Export outside the EU: VAT exempt. Proof of export required.",
+    "product_category": "STANDARD",
+    "sale_id": "E2",
+    "scenario": "Scenario.EXPORT",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   },
+   {
+    "amount_ht": "50.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sale to Monaco from French stock: treated as a French domestic sale. VAT 20.0% collected.",
+    "product_category": "STANDARD",
+    "sale_id": "E3",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "10.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "75.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.AMAZON",
+    "display_id": "",
+    "note": "eBay collects VAT (19.0%) on DE.",
+    "product_category": "STANDARD",
+    "sale_id": "E4",
+    "scenario": "Scenario.DEEMED_SUPPLIER",
+    "vat_amount": "14.25",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "oss_cross_then_refund_below_default": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 1))",
+     "('DE', datetime.date(2026, 1, 1))",
+     "('DE', datetime.date(2026, 1, 2))",
+     "('DE', datetime.date(2026, 1, 4))",
+     "('ES', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('IT', datetime.date(2026, 1, 5))",
+     "('PL', datetime.date(2026, 1, 6))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "3140.00"
+   },
+   "total_oss_ht": "3140.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-500.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J0",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-95.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "-9000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-1710.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "500.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J0",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "95.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "9000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "1710.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "3000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers ES au taux de 21.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "630.00",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers IT au taux de 22.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "22.00",
+    "vat_country": "IT",
+    "vat_rate": "22.0"
+   },
+   {
+    "amount_ht": "40.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers PL au taux de 23.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J4",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "9.20",
+    "vat_country": "PL",
+    "vat_rate": "23.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "oss_cross_then_refund_below_en": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 1))",
+     "('DE', datetime.date(2026, 1, 1))",
+     "('DE', datetime.date(2026, 1, 2))",
+     "('DE', datetime.date(2026, 1, 4))",
+     "('ES', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('IT', datetime.date(2026, 1, 5))",
+     "('PL', datetime.date(2026, 1, 6))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "3140.00"
+   },
+   "total_oss_ht": "3140.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-500.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Below the OSS threshold (0.00/10,000.00 €). FR VAT option applied.",
+    "product_category": "STANDARD",
+    "sale_id": "J0",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "-100.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "-9000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "OSS sale to DE at a rate of 19.0%.",
+    "product_category": "STANDARD",
+    "sale_id": "J1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-1710.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "500.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Below the OSS threshold (500.00/10,000.00 €). FR VAT option applied.",
+    "product_category": "STANDARD",
+    "sale_id": "J0",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "100.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "9000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Below the OSS threshold (9,000.00/10,000.00 €). FR VAT option applied.",
+    "product_category": "STANDARD",
+    "sale_id": "J1",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "1800.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "3000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "OSS threshold exceeded! Sale to ES.",
+    "product_category": "STANDARD",
+    "sale_id": "J2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "630.00",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "OSS sale to IT at a rate of 22.0%.",
+    "product_category": "STANDARD",
+    "sale_id": "J3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "22.00",
+    "vat_country": "IT",
+    "vat_rate": "22.0"
+   },
+   {
+    "amount_ht": "40.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "OSS sale to PL at a rate of 23.0%.",
+    "product_category": "STANDARD",
+    "sale_id": "J4",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "9.20",
+    "vat_country": "PL",
+    "vat_rate": "23.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "oss_cross_then_refund_below_fr_flag": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 1))",
+     "('DE', datetime.date(2026, 1, 1))",
+     "('DE', datetime.date(2026, 1, 2))",
+     "('DE', datetime.date(2026, 1, 4))",
+     "('ES', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 1))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('IT', datetime.date(2026, 1, 5))",
+     "('PL', datetime.date(2026, 1, 6))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "3140.00"
+   },
+   "total_oss_ht": "3140.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-500.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (0.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "J0",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "-100.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "-9000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-1710.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "500.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (500.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "J0",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "100.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "9000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (9,000.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "J1",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "1800.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "3000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "FRANCHISSEMENT DU SEUIL OSS ! Vente vers ES.",
+    "product_category": "STANDARD",
+    "sale_id": "J2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "630.00",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers IT au taux de 22.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "22.00",
+    "vat_country": "IT",
+    "vat_rate": "22.0"
+   },
+   {
+    "amount_ht": "40.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers PL au taux de 23.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "J4",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "9.20",
+    "vat_country": "PL",
+    "vat_rate": "23.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "oss_eligibility_edges": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE111"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 2))",
+     "('DE', datetime.date(2026, 1, 3))",
+     "('DE', datetime.date(2026, 1, 4))",
+     "('DE', datetime.date(2026, 1, 5))",
+     "('DE', datetime.date(2026, 1, 7))",
+     "('ES', datetime.date(2026, 1, 3))",
+     "('ES', datetime.date(2026, 1, 6))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('FR', datetime.date(2026, 1, 6))",
+     "('FR', datetime.date(2026, 1, 7))",
+     "('FR', datetime.date(2026, 1, 7))",
+     "('FR', datetime.date(2026, 1, 8))",
+     "('FR', datetime.date(2026, 1, 8))",
+     "('MC', datetime.date(2026, 1, 8))",
+     "('US', datetime.date(2026, 1, 2))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "200.00"
+   },
+   "total_oss_ht": "200.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.AMAZON",
+    "display_id": "",
+    "note": "Amazon collecte la TVA (19.0%) sur DE.",
+    "product_category": "STANDARD",
+    "sale_id": "G1",
+    "scenario": "Scenario.DEEMED_SUPPLIER",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers ES au taux de 21.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "G2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "21.00",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente vers FR (pays d'établissement du vendeur) expédiée depuis un stock DE : la destination coïncidant avec le pays d'origine du vendeur, la vente est traitée comme une vente domestique FR (déclaration locale CA3, hors OSS — Art. 59 ter Directive 2006/112/CE ne s'applique qu'aux expéditions depuis le pays d'établissement) — TVA 20.0%.",
+    "product_category": "STANDARD",
+    "sale_id": "G3",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (100.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "G4",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "ES000",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→ES : numéro TVA acheteur non valide VIES. L'art.194 (adopté en ES) ne s'applique qu'au national, pas en cross-border — l'exonération est refusée (Art. 138 Directive 2006/112/CE) — taxation au pays de départ (FR) au taux de 20.0% collecté par le vendeur.",
+    "product_category": "STANDARD",
+    "sale_id": "G5",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE111",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (200.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "G6",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente vers Monaco depuis un stock FR : assimilée à une vente domestique française (convention fiscale franco-monégasque du 18 mai 1963 — https://bit.ly/Conv-FR-MC) — TVA FR 20.0% collectée.",
+    "product_category": "STANDARD",
+    "sale_id": "G7",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "20.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE111",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "G6",
+     "scenario": "DOMESTIC",
+     "stock_country": "FR",
+     "taxed_at_departure": true,
+     "vat_avoided": "20.00",
+     "vat_delta": "20.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE111": [
+     "G6"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "G6",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "oss_exact_threshold_boundary": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 2))",
+     "('ES', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 4))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('IT', datetime.date(2026, 1, 4))",
+     "('PL', datetime.date(2026, 1, 5))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": true,
+   "oss_ht_by_year": {
+    "2026": "10050.01"
+   },
+   "total_oss_ht": "10050.01"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "6000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (6,000.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "H1",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "1200.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "4000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.FR_DOMESTIC",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Sous le seuil OSS (10,000.00/10,000.00€). Option TVA FR activée.",
+    "product_category": "STANDARD",
+    "sale_id": "H2",
+    "scenario": "Scenario.DOMESTIC",
+    "vat_amount": "800.00",
+    "vat_country": "FR",
+    "vat_rate": "20.0"
+   },
+   {
+    "amount_ht": "0.01",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "FRANCHISSEMENT DU SEUIL OSS ! Vente vers IT.",
+    "product_category": "STANDARD",
+    "sale_id": "H3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "0.00",
+    "vat_country": "IT",
+    "vat_rate": "22.0"
+   },
+   {
+    "amount_ht": "50.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers PL au taux de 23.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "H4",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "11.50",
+    "vat_country": "PL",
+    "vat_rate": "23.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "oss_exact_threshold_boundary_no_fr_flag": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 2))",
+     "('ES', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 3))",
+     "('FR', datetime.date(2026, 1, 3))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": true,
+   "oss_ht_by_year": {
+    "2026": "10000.01"
+   },
+   "total_oss_ht": "10000.01"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "10000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "H5",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "1900.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "0.01",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers ES au taux de 21.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "H6",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "0.00",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "oss_prev_year_flag_with_refund_fr_flag": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 2))",
+     "('DE', datetime.date(2026, 3, 2))",
+     "('ES', datetime.date(2026, 2, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 1, 2))",
+     "('FR', datetime.date(2026, 2, 2))",
+     "('FR', datetime.date(2026, 2, 2))",
+     "('FR', datetime.date(2026, 3, 2))",
+     "('FR', datetime.date(2026, 3, 2))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": true,
+   "oss_ht_by_year": {
+    "2026": "10030.01"
+   },
+   "total_oss_ht": "10030.01"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "K1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "K1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "30.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers ES au taux de 21.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "K2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "6.30",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "oss_threshold_exceeded_same_year": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 10))",
+     "('ES', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 3, 10))",
+     "('FR', datetime.date(2026, 3, 10))",
+     "('IT', datetime.date(2026, 3, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": true,
+   "oss_ht_by_year": {
+    "2026": "12500.00"
+   },
+   "total_oss_ht": "12500.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "6000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "T1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "1140.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "6000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers ES au taux de 21.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "T2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "1260.00",
+    "vat_country": "ES",
+    "vat_rate": "21.0"
+   },
+   {
+    "amount_ht": "500.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers IT au taux de 22.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "T3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "110.00",
+    "vat_country": "IT",
+    "vat_rate": "22.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "oss_threshold_prev_year_flag": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 11))",
+     "('FR', datetime.date(2026, 1, 11))",
+     "('PL', datetime.date(2026, 1, 11))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": true,
+   "oss_ht_by_year": {
+    "2026": "10150.01"
+   },
+   "total_oss_ht": "10150.01"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "T4",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "50.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers PL au taux de 23.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "T5",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "11.50",
+    "vat_country": "PL",
+    "vat_rate": "23.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "override_applied_on_stale": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE222222222"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE222222222",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "O3",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 1,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE222222222": [
+     "O3"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "override_applied_vies_missing": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE444444444"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE444444444",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "O1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 1,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE444444444": [
+     "O1"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "override_cleaned_when_vies_conclusive": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "delete_manual_override",
+    "scope-test",
+    "DE123456789"
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "O4",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "O4"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "override_cleanup_delete_raises": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "delete_manual_override",
+    "scope-test",
+    "DE123456789"
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "O5",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "O5"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "override_for_unseen_vat_ignored": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "O6",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "O6"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "override_invalid_applied_on_transient": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE111111111"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE111111111",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "O2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 1,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE111111111",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "O2",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE111111111": [
+     "O2"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "O2",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "overrides_loading_raises": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE111111111"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE111111111",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "O7",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 1,
+   "inconclusive_vat_details": [
+    {
+     "country": "DE",
+     "last_auto_status": null,
+     "last_checked_at": "",
+     "reason": "inconclusive",
+     "sale_ids": [
+      "O7"
+     ],
+     "vat": "DE111111111"
+    }
+   ],
+   "inconclusive_vats": [
+    "DE111111111"
+   ],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE111111111",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Service VIES indisponible (incertain)",
+     "sale_id": "O7",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE111111111": [
+     "O7"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "O7",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "parallel_and_sequential_raise": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "sequential",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "P2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE123456789",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "P2",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "P2"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "P2",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "parallel_raises_sequential_ok": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "sequential",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "P1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "P1"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "progress_callbacks_passed": {
+  "callbacks": {
+   "oss": [
+    [
+     2,
+     2
+    ]
+   ],
+   "rate": [],
+   "vies": [
+    [
+     1,
+     1
+    ]
+   ]
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    true
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    true
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "C1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "C2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "C1"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "refund_invalid_not_duplicated": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE000000000"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 10))",
+     "('DE', datetime.date(2026, 1, 20))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 20))",
+     "('FR', datetime.date(2026, 1, 20))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE000000000",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "R1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE000000000",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "R1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 1,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE000000000",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "R1",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE000000000": [
+     "R1",
+     "R1"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "R1",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "refund_only_vat_counted": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 1))",
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 1))",
+     "('FR', datetime.date(2026, 2, 1))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-50.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "R3",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "R2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "R3"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "refund_order_date_cross_year": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('EE', datetime.date(2025, 6, 1))",
+     "('EE', datetime.date(2025, 6, 1))",
+     "('FR', datetime.date(2025, 6, 1))",
+     "('FR', datetime.date(2025, 6, 1))",
+     "('FR', datetime.date(2025, 6, 1))",
+     "('FR', datetime.date(2025, 6, 1))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2025": "100.00",
+    "2026": "-100.00"
+   },
+   "total_oss_ht": "-100.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers EE au taux de 22.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "W2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-22.00",
+    "vat_country": "EE",
+    "vat_rate": "22.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers EE au taux de 22.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "W2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "22.00",
+    "vat_country": "EE",
+    "vat_rate": "22.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "refund_order_date_malformed": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('EE', datetime.date(2025, 6, 1))",
+     "('FR', datetime.date(2025, 6, 1))",
+     "('FR', datetime.date(2025, 6, 1))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2025": "100.00",
+    "2026": "-100.00"
+   },
+   "total_oss_ht": "-100.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers EE au taux de 24.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "W1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-24.00",
+    "vat_country": "EE",
+    "vat_rate": "24.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers EE au taux de 22.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "W1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "22.00",
+    "vat_country": "EE",
+    "vat_rate": "22.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "refund_oss_deduction": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 10))",
+     "('DE', datetime.date(2026, 3, 10))",
+     "('DE', datetime.date(2026, 4, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 3, 10))",
+     "('FR', datetime.date(2026, 3, 10))",
+     "('FR', datetime.date(2026, 4, 10))",
+     "('FR', datetime.date(2026, 4, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "9500.00"
+   },
+   "total_oss_ht": "9500.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-2500.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "R5",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "-475.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "9000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "R5",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "1710.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "3000.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2C",
+    "buyer_vat_number": "",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente OSS vers DE au taux de 19.0% (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "R6",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "570.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 0,
+   "valid_count": 0,
+   "vat_to_display_ids": {},
+   "vies_affected_sale_ids": []
+  }
+ },
+ "refund_valid_reverse_charge": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 10))",
+     "('DE', datetime.date(2026, 1, 20))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 10))",
+     "('FR', datetime.date(2026, 1, 20))",
+     "('FR', datetime.date(2026, 1, 20))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [
+   {
+    "amount_ht": "-100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "R4",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "R4",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "R4",
+     "R4"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "stale_fallback_invalid": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE333333333"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE333333333",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "B5",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [
+    {
+     "country": "DE",
+     "last_auto_status": false,
+     "last_checked_at": "2026-01-03T00:00:00+00:00",
+     "reason": "stale_fallback",
+     "sale_ids": [
+      "B5"
+     ],
+     "vat": "DE333333333"
+    }
+   ],
+   "inconclusive_vats": [
+    "DE333333333"
+   ],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE333333333",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Revalidation VIES impossible depuis expiration du TTL (à classifier manuellement)",
+     "sale_id": "B5",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 1,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE333333333": [
+     "B5"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "B5",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "stale_fallback_valid": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE222222222"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE222222222",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "B4",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [
+    {
+     "country": "DE",
+     "last_auto_status": true,
+     "last_checked_at": "2026-01-02T00:00:00+00:00",
+     "reason": "stale_fallback",
+     "sale_ids": [
+      "B4"
+     ],
+     "vat": "DE222222222"
+    }
+   ],
+   "inconclusive_vats": [
+    "DE222222222"
+   ],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE222222222",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Revalidation VIES impossible depuis expiration du TTL (à classifier manuellement)",
+     "sale_id": "B4",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 1,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE222222222": [
+     "B4"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "B4",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "transient_error": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE111111111"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE111111111",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "B3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 1,
+   "inconclusive_vat_details": [
+    {
+     "country": "DE",
+     "last_auto_status": null,
+     "last_checked_at": "",
+     "reason": "inconclusive",
+     "sale_ids": [
+      "B3"
+     ],
+     "vat": "DE111111111"
+    }
+   ],
+   "inconclusive_vats": [
+    "DE111111111"
+   ],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE111111111",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Service VIES indisponible (incertain)",
+     "sale_id": "B3",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE111111111": [
+     "B3"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "B3",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "unsorted_input_and_duplicates_ids": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789",
+     "DE000000000"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 1, 5))",
+     "('DE', datetime.date(2026, 2, 5))",
+     "('DE', datetime.date(2026, 3, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 1, 5))",
+     "('FR', datetime.date(2026, 2, 5))",
+     "('FR', datetime.date(2026, 2, 5))",
+     "('FR', datetime.date(2026, 3, 5))",
+     "('FR', datetime.date(2026, 3, 5))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "77.00"
+   },
+   "total_oss_ht": "77.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "55.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "U1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   },
+   {
+    "amount_ht": "77.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE000000000",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "U1",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "14.63",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "U1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 1,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "77.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE000000000",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "U1",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "14.63",
+     "vat_delta": "14.63"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 2,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE000000000": [
+     "U1"
+    ],
+    "DE123456789": [
+     "U1",
+     "U1"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "U1",
+     "77.00"
+    ]
+   ]
+  }
+ },
+ "valid_number": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE123456789"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "0.00"
+   },
+   "total_oss_ht": "0.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE123456789",
+    "buyer_vat_valid": true,
+    "channel": "Channel.EXONERATION",
+    "collector": "Collector.BUYER",
+    "display_id": "",
+    "note": "Livraison intracommunautaire B2B exonérée avec autoliquidation par l'acquéreur (Art. 262 ter du CGI — https://bit.ly/Art262ter).",
+    "product_category": "STANDARD",
+    "sale_id": "B1",
+    "scenario": "Scenario.B2B_REVERSE_CHARGE",
+    "vat_amount": "0.00",
+    "vat_country": "",
+    "vat_rate": "0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 1,
+   "vat_to_display_ids": {
+    "DE123456789": [
+     "B1"
+    ]
+   },
+   "vies_affected_sale_ids": []
+  }
+ },
+ "vat_number_unnormalizable": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE!!"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('DE', datetime.date(2026, 2, 10))",
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "300.00"
+   },
+   "total_oss_ht": "300.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "!!",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "F2",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "-",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "F3",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   },
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "  ",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "F3b",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "!!",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "F2",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    },
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "-",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "F3",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    },
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "  ",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "F3b",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE!!": [
+     "F2"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "F2",
+     "100.00"
+    ],
+    [
+     "F3",
+     "100.00"
+    ],
+    [
+     "F3b",
+     "100.00"
+    ]
+   ]
+  }
+ },
+ "vies_result_missing": {
+  "callbacks": {
+   "oss": [],
+   "rate": [],
+   "vies": []
+  },
+  "calls": [
+   [
+    "parallel",
+    "scope-test",
+    [
+     "DE444444444"
+    ],
+    false
+   ],
+   [
+    "get_manual_overrides",
+    "scope-test",
+    true
+   ],
+   [
+    "prefetch_standard_rates",
+    [
+     "('DE', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))",
+     "('FR', datetime.date(2026, 2, 10))"
+    ],
+    false
+   ]
+  ],
+  "oss_summary": {
+   "is_threshold_exceeded": false,
+   "oss_ht_by_year": {
+    "2026": "100.00"
+   },
+   "total_oss_ht": "100.00"
+  },
+  "refund_results": [],
+  "results": [
+   {
+    "amount_ht": "100.00",
+    "asin": "",
+    "buyer_type": "BuyerType.B2B",
+    "buyer_vat_number": "DE444444444",
+    "buyer_vat_valid": false,
+    "channel": "Channel.OSS",
+    "collector": "Collector.SELLER",
+    "display_id": "",
+    "note": "Vente B2B cross-border FR→DE : numéro TVA acheteur non valide VIES. L'exonération est refusée (Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C et taxée au pays de destination (DE) au taux de 19.0% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — https://bit.ly/Bofip-OSS).",
+    "product_category": "STANDARD",
+    "sale_id": "B6",
+    "scenario": "Scenario.OSS_B2C",
+    "vat_amount": "19.00",
+    "vat_country": "DE",
+    "vat_rate": "19.0"
+   }
+  ],
+  "vies_summary": {
+   "inconclusive_count": 0,
+   "inconclusive_vat_details": [],
+   "inconclusive_vats": [],
+   "invalid_count": 0,
+   "manual_invalid_count": 0,
+   "manual_valid_count": 0,
+   "national_id_count": 0,
+   "reclassifications": [
+    {
+     "amount_ht": "100.00",
+     "buyer_country": "DE",
+     "buyer_vat_number": "DE444444444",
+     "display_id": "",
+     "is_domestic_reverse_charge": false,
+     "is_national_tax_id": false,
+     "reason": "Numéro invalide ou introuvable",
+     "sale_id": "B6",
+     "scenario": "OSS_B2C",
+     "stock_country": "FR",
+     "taxed_at_departure": false,
+     "vat_avoided": "19.00",
+     "vat_delta": "19.00"
+    }
+   ],
+   "stale_fallback_count": 0,
+   "total_checked": 1,
+   "valid_count": 0,
+   "vat_to_display_ids": {
+    "DE444444444": [
+     "B6"
+    ]
+   },
+   "vies_affected_sale_ids": [
+    [
+     "B6",
+     "100.00"
+    ]
+   ]
+  }
+ }
+}

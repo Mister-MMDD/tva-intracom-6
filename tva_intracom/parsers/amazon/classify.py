@@ -244,7 +244,7 @@ def apply_vat_exception(arrival: str, postal_code: str) -> str:
     "XX" est le code sentinelle → EXPORT dans engine.py.
     Sinon retourne le pays d'arrivée inchangé.
     """
-    if _is_exception := is_vat_exception_territory(arrival, postal_code):
+    if is_vat_exception_territory(arrival, postal_code):
         logger.debug(
             "Territoire d'exception TVA détecté (pays=%s, CP=%s) → EXPORT.",
             arrival, postal_code,

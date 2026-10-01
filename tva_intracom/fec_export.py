@@ -136,7 +136,6 @@ def _journal_info_for(results: Iterable[VatResult]) -> tuple[str, str]:
     Pour l'instant, ce module agrège des ventes Amazon -> 'VEN'.
     L'argument 'results' est conservé pour une extension future aux achats.
     """
-    unused_results = results  # Utilisation future
     code = "VEN"
     lib = JOURNALS.get(code, _("fec_journal_sales"))
     return code, lib

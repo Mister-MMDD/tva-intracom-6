@@ -1,0 +1,19 @@
+{
+ "calls": [],
+ "elements": [
+  {
+   "depth": 0,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 1,
+   "type": "exception",
+   "value": "ctx.oss_tva_net_total est None : render_declarations(ctx) doit être appelé avant render_telechargements() dans app.py (voir tabs/context.py)."
+  }
+ ],
+ "exceptions": [
+  "ctx.oss_tva_net_total est None : render_declarations(ctx) doit être appelé avant render_telechargements() dans app.py (voir tabs/context.py)."
+ ],
+ "session_keys": []
+}

@@ -56,7 +56,8 @@ tva-intracom/
 │   │                                      l'org n'a qu'un seul SIREN enregistré (dry-run par défaut)
 │   ├── profile_ram_parsing.py         Profilage mémoire du parsing de gros fichiers Amazon
 │   └── seed_known_mappings_cn_cpa.sql Seed product_tax_code_category (mapping PTC->catégorie, lot "sûr" 2026-09-16)
-├── tests/
+├── tests/                            Suite pytest, dont tests de caractérisation (AppTest / références golden) posés avant chaque gros refactor
+│   └── golden/                       Références JSON figées de ces tests (régénération volontaire : variables UPDATE_*_GOLDEN=1)
 ├── tva-site/                         Site vitrine / landing page (HTML/JS/CSS statique)
 ├── tva_intracom/
 │   ├── data/
@@ -116,7 +117,8 @@ tva-intracom/
 │   ├── config.py                     Utilitaire de gestion des secrets (variables d'environnement, Streamlit secrets).
 │   ├── database.py                   Pooling Postgres centralisé (NonPoolingConnectionPool, run_with_retry)
 │   ├── ecb_rates.py                  Taux BCE (cache mémoire + disque, convert_to_eur_for_oss)
-│   ├── engine.py                     Moteur de classification fiscale (compute_vat, compute_all)
+│   ├── engine.py                     Moteur de classification fiscale : compute_vat (dispatch ordonné vers des helpers _*_result),
+│   │                                 compute_all_with_vies (validation VIES + boucle OSS chronologique _run_oss_loop)
 │   ├── excel_report.py               Export Excel multi-onglets
 │   ├── historical_rates_widget.py    Composant UI Streamlit pour afficher l'historique des taux de change BCE appliqués
 │   ├── mem_utils.py                  Utilitaires d'analyse et d'optimisation de la mémoire (interning, RAM stats)
@@ -138,7 +140,8 @@ tva-intracom/
 │   │   ├── admin.py                  Gestion des rôles admin/lecteur et whitelist organisation.
 │   │   ├── auth_flow.py              Authentification complète : mot de passe et OAuth
 │   │   │                             (Google/Microsoft/GitHub/Amazon) via Supabase Auth,
-│   │   │                             cookie de session, callback OAuth Amazon SP-API.
+│   │   │                             cookie de session, callback OAuth Amazon SP-API. Découpé en
+│   │   │                             gestionnaires _handle_* et écrans _render_* orchestrés par run_auth_flow.
 │   │   ├── background_calc.py        Exécution des calculs longs en thread séparé (avec suivi de
 │   │   │                             progression) derrière une file d'attente FIFO (slot unique).
 │   │   ├── billing_gate.py           Gating crédit PAYG/abonnement/quota SIREN/conformité TVA-IOSS.
@@ -151,16 +154,18 @@ tva-intracom/
 │   │   ├── import_warnings.py        Transformation des avertissements d'import (ligne/référence/message) en lignes de tableau structurées.
 │   │   ├── onboarding.py             Stepper guidé d'onboarding avec guidage visuel Lighthouse.
 │   │   ├── rerun_utils.py            Gestion fine des st.rerun() pour préserver l'upload de fichier.
-│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, Facturation Stripe).
+│   │   ├── sidebar.py                Barre latérale complète (SIREN, IOSS, VIES, Facturation Stripe), découpée en
+│   │   │                             sections _render_* (région, entreprise/SIREN, VIES, fichier) orchestrées par render_sidebar.
 │   │   ├── theme.py                  Configuration de page + CSS de marque adaptatif.
 │   │   └── tabs/                     Un module par onglet de l'app, tous consommant un TabContext
 │   │       ├── __init__.py
 │   │       ├── context.py            TabContext — état partagé construit une fois avant les onglets
 │   │       ├── declarations.py       Onglet "💶 Déclarations" (Rendu optimisé)
 │   │       ├── detail_ventes.py      Onglet "📋 Détail ventes" (Rendu conditionnel)
-│   │       ├── vies_ui.py            Onglet "🛡️ VIES" (Fragments)
+│   │       ├── vies_ui.py            Onglet "🛡️ VIES" (Fragments), découpé en sections _render_* orchestrées par render_vies
 │   │       ├── audit.py              Onglet "🔬 Audit Amazon" (Rendu conditionnel)
-│   │       ├── telechargements.py    Onglet "📥 Téléchargements" (Caches)
+│   │       ├── telechargements.py    Onglet "📥 Téléchargements" (Caches) : _DownloadsView (clé de cache, génération
+│   │       │                         paresseuse des exports) + une section _section_* par export
 │   │       └── visualisations.py     Onglet "📊 Visualisations" (JSON Plotly arrondi)
 │   
 ├── vercel_webhook/
@@ -192,7 +197,7 @@ tva-intracom/
 | `models.py` | Modèles de données (Pydantic) : Sale, VatResult, Scenario, BuyerType, Channel, Collector |
 | `config.py` | Utilitaire de gestion des secrets (lwa, stripe, resend, postgres) avec fallback local |
 | `database.py` | Gestion centralisée des connexions Postgres : `NonPoolingConnectionPool` (cache par thread compatible scale-to-zero, ou connexion fraîche par appel selon `cache_connection`) + `run_with_retry()` — consommé par `auth.py`, `billing.py`, `ecb_rates.py` et `vies_engine.py` (voir section « Base de données partagée » ci-dessus) |
-| `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) |
+| `engine.py` | Moteur de classification fiscale avec documentation légale intégrée (links Bofip/CGI/Dir) : `compute_vat` dispatche, dans l'ordre de priorité fiscale, vers des helpers dédiés (Monaco, export, IOSS, deemed supplier, B2B intra-UE, OSS, local, import) ; `compute_all_with_vies` enchaîne collecte et validation VIES, overrides manuels, puis la boucle chronologique OSS `_run_oss_loop` |
 | `rates.py` | Taux TVA historisés par pays (vat_rate_at_date), is_eu, is_fiscal_eu, seuils |
 | `vat_rates_db.py` | Taux de TVA dynamiques via l'API TEDB (Taxes in Europe Database) avec repli sur les tables statiques |
 | `product_tax_code_category.py` | Classification Amazon (PRODUCT_TAX_CODE -> catégorie interne), niveau 2 de la stratégie CN/CPA |
@@ -231,7 +236,7 @@ Chaque module reprend une partie logique de l'interface, isolé et paramétré p
 | Module | Rôle |
 |---|---|
 | `ui/admin.py` | Gestion des rôles admin/lecteur et de la whitelist d'organisation. |
-| `ui/auth_flow.py` | Authentification complète via Supabase Auth (mot de passe, OAuth, PKCE, cookie de session). |
+| `ui/auth_flow.py` | Authentification complète via Supabase Auth (mot de passe, OAuth, PKCE, cookie de session), découpée en gestionnaires `_handle_*` et écrans `_render_*` orchestrés par `run_auth_flow`. |
 | `ui/background_calc.py` | Exécution des calculs longs en thread séparé avec file d'attente FIFO. |
 | `ui/billing_gate.py` | Détection de période et gating des téléchargements (PAYG, abonnements, quotas). |
 | `ui/calc_cache.py` | Centralisation de l'état du cache de calcul (CalcCacheState). |
@@ -240,7 +245,7 @@ Chaque module reprend une partie logique de l'interface, isolé et paramétré p
 | `ui/formatting.py` | Helpers d'affichage partagés et conversion vers la devise d'affichage UI. |
 | `ui/import_warnings.py` | Découpage des avertissements d'import (fichier, ligne, référence, message) en colonnes de tableau. |
 | `ui/onboarding.py` | Stepper guidé d'onboarding avec guidage visuel "Lighthouse". |
-| `ui/sidebar.py` | Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe). |
+| `ui/sidebar.py` | Barre latérale complète (SIREN, IOSS, VIES, abonnements Stripe), découpée en sections `_render_*` orchestrées par `render_sidebar`. |
 | `ui/theme.py` | Configuration de page et injection du CSS de marque (Design System). |
 | `ui/tabs/` | Un module par onglet de l'application (Declarations, VIES, Audit, etc.). |
 
@@ -494,6 +499,7 @@ réglementaire et validation) : voir `README - evolution.md`.
 
 ## Incidents de production résolus
 
+- **2026-10-01 — Alerte « repli taux de clôture BCE » jamais visible dans l'onglet Téléchargements (`ui/tabs/telechargements.py`)** : l'alerte était émise pendant la génération d'un export puis effacée par le `st.rerun(scope="fragment")` qui suit immédiatement ; elle est désormais mémorisée avec l'artefact et réaffichée à chaque rendu tant qu'il est en cache. Même lot : retrait de variables mortes (`fec_export.py`, `parsers/amazon/classify.py`) et optimisation de la boucle OSS `_run_oss_loop` (≈ 9 % sur 100 000 lignes). Détail dans `README - evolution.md`.
 - **2026-09-28 — Régression de performance sur gros fichiers (`engine.py`, `vat_rates_db.py`, `ecb_rates.py`)** : quatre correctifs du 2026-09-26 avaient disparu du code (générateur de paires de préchargement, cache des dates d'historique par pays, recherche dichotomique sur les taux BCE, cache LRU du taux du jour) ; réappliqués et validés. Détail dans `README - evolution.md`.
 - **2026-09-28 — CSV de préparation CA3 EDI : régime de périodicité (`ca3_edi_export.py`, `telechargements.py`)** : paramètre `regime_periodicite` avec blocage si incohérence avec la période détectée ; retrait d'une variable morte (`aic_tax`).
 - **2026-09-26 — Correctifs de typage Mypy, stabilité VIES UI et profiling TEDB/BCE (`pyproject.toml`, `vies_ui.py`, `vat_rates_db.py`, `engine.py`, `ecb_rates.py`)** : suppression des 13 overrides `ignore_errors` dans `pyproject.toml`, correction de l'import `DEFAULT_CACHE_TTL_DAYS`, optimisation mémoire du préchargement TEDB via générateur, recherche dichotomique `bisect_left` sur les taux BCE, et correction du cache LRU `_vat_rate_cached`.
@@ -526,9 +532,9 @@ réglementaire et validation) : voir `README - evolution.md`.
 ```bash
 pytest -q
 ```
-La suite couvre la classification fiscale, le cache VIES, le seuil OSS multi-année, les formats Amazon 1–5, la conversion BCE, les taux TVA dynamiques (TEDB, préchargement), le justificatif des taux, le CSV de préparation CA3 EDI (dont le contrôle du régime de périodicité), la thread-safety du pool DB et l'équilibrage FEC.
+La suite couvre la classification fiscale (dont des tests de caractérisation à références golden pour `compute_vat`, `compute_all_with_vies` et l'onglet Téléchargements), le cache VIES, le seuil OSS multi-année, les formats Amazon 1–5, la conversion BCE, les taux TVA dynamiques (TEDB, préchargement), le justificatif des taux, le CSV de préparation CA3 EDI (dont le contrôle du régime de périodicité), la thread-safety du pool DB et l'équilibrage FEC.
 
-**Référence au 2026-09-28** (environnement bac à sable, sans Postgres ni secrets configurés) : **469 passed / 7 skipped / 0 failed**. Un environnement disposant de la base et des secrets peut donner un décompte différent (tests `skipped`, variables d'environnement comme `ENCRYPTION_KEY`) : toute déviation par rapport à ce décompte dans le même environnement mérite investigation. Cohérence i18n : 1331 clés × 7 langues (FR/EN/DE/ES/IT/PL/PT), vérifiée par `tests/test_i18n_coherence.py` et `scripts/check_i18n_coherence.py`.
+**Référence au 2026-10-01** (environnement bac à sable, sans Postgres ni secrets configurés) : **819 passed / 7 skipped / 9 failed**. Les 9 échecs (`test_auth_flow_characterization` ×8, `test_sidebar_characterization[cancel_removal]`) sont préexistants sur `dev` et leur cause n'est pas établie (à vérifier dans l'environnement du mainteneur) ; l'ancien décompte 469 / 7 / 0 (2026-09-28) est obsolète. Un environnement disposant de la base et des secrets peut donner un décompte différent (tests `skipped`, variables d'environnement comme `ENCRYPTION_KEY`) : toute déviation par rapport à ce décompte dans le même environnement mérite investigation. Cohérence i18n : 1331 clés × 7 langues (FR/EN/DE/ES/IT/PL/PT), vérifiée par `tests/test_i18n_coherence.py` et `scripts/check_i18n_coherence.py`.
 
 ---
 

@@ -1,0 +1,312 @@
+{
+ "calls": [
+  [
+   "aggregate_oss_results",
+   4,
+   "2026-Q1"
+  ],
+  [
+   "st.rerun",
+   "fragment"
+  ],
+  [
+   "gated_download",
+   "📥 Télécharger Déclaration Grèce (.csv)",
+   "Déclaration TVA GR - ACME SAS - 2026-Q1.csv",
+   "text/csv",
+   "﻿Dilosi FPA — 2026-Q1\r\nPays : Grèce (GR) | Standard : 24% | Réduit : 6%\r\n\r\nForologitea axia (EUR);Taux (%);FPA (EUR);Nb;ID vente;Date\r\n100,00;20;20,00;1;D2;2026-01-12\r\n40,00;10;4,00;1;D3;2026-01-13\r\n\r\nTOTAL TVA GR;;24,00\r\n\r\n--- Détail ---\r\nID vente;Date;Forologitea axia (EUR);Taux (%);FPA (EUR);Canal;Pays dest.\r\nD2;2026-01-12;100,00;20;20,00;LOCAL;GR\r\nD3;2026-01-13;40,00;10;4,00;LOCAL;GR\r\n",
+   []
+  ]
+ ],
+ "elements": [
+  {
+   "depth": 0,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "body": "📥 Téléchargements",
+   "depth": 1,
+   "type": "subheader",
+   "value": "📥 Téléchargements"
+  },
+  {
+   "depth": 1,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "body": "---",
+   "depth": 2,
+   "type": "divider",
+   "value": "---"
+  },
+  {
+   "body": "#### 📊 Rapport Global",
+   "depth": 2,
+   "type": "markdown",
+   "value": "#### 📊 Rapport Global"
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "_gen_btn_main_xlsx",
+   "label": "⚙️ Générer le rapport complet",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "Contient tous les onglets : calculs détaillés, transferts FBA et audit.",
+   "depth": 2,
+   "type": "caption",
+   "value": "Contient tous les onglets : calculs détaillés, transferts FBA et audit."
+  },
+  {
+   "body": "---",
+   "depth": 2,
+   "type": "divider",
+   "value": "---"
+  },
+  {
+   "body": "#### 🇪🇺 Guichet Unique (OSS)",
+   "depth": 2,
+   "type": "markdown",
+   "value": "#### 🇪🇺 Guichet Unique (OSS)"
+  },
+  {
+   "body": "Fichiers pour la déclaration trimestrielle OSS (ventes B2C cross-border).",
+   "depth": 2,
+   "type": "caption",
+   "value": "Fichiers pour la déclaration trimestrielle OSS (ventes B2C cross-border)."
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "_gen_btn_oss_xml_False",
+   "label": "⚙️ Générer le XML OSS",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "_gen_btn_oss_xlsx",
+   "label": "⚙️ Générer l'état récapitulatif OSS",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "---",
+   "depth": 2,
+   "type": "divider",
+   "value": "---"
+  },
+  {
+   "body": "#### 🇫🇷 France (CA3)",
+   "depth": 2,
+   "type": "markdown",
+   "value": "#### 🇫🇷 France (CA3)"
+  },
+  {
+   "body": "Rapport préparatoire pour votre déclaration CA3 mensuelle/trimestrielle en France.",
+   "depth": 2,
+   "type": "caption",
+   "value": "Rapport préparatoire pour votre déclaration CA3 mensuelle/trimestrielle en France."
+  },
+  {
+   "body": "Le CSV reprend certaines rubriques CA3 avec leurs codes EDI officiels. Les bornes civiles du mois ou trimestre détecté sont préremplies, à vérifier selon votre obligation fiscale. Les déductions incluent le sous-total AIC estimé par le moteur, mais restent partielles sans les achats. Ce n'est pas un message EDIFACT ni un fichier télétransmissible ; complétez la ROF et faites valider le fichier par un partenaire EDI habilité.",
+   "depth": 2,
+   "type": "warning",
+   "value": "Le CSV reprend certaines rubriques CA3 avec leurs codes EDI officiels. Les bornes civiles du mois ou trimestre détecté sont préremplies, à vérifier selon votre obligation fiscale. Les déductions incluent le sous-total AIC estimé par le moteur, mais restent partielles sans les achats. Ce n'est pas un message EDIFACT ni un fichier télétransmissible ; complétez la ROF et faites valider le fichier par un partenaire EDI habilité."
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "_gen_btn_ca3_html",
+   "label": "⚙️ Générer le rapport préparatoire CA3",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "help": "Régime notifié par votre SIE (Art. 289 B CGI) : mensuel ou trimestriel. Non déductible des ventes importées.",
+   "index": 0,
+   "key": "ca3_edi_regime",
+   "label": "Régime de périodicité TVA",
+   "options": [
+    "Trimestriel",
+    "Mensuel"
+   ],
+   "type": "selectbox",
+   "value": "trimestriel"
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "_gen_btn_ca3_edi_preparation_trimestriel",
+   "label": "⚙️ Générer le fichier de préparation EDI-TVA CA3 (CSV)",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "---",
+   "depth": 2,
+   "type": "divider",
+   "value": "---"
+  },
+  {
+   "body": "#### 🌍 Déclarations Locales (hors pays d'origine)",
+   "depth": 2,
+   "type": "markdown",
+   "value": "#### 🌍 Déclarations Locales (hors pays d'origine)"
+  },
+  {
+   "body": "Le pays d'origine (France) est traité séparément ci-dessus — cette section regroupe tous les AUTRES pays où une immatriculation locale est nécessaire.",
+   "depth": 2,
+   "type": "caption",
+   "value": "Le pays d'origine (France) est traité séparément ci-dessus — cette section regroupe tous les AUTRES pays où une immatriculation locale est nécessaire."
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "index": 0,
+   "key": "dl_country_select",
+   "label": "Sélectionnez le pays à exporter",
+   "options": [
+    "Grèce (GR)"
+   ],
+   "type": "selectbox",
+   "value": "GR"
+  },
+  {
+   "depth": 2,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "0 €",
+   "depth": 4,
+   "label": "TVA due — Grèce",
+   "type": "metric",
+   "value": "0 €"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "body": "24 %",
+   "depth": 4,
+   "label": "Taux standard",
+   "type": "metric",
+   "value": "24 %"
+  },
+  {
+   "depth": 2,
+   "label": null,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "disabled": false,
+   "label": "📥 Télécharger Déclaration Grèce (.csv)",
+   "type": "download_button",
+   "value": false
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "disabled": false,
+   "key": "_gen_btn_local_html_GR",
+   "label": "⚙️ Générer le rapport HTML Grèce",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "---",
+   "depth": 2,
+   "type": "divider",
+   "value": "---"
+  },
+  {
+   "body": "#### 📒 Comptabilité",
+   "depth": 2,
+   "type": "markdown",
+   "value": "#### 📒 Comptabilité"
+  },
+  {
+   "body": "Export au format FEC (séparateur tabulation) pour import dans votre logiciel comptable.",
+   "depth": 2,
+   "type": "caption",
+   "value": "Export au format FEC (séparateur tabulation) pour import dans votre logiciel comptable."
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "_gen_btn_fec_bytes",
+   "label": "⚙️ Générer le journal FEC",
+   "type": "button",
+   "value": false
+  },
+  {
+   "body": "---",
+   "depth": 2,
+   "type": "divider",
+   "value": "---"
+  },
+  {
+   "body": "#### 📈 Justificatif des taux",
+   "depth": 2,
+   "type": "markdown",
+   "value": "#### 📈 Justificatif des taux"
+  },
+  {
+   "body": "Cours de change quotidiens, cours de clôture OSS trimestriels (IOSS mensuels le cas échéant) et taux de TVA appliqués. Les cours de change sont exprimés en unités de devise pour 1 EUR. Les dates TVA indiquent les premières et dernières opérations calculées à chaque taux.",
+   "depth": 2,
+   "type": "caption",
+   "value": "Cours de change quotidiens, cours de clôture OSS trimestriels (IOSS mensuels le cas échéant) et taux de TVA appliqués. Les cours de change sont exprimés en unités de devise pour 1 EUR. Les dates TVA indiquent les premières et dernières opérations calculées à chaque taux."
+  },
+  {
+   "depth": 2,
+   "disabled": false,
+   "key": "_gen_btn_rates_evidence",
+   "label": "⚙️ Générer le justificatif des taux",
+   "type": "button",
+   "value": false
+  }
+ ],
+ "exceptions": [],
+ "session_keys": [
+  "_dl_active_cache_key",
+  "_dl_artifact_local_csv_GR",
+  "_gen_btn_ca3_edi_preparation_trimestriel",
+  "_gen_btn_ca3_html",
+  "_gen_btn_fec_bytes",
+  "_gen_btn_local_csv_GR",
+  "_gen_btn_local_html_GR",
+  "_gen_btn_main_xlsx",
+  "_gen_btn_oss_xlsx",
+  "_gen_btn_oss_xml_False",
+  "_gen_btn_rates_evidence",
+  "_oss_preview_ck1",
+  "ca3_edi_regime",
+  "dl_1",
+  "dl_country_select"
+ ]
+}
