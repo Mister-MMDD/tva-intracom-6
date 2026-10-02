@@ -167,6 +167,11 @@ def _vies_explication(r):
     if getattr(r, "is_domestic_reverse_charge", False):
         return _("vies_expl_reverse_charge", country=r.buyer_country)
     elif r.vat_delta <= 0: return _("vies_expl_already_taxed")
+    elif getattr(r, "is_national_tax_id", False):
+        # NIF : pas de n° intracom, rien n'a été soumis à VIES — phrase dédiée.
+        if getattr(r, "taxed_at_departure", False):
+            return _("vies_expl_nif_departure", country=getattr(r, "stock_country", ""))
+        return _("vies_expl_nif_destination", country=r.buyer_country)
     elif getattr(r, "taxed_at_departure", False):
         return _("vies_expl_cross_border_departure", country=getattr(r, "stock_country", ""))
     return _("vies_expl_cross_border_destination", country=r.buyer_country)
@@ -672,6 +677,9 @@ def _build_vies_report_csv(vies_summary):
             statut_csv = _("vies_status_reverse_charge"); expl_csv = _("vies_expl_reverse_charge", country=r.buyer_country)
         elif r.vat_delta <= 0:
             statut_csv = _("vies_status_already_taxed"); expl_csv = _("vies_expl_already_taxed")
+        elif is_nif:
+            statut_csv = _("vies_status_recovered")
+            expl_csv = _vies_explication(r)
         elif getattr(r, "taxed_at_departure", False):
             statut_csv = _("vies_status_recovered")
             expl_csv = _("vies_expl_cross_border_departure", country=getattr(r, "stock_country", ""))

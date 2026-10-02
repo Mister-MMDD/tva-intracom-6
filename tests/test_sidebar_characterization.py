@@ -66,7 +66,13 @@ SCENARIOS: dict[str, tuple[dict, list[tuple]]] = {
         {"sirens": [dict(_SIREN_A, apply_fr_under_threshold=False, oss_threshold_exceeded_prev_year=True)]}, [
             ("toggle", "oss_thr_view_111222333", True)]),
     "oss_conflict_new_siren_form": ({"sirens": [], "quota": 5}, [
-        ("toggle", "oss_thr_new", True), ("toggle", "oss_thr_prevyear_new", True)]),
+        ("text_input", "siren_new", "123456789"),
+        ("button", "stepper_next"),
+        ("text_input", "vat_num_new_FR", "FR123456789"),
+        ("button", "stepper_next"),
+        ("toggle", "oss_thr_new", True),
+        ("toggle", "oss_thr_prevyear_new", True),
+    ]),
     "oss_no_conflict_uncheck_both": ({"sirens": [_SIREN_A]}, [
         ("toggle", "oss_thr_view_111222333", False)]),
     "home_country_change": ({"sirens": [_SIREN_A]}, [("selectbox", "home_country_select", "DE")]),
@@ -149,6 +155,8 @@ def _find(at, kind, key):
         return at.checkbox(key=key)
     if kind == "toggle":
         return at.toggle(key=key)
+    if kind == "text_input":
+        return at.text_input(key=key)
     raise ValueError(kind)
 
 
@@ -171,7 +179,7 @@ def _run(name: str) -> dict:
             w.click()
         elif kind == "slider":
             w.set_value(act[2])
-        elif kind in ("selectbox", "checkbox", "toggle"):
+        elif kind in ("selectbox", "checkbox", "toggle", "text_input"):
             w.set_value(act[2])
         at.run()
     return {

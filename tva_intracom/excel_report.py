@@ -770,11 +770,15 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         return float(_to_home_currency(amount, display_currency, _conv_date))
 
     vies_affected_sale_ids = vies_affected_sale_ids or set()
+    nif_affected_sale_ids: set = set(getattr(vies_summary, "nif_affected_sale_ids", set()) if vies_summary else set())
     domestic_rc_sale_ids: set[str] = set()
+    nif_rc_sale_ids: set[str] = set()
     if vies_summary and hasattr(vies_summary, "reclassifications"):
         for rc in vies_summary.reclassifications:
             if getattr(rc, "is_domestic_reverse_charge", False):
                 domestic_rc_sale_ids.add(rc.sale_id)
+            elif getattr(rc, "is_national_tax_id", False):
+                nif_rc_sale_ids.add(rc.sale_id)
 
     def _nature(r) -> str:
         dep = getattr(r.sale, "stock_country", "")
@@ -784,6 +788,8 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         tva_moteur = float(r.vat_amount)
         if dep == "GB" or arr == "GB":
             return i18n_("xl_audit_nature_gb")
+        if sid in nif_rc_sale_ids or (r.sale.sale_id, r.sale.amount_ht) in nif_affected_sale_ids:
+            return i18n_("xl_audit_nature_nif")
         if (r.sale.sale_id, r.sale.amount_ht) in vies_affected_sale_ids and tva_amazon == 0:
             return i18n_("xl_audit_nature_vies")
         if sid in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):

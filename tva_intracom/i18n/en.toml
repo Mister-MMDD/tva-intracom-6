@@ -6,10 +6,7 @@ files_too_large_error = "⚠️ **File(s) too large**: {files}. Maximum allowed 
 files_invalid_content_error = "🚫 **File(s) rejected**: {files}. The content does not match a valid text file (CSV/TSV/TXT) — check it wasn't renamed from another format."
 files_invalid_mime_error = "🚫 **File(s) rejected**: {files}. The file MIME type is not allowed. Only CSV, TSV, and TXT files are accepted."
 language = "Language"
-contact_support = "Contact Support"
 website_label = "Website"
-
-# Countries
 country_AT = "Austria"
 country_BE = "Belgium"
 country_BG = "Bulgaria"
@@ -39,7 +36,6 @@ country_ES = "Spain"
 country_SE = "Sweden"
 country_MC = "Monaco"
 country_XI = "Northern Ireland"
-# Non-EU
 country_CH = "Switzerland"
 country_GB = "United Kingdom"
 country_US = "United States"
@@ -74,17 +70,12 @@ country_IS = "Iceland"
 country_EG = "Egypt"
 country_RU = "Russia"
 country_XX = "Exception territory (Export)"
-
 options_header = "⚙️ Options"
 home_country_label = "🏠 Home country (establishment)"
 home_country_help = "Country where your company is established and primarily VAT-registered. Global account setting (not per SIREN): drives domestic/local classification and the order of downloadable declarations. Default: France."
 display_currency_label = "Display currency"
 display_currency_default_label = "Default (home country currency: {currency})"
 display_currency_help = "Currency used for displaying amounts (KPIs, tables, charts, Excel summary page). Does not affect the tax calculation (always in EUR) or legal filings (CA3, OSS XML, local exports — always in EUR). By default, the home country's currency is used."
-
-
-
-
 cache_vies_header = "🗄️ VIES Cache"
 ttl_cache_slider = "Cache TTL (days)"
 ttl_cache_help = "Duration before automatic revalidation of a VAT number with VIES (30 days maximum)."
@@ -100,14 +91,10 @@ manual_invalid = "❌ Invalid (B2C)"
 purge_expired_btn = "🗑️ Purge {count} expired entry(ies)"
 purge_success = "{count} entry(ies) deleted."
 cache_unavailable = "VIES cache unavailable: {error}"
-
-# Upload & Analysis
 analysis_progress = "Analyzing {name}..."
 analysis_progress_simple = "Quick analysis of {name}..."
 analysis_progress_count = "📦 {name}: {processed} / {total} rows read{suffix}"
 fx_conv_suffix = "incl. ECB conv."
-
-# Summary table columns
 col_file = "File"
 col_date = "Date"
 col_pays = "Country"
@@ -142,13 +129,10 @@ col_rate_amz_pct = "Amazon Rate (%)"
 col_rate_moteur_pct = "Engine Rate (%)"
 col_volume_ht_eur = "HT Volume ({currency})"
 col_sales_count = "Sales"
-
 summary_part_returns = ", {count} physical returns without amount"
 summary_part_invoices = ", {count} invoices"
 summary_part_credits = ", {count} credit notes"
 summary_part_skipped = ", {count} ignored"
-
-# Filters
 filter_search = "🔍 Search"
 filter_search_placeholder = "ID, ASIN, Note..."
 filter_dest = "Destination country"
@@ -157,20 +141,12 @@ filter_scenario = "Scenario"
 filter_scenario_placeholder = "All scenarios"
 filter_canal = "Channel"
 filter_canal_placeholder = "All channels"
-
-# Gated preview
 gated_locked = "Premium option"
 gated_preview_warning = "🔒 Limited preview: {count} other rows are hidden. Unlock the period to see full details."
-
-# OSS Threshold
 oss_threshold_label = "Distance Selling Threshold (OSS)"
 oss_threshold_multi_year = "OSS Threshold (year {year})"
 oss_threshold_help = "You have {remaining} left before reaching the {limit} threshold. Below it, you can apply French VAT."
 oss_threshold_exceeded = "✅ {limit} threshold exceeded. Destination country VAT is mandatory (OSS)."
-
-import_summary_single = "✅ **{platform}**: {sales} sales, {refunds} refunds, {fc} FBA transfers{returns}{invoices}{credits}{skipped}."
-import_summary_multi = "✅ **{count} files** analyzed: {sales} sales, {refunds} refunds, {fc} FBA transfers{returns}{invoices}{credits}{skipped} (Total {total_rows} rows)."
-file_detail_expander = "File details ({count})"
 import_warnings_header = "⚠️ Import warnings ({count})"
 import_warning_col_file = "File"
 import_warning_col_line = "Source line"
@@ -185,12 +161,8 @@ period_mismatch_col_id = "Sale ID"
 period_mismatch_col_order = "Order Date"
 period_mismatch_col_shipment = "Shipment Date"
 period_mismatch_col_amount = "Amount (excl. VAT)"
-
-# FX & Calculation
 calc_progress_bce = "Downloading exchange rates (ECB)..."
 calc_progress_bce_count = "⏳ ECB: {done} / {total} rates fetched"
-bce_rates_oss_disclaimer = "Closing rate for the declared OSS period (ECB as of {date}, EU Reg. 2020/194 art. 5 bis)"
-bce_rates_oss_disclaimer_range = "Closing rate for the declared OSS period (ECB from {start} to {end}, EU Reg. 2020/194 art. 5 bis)"
 bce_rates_oss_unavailable = "Rate not yet published by the ECB"
 bce_rates_title = "💱 ECB OSS/IOSS closing rates used ({count})"
 bce_rates_daily_title = "Daily exchange rates used ({count})"
@@ -202,16 +174,12 @@ calc_progress_vat_rates_count = "⏳ Loading VAT rates: {done} / {total} country
 calc_queue_position = "🕒 {position} calculation(s) ahead of you in the queue..."
 calc_progress_vat = "Calculating taxes..."
 vies_inconclusive_error = "⚠️ **{count} VIES number(s) inconclusive** (service unavailable). Transactions were treated as B2C for safety."
-
-# Action Plan
 action_plan_title = "🚀 Action Plan: Required VAT Registrations ({countries})"
 action_plan_intro = "Based on your data, you should be VAT registered in the following countries:"
 action_reason_stock = "Local storage"
 action_reason_sales = "Local sales"
 action_reason_ddp = "Import (Seller as Importer)"
 amazon_blocking_warning = "❌ **Imminent Amazon Block**: You are storing in {countries} without a local VAT number."
-
-# KPIs
 kpi_ca_ht = "Net Turnover (excl. VAT)"
 kpi_ca_ht_help = "Net turnover (Sales {gross} + Refunds {refunds})"
 kpi_vat_you_owe = "VAT to Remit"
@@ -221,13 +189,9 @@ kpi_vat_amazon_help = "VAT amount withheld at source by the marketplace (Marketp
 amazon_config_error = "{platform} config gap"
 config_error_badge = "Action required on Seller Central"
 amazon_config_success = "{platform} config compliant"
-
-
 display_mode_label = "Display mode"
 display_mode_simple = "Simplified"
 display_mode_detailed = "Detailed"
-
-# Barre de statut persistante
 status_bar_file_label = "File"
 status_bar_no_file = "No file imported"
 status_bar_files_count = "{count} file(s) imported"
@@ -235,15 +199,12 @@ status_bar_period_label = "Period"
 status_bar_period_pending = "Not detected"
 status_bar_status_ready = "Up to date"
 status_bar_status_none = "Awaiting import"
-# Tabs
 tab_declarations = "📋 Declarations"
 tab_sales_detail = "📑 Sales Detail"
 tab_vies = "🔍 VIES"
 tab_amazon_audit = "🕵️ {platform} Audit"
 tab_downloads = "📥 Downloads"
 tab_visualizations = "📈 Visualizations"
-
-# Sales Detail Sub-tabs
 subtab_selector_label = "Subtab selection"
 subtab_what_you_owe = "💸 What you owe"
 subtab_exemptions = "🛡️ Exemption"
@@ -254,15 +215,12 @@ subtab_managed_by_tiers_note = "💡 **Note**: If you use your own IOSS number o
 subtab_row_by_row = "📄 Row by row"
 subtab_row_by_row_caption = "All sales, row by row."
 subtab_refunds = "🔄 Refunds ({count})"
-
-# Audit Sub-tabs
 subtab_amazon_gaps = "⚖️ Amazon VAT Gaps"
 subtab_fba_inventory = "📦 FBA Inventory Movements"
-
-# Audit tab strings
 no_amazon_vat_info = "ℹ️ No Amazon VAT available. This tab requires Amazon Format 3 (2024+)."
 audit_tab_rate_gaps = "⚙️ Rate Gaps ({count})"
 audit_tab_vies_risk = "🚨 VIES Risk ({count})"
+audit_tab_nif = "🆔 National ID, no VAT no. ({count})"
 audit_tab_uk = "🇬🇧 United Kingdom ({count})"
 audit_tab_art194 = "♻️ Reverse Charge Art.194 ({count})"
 audit_tab_missing_amz = "⚠️ Missing Amazon VAT ({count})"
@@ -271,6 +229,9 @@ audit_taux_success = "✅ No rate setting gaps."
 audit_vies_info = "ℹ️ Enable VIES to audit B2B numbers."
 audit_vies_error = "Fiscal risk (VIES requalification): {amount} EUR"
 audit_vies_success = "✅ No VIES risk detected."
+audit_nif_info = "💡 Cross-border B2B sales where the buyer provided a national tax ID instead of an intra-EU VAT number. No VIES check is possible: without an intra-EU VAT number the exemption (art.138 dir.2006/112/EC) is not justified."
+audit_nif_error = "Fiscal risk (unjustified exemption, national ID without VAT no.): {amount} EUR"
+audit_nif_success = "✅ No cross-border B2B sale with national ID only detected."
 audit_uk_info = "💡 UK VAT collected by Amazon since Brexit. Normal, outside EU declarations."
 audit_uk_metric = "UK technical gap"
 audit_uk_success = "✅ No UK transactions."
@@ -291,8 +252,6 @@ audit_status_required = "🚨 Registration required"
 audit_fba_count_caption = "{count} FC transfer(s) detected."
 audit_fba_expander = "View FBA transfers"
 audit_fba_none = "No FC transfer detected."
-
-# Sales detail tab strings
 what_you_owe_caption = "Sales for which you are responsible for VAT."
 sort_by_label = "Sort by"
 sort_country = "Country"
@@ -306,24 +265,13 @@ no_refunds_info = "ℹ️ No refunds in this file."
 kpi_refunds = "Refunds"
 kpi_ht_refunded = "Total HT Refunded"
 kpi_vat_restituted = "Restituted VAT"
-
 processing_error = "An error occurred during processing: {error}"
 recapitulatif_header = "📊 Summary"
-
-
-
-
-
-# Origin country & currency dropdown + brand tagline (batch 7)
 sidebar_regional_settings_label = "🌍 Origin country & currency"
 sidebar_brand_tagline = "Your intra-EU VAT, simplified"
-
-# Imported file cards + "Advanced details" panel (batch 8)
 file_card_details_button = "Details"
 advanced_details_button = "🔍 Advanced details"
 advanced_details_totals_title = "Total transactions by type"
-
-# Declarations tab strings
 what_you_must_remit = "What you must remit"
 bucket_ioss_vendeur = "IOSS Window (seller)"
 bucket_deemed_supplier = "Deemed supplier (Amazon)"
@@ -359,8 +307,6 @@ locked_quota = "[Business ID quota exceeded]"
 locked_compliance = "[🔒 VAT Compliance required]"
 locked_preview_caption = "🔒 Limited preview: unlock this period (purchase or subscription) to see the country detail and VAT amounts due."
 refund_summary_info = "🔄 **{count} refund(s)** — HT: {ht} €"
-
-# Coherence Control
 coherence_header = "🧮 Accounting Coherence Control"
 col_fiscal_canal = "Fiscal Channel"
 col_net_ht_eur = "Net HT Turnover (EUR)"
@@ -371,8 +317,6 @@ coherence_error = "⛔ Gap detected between the declared Net HT and the sum of f
 coherence_caption = "This control verifies the internal coherence of the calculation (no sales lost between channels). It does not replace a reconciliation with your Amazon settlement statement, which includes elements outside the scope of this tool (commissions, logistics fees, discounts)."
 type_column_label = "Type"
 canal_column_label = "Channel"
-
-# Downloads tab strings
 period_detected_info = "📅 Auto-detected period: **{period}** (transactions from {start} to {end})."
 period_gated_warning = "🔒 Exports for the period **{period}** are not yet unlocked. Click an export button below to be redirected directly to Stripe payment ({suffix})."
 dl_generation_excel = "Generating Excel file (all tabs)..."
@@ -427,7 +371,6 @@ dl_select_country_label = "Select the country to export"
 dl_local_vat_due_metric = "VAT due — {country}"
 dl_standard_rate_metric = "Standard rate"
 dl_standard_rate_change = "{rate}% (change observed on {date})"
-dl_reduced_rate_metric = "Reduced rate"
 dl_local_csv_btn = "📥 Download {country} Declaration (.csv)"
 dl_local_csv_filename = "VAT Declaration {country} - {company} - {period}.csv"
 dl_local_html_btn = "📄 HTML Report {country}"
@@ -486,8 +429,6 @@ rates_evidence_pdf_exchange_header = "Applied exchange rates"
 rates_evidence_pdf_vat_header = "Applied VAT rates"
 rates_evidence_pdf_document_id = "Unique document reference"
 rates_evidence_pdf_trace_note = "The hash can be used to verify that the associated CSV data has not been modified. This PDF is not an electronic signature."
-
-# Visualisations tab strings
 viz_vat_by_country_subheader = "VAT due by country (Net)"
 viz_locked_geography_info = "🔒 Country detail locked. Unlock the period to visualize geographical breakdown."
 viz_france_ca3 = "France (CA3)"
@@ -526,11 +467,6 @@ sep = "Sep"
 oct = "Oct"
 nov = "Nov"
 dec = "Dec"
-
-# Home
-
-
-# Auth Flow
 magic_link_welcome = "👋 Welcome! Click the button below to complete your login."
 magic_link_confirm_btn = "🚀 Confirm login"
 magic_link_error = "⛔ Login error: {error}"
@@ -571,8 +507,6 @@ oauth_email_verification_required = "📧 Your Amazon email address is not verif
 oauth_login_error = "⛔ Login error: {error}"
 legacy_login_methods_caption = "Magic link by email (coming soon)"
 logout_btn = "🚪 Log out"
-
-# Billing Gate
 unknown_error = "unknown error"
 gate_quota_blocked_err = "🔒 {label} — checkout unavailable: this account has {registered} registered SIRENs for a quota of {quota}. Remove {over} SIREN(s) or upgrade your plan (in \" 💳 Subscriptions & Plans\") before paying."
 gate_payment_unavailable_err = "🔒 {label} — checkout unavailable: {error}"
@@ -588,14 +522,8 @@ gate_quota_global_blocked_err = "🔒 This account has {registered} registered S
 unlock_label_discounted = "unlock a single period for {discounted_amount} {currency} instead of {amount} {currency} (code {discount_code}) or subscribe"
 unlock_label_standard = "unlock a single period for {amount} {currency} or subscribe"
 unlock_label_fallback = "unlock this period or subscribe"
-
-# Formatting & UI Elements
-
-# Sidebar - Settings & Catalog
 file_params_header = "📦 File Settings"
 file_encoding = "File encoding"
-
-# Sidebar - Company
 company_header = "📅 Company & Settings"
 identity_vat_params_title = "Identity & VAT Settings"
 siren_list_unavailable = "⚠️ SIREN list unavailable: {error}"
@@ -620,7 +548,6 @@ oss_threshold_prev_year_help = "If checked, the below-threshold regime will not 
 local_vat_countries_label = "Countries with local VAT number"
 local_vat_numbers_caption = "Local VAT numbers (mandatory):"
 vat_number_for = "{country} VAT number"
-save_siren_btn = "💾 Save this SIREN"
 siren_required = "SIREN number is required."
 siren_already_registered = "🚫 SIREN {siren} is already registered on this account."
 missing_vat_numbers = "Please fill in the VAT number for each selected country."
@@ -639,8 +566,6 @@ remove_siren_help = "Removal will be effective at the end of the current billing
 remove_success = "✅ SIREN removed."
 remove_success_payg_over_quota = "✅ SIREN removed immediately — your pay-as-you-go (PAYG) account is limited to 1 SIREN."
 remove_scheduled = "Removal scheduled for {date}."
-
-# Sidebar - Billing
 billing_header = "💳 Subscriptions & Plans"
 sub_status_unavailable = "⚠️ Subscription status unavailable: {error}"
 plan_pro = "Pro"
@@ -696,32 +621,23 @@ subscribe_pro_btn = "Subscribe — Pro"
 subscribe_cabinet_btn = "Subscribe — Cabinet"
 managed_sirens_qty_label = "Number of managed SIRENs"
 managed_sirens_qty_help = "Minimum 3 SIRENs for the Cabinet plan. Must cover at least the number of SIRENs already registered on this account."
-
-# Sidebar - Account & Privacy
 account_privacy_header = "👤 Account & Privacy"
 onboarding_title = "Quick start"
 onboarding_hint_fiscal = "👈 Open the **Company** panel in the sidebar to register your SIREN — this is the first step."
 onboarding_hint_upload = "Your SIREN is registered ✅ — now upload an Amazon export file below to run your first calculation."
 onboarding_intro = "Generate your intra-community VAT filings (OSS, CA3, IOSS...) from your Amazon exports, in 2 steps."
 onboarding_hint_tabs = "ℹ️ Once the calculation runs, each tab covers a different use — Filings (OSS/CA3 to download), Sales Detail (line by line), VIES (buyer VAT number validation), Audit (consistency checks), Downloads (Excel/XML/CSV exports), Charts (overview)."
-
 onboarding_hint_vies = "ℹ️ VIES validation of your B2B buyers' VAT numbers is automatic — nothing to do here, it happens during calculation."
-
 onboarding_check_entreprise = "Company name + SIREN"
 onboarding_check_tva_local = "Intra-community VAT number (country depends on where you're established)"
 onboarding_check_ioss = "IOSS number (optional — imports ≤ €150)"
 onboarding_check_vies_ttl = "VIES cache validity period"
 onboarding_check_vies_ttl_detail = "7 days by default (up to 30 days maximum) — adjustable in the <strong>VIES Cache</strong> section of the sidebar"
 onboarding_check_upload = "Upload a first Amazon export file"
-
-# --- Dashboard premier lancement (zero state) ---
-
 onboarding_dismiss_btn = "Skip"
-
 onboarding_restart_title = "Guided tour"
 onboarding_restart_help = "Shows the getting-started banner again (SIREN + first import), without touching your already saved data."
 onboarding_restart_btn = "Restart guided tour"
-
 account_change_password_title = "Change password"
 account_change_password_help = "Only applicable to accounts created with email + password. If you signed up via Google, GitHub, or Amazon, this section doesn't apply to your account."
 current_password_label = "Current password"
@@ -742,8 +658,6 @@ delete_account_reader_info = "Account deletion is reserved for your organization
 delete_account_btn = "🗑️ Delete my account"
 delete_account_final_confirmation = "❗ Are you sure you want to permanently delete your account and all your data?"
 cancel_btn = "Cancel"
-
-# --- Ajouts audit i18n 2026-09-11 : messages d'erreur auparavant codés en dur ---
 retry_btn = "Retry"
 oauth_access_token_error = "Access token error: {error}"
 oauth_generic_error = "OAuth error ({code}): {desc}"
@@ -754,8 +668,6 @@ account_deletion_error = "Error during deletion: {error}"
 generic_error_prefix = "Error: {error}"
 confirm_delete_btn = "Permanently delete"
 account_deleted_success = "✅ Your account has been deleted. You will be logged out."
-
-# Excel Report
 xl_tab_recap = "Summary"
 xl_tab_oss = "OSS Detail by country"
 xl_tab_ioss = "IOSS Detail by country"
@@ -766,7 +678,6 @@ xl_tab_fba = "FBA Transfers Detail"
 xl_tab_intrastat = "Intrastat (EMEBI)"
 xl_tab_invoice_cn = "INVOICE & CREDIT_NOTE"
 xl_tab_calendar = "Fiscal Calendar"
-
 xl_recap_title = "VAT SUMMARY AND E-COMMERCE ACTIVITY"
 xl_recap_col_indicator = "Indicator / Fiscal Flow"
 xl_recap_col_ca_brut = "Gross Turnover"
@@ -775,7 +686,6 @@ xl_recap_col_ca_net = "Net Turnover"
 xl_recap_col_tva_brute = "Gross VAT"
 xl_recap_col_tva_remb = "VAT Refund"
 xl_recap_col_tva_nette = "Net VAT"
-
 xl_indicator_ca_ht = "Global Turnover (excl. VAT)"
 xl_indicator_vat_fr = "France (CA3 Declaration)"
 xl_indicator_vat_home_generic = "{country} (Local domestic declaration)"
@@ -788,7 +698,6 @@ xl_indicator_vat_ioss = "IOSS One-Stop Shop (own seller number)"
 xl_indicator_b2b_exempt = "Exempt B2B Sales (Reverse Charge, HT)"
 xl_indicator_export_exempt = "Export outside EU (Exempt, HT)"
 xl_recap_total_remit = "TOTAL NET VAT TO REMIT BY YOU (CA3 + OSS + Local)"
-
 xl_audit_integrity_title = "TECHNICAL CONSISTENCY AND INTEGRITY CHECK"
 xl_audit_integrity_help = "Checks file integrity and channel breakdown (internal integrity test)."
 xl_audit_col_indicator = "Audit Indicator"
@@ -798,7 +707,6 @@ xl_audit_declared_net_ht = "Declared net HT (reference, cf. row 1 above)"
 xl_audit_reconciliation_gap = "Reconciliation gap (must be 0.00 €)"
 xl_audit_total_rows = "Total rows processed (Sales + Credit Notes)"
 xl_audit_file_signature = "File digital signature (Hash ID)"
-
 xl_col_tx_id = "Transaction ID"
 xl_col_date = "Date"
 xl_col_from = "From"
@@ -814,12 +722,12 @@ xl_col_vat_gap = "Engine/Amazon Gap (EUR)"
 xl_col_collector = "Collector"
 xl_col_channel = "Channel/Marketplace"
 xl_col_note = "Technical Note"
-
 xl_audit_agg_title = "AGGREGATED RECONCILIATION — Amazon vs Engine"
 xl_audit_agg_help = "Aggregation by gap nature and destination country. Gap % = (Amazon − Engine) / Engine. Categories > 5% average gap deserve parameter check."
 xl_audit_col_nature = "Gap nature"
 xl_audit_nature_gb = "GB — Post-Brexit flow"
 xl_audit_nature_vies = "VIES Risk"
+xl_audit_nature_nif = "National ID without intra-EU VAT no."
 xl_audit_nature_art194 = "National reverse charge (art.194)"
 xl_audit_nature_taux = "Rate gap / Miscellaneous"
 xl_audit_col_dest = "Destination country"
@@ -847,14 +755,12 @@ xl_detail_col_vat_amz = "Amazon VAT (€)"
 xl_detail_col_vat_mot = "Engine VAT (€)"
 xl_detail_col_gap = "Gap (€)"
 xl_no_line_gap = "No row with gap."
-
 xl_vies_col_vat = "VAT No."
 xl_vies_col_checked_at = "Verification Date (UTC)"
 xl_vies_col_status = "Status"
 xl_vies_col_country = "Country"
 xl_vies_col_name = "Company name"
 xl_vies_col_error = "Error"
-
 xl_intrastat_title = "FILING ASSISTANCE — EMEBI STATISTICAL SURVEY (ex-DEB/DEA)"
 xl_intrastat_note = "Presumed declarant: {seller_country}  |  EMEBI {year} threshold: {threshold:,.0f} €/year (arrivals and dispatches; STATISTICAL obligation — distinct from VAT/ESL recapitulative statement, due from €1, see Fiscal Calendar tab).  |  Filing on pro.douane.gouv.fr  |  Periodicity: monthly, before the 10th business day of the following month.  |  ⚠ NC Code (CN8) and net mass to be completed — not provided by Amazon. {warning}"
 xl_intrastat_unconfirmed_warning = "  |  ⚠ {year} threshold not confirmed — last known value used by extrapolation, please check on pro.douane.gouv.fr."
@@ -893,7 +799,6 @@ xl_intrastat_to_complete = "TO COMPLETE"
 xl_intrastat_transfer_desc = "11 — Stock transfer (art. 17 dir. 2006/112/CE)"
 xl_intrastat_estimated_val_remark = "Estimated value (avg sales price HT × qty) — replace with purchase value"
 xl_intrastat_no_flow_detected = "No {sens} transfer detected in imported files."
-
 xl_monthly_section_label = "Monthly detail (net)"
 xl_period_section_label = "Period total"
 xl_oss_title = "OSS DECLARATION — DETAIL BY DESTINATION COUNTRY"
@@ -910,7 +815,6 @@ xl_ioss_col_vat_refunds = "VAT Refunds"
 xl_ioss_col_vat_net = "Net VAT to remit"
 xl_ioss_total = "TOTAL IOSS"
 xl_oss_total = "TOTAL OSS"
-
 xl_local_title = "LOCAL VAT — LOCAL REGISTRATION PER COUNTRY"
 xl_local_unregistered_warning = "⚠️ Registration not confirmed in settings for: {countries} — check that the corresponding local VAT return is indeed filed in these countries before considering this report final."
 xl_local_col_country = "Country"
@@ -924,7 +828,6 @@ xl_local_col_aic_vat = "ICA VAT (reverse-charged)"
 xl_local_status_registered = "✅ Registered (declared)"
 xl_local_status_unconfirmed = "🚨 Unconfirmed — please check"
 xl_local_total = "TOTAL LOCAL"
-
 xl_inv_cn_title = "INVOICE / CREDIT_NOTE ENTRIES (excluding sales/refunds)"
 xl_inv_cn_help = "Lines from Amazon report of type INVOICE or CREDIT_NOTE: neither sale nor customer refund, excluded from VAT on sales calculation. Listed here for accounting reconciliation — check applicable VAT treatment (often reverse charge on Amazon services, art. 283-2 CGI)."
 xl_inv_cn_col_type = "Type"
@@ -937,7 +840,6 @@ xl_inv_cn_col_vat = "VAT"
 xl_inv_cn_col_currency = "Currency"
 xl_inv_cn_none = "No INVOICE / CREDIT_NOTE entries detected."
 xl_total = "TOTAL"
-
 xl_cal_title = "FILING AND PAYMENT DEADLINES CALENDAR"
 xl_cal_meta = "Generated on {date}  |  Declarant: {country}  |  Analyzed period: {period}"
 xl_cal_unspecified = "unspecified"
@@ -960,7 +862,6 @@ xl_cal_status_upcoming = "✅ Upcoming"
 xl_cal_status_urgent = "⚠️ Urgent"
 xl_cal_status_overdue = "🔴 Overdue"
 xl_cal_no_deadline = "No computable deadline (no sales processed, no FBA transfers)."
-
 xl_aic_title = "ANALYSIS OF INTRA-COMMUNITY ACQUISITIONS (FC TRANSFERS)"
 xl_aic_note = "⚠ Est. AIC base = avg HT sales price (Amazon doesn't provide purchase price). Overestimation approximation — replace with actual purchase cost if available (art. 83 dir. 2006/112/CE)."
 xl_aic_active_title = "FLOWS WITH REGISTRATION IN BOTH COUNTRIES — AIC TO REPORT"
@@ -994,7 +895,6 @@ xl_aic_col_obs = "Observation"
 xl_aic_obs_none = "No registration — Amazon handles AIC"
 xl_aic_obs_lic = "LIC to report on {country} side (exemption box)"
 xl_aic_obs_verify = "Check {country} registration"
-
 xl_fba_col_tx_id = "Transaction ID"
 xl_fba_col_date = "Date"
 xl_fba_col_asin = "ASIN"
@@ -1004,8 +904,6 @@ xl_fba_col_dep = "Departure"
 xl_fba_col_arr = "Arrival"
 xl_fba_col_type = "Movement type"
 xl_fba_none = "No FBA transfer detected."
-
-# OSS Export
 oss_export_title = "OSS SUMMARY STATEMENT — {period}"
 oss_export_subtitle = "One-Stop Shop OSS — to be reported to the French tax administration (URSSAF / DGFiP)"
 oss_col_country_code = "Country code"
@@ -1020,7 +918,6 @@ oss_col_vat_net = "Net VAT (€)"
 oss_col_nb_tx = "Transactions count"
 oss_total_countries = "{count} countries"
 oss_footer_note = "⚠️  This document is an indicative summary. « Net Base/VAT » (sales + refunds) is the amount to be reported on the OSS portal. Please check the amounts before filing on the OSS URSSAF portal (https://www.impots.gouv.fr)."
-
 oss_detail_title = "OSS SALES DETAIL (intra-EU B2C)"
 ioss_export_title = "IOSS SUMMARY STATEMENT — {period}"
 ioss_export_subtitle = "IOSS one-stop shop (imports ≤150€) — MONTHLY return, separate from the OSS, filed via the dedicated IOSS portal"
@@ -1034,7 +931,6 @@ oss_detail_col_dest_name = "Dest. Country"
 oss_detail_col_base_ht = "HT Base (€)"
 oss_detail_col_vat_rate = "VAT Rate"
 oss_detail_col_vat_amount = "VAT (€)"
-
 b2b_recap_title = "SUMMARY STATEMENT — INTRA-EU B2B DELIVERIES — {period}"
 b2b_recap_subtitle = "Reverse Charge — VAT Exempt (art. 262 ter I CGI) — To be reported on ESL / Summary Statement"
 b2b_col_id = "Sale ID"
@@ -1047,15 +943,12 @@ b2b_footer_note = "⚠️  Please verify each VAT number via the VIES service (h
 b2b_month_group_header = "Period: {month}"
 b2b_month_subtotal = "Subtotal {month}"
 b2b_unknown_date = "Unknown date"
-
 oss_csv_title = "OSS Summary Statement — {period}"
 oss_csv_col_rate_pct = "VAT Rate (%)"
 oss_csv_col_base_eur = "HT Base (EUR)"
 oss_csv_col_vat_eur = "VAT Due (EUR)"
 b2b_csv_title = "B2B Intra-EU Summary Statement — {period}"
 b2b_csv_col_amount_eur = "HT Amount (EUR)"
-
-# CA3 Report
 ca3_report_title = "CA3 Report — {company} — {period}"
 ca3_main_title = "VAT Control Report — CA3 Declaration"
 ca3_subtitle = "Pre-filling of Cerfa n°3310-CA3-SD — {country} Domestic Market"
@@ -1066,12 +959,10 @@ ca3_meta_currency = "Currency:"
 ca3_meta_euro = "Euro (EUR)"
 ca3_box_prefix = "Box"
 ca3_line_prefix = "Line"
-
 ca3_oss_note_title = "ℹ️ Line 3A — OSS Transactions (informative):"
 ca3_oss_note_text = "These intra-EU B2C transactions (departing from {country}) are reported **separately on the OSS portal** and do not appear in the taxable lines of the CA3 return. They are listed here for reconciliation purposes only."
 ca3_oss_base_ht = "OSS HT Base:"
 ca3_oss_vat_declared = "OSS VAT Reported:"
-
 ca3_aic_note_title = "ℹ️ Box B2 + Line 17 — Deemed Intra-community Acquisitions (inbound FBA transfers to {country}):"
 ca3_aic_note_text = "These deemed intra-community acquisitions (Art. 17 Directive 2006/112/EC) generate both collected and deductible VAT simultaneously (zero net cash effect, Art. 272 CGI). The HT base is shown in box B2 (taxable operation), its VAT is included in Line 08 (Standard rate 20%, approximation — see notice) with a separate memo on Line 17; the corresponding deduction is shown on Line 20."
 ca3_aic_note_warning = "⚠ Estimated value = avg HT sales price × qty (actual purchase value not available from Amazon files — Art. 83 Directive requires purchase value)."
@@ -1079,14 +970,12 @@ ca3_aic_degradation_warning = "AIC estimate quality degraded:"
 ca3_aic_degradation_qty = "{count} transfer line(s) with unreadable quantity (forced to 1)."
 ca3_aic_degradation_asin = "{count} transfer line(s) whose ASIN appears in no known sale (base counted as €0)."
 amazon_format3_grouped_warning = "⚠️ **Amazon Format 3 with possible grouped sales**: this format has no quantity column, quantities are forced to 1 and the AIC may be over- or understated. Consider Format 4 or 5 in Amazon Seller Central (see docs/FORMAT_AMAZON_MIGRATION.md)."
-
 ca3_sec_a_title = "A. Taxable Transactions — HT Turnover"
 ca3_col_framework = "Form Box"
 ca3_col_nature = "Operation nature"
 ca3_col_base_sales = "Sales base (EUR)"
 ca3_col_base_refunds_header = "Including credit notes (EUR)"
 ca3_col_base_net = "Net base (EUR)"
-
 ca3_row_a1_label = "Taxable sales / services in {country}"
 ca3_row_f2_label = "Exempt intra-community B2B deliveries (departing {country})"
 ca3_row_b2_label = "Deemed intra-community acquisitions — inbound FBA stock transfers {country}"
@@ -1094,7 +983,6 @@ ca3_row_b2_small = "(estimated base — replace with actual purchase value)"
 ca3_row_e1_label = "Exports outside European Union (departing {country})"
 ca3_total_ca = "TOTAL TURNOVER"
 ca3_remb_note = "The « Including credit notes » column lists refunds/credit notes for the period already included in the net base — for reconciliation purposes, these are not separate Form boxes."
-
 ca3_sec_b_title = "B. VAT Due — breakdown by rate (transactions in Mainland France)"
 ca3_col_cadre = "Box"
 ca3_col_section = "Tax section"
@@ -1104,7 +992,6 @@ ca3_col_b_base_refunds = "Refund base"
 ca3_col_b_vat_refunds = "Refund VAT"
 ca3_col_b_base_net = "Net base"
 ca3_col_b_vat_net = "Net VAT"
-
 ca3_row_l08_label = "Standard rate 20% (includes AIC part — see box B2/Line 17)"
 ca3_row_l09_label = "Reduced rate 5.5% (food, books, pharmaceuticals…)"
 ca3_row_lt6_label = "Special rate 2.1% (mainland — press, refundable drugs)"
@@ -1112,12 +999,10 @@ ca3_row_l9b_label = "Reduced rate 10% (catering, accommodation…)"
 ca3_row_l17_label = "Memo — of which VAT on intra-community acquisitions"
 ca3_row_l17_desc = "(already included in Line 08 above, Art. 272 CGI)"
 ca3_row_l18_label = "Memo — including VAT on transactions to Monaco"
-
 ca3_total_aic_included = "TOTAL — **AIC included** (Box B2/Line 17 included in net base and VAT)"
 ca3_total_aic_deducted = "TOTAL — **AIC deducted** (excluding AIC base/VAT from Box B2/Line 17 — before other section C deductions)"
 ca3_vat_remb_note = "« Sales VAT » = gross VAT on sales only, before deduction of credit notes. « Refund VAT » = VAT of refunds for the period (negative). « Net VAT » = sales + refunds, this amount should be reported on the Form."
 ca3_aic_check_note = "The « AIC included » line corresponds to Line 16 as it should appear on the Form (Box B2/Line 17 is part of Line 08). The « AIC deducted » line only removes the AIC part (zero net effect by design, Art. 272 CGI) for verification — it does NOT remove other deductions (fixed assets, other goods/services excluding AIC, prior credit), which remain detailed in section C and are only deducted in the final balance (section D)."
-
 ca3_sec_c_title = "C. Deductible VAT"
 ca3_col_c_nature = "Deduction nature"
 ca3_col_c_amount = "Amount (EUR)"
@@ -1127,16 +1012,12 @@ ca3_row_l20_aic_small = "Includes deductible VAT on deemed AIC (Art. 272 CGI)"
 ca3_row_l22_label = "VAT credit carryforward from prior period"
 ca3_total_deductible = "TOTAL DEDUCTIBLE VAT (Line 23)"
 ca3_ded_warning = "⚠ Deductible VAT on purchases and fixed assets not provided (data not available from Amazon files). Please complete manually by providing tva_deductible_immos, tva_deductible_autres, and credit_periode_precedente parameters."
-
 ca3_sec_d_title = "D. Net Balance"
 ca3_solde_to_pay = "BALANCE DUE (Line TD/28)"
 ca3_solde_credit = "CREDIT TO CARRY FORWARD (Line 25/27)"
 ca3_solde_formula = "(VAT due (Line 16, incl. Line 17 AIC {aic} EUR) {brute} EUR − Total deductions Line 23 (incl. AIC in Line 20) {ded} EUR)"
-
 ca3_notice_title = "Notice:"
 ca3_notice_text = "This statement strictly isolates the national market {country}. Intra-EU B2C OSS transactions are subject to a separate declaration on the guichet-unique.impots.gouv.fr portal. VAT on AIC (box B2 / Line 17) is both collected and deductible (zero net effect). Deductible VAT amounts on purchases/fixed assets are to be completed by the user (not available from Amazon transaction files). This document does not replace professional tax advice."
-
-# FEC Export
 fec_journal_sales = "Sales Journal"
 fec_journal_purchases = "Purchases Journal"
 fec_scenario_oss = "OSS Sale"
@@ -1152,8 +1033,6 @@ fec_account_client_lib = "Amazon Clients"
 fec_account_sales_lib = "Sales of Goods"
 fec_account_vat_lib = "Collected VAT"
 fec_entry_label = "{scenario} {country} {rate}% ({period}, {count} sales)"
-
-# OSS XML
 xml_validation_no_lxml = "Validation ignored: 'lxml' library not installed."
 xml_validation_conform = "Compliant with {name}"
 xml_validation_error = "Error {name}: {error}"
@@ -1167,8 +1046,6 @@ xml_negative_unmatched_suffix = "\n\nSome credit notes could not be automaticall
 xml_negative_detail_line = "  - {dep} → {arr} ({rate}%) : HT={ht:.2f} €, VAT={tva:.2f} €{matching}"
 xml_matching_success = " — {count} credit note(s) linked automatically, {unmatched_count} credit note(s) WITHOUT identified origin (HT={unmatched_ht:.2f} €, VAT={unmatched_vat:.2f} €) to be handled manually"
 xml_matching_none = " — no credit note automatically linkable (origin not found in this file)"
-
-# Amazon account <-> SIREN linking (anti-abuse)
 gate_account_link_blocked_err = "🔒 {label} — download blocked: the Amazon account must be confirmed or resolved against the SIREN (see the panel at the top of the page)."
 account_link_panel_intro = "🔗 One or more Amazon accounts detected in this file need action before downloads can be unlocked."
 account_link_new_title = "**New Amazon account detected: `{identifier}`**"
@@ -1180,8 +1057,6 @@ account_link_error = "Error while linking: {error}"
 account_link_conflict_title = "⚠️ Amazon account `{identifier}` is already linked to another SIREN"
 account_link_conflict_text = "This account is registered for **{other_label}**, not for **{current_label}**. If the currently selected SIREN is a mistake, switch to the right client."
 account_link_switch_btn = "🔀 Switch to {other_label}"
-
-# VIES Tab
 vies_tab_enable_info = "ℹ️ Enable VIES validation in the sidebar to access this tab."
 vies_tab_no_b2b_info = "ℹ️ No B2B numbers detected in this file."
 vies_kpi_verified_nums = "VIES / NIF detected"
@@ -1236,6 +1111,8 @@ vies_expl_reverse_charge = "Domestic {country} — Art.194"
 vies_expl_already_taxed = "Domestic — VAT due in both cases"
 vies_expl_cross_border_departure = "Cross-border — VAT due in the departure country ({country}), exemption avoided"
 vies_expl_cross_border_destination = "Cross-border — VAT due in the destination country ({country}), exemption avoided"
+vies_expl_nif_departure = "Cross-border — national tax ID (no intra-EU VAT no.), VAT due in the departure country ({country})"
+vies_expl_nif_destination = "Cross-border — national tax ID (no intra-EU VAT no.), VAT due in the destination country ({country})"
 vies_col_id = "ID"
 vies_col_rejected_vat = "Rejected VAT No."
 vies_col_origin = "Origin"
@@ -1256,9 +1133,6 @@ vies_dl_btn = "⬇️ Export VIES and NIF rejection report (.csv)"
 vies_dl_filename = "VIES and NIF Audit Report - {company} - {period}.csv"
 vies_info_no_invalid = "ℹ️ No confirmed invalid numbers at the moment (some remain to be verified)."
 vies_success_all_valid = "✅ All B2B VAT numbers are valid."
-
-
-# Notes moteur fiscal (VatResult.note) - version generique minimale (hors francais)
 engine_note_monaco_home = "Sale to Monaco from French stock: treated as a French domestic sale. VAT {rate}% collected."
 engine_note_monaco_oss = "Sale to Monaco from {stock} stock: treated as an OSS sale to France. VAT {rate}%."
 engine_note_export = "Export outside the EU: VAT exempt. Proof of export required."
@@ -1266,6 +1140,8 @@ engine_note_out_of_scope = "Out of scope of VAT: not a taxable transaction by na
 engine_note_ioss_direct = "Import ≤ EUR 150: VAT {rate}% collected by the seller via their own IOSS number ({ioss})."
 engine_note_deemed_supplier = "{platform} collects VAT ({rate}%) on {country}."
 engine_note_b2b_reverse_charge = "Exempt intra-EU B2B supply, reverse charge applied by the buyer."
+engine_note_b2b_nif_departure = "Cross-border B2B sale {stock}→{buyer}: national tax ID provided instead of an intra-EU VAT number (no VIES check possible). Exemption refused (Art. 138 Directive 2006/112/EC) — departure country ({stock}) VAT at {rate}%, collected by the seller."
+engine_note_b2b_nif_destination_oss = "Cross-border B2B sale {stock}→{buyer}: national tax ID provided instead of an intra-EU VAT number (no VIES check possible). Exemption refused (Art. 138 Directive 2006/112/EC) — reclassified B2C, destination country ({buyer}) VAT at {rate}% via OSS."
 engine_note_oss_b2c = "OSS sale to {country} at a rate of {rate}%."
 engine_note_b2b_domestic_rc = "Domestic B2B sale in {country}: reverse charge applied by the taxable buyer."
 engine_note_domestic_home_foreign_stock = "Sale to {country} (seller's home country) shipped from {stock} stock: treated as a domestic {country} sale (local VAT return, not OSS) — {rate}% VAT."
@@ -1275,8 +1151,6 @@ engine_note_ddp_import = "Import > EUR 150, seller is the official importer (DDP
 engine_note_import_standard = "Import > EUR 150 from a third country: import VAT in {country} ({rate}%) due to customs by the importer."
 engine_note_oss_under_threshold = "Below the OSS threshold ({cumulative}/{limit} {currency}). {country} VAT option applied."
 engine_note_oss_threshold_crossed = "OSS threshold exceeded! Sale to {country}."
-
-# ── VIES Validity Certificate (PDF) ─────────────────────────────────────────
 vies_certificate_expander = "📄 VIES Validity Certificate (PDF)"
 vies_certificate_caption = "Generate a PDF summarising the full history of VIES checks for your B2B customers — keep it as proof of good faith in case of a tax audit."
 vies_certificate_btn = "Generate certificate"
@@ -1306,10 +1180,7 @@ vies_certificate_traceability_header = "Traceability & Integrity"
 vies_certificate_scope_id = "Scope ID (Hash)"
 vies_certificate_content_hash = "Content Hash"
 vies_certificate_footer_desc = "This document is generated immutably from the history of VIES requests stored in your database. It constitutes supporting evidence of your due diligence in checking the validity of intra-community VAT numbers."
-# ── Background calculation (large files) ────────────────────────────────────
 calc_bg_running_caption = "📊 Large file ({rows} rows) — the calculation continues in the background. You can keep using the sidebar in the meantime."
-
-# ── VIES certificate: scope selector ────────────────────────────────────────
 vies_certificate_scope_label = "Certificate scope"
 vies_certificate_scope_file = "📄 Imported file"
 vies_certificate_scope_account = "🗂️ Whole account (full history)"
@@ -1324,15 +1195,11 @@ vies_certificate_history_detail_desc = "This table lists every automatic VIES ch
 vies_certificate_history_count = "Number of VIES checks listed:"
 vies_certificate_history_unique_count = "Number of unique VAT numbers checked:"
 vies_certificate_history_empty_info = "No VIES check has been recorded yet for this scope."
-
-# ── Locking fiscal fields (IOSS / VAT numbers) ──────────────────────────────
 fiscal_fields_lock_warning = "⚠️ Please check the numbers below carefully before saving: once an IOSS or VAT number is saved for this SIREN, it can no longer be changed (you'll only be able to add new ones later — e.g. an IOSS not set yet, or a VAT number for an extra country)."
 fiscal_fields_lock_warning_new = "⚠️ Please check this information carefully before saving: once this SIREN is created, the company name, SIREN, IOSS and every VAT number entered can no longer be changed (you'll only be able to add later an IOSS or a VAT number not entered here)."
 fiscal_fields_all_locked_caption = "🔒 The IOSS and all VAT numbers on this list are saved and locked."
 fiscal_fields_vat_locked_caption = "🔒 All VAT numbers on this list are saved and locked (no IOSS set — optional, you can add one at any time)."
 fiscal_field_locked_note = "saved, cannot be changed"
-
-# ── Administration (roles & organization, 2026-08-23) ───────────────────────
 admin_module_header = "🛡️ Administration"
 admin_org_locked_caption = "Your organization is locked (active paid subscription): only an admin can add new addresses allowed to create an account."
 admin_org_free_caption = "No paid subscription is active yet: any address on your domain can freely create an account (test mode)."
@@ -1354,8 +1221,6 @@ admin_add_email_success = "{email} has been added to the allowed list."
 admin_allowed_emails_title = "Allowed addresses"
 admin_remove_allowed_email_btn = "🗑️"
 readonly_account_banner = "👁️ Your account is read-only — contact your organization's administrator to change this data."
-
-# --- Entrée #12 (audit i18n 2026-09-02) : clés manquantes ajoutées, symétrie 7 langues ---
 foreign_currency_warning = "⚠️ **Warning**: Foreign currencies detected ({currencies}). Amounts have been converted to EUR for display."
 col_vat_rate_amazon = "Amazon VAT Rate (%)"
 col_vat_rate_engine = "Engine VAT Rate (%)"
@@ -1366,8 +1231,6 @@ TOTAL = "TOTAL"
 "TOTAL HT" = "TOTAL excl. VAT"
 emebi_intrastat_desc = "EMEBI statistical survey {country} (introductions + dispatches, subject to threshold — see dedicated tab)"
 xl_aic_col_asins_distinct = "Distinct ASIN count"
-
-# Historical rates
 hist_title = "📅 Historical VAT rates detected — {count} country(ies) affected"
 hist_multiple_rates = "⚡ Mid-period rate change detected for: {names}. Rates were applied sale by sale according to the transaction date."
 hist_single_rate = "The countries below have experienced a recent VAT rate change. All your sales are within a single period — the correct rate has been applied uniformly."
@@ -1379,7 +1242,6 @@ hist_col_sales = "Affected sales"
 hist_sales_format = "{count} sale(s)"
 hist_source = "Source: European Commission (Taxes in Europe Database). Scope: changes detected since the year preceding your sales per country."
 today = "Today"
-
 csv_header_base_ht = "Net Base"
 csv_header_rate_pct = "Rate (%)"
 csv_header_vat_amount = "VAT"
@@ -1401,90 +1263,62 @@ vies_cert_suffix_account = "account"
 vies_cert_suffix_history = "history"
 auth_session_expired = "Session expired"
 audit_col_id = "ID"
-audit_col_stock_dest = "Stock→Dest"
 audit_col_dest = "Dest"
-audit_col_scenario = "Scenario"
-
-# VAT Glossary
 glossary_title = "VAT Glossary"
 glossary_intro = "Key concepts used by the engine."
 glossary_help_tooltip = "View VAT terminology glossary"
 glossary_footer = "For more details, consult the complete documentation on our website."
-
 glossary_terms_oss_title = "OSS (One Stop Shop)"
 glossary_terms_oss_definition = "Single point of contact for declaring VAT on cross-border B2C sales within the EU. Replaces individual VAT registrations in each Member State for distance sales."
 glossary_terms_oss_tooltip = "Single VAT point for cross-border B2C sales"
-
 glossary_terms_ioss_title = "IOSS"
 glossary_terms_ioss_definition = "Single point of contact for low-value imports (≤ 150 €) to EU consumers. Allows declaring and paying import VAT in a single Member State."
 glossary_terms_ioss_tooltip = "Single point for imports ≤ 150 €"
-
 glossary_terms_reverse_charge_title = "Reverse charge"
 glossary_terms_reverse_charge_definition = "Mechanism where the buyer declares the VAT due instead of the seller. Applies to intra-EU B2B deliveries and, in some countries, to domestic B2B sales (art. 194)."
 glossary_terms_reverse_charge_tooltip = "Buyer declares VAT instead of seller"
-
 glossary_terms_deemed_supplier_title = "Deemed supplier"
 glossary_terms_deemed_supplier_definition = "Situation where the marketplace (e.g. Amazon) is deemed to be the VAT collector, with the seller being exempt. Amazon collects and remits VAT for cross-border B2C sales since July 2021."
 glossary_terms_deemed_supplier_tooltip = "Marketplace collects VAT on behalf of seller"
-
 glossary_terms_ca3_title = "CA3"
 glossary_terms_ca3_definition = "French VAT declaration form. The engine generates a ready-to-use summary with lines 08 (Intra-community acquisitions) and breakdowns by VAT rate."
 glossary_terms_ca3_tooltip = "French VAT declaration"
-
 glossary_terms_oss_threshold_title = "€10,000 threshold (OSS threshold)"
 glossary_terms_oss_threshold_definition = "Single annual turnover threshold for all cross-border B2C sales in the EU. Below this, you can apply your home country's VAT. Above this, OSS is mandatory."
 glossary_terms_oss_threshold_tooltip = "Single €10,000 threshold for cross-border B2C sales"
-
 glossary_terms_excluded_territories_title = "Excluded territory (Art. 6 areas)"
 glossary_terms_excluded_territories_definition = "Geographic areas attached to a Member State but excluded from the EU fiscal territory (e.g. Canary Islands, DOM-TOM, Mount Athos). Flows to these areas are treated as exports."
 glossary_terms_excluded_territories_tooltip = "Areas outside EU fiscal territory (Canary Islands, DOM-TOM...)"
-
 glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
 glossary_terms_emebi_intrastat_definition = "Monthly Survey of Intra-EU Trade in Goods. Mandatory statistical declaration above certain thresholds for dispatch or introduction of goods."
 glossary_terms_emebi_intrastat_tooltip = "Statistical declaration of intra-EU trade"
-
 glossary_terms_vies_title = "VIES"
 glossary_terms_vies_definition = "European VAT Information Exchange System. Allows verification of VAT numbers for B2B exemptions."
 glossary_terms_vies_tooltip = "System for validating intra-community VAT numbers"
-
 glossary_terms_nif_title = "NIF (Tax Identification Number)"
 glossary_terms_nif_definition = "National tax identifier (e.g. Codice Fiscale in Italy, NIF in Spain). Note: a NIF is not necessarily a valid intra-community VAT number for B2B exemption."
 glossary_terms_nif_tooltip = "National tax identifier"
-
 glossary_terms_eori_title = "EORI (Economic Operator Registration and Identification)"
 glossary_terms_eori_definition = "Unique community number required to complete customs formalities (import/export) in Europe."
 glossary_terms_eori_tooltip = "Community number for customs formalities"
-
 glossary_terms_incoterms_title = "Incoterm (DDP / DDU)"
 glossary_terms_incoterms_definition = "Commercial terms defining seller and buyer responsibilities (fees, customs, VAT). DDP (Delivered Duty Paid): seller handles everything. DDU/DAP: buyer pays taxes on arrival."
 glossary_terms_incoterms_tooltip = "Commercial terms defining seller/buyer responsibilities"
-
 glossary_terms_import_150_title = "€150 Threshold (Import)"
 glossary_terms_import_150_definition = "Threshold below which no customs duties are applied for imports into the EU. VAT remains due and can be collected via IOSS or by the carrier. Above €150, customs duties apply in addition to VAT."
 glossary_terms_import_150_tooltip = "Customs duty exemption threshold for imports"
-
 glossary_terms_distance_selling_title = "Distance Selling"
 glossary_terms_distance_selling_definition = "Sale of goods shipped from one EU country to an individual in another EU country. These sales are subject to OSS rules above the €10,000 threshold."
 glossary_terms_distance_selling_tooltip = "Cross-border sales to individuals"
-
 glossary_terms_vat_number_title = "VAT Number"
 glossary_terms_vat_number_definition = "Unique identifier assigned by the tax administration. For intra-community sales, it must be prefixed by the country code (e.g., FR123456789) and validated in the VIES system to allow B2B exemption."
 glossary_terms_vat_number_tooltip = "Tax identifier for VAT"
-viz_data_ca_ht = "Net Revenue"
-viz_data_vat_due = "VAT due"
-viz_data_refund_ht = "Net Refund"
-viz_data_vat_refund = "VAT refund"
-
-# Donation
 donation_header = "☕ Make a Donation"
 donation_help = "If you find this tool useful, you can support its development with a donation."
 donation_btn = "Donate via Stripe"
 donation_paypal_btn = "Donate via PayPal"
 donation_or = "or"
-
 gate_period_missing_err = "Unable to determine the period for this export (no usable sale date detected). Please check the imported file or set the period manually."
-
-# CA3 EDI-TVA preparation export
 dl_generate_ca3_edi_btn = "⚙️ Generate CA3 EDI-TVA preparation file (CSV)"
 dl_ca3_edi_btn = "📥 CA3 EDI-TVA preparation (CSV — not for transmission)"
 dl_ca3_edi_filename = "CA3_EDI_TVA_Preparation_{company}_{period}.csv"
@@ -1494,3 +1328,44 @@ ca3_edi_regime_mensuel = "Monthly"
 ca3_edi_regime_help = "Frequency notified by your tax office (Art. 289 B CGI): monthly or quarterly. Cannot be inferred from imported sales."
 ca3_edi_regime_mismatch_err = "{regime} frequency is incompatible with the detected period ({period}): fix the frequency or the imported file before generating the CSV."
 ca3_edi_preparation_warning = "This CSV contains selected CA3 fields with official EDI codes. The civil month or quarter detected is prefilled and must be checked against your tax obligation. Deductions include the engine's estimated AIC subtotal, but remain partial without purchase data. This is not an EDIFACT message or a transmission-ready file; complete the ROF and have it validated by an authorised EDI partner."
+onboarding_demo_coming_soon = "Demo mode will be available soon! For now, please use your own files."
+onboarding_demo_mode_info = "You are exploring the tool with mock data. No actual calculations will be saved."
+onboarding_demo_mode_toggle = "🧪 Demo mode (mock data)"
+onboarding_finish_btn = "✓ Finish"
+onboarding_guide_audit = "### Guide: Amazon Audit\n\nThis tab identifies **discrepancies** between Amazon calculations and the engine."
+onboarding_guide_declarations = "### Guide: Declarations\n\nThis tab shows **what you need to pay** per tax regime."
+onboarding_guide_detail = "### Guide: Sales Detail\n\nThis tab displays **every transaction** with its tax classification."
+onboarding_guide_downloads = "### Guide: Downloads\n\nThis tab allows you to **generate exports** for your declarations."
+onboarding_guide_vies = "### Guide: VIES\n\nThis tab allows you to **verify VAT numbers** for your B2B customers."
+onboarding_guide_viz = "### Guide: Visualizations\n\nThis tab offers **charts** to analyze your data."
+onboarding_next_btn = "Next →"
+onboarding_prev_btn = "← Previous"
+onboarding_skip_btn = "Skip"
+onboarding_step2_intro = "Now, let's configure your company information for declarations."
+onboarding_step2_skip_hint = "You can return to the wizard via the account menu."
+onboarding_step2_skip_info = "⚠️ For now, skip this step and configure your company later via the sidebar."
+onboarding_step2_title = "Configure your company"
+onboarding_step3_intro = "Upload your Amazon report or use demo mode to explore the tool."
+onboarding_step3_title = "Import your first file"
+onboarding_step3_upload_info = "Upload your Amazon report (CSV/TSV/TXT format) from Seller Central."
+onboarding_step4_intro = "Learn how to read and use the different tabs of the application."
+onboarding_step4_no_data = "⚠️ First import a file or enable demo mode to view this step."
+onboarding_step4_title = "Interpret your results"
+onboarding_tab_tour_label = "Select a tab to explore:"
+onboarding_tour_audit = "🔍 Amazon Audit"
+onboarding_tour_declarations = "📋 Declarations"
+onboarding_tour_detail = "📊 Sales Detail"
+onboarding_tour_downloads = "📥 Downloads"
+onboarding_tour_vies = "🛡️ VIES"
+onboarding_tour_viz = "📈 Visualizations"
+onboarding_wizard_progress = "Step {step}/{total}"
+siren_stepper_finish_btn = "Save this SIREN"
+siren_stepper_next_btn = "Next"
+siren_stepper_prev_btn = "Previous"
+siren_stepper_step1_help = "This information identifies your company for tax declarations."
+siren_stepper_step1_title = "Step 1/3: Basic Information"
+siren_stepper_step2_help = "Select the countries where you are registered for VAT."
+siren_stepper_step2_title = "Step 2/3: VAT Registrations"
+siren_stepper_step3_help = "These options are optional but recommended for certain use cases."
+siren_stepper_step3_title = "Step 3/3: Advanced Options"
+siren_stepper_validation_siren_format = "The SIREN must contain exactly 9 digits."

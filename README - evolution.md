@@ -8730,3 +8730,23 @@ Fichiers modifiés / ajoutés : `tva_intracom/engine.py`, `tva_intracom/ui/tabs/
 **Observations, NON traitées** : (a) `_build_oss_note` (branches « sous le seuil » en devise étrangère / date de taux) et `_oss_threshold_display` (lignes 994-1014) ont des branches non couvertes par ce filet : elles n'ont pas été modifiées ici ; (b) `compute_vat` reste en complexité D (21, gardes de dispatch uniquement) ; (c) point 4 de la liste du 2026-09-28/29 (reliquats Railway) toujours différé.
 
 Fichiers modifiés / ajoutés (en plus de ceux de l'entrée précédente) : `tva_intracom/fec_export.py`, `tva_intracom/parsers/amazon/classify.py`, `README.md`, `README - evolution.md` ; mis à jour : `tva_intracom/engine.py`, `tva_intracom/ui/tabs/telechargements.py`, `tests/test_compute_all_with_vies_characterization.py`, `tests/test_telechargements_characterization.py`, `tests/_telechargements_app_script.py`, `tests/golden/compute_all_with_vies.json`, `tests/golden/telechargements_*.json` (47 fichiers).
+
+## 2026-10-02 — Alignement onglet VIES / Écarts Amazon → Risque VIES + phrase explicative dédiée aux NIF
+
+**Symptôme** : l'onglet VIES et Écarts Amazon → « Risque VIES » ne comptaient pas les mêmes ventes (ex. 4 côté Amazon contre 2 vrais rejets côté VIES). Les lignes en trop étaient des NIF / identifiants fiscaux nationaux (jamais soumis à VIES).
+
+**Cause** : `engine.compute_all_with_vies` inscrivait les NIF dans `vies_summary.vies_affected_sale_ids` (et dans `reclassifications` avec `is_national_tax_id=True`). L'onglet VIES (`vies_ui._render_reclassifications`) séparait correctement NIF et vrais rejets ; l'audit Amazon (`ui/tabs/audit.py`), le KPI `total_ecarts_autres` (`app.py`) et l'Excel (`excel_report._write_audit_tab`, `_nature()`) ne le faisaient pas. Même logique dupliquée à 3 endroits.
+
+**Correctif (option A retenue : sous-onglet dédié)** :
+- `models.ViesValidationSummary.nif_affected_sale_ids` : nouvel ensemble de clés `(sale_id, amount_ht)`, distinct de `vies_affected_sale_ids` (qui ne contient plus que les vrais n° TVA rejetés).
+- `audit.py` : nouveau sous-onglet « 🆔 NIF sans n° TVA (n) » entre Risque VIES et Royaume-Uni ; clé de cache d'audit versionnée (`nif_v1`) pour invalider les anciens résultats.
+- `app.py` : KPI « écarts de taux » — les NIF restent exclus (même comportement qu'avant), lus depuis `nif_affected_sale_ids`.
+- `excel_report.py` : nature « NIF sans n° TVA intracom » (`xl_audit_nature_nif`) au lieu de « Risque VIES ».
+- Phrases dédiées (le NIF n'est plus décrit comme « numéro TVA acheteur non valide VIES ») : note moteur `engine._b2b_intra_eu_result` (départ / destination OSS) → affichée dans les tableaux et l'Excel ; explication de l'onglet VIES et du CSV (`vies_expl_nif_departure` / `vies_expl_nif_destination`). 9 nouvelles clés i18n × 7 langues.
+- Aucun changement de calcul fiscal (scénario, taux, montants identiques) — uniquement catégorisation d'affichage / d'export et libellés.
+
+**Validation** : `py_compile` OK ; nouveau `tests/test_nif_vies_alignment.py` (clés i18n présentes en 7 langues, phrases NIF ≠ phrases VIES invalide) ; golden `compute_all_with_vies.json` mis à jour **uniquement** pour `nif_affected_sale_ids`, `vies_affected_sale_ids` et les notes NIF (scénarios `national_id_*`). Suite complète : mêmes 9 échecs préexistants (`auth_flow` ×8 + `sidebar[cancel_removal]`, reproduits sur HEAD propre), aucun nouveau. Aucun thread, connexion ni polling ajouté : scale-to-zero non affecté.
+
+**Non vérifié** : rendu Streamlit réel du nouveau sous-onglet et de l'Excel sur un vrai fichier (pas d'AppTest dédié) ; à contrôler sur le jeu où les 2 NIF ES→IT apparaissaient (attendu : « Risque VIES (2) » aligné sur l'onglet VIES, « NIF sans n° TVA (2) »).
+
+Fichiers modifiés / ajoutés : `tva_intracom/models.py`, `tva_intracom/engine.py`, `tva_intracom/ui/tabs/audit.py`, `tva_intracom/ui/tabs/vies_ui.py`, `tva_intracom/excel_report.py`, `app.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`, `tests/test_nif_vies_alignment.py`, `tests/golden/compute_all_with_vies.json`, `README - evolution.md`.

@@ -207,126 +207,364 @@ def _invalidate_db_cache(cache_key: str) -> None:
     st.session_state.pop(f"_sb_dbcache_{cache_key}", None)
 
 
+def _get_stepper_data() -> dict:
+    """Récupère ou initialise le dictionnaire de persistance des données du stepper SIREN."""
+    if "siren_stepper_data" not in st.session_state:
+        st.session_state["siren_stepper_data"] = {
+            "nom_new": "",
+            "siren_new": "",
+            "vat_countries_new": ["FR"],
+            "vat_numbers": {},
+            "ioss_new": "",
+            "ioss_own_active_new": False,
+            "ddp_new": False,
+            "oss_thr_new": False,
+            "oss_thr_prevyear_new": False,
+        }
+    return st.session_state["siren_stepper_data"]
+
+
+def _save_current_step_data(step: int) -> None:
+    """Sauvegarde les valeurs courantes des widgets de l'étape spécifiée dans le dictionnaire de persistance."""
+    data = _get_stepper_data()
+    if step == 0:
+        if "nom_new" in st.session_state:
+            _v = st.session_state["nom_new"]
+            data["nom_new"] = _v.strip() if isinstance(_v, str) else ""
+        if "siren_new" in st.session_state:
+            _v = st.session_state["siren_new"]
+            data["siren_new"] = _v.strip() if isinstance(_v, str) else ""
+    elif step == 1:
+        if "vat_countries_new" in st.session_state:
+            countries = st.session_state["vat_countries_new"]
+            data["vat_countries_new"] = list(countries) if isinstance(countries, (list, set, tuple)) else []
+        vat_numbers = dict(data.get("vat_numbers", {}))
+        for ccode in data.get("vat_countries_new", []):
+            key = f"vat_num_new_{ccode}"
+            if key in st.session_state:
+                _v = st.session_state[key]
+                vat_numbers[ccode] = _v.strip() if isinstance(_v, str) else ""
+        data["vat_numbers"] = vat_numbers
+    elif step == 2:
+        if "ioss_new" in st.session_state:
+            _v = st.session_state["ioss_new"]
+            data["ioss_new"] = _v.strip() if isinstance(_v, str) else ""
+        if "ioss_own_active_new" in st.session_state:
+            data["ioss_own_active_new"] = bool(st.session_state["ioss_own_active_new"])
+        if "ddp_new" in st.session_state:
+            data["ddp_new"] = bool(st.session_state["ddp_new"])
+        if "oss_thr_new" in st.session_state:
+            data["oss_thr_new"] = bool(st.session_state["oss_thr_new"])
+        if "oss_thr_prevyear_new" in st.session_state:
+            data["oss_thr_prevyear_new"] = bool(st.session_state["oss_thr_prevyear_new"])
+
+
+def _reset_stepper_data() -> None:
+    """Réinitialise les données du stepper SIREN et ses clés associées."""
+    st.session_state.pop("siren_stepper_data", None)
+    st.session_state["siren_stepper_step"] = 0
+    for k in ["nom_new", "siren_new", "vat_countries_new", "ioss_new", "ioss_own_active_new", "ddp_new", "oss_thr_new", "oss_thr_prevyear_new"]:
+        st.session_state.pop(k, None)
+    keys_to_remove = [k for k in st.session_state.keys() if str(k).startswith("vat_num_new_")]
+    for k in keys_to_remove:
+        st.session_state.pop(k, None)
+
+
+def _new_siren_stepper_fragment(*, current_user, home_country: str, siren_options: list[str]) -> None:
+    """Formulaire de création d'un nouveau SIREN en stepper à 3 étapes.
+
+    Étape 1 : Informations de base (Nom + SIREN)
+    Étape 2 : Immatriculations TVA (Pays + numéros)
+    Étape 3 : Options avancées (IOSS + DDP + seuils)
+    """
+    # Initialiser l'état du stepper
+    if "siren_stepper_step" not in st.session_state:
+        st.session_state["siren_stepper_step"] = 0
+    
+    _step = st.session_state["siren_stepper_step"]
+    _is_reader_new = current_user.role == "reader"
+    
+    # RÔLES : griser l'ensemble du formulaire pour un compte lecteur
+    if _is_reader_new:
+        st.info(_("reader_mode_create_siren"))
+        return
+    
+    # Barre de progression du stepper
+    st.markdown(f"""
+    <div class="siren-stepper-progress">
+        <div class="siren-stepper-step {'active' if _step == 0 else 'completed' if _step > 0 else ''}">
+            <div class="siren-stepper-number">1</div>
+            <span>{_("siren_stepper_step1_title")}</span>
+        </div>
+        <div class="siren-stepper-step {'active' if _step == 1 else 'completed' if _step > 1 else ''}">
+            <div class="siren-stepper-number">2</div>
+            <span>{_("siren_stepper_step2_title")}</span>
+        </div>
+        <div class="siren-stepper-step {'active' if _step == 2 else ''}">
+            <div class="siren-stepper-number">3</div>
+            <span>{_("siren_stepper_step3_title")}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Stocker home_country pour les étapes suivantes
+    st.session_state["home_country"] = home_country
+    
+    # Contenu de l'étape courante
+    if _step == 0:
+        _render_step1_basic_info()
+    elif _step == 1:
+        _render_step2_vat_registration()
+    elif _step == 2:
+        _render_step3_advanced_options()
+    
+    # Boutons de navigation
+    _col_prev, _col_spacer, _col_next = st.columns([1, 1, 1])
+    
+    with _col_prev:
+        if _step > 0:
+            if st.button(_("siren_stepper_prev_btn"), key="stepper_prev"):
+                _save_current_step_data(_step)
+                st.session_state["siren_stepper_step"] = _step - 1
+                st.rerun()
+    
+    with _col_spacer:
+        st.empty()
+    
+    with _col_next:
+        if _step < 2:
+            if st.button(_("siren_stepper_next_btn"), key="stepper_next", type="primary"):
+                # Valider l'étape courante avant d'avancer
+                if _validate_current_step(_step):
+                    st.session_state["siren_stepper_step"] = _step + 1
+                    st.rerun()
+        else:
+            if st.button(_("siren_stepper_finish_btn"), key="stepper_finish", type="primary"):
+                _save_siren_from_stepper(current_user, home_country, siren_options)
+
+
+def _validate_current_step(step: int) -> bool:
+    """Valide les données de l'étape courante."""
+    _save_current_step_data(step)
+    data = _get_stepper_data()
+    
+    if step == 0:
+        # Étape 1 : Valider SIREN
+        siren_entreprise = data.get("siren_new", "").strip()
+        if not siren_entreprise:
+            st.warning(_("siren_required"))
+            return False
+        if not siren_entreprise.isdigit() or len(siren_entreprise) != 9:
+            st.warning(_("siren_stepper_validation_siren_format"))
+            return False
+        return True
+    
+    elif step == 1:
+        # Étape 2 : Valider pays TVA et numéros
+        countries_with_vat = data.get("vat_countries_new", [])
+        if not countries_with_vat:
+            st.warning(_("at_least_one_vat_required"))
+            return False
+        
+        # Vérifier que tous les numéros TVA sont remplis
+        vat_numbers = data.get("vat_numbers", {})
+        for ccode in sorted(countries_with_vat):
+            vat_num = vat_numbers.get(ccode, "").strip()
+            if not vat_num:
+                st.warning(_("missing_vat_numbers"))
+                return False
+        return True
+    
+    return True
+
+
+def _render_step1_basic_info() -> None:
+    """Étape 1 : Informations de base (Nom + SIREN)."""
+    st.caption(_("siren_stepper_step1_help"))
+    data = _get_stepper_data()
+    
+    if "nom_new" not in st.session_state and "nom_new" in data:
+        st.session_state["nom_new"] = data["nom_new"]
+    if "siren_new" not in st.session_state and "siren_new" in data:
+        st.session_state["siren_new"] = data["siren_new"]
+    
+    nom_entreprise = st.text_input(
+        _("company_name_label"),
+        placeholder=f"ex: {_('default_company_name')}",
+        key="nom_new"
+    )
+    siren_entreprise = st.text_input(
+        _("siren_number_label"),
+        placeholder="ex: 123456789",
+        key="siren_new"
+    )
+
+
+def _render_step2_vat_registration() -> None:
+    """Étape 2 : Immatriculations TVA (Pays + numéros)."""
+    st.caption(_("siren_stepper_step2_help"))
+    data = _get_stepper_data()
+    
+    _has_saved_countries = "vat_countries_new" in st.session_state
+    if not _has_saved_countries and "vat_countries_new" in data:
+        st.session_state["vat_countries_new"] = data["vat_countries_new"]
+        _has_saved_countries = True
+    
+    countries_with_vat = st.multiselect(
+        _("local_vat_countries_label"),
+        options=sorted(list(EU_COUNTRIES)),
+        default=None if _has_saved_countries else ["FR"],
+        key="vat_countries_new"
+    )
+    
+    local_vat_numbers = {}
+    if countries_with_vat:
+        st.caption(_("local_vat_numbers_caption"))
+        saved_vats = data.get("vat_numbers", {})
+        for ccode in sorted(countries_with_vat):
+            key = f"vat_num_new_{ccode}"
+            if key not in st.session_state and ccode in saved_vats:
+                st.session_state[key] = saved_vats[ccode]
+            _v = st.text_input(
+                _("vat_number_for", country=ccode),
+                key=key,
+                placeholder=f"ex: {ccode}123456789"
+            )
+            local_vat_numbers[ccode] = _v.strip()
+
+
+def _render_step3_advanced_options() -> None:
+    """Étape 3 : Options avancées (IOSS + DDP + seuils)."""
+    st.caption(_("siren_stepper_step3_help"))
+    data = _get_stepper_data()
+    
+    home_country = st.session_state.get("home_country", "FR")
+    
+    if "ioss_new" not in st.session_state and "ioss_new" in data:
+        st.session_state["ioss_new"] = data["ioss_new"]
+    if "ioss_own_active_new" not in st.session_state and "ioss_own_active_new" in data:
+        st.session_state["ioss_own_active_new"] = data["ioss_own_active_new"]
+    if "ddp_new" not in st.session_state and "ddp_new" in data:
+        st.session_state["ddp_new"] = data["ddp_new"]
+    if "oss_thr_new" not in st.session_state and "oss_thr_new" in data:
+        st.session_state["oss_thr_new"] = data["oss_thr_new"]
+    if "oss_thr_prevyear_new" not in st.session_state and "oss_thr_prevyear_new" in data:
+        st.session_state["oss_thr_prevyear_new"] = data["oss_thr_prevyear_new"]
+    
+    st.markdown("---")
+    ioss_number = st.text_input(
+        _("ioss_number_label"),
+        placeholder="ex: IM1234567890",
+        key="ioss_new",
+        help=_("ioss_help")
+    )
+    ioss_own_number_active = False
+    if ioss_number.strip():
+        ioss_own_number_active = st.toggle(
+            _("ioss_own_number_active_label"),
+            value=False,
+            key="ioss_own_active_new",
+            help=_("ioss_own_number_active_help", platform="Amazon")
+        )
+    
+    seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new")
+    
+    # Conflit seuil OSS
+    _thr_conflict_new = _resolve_oss_threshold_conflict("oss_thr_new", "oss_thr_prevyear_new")
+    apply_fr_under_threshold = st.toggle(
+        _("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)),
+        value=False,
+        key="oss_thr_new"
+    )
+    oss_threshold_exceeded_prev_year = st.toggle(
+        _("oss_threshold_prev_year_label"),
+        value=False,
+        key="oss_thr_prevyear_new",
+        help=_("oss_threshold_prev_year_help")
+    )
+    
+    if _thr_conflict_new:
+        st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
+        apply_fr_under_threshold = False
+
+
+def _save_siren_from_stepper(current_user, home_country: str, siren_options: list[str]) -> None:
+    """Sauvegarde le SIREN depuis les données du stepper."""
+    _save_current_step_data(2)
+    data = _get_stepper_data()
+    
+    nom_entreprise = data.get("nom_new", "").strip()
+    siren_entreprise = data.get("siren_new", "").strip()
+    countries_with_vat = data.get("vat_countries_new", [])
+    local_vat_numbers = data.get("vat_numbers", {})
+    
+    tva_fr = local_vat_numbers.get("FR", "")
+    ioss_number = data.get("ioss_new", "").strip()
+    ioss_own_number_active = data.get("ioss_own_active_new", False)
+    seller_is_importer = data.get("ddp_new", False)
+    apply_fr_under_threshold = data.get("oss_thr_new", False)
+    oss_threshold_exceeded_prev_year = data.get("oss_thr_prevyear_new", False)
+    
+    # Validation finale
+    if not siren_entreprise:
+        st.warning(_("siren_required"))
+        return
+    if siren_entreprise in siren_options:
+        st.error(_("siren_already_registered", siren=siren_entreprise))
+        return
+    if not countries_with_vat:
+        st.warning(_("at_least_one_vat_required"))
+        return
+    
+    # Vérifier que tous les numéros TVA sont remplis
+    _missing_vat_input = False
+    for ccode in sorted(countries_with_vat):
+        if not local_vat_numbers.get(ccode, "").strip():
+            _missing_vat_input = True
+    if _missing_vat_input:
+        st.warning(_("missing_vat_numbers"))
+        return
+    
+    try:
+        tva_billing.register_siren(
+            current_user.org_id, current_user.id, siren_entreprise,
+            nom_entreprise, tva_fr,
+            ioss_number=ioss_number,
+            seller_is_importer=seller_is_importer,
+            apply_fr_under_threshold=apply_fr_under_threshold,
+            countries_with_vat=",".join(countries_with_vat),
+            vat_numbers_json=json.dumps(local_vat_numbers),
+            oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
+            ioss_own_number_active=ioss_own_number_active,
+        )
+        st.success(_("siren_save_success"))
+        _invalidate_db_cache(f"sirens_{current_user.org_id}")
+        _invalidate_db_cache(f"siren_quota_{current_user.org_id}")
+        
+        # Réinitialiser le stepper
+        _reset_stepper_data()
+        
+        # Fait pointer le sélecteur sur le SIREN qu'on vient de créer
+        st.session_state["siren_select_box"] = siren_entreprise
+        preserve_upload_rerun()
+    except Exception as _reg_err:
+        st.error(_("siren_save_error", error=_reg_err))
+
+
+# Garder l'ancien formulaire comme fallback (non utilisé)
 @st.fragment
 def _new_siren_form_fragment(*, current_user, home_country: str, siren_options: list[str]) -> None:
     """Formulaire de création d'un nouveau SIREN, isolé en fragment.
 
-    BUGFIX : avant, ce formulaire vivait directement dans le corps de
-    render_sidebar() — taper un caractère dans un champ, cocher une case ou
-    ajouter un pays à la liste déclenchait un rerun COMPLET de toute la page
-    (comportement Streamlit par défaut pour tout widget hors fragment),
-    redessinant au passage les 6 onglets déjà affichés (tableaux, graphiques)
-    même si aucune valeur enregistrée en base n'avait changé. Isolé ici, ces
-    interactions ne redessinent plus que ce formulaire. Seul le clic sur
-    "Enregistrer ce SIREN" déclenche un rerun complet (nécessaire pour
-    recharger la liste des SIREN enregistrés et faire passer ce compte dans
-    le cas "SIREN existant" au tour suivant).
+    NOTE : Remplacé par _new_siren_stepper_fragment pour une meilleure UX.
+    Conservé pour compatibilité si nécessaire.
     """
-    # RÔLES (2026-08-24) : `_is_reader_new` grise l'ensemble du formulaire de
-    # création pour un compte lecteur, par cohérence avec la vue "SIREN
-    # existant" — même si, ce formulaire étant isolé en fragment et ses
-    # valeurs non lues par le calcul tant qu'aucun SIREN n'est enregistré
-    # (voir render_sidebar, valeurs par défaut posées AVANT l'appel à ce
-    # fragment), il n'y avait ici aucun impact sur le résultat fiscal
-    # affiché — seulement une possibilité de saisie sans effet, déjà bloquée
-    # par le bouton "Enregistrer" désactivé plus bas.
-    _is_reader_new = current_user.role == "reader"
-    nom_entreprise   = st.text_input(_("company_name_label"), placeholder=f"ex: {_('default_company_name')}", key="nom_new", disabled=_is_reader_new)
-    siren_entreprise = st.text_input(_("siren_number_label"), placeholder="ex: 123456789", key="siren_new", disabled=_is_reader_new)
-
-    # ── Pays où la TVA locale est enregistrée : remonté juste sous le SIREN,
-    # au-dessus d'IOSS/DDP/seuil OSS. Priorité fiscale : ces immatriculations
-    # locales priment sur le régime DDP et les autres réglages (une TVA
-    # locale déjà enregistrée dans un pays change la façon dont ce pays doit
-    # être traité, indépendamment des toggles ci-dessous).
-    countries_with_vat = st.multiselect(_("local_vat_countries_label"),
-                                        options=sorted(list(EU_COUNTRIES)), default=["FR"], key="vat_countries_new",
-                                        disabled=_is_reader_new)
-
-    local_vat_numbers = {}
-    _missing_vat_input = False
-    if countries_with_vat:
-        st.caption(_("local_vat_numbers_caption"))
-        for ccode in sorted(countries_with_vat):
-            _v = st.text_input(_("vat_number_for", country=ccode), key=f"vat_num_new_{ccode}",
-                               placeholder=f"ex: {ccode}123456789", disabled=_is_reader_new)
-            local_vat_numbers[ccode] = _v.strip()
-            if not _v.strip():
-                _missing_vat_input = True
-
-    tva_fr = local_vat_numbers.get("FR", "")
-
-    st.markdown("---")
-    ioss_number = st.text_input(_("ioss_number_label"), placeholder="ex: IM1234567890", key="ioss_new",
-                                help=_("ioss_help"), disabled=_is_reader_new)
-    ioss_own_number_active = False
-    if ioss_number.strip():
-        ioss_own_number_active = st.toggle(
-            _("ioss_own_number_active_label"), value=False, key="ioss_own_active_new",
-            help=_("ioss_own_number_active_help", platform="Amazon"),
-            disabled=_is_reader_new,
-        )
-    seller_is_importer = st.toggle(_("ddp_label"), value=False, key="ddp_new", disabled=_is_reader_new)
-    # BUGFIX (2026-09-29) : conflit résolu AVANT l'instanciation des toggles
-    # (voir _resolve_oss_threshold_conflict) — l'écriture après instanciation
-    # levait StreamlitWidgetAlreadyInstantiatedError.
-    _thr_conflict_new = _resolve_oss_threshold_conflict("oss_thr_new", "oss_thr_prevyear_new")
-    apply_fr_under_threshold = st.toggle(_("oss_threshold_apply_label", country=home_country, limit=_oss_limit_label(home_country)), value=False, key="oss_thr_new", disabled=_is_reader_new)
-    oss_threshold_exceeded_prev_year = st.toggle(
-        _("oss_threshold_prev_year_label"), value=False, key="oss_thr_prevyear_new",
-        help=_("oss_threshold_prev_year_help"), disabled=_is_reader_new,
+    # Déléguer au nouveau stepper
+    _new_siren_stepper_fragment(
+        current_user=current_user,
+        home_country=home_country,
+        siren_options=siren_options
     )
-    if _thr_conflict_new:
-        st.caption("⚠️ " + _("oss_threshold_prev_year_help"))
-        apply_fr_under_threshold = False
-        # BUGFIX (2026-09-10, désync toggle) : la variable Python locale
-        # était forcée à False ci-dessus, mais le widget st.toggle reste
-        # lié à st.session_state["oss_thr_new"] — sans mise à jour de cette
-        # clé, le bouton restait affiché "ON" au rerun suivant alors que le
-        # calcul utilisait bien apply_fr_under_threshold=False. On
-        # resynchronise explicitement l'état affiché avec l'état réellement
-        # appliqué.
-        # (2026-09-29) Écriture DÉPLACÉE avant l'instanciation du toggle, dans
-        # _resolve_oss_threshold_conflict() : ici, après instanciation, elle
-        # levait StreamlitWidgetAlreadyInstantiatedError. Ligne d'origine
-        # conservée en commentaire :
-        # st.session_state["oss_thr_new"] = False
-
-    if st.button(_("save_siren_btn"), key="btn_register_siren", disabled=(current_user.role == "reader")):
-        if not siren_entreprise.strip():
-            st.warning(_("siren_required"))
-        elif siren_entreprise.strip() in siren_options:
-            st.error(_("siren_already_registered", siren=siren_entreprise.strip()))
-        elif not countries_with_vat:
-            st.warning(_("at_least_one_vat_required"))
-        elif _missing_vat_input:
-            st.warning(_("missing_vat_numbers"))
-        else:
-            try:
-                tva_billing.register_siren(
-                    current_user.org_id, current_user.id, siren_entreprise.strip(),
-                    nom_entreprise.strip(), tva_fr.strip(),
-                    ioss_number=ioss_number.strip(),
-                    seller_is_importer=seller_is_importer,
-                    apply_fr_under_threshold=apply_fr_under_threshold,
-                    countries_with_vat=",".join(countries_with_vat),
-                    vat_numbers_json=json.dumps(local_vat_numbers),
-                    oss_threshold_exceeded_prev_year=oss_threshold_exceeded_prev_year,
-                    ioss_own_number_active=ioss_own_number_active,
-                )
-                st.success(_("siren_save_success"))
-                _invalidate_db_cache(f"sirens_{current_user.org_id}")
-                _invalidate_db_cache(f"siren_quota_{current_user.org_id}")
-                # Fait pointer le sélecteur sur le SIREN qu'on vient de créer
-                # (au lieu de laisser "+ Nouveau SIREN" sélectionné) : sans
-                # cela, le rappel de verrouillage affiché au-dessus
-                # d'"Identité & Paramètres TVA" (voir render_sidebar)
-                # resterait affiché indéfiniment après l'enregistrement,
-                # puisqu'il se base sur la valeur de ce même sélecteur.
-                st.session_state["siren_select_box"] = siren_entreprise.strip()
-                preserve_upload_rerun()  # rerun complet volontaire : il faut recharger _registered_sirens
-            except Exception as _reg_err:
-                st.error(_("siren_save_error", error=_reg_err))
 
 
 @st.fragment

@@ -371,6 +371,11 @@ class ViesValidationSummary:
     # construction, et le set démarre vide — mais gardait une trace trompeuse
     # pour quiconique relirait ce modèle).
     vies_affected_sale_ids: set[tuple[str, Decimal]] = field(default_factory=set)
+    # Clés (sale_id, amount_ht) des ventes B2B cross-border dont l'acheteur a fourni
+    # un NIF / identifiant fiscal national au lieu d'un n° de TVA intracom (jamais
+    # soumis à VIES). Ensemble DISTINCT de vies_affected_sale_ids : un NIF n'est pas
+    # un rejet VIES (source de l'ancien désalignement onglet VIES / Écarts Amazon).
+    nif_affected_sale_ids: set[tuple[str, Decimal]] = field(default_factory=set)
 
     @property
     def total_valid(self) -> int: return self.valid_count

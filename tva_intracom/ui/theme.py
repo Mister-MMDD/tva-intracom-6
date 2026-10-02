@@ -1450,6 +1450,143 @@ div[data-testid="stVerticalBlock"] > div > div {
     text-decoration: underline;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   SIREN STEPPER - Styles pour le formulaire guidé
+   ══════════════════════════════════════════════════════════════════════ */
+.siren-stepper-progress {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    padding: 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+}
+
+.siren-stepper-step {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.siren-stepper-step.active {
+    color: var(--brand-primary);
+    font-weight: 600;
+}
+
+.siren-stepper-step.completed {
+    color: var(--accent-green);
+}
+
+.siren-stepper-number {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-medium);
+    font-weight: 600;
+}
+
+.siren-stepper-step.active .siren-stepper-number {
+    border-color: var(--brand-primary);
+    background: var(--brand-soft);
+}
+
+.siren-stepper-step.completed .siren-stepper-number {
+    border-color: var(--accent-green);
+    background: color-mix(in srgb, var(--accent-green) 20%, #ffffff);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   QUICK ACTIONS - Styles pour les boutons d'action rapide
+   ══════════════════════════════════════════════════════════════════════ */
+.stButton > button[kind="secondary"] {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-medium);
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+}
+
+.stButton > button[kind="secondary"]:hover {
+    background-color: var(--brand-soft);
+    border-color: var(--brand-primary);
+    transform: translateY(-1px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FLOATING HELP BAR - Styles pour la barre d'aide flottante
+   ══════════════════════════════════════════════════════════════════════ */
+.floating-help-bar {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 9999;
+    max-width: 400px;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateY(100px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.floating-help-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.floating-help-icon {
+    font-size: 1.2rem;
+}
+
+.floating-help-text {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.floating-help-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.help-action-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+}
+
+.help-action-btn:hover {
+    background: var(--brand-soft);
+    border-color: var(--brand-primary);
+    color: var(--brand-primary);
+}
+
 </style>
 """
 
@@ -1466,7 +1603,6 @@ def apply_theme() -> None:
     )
     st.markdown(_CSS, unsafe_allow_html=True)
     _sync_theme_attribute()
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # SYNCHRONISATION DU THÈME RÉEL (2026-09-18, migré vers st.iframe le

@@ -162,75 +162,16 @@
    "type": "BLOCK:flex_container"
   },
   {
+   "body": "<div class=\"siren-stepper-progress\">\n    <div class=\"siren-stepper-step completed\">\n        <div class=\"siren-stepper-number\">1</div>\n        <span>Étape 1/3 : Informations de base</span>\n    </div>\n    <div class=\"siren-stepper-step completed\">\n        <div class=\"siren-stepper-number\">2</div>\n        <span>Étape 2/3 : Immatriculations TVA</span>\n    </div>\n    <div class=\"siren-stepper-step active\">\n        <div class=\"siren-stepper-number\">3</div>\n        <span>Étape 3/3 : Options avancées</span>\n    </div>\n</div>",
    "depth": 2,
-   "disabled": false,
-   "key": "nom_new",
-   "label": "Nom de l'entreprise",
-   "type": "text_input",
-   "value": ""
+   "type": "markdown",
+   "value": "<div class=\"siren-stepper-progress\">\n    <div class=\"siren-stepper-step completed\">\n        <div class=\"siren-stepper-number\">1</div>\n        <span>Étape 1/3 : Informations de base</span>\n    </div>\n    <div class=\"siren-stepper-step completed\">\n        <div class=\"siren-stepper-number\">2</div>\n        <span>Étape 2/3 : Immatriculations TVA</span>\n    </div>\n    <div class=\"siren-stepper-step active\">\n        <div class=\"siren-stepper-number\">3</div>\n        <span>Étape 3/3 : Options avancées</span>\n    </div>\n</div>"
   },
   {
-   "depth": 2,
-   "disabled": false,
-   "key": "siren_new",
-   "label": "Numéro SIREN",
-   "type": "text_input",
-   "value": ""
-  },
-  {
-   "depth": 2,
-   "disabled": false,
-   "key": "vat_countries_new",
-   "label": "Pays où vous avez un numéro TVA local",
-   "options": [
-    "AT",
-    "BE",
-    "BG",
-    "CY",
-    "CZ",
-    "DE",
-    "DK",
-    "EE",
-    "ES",
-    "FI",
-    "FR",
-    "GR",
-    "HR",
-    "HU",
-    "IE",
-    "IT",
-    "LT",
-    "LU",
-    "LV",
-    "MC",
-    "MT",
-    "NL",
-    "PL",
-    "PT",
-    "RO",
-    "SE",
-    "SI",
-    "SK",
-    "XI"
-   ],
-   "type": "multiselect",
-   "value": [
-    "FR"
-   ]
-  },
-  {
-   "body": "Numéros de TVA locaux (obligatoires) :",
+   "body": "Ces options sont optionnelles mais recommandées pour certains cas.",
    "depth": 2,
    "type": "caption",
-   "value": "Numéros de TVA locaux (obligatoires) :"
-  },
-  {
-   "depth": 2,
-   "disabled": false,
-   "key": "vat_num_new_FR",
-   "label": "Numéro de TVA FR",
-   "type": "text_input",
-   "value": ""
+   "value": "Ces options sont optionnelles mais recommandées pour certains cas."
   },
   {
    "body": "---",
@@ -280,9 +221,40 @@
   },
   {
    "depth": 2,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
    "disabled": false,
-   "key": "btn_register_siren",
-   "label": "💾 Enregistrer ce SIREN",
+   "key": "stepper_prev",
+   "label": "Précédent",
+   "type": "button",
+   "value": false
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "type": "empty"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "disabled": false,
+   "key": "stepper_finish",
+   "label": "Enregistrer ce SIREN",
    "type": "button",
    "value": false
   },
@@ -340,20 +312,25 @@
   "_sb_dbcache_siren_quota_org1",
   "_sb_dbcache_sirens_org1",
   "btn_open_account_dialog",
-  "btn_register_siren",
   "ddp_new",
   "display_currency_choice",
   "display_currency_select",
+  "home_country",
   "home_country_select",
   "ioss_new",
-  "nom_new",
+  "ioss_own_active_new",
   "oss_thr_new",
   "oss_thr_prevyear_new",
-  "siren_new",
-  "vat_countries_new",
-  "vat_num_new_FR"
+  "siren_stepper_data",
+  "siren_stepper_step",
+  "stepper_finish",
+  "stepper_prev"
  ],
  "vies_stats_calls": [
+  "call('scope1')",
+  "call('scope1')",
+  "call('scope1')",
+  "call('scope1')",
   "call('scope1')",
   "call('scope1')",
   "call('scope1')"

@@ -339,6 +339,7 @@ def render_visualisations() -> None:
     summary = ctx.summary
     platform_name = ctx.platform_name
     _can_export = ctx.can_export
+    period_label = ctx.period_label
 
     # Devise cible du pays d'origine choisi (home_country) : tous les montants
     # ci-dessous sont calculés en EUR par le moteur fiscal et convertis ici
@@ -379,7 +380,7 @@ def render_visualisations() -> None:
         fig_bar = _build_fig_bar(
             viz_data_by_country, vat_net_by_country, _rate, _currency_symbol, _lang, ctx.calc_key,
         )
-        st.plotly_chart(fig_bar, width="stretch")
+        st.plotly_chart(fig_bar, width="stretch", key="viz_bar_chart")
 
     st.divider()
 
@@ -393,7 +394,7 @@ def render_visualisations() -> None:
             _rate, _currency_symbol, platform_name, _lang, ctx.calc_key,
         )
         if fig_pie is not None:
-            st.plotly_chart(fig_pie, width="stretch")
+            st.plotly_chart(fig_pie, width="stretch", key="viz_pie_chart")
 
     with ch2:
         st.subheader(_("viz_map_subheader"))
@@ -402,7 +403,7 @@ def render_visualisations() -> None:
         elif vat_net_by_country:
             fig_map = _build_fig_map(vat_net_by_country, _rate, _lang, ctx.calc_key)
             if fig_map is not None:
-                st.plotly_chart(fig_map, width="stretch")
+                st.plotly_chart(fig_map, width="stretch", key="viz_map_chart")
 
     # ── B : Évolution temporelle ──────────────────────────────────────
     st.subheader(_("viz_evolution_subheader"))
@@ -449,11 +450,11 @@ def render_visualisations() -> None:
         )
 
         with _tviz1:
-            st.plotly_chart(fig_time, width="stretch")
+            st.plotly_chart(fig_time, width="stretch", key="viz_time_chart")
         with _tviz2:
             # ── F : Répartition par scénario ─────────────────────────
             st.markdown(_("viz_scenario_markdown"))
-            st.plotly_chart(fig_scen, width="stretch")
+            st.plotly_chart(fig_scen, width="stretch", key="viz_scen_chart")
             st.caption(" · ".join(
                 _("viz_scen_caption", scen=s, n=n, ht=f"{_scen_ht.get(s, 0) * _rate:,.0f}", currency=_currency_symbol)
                 for s, n in _scen_data

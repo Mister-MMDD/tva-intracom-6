@@ -547,12 +547,40 @@ def _b2b_intra_eu_result(sale: Sale, effective_category: str, _tx_date: _date | 
     # Note : Si la vente est reclassifiée en B2C par le moteur VIES, elle basculera
     # alors dans le régime OSS (TVA destination) — voir bloc Cas 1 plus bas.
     if stock_eu and buyer_eu and cross_border:
+        # NIF / identifiant fiscal national (jamais un n° de TVA intracom, jamais
+        # soumis à VIES) : même traitement fiscal qu'un n° invalide, mais la note
+        # ne doit PAS prétendre qu'un numéro a été rejeté par VIES.
+        _is_nif = (not sale.buyer_vat_number) and bool(getattr(sale, "national_tax_id", ""))
         if sale.buyer_country in DOMESTIC_REVERSE_CHARGE_COUNTRIES:
             departure_rate = vat_rate(sale.stock_country, effective_category, tx_date=_tx_date)
             departure_amount = _vat_amount(sale.amount_ht, departure_rate)
 
             is_stock_home = sale.stock_country == sale.seller_country
             channel = Channel.FR_DOMESTIC if is_stock_home else Channel.LOCAL_REGISTRATION
+
+            if _is_nif:
+                _nif_note = _note(
+                    f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
+                    f"l'acheteur a fourni un identifiant fiscal national et non un n° de TVA "
+                    f"intracommunautaire (aucune vérification VIES possible). Sans n° intracom, "
+                    f"le statut d'assujetti n'est pas prouvé : l'exonération est refusée "
+                    f"(Art. 138 Directive 2006/112/CE). L'art.194 (adopté en "
+                    f"{sale.buyer_country}) ne s'applique qu'au national, pas en cross-border "
+                    f"— taxation au pays de départ ({sale.stock_country}) au taux de "
+                    f"{departure_rate}% collecté par le vendeur.",
+                    "engine_note_b2b_nif_departure", lang=lang, stock=sale.stock_country,
+                    buyer=sale.buyer_country, rate=departure_rate,
+                )
+                return VatResult._new_unchecked(
+                    sale=sale,
+                    scenario=Scenario.DOMESTIC,
+                    vat_country=sale.stock_country,
+                    vat_rate=departure_rate,
+                    vat_amount=departure_amount,
+                    collector=Collector.SELLER,
+                    channel=channel,
+                    note=_nif_note,
+                )
 
             return VatResult._new_unchecked(
                 sale=sale,
@@ -581,6 +609,28 @@ def _b2b_intra_eu_result(sale: Sale, effective_category: str, _tx_date: _date | 
             # la vente comme une vente à distance B2C classique (Art. 33
             # Directive 2006/112/CE) : la vente est reclassifiée B2C et
             # suit le régime OSS, taxée au pays de destination.
+            if _is_nif:
+                return VatResult._new_unchecked(
+                    sale=sale,
+                    scenario=Scenario.OSS_B2C,
+                    vat_country=sale.buyer_country,
+                    vat_rate=tax_rate,
+                    vat_amount=tax_amount,
+                    collector=Collector.SELLER,
+                    channel=Channel.OSS,
+                    note=_note(
+                        f"Vente B2B cross-border {sale.stock_country}→{sale.buyer_country} : "
+                        f"l'acheteur a fourni un identifiant fiscal national et non un n° de TVA "
+                        f"intracommunautaire (aucune vérification VIES possible). Sans n° intracom, "
+                        f"le statut d'assujetti n'est pas prouvé : l'exonération est refusée "
+                        f"(Art. 138 Directive 2006/112/CE) — la vente est reclassifiée B2C "
+                        f"et taxée au pays de destination ({sale.buyer_country}) au taux de "
+                        f"{tax_rate}% via le régime OSS (BOI-TVA-CHAMP-20-20-30 — "
+                        f"https://bit.ly/Bofip-OSS).",
+                        "engine_note_b2b_nif_destination_oss", lang=lang, stock=sale.stock_country,
+                        buyer=sale.buyer_country, rate=tax_rate,
+                    ),
+                )
             return VatResult._new_unchecked(
                 sale=sale,
                 scenario=Scenario.OSS_B2C,
@@ -1800,7 +1850,7 @@ def _make_vies_effective_sale_fn(vies_summary: ViesValidationSummary, refund_key
                 if sale.national_tax_id not in national_ids_seen:
                     national_ids_seen.add(sale.national_tax_id)
                     vies_summary.national_id_count += 1
-                vies_summary.vies_affected_sale_ids.add(_sale_key(sale))
+                vies_summary.nif_affected_sale_ids.add(_sale_key(sale))
             _vies_state["last_classified_sale_id"] = sale.sale_id
             return sale
 

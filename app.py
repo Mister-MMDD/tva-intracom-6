@@ -5,7 +5,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Correctif pour [WinError 10022] sur Windows avec asyncio/Streamlit
+# Correctif pour [WinError 10022] / [WinError 10038] sur Windows avec asyncio/Streamlit/Tornado
 if sys.platform == 'win32':
     import warnings
     with warnings.catch_warnings():
@@ -16,8 +16,24 @@ if sys.platform == 'win32':
             from asyncio import WindowsSelectorEventLoopPolicy
             # noinspection PyDeprecation
             asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
-        except ImportError:
+        except (ImportError, AttributeError):
             pass
+
+    # Silencer l'exception bénigne `_call_connection_lost` de ProactorEventLoop
+    # déclenchée lors de la fermeture/déconnexion d'une socket WebSocket sur Windows
+    try:
+        import asyncio.proactor_events
+        _orig_call_connection_lost = asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost
+
+        def _silenced_call_connection_lost(self, exc=None):
+            try:
+                _orig_call_connection_lost(self, exc)
+            except (OSError, ConnectionResetError):
+                pass
+
+        asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost = _silenced_call_connection_lost
+    except Exception:
+        pass
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -406,7 +422,15 @@ with _status_col_bar:
 with _status_col_toggle:
     render_mode_toggle()
 
-render_onboarding_banner(
+# =============================================================================
+# ONBOARDING - Wizard interactif pour nouveaux utilisateurs
+# =============================================================================
+if not _current_user.onboarding_seen:
+    from tva_intracom.ui.onboarding_wizard import render_onboarding_wizard
+    render_onboarding_wizard(_current_user)
+else:
+    # Si l'utilisateur a déjà vu le wizard, afficher la checklist compacte
+    render_onboarding_banner(
     _current_user,
     entreprise_ok=_ob_entreprise_ok,
     tva_local_ok=_ob_tva_local_ok,
@@ -1363,7 +1387,10 @@ if uploaded_files:
                 preserve_upload_rerun()
 
         # Segmentation écarts pour KPI
-        _vies_ids_kpi: set[str] = getattr(vies_summary, 'vies_affected_sale_ids', set()) if vies_summary else set()
+        # NIF (identifiant national sans n° intracom) : catégorie d'audit distincte du
+        # risque VIES, mais toujours exclue des « écarts de taux » (même skip que VIES).
+        _vies_ids_kpi: set = set(getattr(vies_summary, 'vies_affected_sale_ids', set()) if vies_summary else set())
+        _vies_ids_kpi |= set(getattr(vies_summary, 'nif_affected_sale_ids', set()) if vies_summary else set())
         _vies_rc_ids_kpi:  set[str] = set()
         _dom_rc_ids_kpi:   set[str] = set()
         if vies_summary and hasattr(vies_summary, "reclassifications"):

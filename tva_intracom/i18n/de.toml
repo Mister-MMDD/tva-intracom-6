@@ -6,10 +6,7 @@ files_too_large_error = "⚠️ **Datei(en) zu groß**: {files}. Die maximal zul
 files_invalid_content_error = "🚫 **Datei(en) abgelehnt**: {files}. Der Inhalt entspricht keiner gültigen Textdatei (CSV/TSV/TXT) — prüfen Sie, ob sie von einem anderen Format umbenannt wurde."
 files_invalid_mime_error = "🚫 **Datei(en) abgelehnt**: {files}. Der MIME-Typ der Datei ist nicht zulässig. Nur CSV-, TSV- und TXT-Dateien werden akzeptiert."
 language = "Sprache"
-contact_support = "Support kontaktieren"
 website_label = "Webseite"
-
-# Countries
 country_AT = "Österreich"
 country_BE = "Belgien"
 country_BG = "Bulgarien"
@@ -39,7 +36,6 @@ country_ES = "Spanien"
 country_SE = "Schweden"
 country_MC = "Monaco"
 country_XI = "Nordirland"
-# Nicht-EU
 country_CH = "Schweiz"
 country_GB = "Vereinigtes Königreich"
 country_US = "Vereinigte Staaten"
@@ -74,17 +70,12 @@ country_IS = "Island"
 country_EG = "Ägypten"
 country_RU = "Russland"
 country_XX = "Ausnahmegebiet (Export)"
-
 options_header = "⚙️ Optionen"
 home_country_label = "🏠 Herkunftsland (Sitz)"
 home_country_help = "Land, in dem Ihr Unternehmen hauptsächlich ansässig und für die Mehrwertsteuer registriert ist. Globale Kontoeinstellung (nicht pro SIREN): Definiert die Einstufung als inländisch/lokal und die Reihenfolge der herunterladbaren Erklärungen. Standard: Frankreich."
 display_currency_label = "Anzeigewährung"
 display_currency_default_label = "Standard (Währung des Herkunftslandes: {currency})"
 display_currency_help = "Währung für die Anzeige der Beträge (KPIs, Tabellen, Diagramme, Excel-Übersichtsseite). Betrifft weder die steuerliche Berechnung (immer in EUR) noch die gesetzlichen Erklärungen (CA3, OSS-XML, lokale Exporte — immer in EUR). Standardmäßig wird die Währung des Herkunftslandes verwendet."
-
-
-
-
 cache_vies_header = "🗄️ MIAS-Cache"
 ttl_cache_slider = "Cache-TTL (Tage)"
 ttl_cache_help = "Dauer vor der automatischen Revalidierung einer USt-IdNr. über MIAS (maximal 30 Tage)."
@@ -100,14 +91,10 @@ manual_invalid = "❌ Ungültig (B2C)"
 purge_expired_btn = "🗑️ {count} abgelaufene Einträge löschen"
 purge_success = "{count} Eintrag/Einträge gelöscht."
 cache_unavailable = "MIAS-Cache nicht verfügbar: {error}"
-
-# Upload & Analysis
 analysis_progress = "Analysiere {name}..."
 analysis_progress_simple = "Schnellanalyse von {name}..."
 analysis_progress_count = "📦 {name}: {processed} / {total} Zeilen gelesen{suffix}"
 fx_conv_suffix = "inkl. EZB-Umrechnung"
-
-# Summary table columns
 col_file = "Datei"
 col_date = "Datum"
 col_pays = "Land"
@@ -142,13 +129,10 @@ col_rate_amz_pct = "Amazon Steuersatz (%)"
 col_rate_moteur_pct = "Engine Steuersatz (%)"
 col_volume_ht_eur = "Nettovolumen ({currency})"
 col_sales_count = "Verkäufe"
-
 summary_part_returns = ", {count} physische Retouren ohne Betrag"
 summary_part_invoices = ", {count} Rechnungen"
 summary_part_credits = ", {count} Gutschriften"
 summary_part_skipped = ", {count} ignorierte Zeilen"
-
-# Filters
 filter_search = "🔍 Suchen"
 filter_search_placeholder = "ID, ASIN, Notiz..."
 filter_dest = "Bestimmungsland"
@@ -157,20 +141,12 @@ filter_scenario = "Szenario"
 filter_scenario_placeholder = "Alle Szenarien"
 filter_canal = "Kanal"
 filter_canal_placeholder = "Alle Kanäle"
-
-# Gated preview
 gated_locked = "Premium-Option"
 gated_preview_warning = "🔒 Eingeschränkte Vorschau: {count} weitere Zeilen sind ausgeblendet. Schalten Sie den Zeitraum frei, um die vollständigen Details zu sehen."
-
-# OSS Threshold
 oss_threshold_label = "Lieferschwelle (OSS)"
 oss_threshold_multi_year = "OSS-Schwelle (Jahr {year})"
 oss_threshold_help = "Ihnen verbleiben {remaining}, bevor Sie die Schwelle von {limit} erreichen. Darunter können Sie die französische MwSt anwenden."
 oss_threshold_exceeded = "✅ Schwelle von {limit} überschritten. Die MwSt des Bestimmungslandes ist obligatorisch (OSS)."
-
-import_summary_single = "✅ **{platform}**: {sales} Verkäufe, {refunds} Erstattungen, {fc} FBA Umlagerungen{returns}{invoices}{credits}{skipped}."
-import_summary_multi = "✅ **{count} Dateien** analysiert: {sales} Verkäufe, {refunds} Erstattungen, {fc} FBA Umlagerungen{returns}{invoices}{credits}{skipped} (Gesamt {total_rows} Zeilen)."
-file_detail_expander = "Dateidetails ({count})"
 import_warnings_header = "⚠️ Import-Warnungen ({count})"
 import_warning_col_file = "Datei"
 import_warning_col_line = "Quellzeile"
@@ -185,12 +161,8 @@ period_mismatch_col_id = "Verkaufs-ID"
 period_mismatch_col_order = "Bestelldatum"
 period_mismatch_col_shipment = "Versanddatum"
 period_mismatch_col_amount = "Betrag (Netto)"
-
-# FX & Calculation
 calc_progress_bce = "Wird Wechselkurse heruntergeladen (EZB)..."
 calc_progress_bce_count = "⏳ EZB: {done} / {total} Kurse abgerufen"
-bce_rates_oss_disclaimer = "Schlusskurs für den gemeldeten OSS-Zeitraum (EZB zum {date}, EU-Verordnung 2020/194 Art. 5 bis)"
-bce_rates_oss_disclaimer_range = "Schlusskurs für den gemeldeten OSS-Zeitraum (EZB von {start} bis {end}, EU-Verordnung 2020/194 Art. 5 bis)"
 bce_rates_oss_unavailable = "Kurs noch nicht von der EZB veröffentlicht"
 bce_rates_title = "💱 Verwendete EZB-Schlusskurse für OSS/IOSS ({count})"
 bce_rates_daily_title = "Verwendete tägliche Wechselkurse ({count})"
@@ -202,16 +174,12 @@ calc_progress_vat_rates_count = "⏳ USt-Sätze werden geladen: {done} / {total}
 calc_queue_position = "🕒 {position} Berechnung(en) vor Ihnen in der Warteschlange..."
 calc_progress_vat = "Berechne Steuern..."
 vies_inconclusive_error = "⚠️ **{count} nicht eindeutige MIAS-Nummer(n)** (Dienst nicht verfügbar). Die Transaktionen wurden aus Sicherheitsgründen als B2C behandelt."
-
-# Action Plan
 action_plan_title = "🚀 Aktionsplan: Erforderliche MwSt-Registrierungen ({countries})"
 action_plan_intro = "Basierend auf Ihren Daten sollten Sie in folgenden Ländern für die MwSt registriert sein:"
 action_reason_stock = "Lokale Lagerung"
 action_reason_sales = "Lokale Verkäufe"
 action_reason_ddp = "Import (Verkäufer als Importer of Record)"
 amazon_blocking_warning = "❌ **In Kürze Amazon-Sperrung**: Sie lagern in {countries} ohne eine lokale USt-IdNr."
-
-# KPIs
 kpi_ca_ht = "Nettoumsatz (ohne MwSt)"
 kpi_ca_ht_help = "Nettoumsatz (Bruttoumsatz {gross} + Erstattungen {refunds})"
 kpi_vat_you_owe = "Abzuführende MwSt"
@@ -221,13 +189,9 @@ kpi_vat_amazon_help = "MwSt-Betrag, der vom Marktplatz an der Quelle einbehalten
 amazon_config_error = "Konfigurationsabweichung bei {platform}"
 config_error_badge = "Aktion im Seller Central erforderlich"
 amazon_config_success = "Konfiguration von {platform} konform"
-
-
 display_mode_label = "Anzeigemodus"
 display_mode_simple = "Vereinfacht"
 display_mode_detailed = "Detailliert"
-
-# Barre de statut persistante
 status_bar_file_label = "Datei"
 status_bar_no_file = "Keine Datei importiert"
 status_bar_files_count = "{count} Datei(en) importiert"
@@ -235,15 +199,12 @@ status_bar_period_label = "Zeitraum"
 status_bar_period_pending = "Nicht erkannt"
 status_bar_status_ready = "Aktuell"
 status_bar_status_none = "Warten auf Import"
-# Tabs
 tab_declarations = "📋 Erklärungen"
 tab_sales_detail = "📑 Verkaufsdetails"
 tab_vies = "🔍 MIAS"
 tab_amazon_audit = "🕵️ {platform}-Audit"
 tab_downloads = "📥 Downloads"
 tab_visualizations = "📈 Visualisierungen"
-
-# Sales Detail Sub-tabs
 subtab_selector_label = "Unterregisterauswahl"
 subtab_what_you_owe = "💸 Was Sie schulden"
 subtab_exemptions = "🛡️ Steuerbefreiung"
@@ -254,15 +215,12 @@ subtab_managed_by_tiers_note = "💡 **Hinweis**: Wenn Sie Ihre eigene IOSS-Numm
 subtab_row_by_row = "📄 Zeile für Zeile"
 subtab_row_by_row_caption = "Alle Verkäufe, Zeile für Zeile."
 subtab_refunds = "🔄 Erstattungen ({count})"
-
-# Audit Sub-tabs
 subtab_amazon_gaps = "⚖️ Amazon MwSt-Differenzen"
 subtab_fba_inventory = "📦 FBA Lagerbewegungen"
-
-# Audit tab strings
 no_amazon_vat_info = "ℹ️ Keine Amazon MwSt-Informationen verfügbar. Dieses Tab erfordert das Amazon-Format 3 (2024+)."
 audit_tab_rate_gaps = "⚙️ Steuersatz-Differenzen ({count})"
 audit_tab_vies_risk = "🚨 MIAS-Risiko ({count})"
+audit_tab_nif = "🆔 Nationale Steuer-ID ohne USt-IdNr. ({count})"
 audit_tab_uk = "🇬🇧 Vereinigtes Königreich ({count})"
 audit_tab_art194 = "♻️ Art. 194 Reverse Charge ({count})"
 audit_tab_missing_amz = "⚠️ Fehlende Amazon MwSt ({count})"
@@ -271,6 +229,9 @@ audit_taux_success = "✅ Keine Abweichungen bei der Steuersatzkonfiguration."
 audit_vies_info = "ℹ️ Aktivieren Sie MIAS, um B2B-Nummern zu prüfen."
 audit_vies_error = "Steuerliches Risiko (MIAS-Neueinstufung): {amount} EUR"
 audit_vies_success = "✅ Kein MIAS-Risiko erkannt."
+audit_nif_info = "💡 Grenzüberschreitende B2B-Verkäufe, bei denen der Käufer eine nationale Steuernummer statt einer innergemeinschaftlichen USt-IdNr. angegeben hat. Eine MIAS-Prüfung ist nicht möglich: ohne USt-IdNr. ist die Steuerbefreiung (Art. 138 RL 2006/112/EG) nicht gerechtfertigt."
+audit_nif_error = "Steuerrisiko (ungerechtfertigte Steuerbefreiung, nationale ID ohne USt-IdNr.): {amount} EUR"
+audit_nif_success = "✅ Kein grenzüberschreitender B2B-Verkauf nur mit nationaler ID erkannt."
 audit_uk_info = "💡 UK-MwSt wird seit dem Brexit von Amazon erhoben. Das ist normal und liegt außerhalb von EU-Erklärungen."
 audit_uk_metric = "Technische UK-Differenz"
 audit_uk_success = "✅ Keine Transaktionen im Vereinigten Königreich."
@@ -291,8 +252,6 @@ audit_status_required = "🚨 Registrierung erforderlich"
 audit_fba_count_caption = "{count} FBA Umlagerung(en) erkannt."
 audit_fba_expander = "FBA Umlagerungen anzeigen"
 audit_fba_none = "Keine FBA Umlagerungen erkannt."
-
-# Sales detail tab strings
 what_you_owe_caption = "Verkäufe, für die Sie mehrwertsteuerpflichtig sind."
 sort_by_label = "Sortieren nach"
 sort_country = "Land"
@@ -306,24 +265,13 @@ no_refunds_info = "ℹ️ Keine Erstattungen in dieser Datei."
 kpi_refunds = "Erstattungen"
 kpi_ht_refunded = "Gesamt Netto Erstattet"
 kpi_vat_restituted = "Erstattete MwSt"
-
 processing_error = "Ein Fehler ist beim Verarbeiten aufgetreten: {error}"
 recapitulatif_header = "📊 Zusammenfassung"
-
-
-
-
-
-# Dropdown Herkunftsland & Währung + Marken-Slogan (Los 7)
 sidebar_regional_settings_label = "🌍 Herkunftsland & Währung"
 sidebar_brand_tagline = "Ihre innergemeinschaftliche MwSt., vereinfacht"
-
-# Karten „Importierte Datei" + Panel „Erweiterte Details" (Los 8)
 file_card_details_button = "Details"
 advanced_details_button = "🔍 Erweiterte Details"
 advanced_details_totals_title = "Transaktionen insgesamt nach Typ"
-
-# Declarations tab strings
 what_you_must_remit = "Was Sie abführen müssen"
 bucket_ioss_vendeur = "IOSS (Verkäufer)"
 bucket_deemed_supplier = "Deemed Supplier (Amazon)"
@@ -359,8 +307,6 @@ locked_quota = "[SIREN-Kontingent überschritten]"
 locked_compliance = "[🔒 USt-Compliance erforderlich]"
 locked_preview_caption = "🔒 Eingeschränkte Vorschau: Schalten Sie diesen Zeitraum frei (Einmalzahlung oder Abonnement), um die Aufteilung nach Ländern und die fälligen MwSt-Beträge zu sehen."
 refund_summary_info = "🔄 **{count} Erstattung(en)** — Netto: {ht} €"
-
-# Coherence Control
 coherence_header = "🧮 Buchhalterische Plausibilitätsprüfung"
 col_fiscal_canal = "Steuerlicher Kanal"
 col_net_ht_eur = "Nettoumsatz Netto (EUR)"
@@ -371,8 +317,6 @@ coherence_error = "⛔ Differenz zwischen dem erklärten Nettoumsatz und der Sum
 coherence_caption = "Diese Prüfung verifiziert die interne Konsistenz der Berechnung (kein Verkauf geht zwischen den Kanälen verloren). Sie ersetzt keinen Abgleich mit Ihrem Amazon-Auszahlungsbericht, der Elemente außerhalb des Rahmens dieses Tools enthält (Gebühren, Logistikkosten, Rabatte)."
 type_column_label = "Typ"
 canal_column_label = "Kanal"
-
-# Downloads tab strings
 period_detected_info = "📅 Automatisch erkannter Zeitraum: **{period}** (Transaktionen vom {start} bis {end})."
 period_gated_warning = "🔒 Die Exporte für den Zeitraum **{period}** sind noch nicht freigeschaltet. Klicken Sie unten auf eine Export-Schaltfläche, um direkt zur Stripe-Zahlung weitergeleitet zu werden ({suffix})."
 dl_generation_excel = "Generiere Excel-Datei (alle Tabs)..."
@@ -427,7 +371,6 @@ dl_select_country_label = "Land für Export auswählen"
 dl_local_vat_due_metric = "Fällige MwSt — {country}"
 dl_standard_rate_metric = "Regelsteuersatz"
 dl_standard_rate_change = "{rate} % (Änderung beobachtet am {date})"
-dl_reduced_rate_metric = "Ermäßigter Steuersatz"
 dl_local_csv_btn = "📥 Erklärung für {country} herunterladen (.csv)"
 dl_local_csv_filename = "MwSt_Erklaerung_{country} - {company} - {period}.csv"
 dl_local_html_btn = "📄 HTML-Bericht {country}"
@@ -487,8 +430,6 @@ rates_evidence_pdf_exchange_header = "Angewandte Wechselkurse"
 rates_evidence_pdf_vat_header = "Angewandte MwSt.-Sätze"
 rates_evidence_pdf_document_id = "Eindeutige Dokumentreferenz"
 rates_evidence_pdf_trace_note = "Mit dem Hash lässt sich prüfen, ob die zugehörigen CSV-Daten verändert wurden. Dieses PDF ist keine elektronische Signatur."
-
-# Visualisations tab strings
 viz_vat_by_country_subheader = "Fällige MwSt nach Land (Netto)"
 viz_locked_geography_info = "🔒 Länderaufteilung gesperrt. Schalten Sie den Zeitraum frei, um die geografische Verteilung zu sehen."
 viz_france_ca3 = "Frankreich (CA3)"
@@ -527,10 +468,6 @@ sep = "Sep"
 oct = "Okt"
 nov = "Nov"
 dec = "Dez"
-
-# Home
-
-# Auth Flow
 magic_link_welcome = "👋 Willkommen! Klicken Sie auf die Schaltfläche unten, um Ihre Anmeldung abzuschließen."
 magic_link_confirm_btn = "🚀 Anmeldung bestätigen"
 magic_link_error = "⛔ Anmeldefehler: {error}"
@@ -571,8 +508,6 @@ oauth_email_verification_required = "📧 Ihre Amazon-E-Mail-Adresse ist nicht b
 oauth_login_error = "⛔ Fehler bei der Anmeldung: {error}"
 legacy_login_methods_caption = "Magic Link per E-Mail (in Vorbereitung)"
 logout_btn = "🚪 Ausloggen"
-
-# Billing Gate
 unknown_error = "unbekannter Fehler"
 gate_quota_blocked_err = "🔒 {label} — Zahlung nicht verfügbar: Dieses Konto hat {registered} registrierte SIREN bei einem Kontingent von {quota}. Entfernen Sie {over} SIREN(s) oder erweitern Sie Ihr Abonnement (unter \" 💳 Subscriptions & Plans\"), bevor Sie bezahlen."
 gate_payment_unavailable_err = "🔒 {label} — Zahlung nicht verfügbar: {error}"
@@ -588,14 +523,8 @@ gate_quota_global_blocked_err = "🔒 Dieses Konto hat {registered} registrierte
 unlock_label_discounted = "Einzelnen Zeitraum freischalten für {discounted_amount} {currency} statt {amount} {currency} (Code {discount_code}) oder abonnieren"
 unlock_label_standard = "Einzelnen Zeitraum freischalten für {amount} {currency} oder abonnieren"
 unlock_label_fallback = "Diesen Zeitraum freischalten oder abonnieren"
-
-# Formatting & UI Elements
-
-# Sidebar - Settings & Catalog
 file_params_header = "📦 Dateieinstellungen"
 file_encoding = "Dateicodierung"
-
-# Sidebar - Company
 company_header = "📅 Unternehmen & Konfiguration"
 identity_vat_params_title = "Identität & MwSt-Einstellungen"
 siren_list_unavailable = "⚠️ SIREN-Liste nicht verfügbar: {error}"
@@ -620,7 +549,6 @@ oss_threshold_prev_year_help = "Wenn aktiviert, gilt die Regelung unter Schwelle
 local_vat_countries_label = "Länder mit lokaler USt-IdNr."
 local_vat_numbers_caption = "Lokale USt-IdNrn. (obligatorisch):"
 vat_number_for = "USt-IdNr. für {country}"
-save_siren_btn = "💾 Diese SIREN speichern"
 siren_required = "Die SIREN-Nummer ist obligatorisch."
 siren_already_registered = "🚫 Die SIREN {siren} ist bereits für dieses Konto registriert."
 missing_vat_numbers = "Bitte geben Sie die USt-IdNr. für jedes ausgewählte Land ein."
@@ -639,9 +567,7 @@ remove_siren_help = "Die Löschung wird zum Ende des aktuellen Abrechnungszeitra
 remove_success = "✅ SIREN entfernt."
 remove_success_payg_over_quota = "✅ SIREN sofort entfernt — Ihr Pay-as-you-go-Konto (PAYG) ist auf 1 SIREN begrenzt."
 remove_scheduled = "Löschung geplant für den {date}."
-
-# Sidebar - Billing
-billing_header = "💳 Suscripciones y Plans"  # Alternativ im Code oft "Abonnements & Pläne"
+billing_header = "💳 Suscripciones y Plans"
 sub_status_unavailable = "⚠️ Abostatus nicht verfügbar: {error}"
 plan_pro = "Pro"
 plan_pro_desc = "unbegrenzter Zugriff, 1 SIREN"
@@ -696,32 +622,23 @@ subscribe_pro_btn = "Abonnieren — Pro"
 subscribe_cabinet_btn = "Abonnieren — Kanzlei"
 managed_sirens_qty_label = "Anzahl verwalteter SIREN"
 managed_sirens_qty_help = "Mindestens 3 SIREN für den Kanzlei-Plan. Muss mindestens die Anzahl der bereits in diesem Konto registrierten SIREN abdecken."
-
-# Sidebar - Konto & Datenschutz
 account_privacy_header = "👤 Konto & Datenschutz"
 onboarding_title = "Schnellstart"
 onboarding_hint_fiscal = "👈 Öffnen Sie den Bereich **Unternehmen** in der Seitenleiste, um Ihre SIREN-Nummer zu registrieren — das ist der erste Schritt."
 onboarding_hint_upload = "Ihre SIREN-Nummer ist registriert ✅ — laden Sie jetzt unten eine Amazon-Exportdatei hoch, um Ihre erste Berechnung zu starten."
 onboarding_intro = "Erstellen Sie Ihre innergemeinschaftlichen USt-Meldungen (OSS, CA3, IOSS...) aus Ihren Amazon-Exporten, in 2 Schritten."
 onboarding_hint_tabs = "ℹ️ Sobald die Berechnung läuft, deckt jeder Reiter einen anderen Zweck ab — Meldungen (OSS/CA3 zum Herunterladen), Verkaufsdetails (zeilenweise), VIES (Prüfung der USt-IdNr. der Käufer), Audit (Konsistenzprüfungen), Downloads (Excel/XML/CSV-Exporte), Grafiken (Überblick)."
-
 onboarding_hint_vies = "ℹ️ Die VIES-Prüfung der USt-IdNr. Ihrer B2B-Käufer erfolgt automatisch — hier ist nichts zu tun, sie geschieht bei der Berechnung."
-
 onboarding_check_entreprise = "Firmenname + SIREN"
 onboarding_check_tva_local = "Innergemeinschaftliche USt-IdNr. (Land hängt von Ihrem Sitzland ab)"
 onboarding_check_ioss = "IOSS-Nummer (optional — Importe ≤ 150 €)"
 onboarding_check_vies_ttl = "Gültigkeitsdauer des VIES-Cache"
 onboarding_check_vies_ttl_detail = "Standardmäßig 7 Tage (maximal 30 Tage) — einstellbar im Bereich <strong>VIES-Cache</strong> der Seitenleiste"
 onboarding_check_upload = "Erste Amazon-Exportdatei hochladen"
-
-# --- Dashboard premier lancement (zero state) ---
-
 onboarding_dismiss_btn = "Überspringen"
-
 onboarding_restart_title = "Geführte Tour"
 onboarding_restart_help = "Zeigt das Einstiegsbanner erneut an (SIREN + erster Import), ohne Ihre bereits gespeicherten Daten zu ändern."
 onboarding_restart_btn = "Geführte Tour neu starten"
-
 account_change_password_title = "Passwort ändern"
 account_change_password_help = "Gilt nur für Konten, die mit E-Mail + Passwort erstellt wurden. Wenn Sie sich über Google, GitHub oder Amazon angemeldet haben, gilt dieser Abschnitt nicht für Ihr Konto."
 current_password_label = "Aktuelles Passwort"
@@ -742,8 +659,6 @@ delete_account_reader_info = "Das Löschen des Kontos ist dem Administrator Ihre
 delete_account_btn = "🗑️ Mein Konto löschen"
 delete_account_final_confirmation = "❗ Sind Sie sicher, dass Sie Ihr Konto und alle Ihre Daten dauerhaft löschen möchten?"
 cancel_btn = "Abbrechen"
-
-# --- Ajuts audit i18n 2026-09-11 : messages d'erreur auparavant codés en dur ---
 retry_btn = "Wiederholen"
 oauth_access_token_error = "Access-Token-Fehler: {error}"
 oauth_generic_error = "OAuth-Fehler ({code}): {desc}"
@@ -754,8 +669,6 @@ account_deletion_error = "Fehler beim Löschen: {error}"
 generic_error_prefix = "Fehler: {error}"
 confirm_delete_btn = "Dauerhaft löschen"
 account_deleted_success = "✅ Ihr Konto wurde gelöscht. Sie werden abgemeldet."
-
-# Excel Report
 xl_tab_recap = "Zusammenfassung"
 xl_tab_oss = "OSS-Details nach Land"
 xl_tab_ioss = "IOSS-Details nach Land"
@@ -766,7 +679,6 @@ xl_tab_fba = "FBA Umlagerungen Detail"
 xl_tab_intrastat = "Intrastat (EMEBI)"
 xl_tab_invoice_cn = "RECHNUNG & GUTSCHRIFT"
 xl_tab_calendar = "Steuerkalender"
-
 xl_recap_title = "ZUSAMMENFASSUNG DER MWST UND E-COMMERCE-AKTIVITÄT"
 xl_recap_col_indicator = "Indikator / Steuerlicher Fluss"
 xl_recap_col_ca_brut = "Bruttoumsatz"
@@ -775,7 +687,6 @@ xl_recap_col_ca_net = "Nettoumsatz"
 xl_recap_col_tva_brute = "Brutto-MwSt"
 xl_recap_col_tva_remb = "MwSt-Erstattung"
 xl_recap_col_tva_nette = "Netto-MwSt"
-
 xl_indicator_ca_ht = "Gesamtumsatz (Netto)"
 xl_indicator_vat_fr = "Frankreich (CA3-Erklärung)"
 xl_indicator_vat_home_generic = "{country} (Lokale inländische Erklärung)"
@@ -788,7 +699,6 @@ xl_indicator_vat_ioss = "IOSS One-Stop-Shop (eigene Verkäufernummer)"
 xl_indicator_b2b_exempt = "Steuerfreie B2B-Verkäufe (Reverse Charge, Netto)"
 xl_indicator_export_exempt = "Exporte außerhalb der EU (Steuerfrei, Netto)"
 xl_recap_total_remit = "GESAMT NETTO-MWST VON IHNEN ABZUFÜHREN (CA3 + OSS + Lokal)"
-
 xl_audit_integrity_title = "TECHNISCHE KONSISTENZ- UND INTEGRITÄTSPRÜFUNG"
 xl_audit_integrity_help = "Prüft die Dateiintegrität und die Kanalaufteilung (interner Integritätstest)."
 xl_audit_col_indicator = "Audit-Indikator"
@@ -798,7 +708,6 @@ xl_audit_declared_net_ht = "Deklarierter Nettoumsatz (Referenz, siehe Zeile 1 ob
 xl_audit_reconciliation_gap = "Abstimmungsdifferenz (muss 0,00 € sein)"
 xl_audit_total_rows = "Gesamtzahl der verarbeiteten Zeilen (Verkäufe + Gutschriften)"
 xl_audit_file_signature = "Digitale Dateisignatur (Hash-ID)"
-
 xl_col_tx_id = "Transaktions-ID"
 xl_col_date = "Date"
 xl_col_from = "Von"
@@ -814,12 +723,12 @@ xl_col_vat_gap = "Differenz System/Amazon (EUR)"
 xl_col_collector = "Einziehende Stelle"
 xl_col_channel = "Kanal/Marktplatz"
 xl_col_note = "Technische Notiz"
-
 xl_audit_agg_title = "AGGEGRIERTE ABSTIMMUNG — Amazon vs. System"
 xl_audit_agg_help = "Aggregierung nach Art der Differenz und Bestimmungsland. Differenz % = (Amazon − System) / System. Kategorien mit > 5% durchschnittlicher Differenz verdienen eine Parameterprüfung."
 xl_audit_col_nature = "Art der Differenz"
 xl_audit_nature_gb = "GB — Post-Brexit-Fluss"
 xl_audit_nature_vies = "MIAS-Risiko"
+xl_audit_nature_nif = "Nationale ID ohne innergemeinschaftliche USt-IdNr."
 xl_audit_nature_art194 = "Nationale Umkehr der Steuerschuld (Art. 194)"
 xl_audit_nature_taux = "Steuersatzdifferenz / Sonstiges"
 xl_audit_col_dest = "Bestimmungsland"
@@ -847,14 +756,12 @@ xl_detail_col_vat_amz = "Amazon MwSt (€)"
 xl_detail_col_vat_mot = "System MwSt (€)"
 xl_detail_col_gap = "Differenz (€)"
 xl_no_line_gap = "Keine Zeile mit Differenz."
-
 xl_vies_col_vat = "USt-IdNr."
 xl_vies_col_checked_at = "Prüfdatum (UTC)"
 xl_vies_col_status = "Status"
 xl_vies_col_country = "Land"
 xl_vies_col_name = "Unternehmensname"
 xl_vies_col_error = "Fehler"
-
 xl_intrastat_title = "AUSFÜLLHILFE — STATISTISCHE EMEBI-ERHEBUNG (ehem. DEB/DEA)"
 xl_intrastat_note = "Mutmaßlicher Anmelder: {seller_country}  |  EMEBI-Schwelle {year}: {threshold:,.0f} €/Jahr (Eingänge und Versendungen; STATISTISCHE Verpflichtung — zu unterscheiden von der zusammenfassenden MwSt-Meldung/ZM, fällig ab 1 €, siehe Tab Steuerkalender).  |  Meldung auf pro.douane.gouv.fr  |  Periodizität: monatlich, vor dem 10. Werktag des Folgemonats.  |  ⚠ KN-Code (CN8) and net mass to be completed — nicht von Amazon bereitgestellt. {warning}"
 xl_intrastat_unconfirmed_warning = "  |  ⚠ Schwelle für {year} nicht bestätigt — letzter bekannter Wert durch Extrapolation verwendet, bitte auf pro.douane.gouv.fr prüfen."
@@ -893,7 +800,6 @@ xl_intrastat_to_complete = "ZU ERGÄNZEN"
 xl_intrastat_transfer_desc = "11 — Lagerumlagerung (Art. 17 Richtlinie 2006/112/EG)"
 xl_intrastat_estimated_val_remark = "Geschätzter Wert (durchschnittlicher Nettopreis × Menge) — durch Einkaufswert ersetzen"
 xl_intrastat_no_flow_detected = "Keine {sens}-Umlagerung in den importierten Dateien erkannt."
-
 xl_monthly_section_label = "Monatliche Details (Netto)"
 xl_period_section_label = "Gesamtzeitraum"
 xl_oss_title = "OSS-DEKLARATION — DETAILS NACH BESTIMMUNGSLAND"
@@ -910,7 +816,6 @@ xl_ioss_col_vat_refunds = "MwSt-Erstattungen"
 xl_ioss_col_vat_net = "Abzuführende Netto-MwSt"
 xl_ioss_total = "GESAMT IOSS"
 xl_oss_total = "GESAMT OSS"
-
 xl_local_title = "LOKALE MWST — LOKALE REGISTRIERUNG PRO LAND"
 xl_local_unregistered_warning = "⚠️ Registrierung in den Einstellungen nicht bestätigt für: {countries} — prüfen Sie, ob die entsprechende lokale MwSt-Erklärung in diesen Ländern tatsächlich eingereicht wird, bevor Sie diesen Bericht als endgültig betrachten."
 xl_local_col_country = "Land"
@@ -924,7 +829,6 @@ xl_local_col_aic_vat = "ICA-MwSt (Reverse Charge)"
 xl_local_status_registered = "✅ Registriert (deklarariert)"
 xl_local_status_unconfirmed = "🚨 Nicht bestätigt — bitte prüfen"
 xl_local_total = "GESAMT LOKAL"
-
 xl_inv_cn_title = "RECHNUNGS- / GUTSCHRIFTSEINTRÄGE (ohne Verkäufe/Erstattungen)"
 xl_inv_cn_help = "Zeilen aus dem Amazon-Bericht vom Typ RECHNUNG (INVOICE) oder GUTSCHRIFT (CREDIT_NOTE): weder Verkauf noch Kundenerstattung, von der Berechnung der MwSt auf Verkäufe ausgeschlossen. Hier zur buchhalterischen Abstimmung aufgeführt — prüfen Sie die geltende MwSt-Behandlung (oft Reverse Charge auf Amazon-Dienstleistungen, Art. 283-2 CGI)."
 xl_inv_cn_col_type = "Typ"
@@ -937,7 +841,6 @@ xl_inv_cn_col_vat = "MwSt"
 xl_inv_cn_col_currency = "Währung"
 xl_inv_cn_none = "Keine RECHNUNGS- / GUTSCHRIFTSEINTRÄGE erkannt."
 xl_total = "GESAMT"
-
 xl_cal_title = "KALENDER DER ABGABE- UND ZAHLUNGSFRISTEN"
 xl_cal_meta = "Generiert am {date}  |  Anmelder: {country}  |  Analysierter Zeitraum: {period}"
 xl_cal_unspecified = "nicht angegeben"
@@ -960,7 +863,6 @@ xl_cal_status_upcoming = "✅ Anstehend"
 xl_cal_status_urgent = "⚠️ Dringend"
 xl_cal_status_overdue = "🔴 Überfällig"
 xl_cal_no_deadline = "Keine berechenbare Frist (keine Verkäufe verarbeitet, keine FBA-Umlagerungen)."
-
 xl_aic_title = "ANALYSE DER INNERGEMEINSCHAFTLICHEN ERWERBE (FBA-UMLAGERUNGEN)"
 xl_aic_note = "⚠ Geschätzte ICA-Basis = durchschnittlicher Nettoverkaufspreis (Amazon liefert keinen Einkaufspreis). Näherung durch Überschätzung — durch tatsächliche Anschaffungskosten ersetzen, falls verfügbar (Art. 83 Richtlinie 2006/112/EG)."
 xl_aic_active_title = "FLÜSSE MIT REGISTRIERUNG IN BEIDEN LÄNDERN — ICA ZU MELDEN"
@@ -994,7 +896,6 @@ xl_aic_col_obs = "Beobachtung"
 xl_aic_obs_none = "Keine Registrierung — Amazon wickelt ICA ab"
 xl_aic_obs_lic = "IGL auf {country}-Seite zu melden (Steuerfreiheitsfeld)"
 xl_aic_obs_verify = "{country}-Registrierung prüfen"
-
 xl_fba_col_tx_id = "Transaktions-ID"
 xl_fba_col_date = "Datum"
 xl_fba_col_asin = "ASIN"
@@ -1004,8 +905,6 @@ xl_fba_col_dep = "Abgang"
 xl_fba_col_arr = "Ankunft"
 xl_fba_col_type = "Bewegungstyp"
 xl_fba_none = "Keine FBA-Umlagerung erkannt."
-
-# OSS Export
 oss_export_title = "OSS-ZUSAMMENFASSUNG — {period}"
 oss_export_subtitle = "One-Stop-Shop OSS — zur Meldung bei der Steuerverwaltung (z.B. BZSt)"
 oss_col_country_code = "Ländercode"
@@ -1020,7 +919,6 @@ oss_col_vat_net = "Netto-MwSt (€)"
 oss_col_nb_tx = "Anzahl Transaktionen"
 oss_total_countries = "{count} Länder"
 oss_footer_note = "⚠️ Dieses Dokument ist eine indikative Zusammenfassung. « Netto-Basis/MwSt » (Verkauf + Gutschrift) ist der im OSS-Portal zu meldende Betrag. Bitte prüfen Sie die Beträge vor der Einreichung."
-
 oss_detail_title = "OSS-VERKAUFSDETAILS (innergemeinschaftlich B2C)"
 ioss_export_title = "IOSS-ZUSAMMENFASSUNG — {period}"
 ioss_export_subtitle = "IOSS-One-Stop-Shop (Importe ≤150€) — MONATLICHE Meldung, getrennt von OSS, über das dedizierte IOSS-Portal"
@@ -1034,7 +932,6 @@ oss_detail_col_dest_name = "Zielland"
 oss_detail_col_base_ht = "Netto-Basis (€)"
 oss_detail_col_vat_rate = "MwSt-Satz"
 oss_detail_col_vat_amount = "MwSt (€)"
-
 b2b_recap_title = "ZUSAMMENFASSUNG — INNERGEMEINSCHAFTLICHE B2B-LIEFERUNGEN — {period}"
 b2b_recap_subtitle = "Reverse Charge — Steuerfrei — In ZM / zusammenfassender Meldung anzugeben"
 b2b_col_id = "Verkaufs-ID"
@@ -1047,15 +944,12 @@ b2b_footer_note = "⚠️ Bitte prüfen Sie jede USt-IdNr. über den MIAS-Dienst
 b2b_month_group_header = "Zeitraum: {month}"
 b2b_month_subtotal = "Zwischensumme {month}"
 b2b_unknown_date = "Unbekanntes Datum"
-
 oss_csv_title = "OSS-Zusammenfassung — {period}"
 oss_csv_col_rate_pct = "MwSt-Satz (%)"
 oss_csv_col_base_eur = "Netto-Basis (EUR)"
 oss_csv_col_vat_eur = "Fällige MwSt (EUR)"
 b2b_csv_title = "B2B innergemeinschaftliche Zusammenfassung — {period}"
 b2b_csv_col_amount_eur = "Nettobetrag (EUR)"
-
-# CA3 Report
 ca3_report_title = "CA3-Bericht — {company} — {period}"
 ca3_main_title = "MwSt-Kontrollbericht — CA3-Erklärung"
 ca3_subtitle = "Vorausfüllen von Cerfa n°3310-CA3-SD — Binnenmarkt von {country}"
@@ -1066,12 +960,10 @@ ca3_meta_currency = "Währung:"
 ca3_meta_euro = "Euro (EUR)"
 ca3_box_prefix = "Feld"
 ca3_line_prefix = "Zeile"
-
 ca3_oss_note_title = "ℹ️ Zeile 3A — OSS-Transaktionen (informativ):"
 ca3_oss_note_text = "Diese inner-EU B2C-Transaktionen (Abgang von {country}) werden **separat im OSS-Portal** gemeldet und erscheinen nicht in den steuerpflichtigen Zeilen der CA3-Meldung. Sie sind hier nur zum Abgleich aufgeführt."
 ca3_oss_base_ht = "OSS-Netto-Basis:"
 ca3_oss_vat_declared = "Gemeldete OSS-MwSt:"
-
 ca3_aic_note_title = "ℹ️ Feld B2 + Zeile 17 — Fiktive innergemeinschaftliche Erwerbe (Eingangs-FBA-Umlagerungen nach {country}):"
 ca3_aic_note_text = "Diese fiktiven innergemeinschaftlichen Erwerbe (Art. 17 Richtlinie 2006/112/EG) erzeugen gleichzeitig geschuldete und abziehbare MwSt (Netto-Null-Effekt, Art. 272 CGI). Die Netto-Basis wird in Feld B2 (steuerpflichtiger Vorgang) gezeigt, ihre MwSt ist in Zeile 08 enthalten (Regelsatz 20%, Näherung — siehe Hinweis) mit einem separaten Vermerk in Zeile 17; der entsprechende Abzug wird in Zeile 20 gezeigt."
 ca3_aic_note_warning = "⚠ Geschätzter Wert = durchschn. Nettoverkaufspreis × Menge (tatsächlicher Einkaufswert nicht aus Amazon-Dateien verfügbar — Richtlinie Art. 83 erfordert Einkaufswert)."
@@ -1079,14 +971,12 @@ ca3_aic_degradation_warning = "Qualität der AIC-Schätzung beeinträchtigt:"
 ca3_aic_degradation_qty = "{count} Umlagerungszeile(n) mit unlesbarer Menge (auf 1 gesetzt)."
 ca3_aic_degradation_asin = "{count} Umlagerungszeile(n), deren ASIN in keinem bekannten Verkauf vorkommt (Basis mit 0 € angesetzt)."
 amazon_format3_grouped_warning = "⚠️ **Amazon-Format 3 mit möglichen gebündelten Verkäufen**: Dieses Format enthält keine Mengenspalte, Mengen werden auf 1 gesetzt und der innergemeinschaftliche Erwerb kann über- oder unterbewertet sein. Erwägen Sie Format 4 oder 5 im Amazon Seller Central (siehe docs/FORMAT_AMAZON_MIGRATION.md)."
-
 ca3_sec_a_title = "A. Steuerpflichtige Umsätze — Nettoumsatz"
 ca3_col_framework = "Formularfeld"
 ca3_col_nature = "Art des Vorgangs"
 ca3_col_base_sales = "Verkaufsbasis (EUR)"
 ca3_col_base_refunds_header = "Einschließlich Gutschriften (EUR)"
 ca3_col_base_net = "Netto-Basis (EUR)"
-
 ca3_row_a1_label = "Steuerpflichtige Verkäufe / Leistungen in {country}"
 ca3_row_f2_label = "Steuerfreie innergemeinschaftliche B2B-Lieferungen (Abgang {country})"
 ca3_row_b2_label = "Fiktive innergemeinschaftliche Erwerbe — eingehende FBA-Lagerumlagerungen {country}"
@@ -1094,7 +984,6 @@ ca3_row_b2_small = "(geschätzte Basis — durch tatsächlichen Einkaufswert ers
 ca3_row_e1_label = "Exporte außerhalb der Europäischen Union (Abgang {country})"
 ca3_total_ca = "GESAMTUMSATZ"
 ca3_remb_note = "Die Spalte « Einschließlich Gutschriften » listet Erstattungen/Gutschriften für den Zeitraum auf, die bereits in der Netto-Basis enthalten sind — für Abstimmungszwecke sind dies keine separaten Formularfelder."
-
 ca3_sec_b_title = "B. Geschuldete MwSt — Aufschlüsselung nach Satz (Umsätze in Kern-Frankreich)"
 ca3_col_cadre = "Feld"
 ca3_col_section = "Steuerabschnitt"
@@ -1104,7 +993,6 @@ ca3_col_b_base_refunds = "Erstattungsbasis"
 ca3_col_b_vat_refunds = "Erstattungs-MwSt"
 ca3_col_b_base_net = "Netto-Basis"
 ca3_col_b_vat_net = "Netto-MwSt"
-
 ca3_row_l08_label = "Regelsatz 20% (enthält AIC-Teil — siehe Feld B2/Zeile 17)"
 ca3_row_l09_label = "Ermäßigter Satz 5,5% (Lebensmittel, Bücher, Pharmazeutika…)"
 ca3_row_lt6_label = "Sondersatz 2,1% (Kernland — Presse, erstattungsfähige Medikamente)"
@@ -1112,12 +1000,10 @@ ca3_row_l9b_label = "Ermäßigter Satz 10% (Gastronomie, Beherbergung…)"
 ca3_row_l17_label = "Vermerk — davon MwSt auf innergemeinschaftliche Erwerbe"
 ca3_row_l17_desc = "(bereits oben in Zeile 08 enthalten, Art. 272 CGI)"
 ca3_row_l18_label = "Vermerk — einschließlich MwSt auf Umsätze nach Monaco"
-
 ca3_total_aic_included = "GESAMT — **AIC enthalten** (Feld B2/Zeile 17 in Netto-Basis und MwSt enthalten)"
 ca3_total_aic_deducted = "GESAMT — **AIC abgezogen** (ohne AIC-Basis/MwSt aus Feld B2/Zeile 17 — vor anderen Abzügen aus Abschnitt C)"
 ca3_vat_remb_note = "« Verkaufs-MwSt » = Brutto-MwSt nur auf Verkäufe, vor Abzug von Gutschriften. « Erstattungs-MwSt » = MwSt der Erstattungen für den Zeitraum (negativ). « Netto-MwSt » = Verkauf + Erstattung, dieser Betrag sollte im Formular gemeldet werden."
 ca3_aic_check_note = "Die Zeile « AIC enthalten » entspricht Zeile 16, wie sie im Formular erscheinen sollte (Feld B2/Zeile 17 ist Teil von Zeile 08). Die Zeile « AIC abgezogen » entfernt nur den AIC-Teil (konstruktionsbedingt Netto-Null-Effekt, Art. 272 CGI) zur Überprüfung — sie entfernt NICHT andere Abzüge (Anlagevermögen, andere Waren/Dienstleistungen außer AIC, Vorsteuerüberhang), die in Abschnitt C detailliert bleiben und erst im Endsaldo (Abschnitt D) abgezogen werden."
-
 ca3_sec_c_title = "C. Abziehbare MwSt (Vorsteuer)"
 ca3_col_c_nature = "Art des Abzugs"
 ca3_col_c_amount = "Betrag (EUR)"
@@ -1127,16 +1013,12 @@ ca3_row_l20_aic_small = "Enthält abziehbare MwSt auf fiktive AIC (Art. 272 CGI)
 ca3_row_l22_label = "Vortrag des MwSt-Guthabens aus dem Vorzeitraum"
 ca3_total_deductible = "GESAMT ABZIEHBARE MWST (Zeile 23)"
 ca3_ded_warning = "⚠ Abziehbare MwSt auf Einkäufe und Anlagevermögen nicht angegeben (Daten nicht aus Amazon-Dateien verfügbar). Bitte manuell ergänzen durch Angabe der Parameter tva_deductible_immos, tva_deductible_autres und credit_periode_precedente."
-
 ca3_sec_d_title = "D. Netto-Saldo"
 ca3_solde_to_pay = "ZAHLLAST (Zeile TD/28)"
 ca3_solde_credit = "VERBLEIBENDES GUTHABEN (Zeile 25/27)"
 ca3_solde_formula = "(Geschuldete MwSt (Zeile 16, inkl. Zeile 17 AIC {aic} EUR) {brute} EUR − Gesamt Abzüge Zeile 23 (inkl. AIC in Zeile 20) {ded} EUR)"
-
 ca3_notice_title = "Hinweis:"
 ca3_notice_text = "Diese Aufstellung isoliert strikt den nationalen Markt {country}. Inner-EU B2C OSS-Transaktionen unterliegen einer separaten Meldung im Portal guichet-unique.impots.gouv.fr. MwSt auf AIC (Feld B2 / Zeile 17) wird sowohl erhoben als auch abgezogen (Netto-Null-Effekt). Abziehbare MwSt-Beträge auf Einkäufe/Anlagevermögen sind vom Benutzer zu ergänzen (nicht aus Amazon-Transaktionsdateien verfügbar). Dieses Dokument ersetzt keine professionelle Steuerberatung."
-
-# FEC Export
 fec_journal_sales = "Verkaufsjournal"
 fec_scenario_oss = "OSS-Verkauf"
 fec_scenario_domestic = "Inlandsverkauf"
@@ -1151,8 +1033,6 @@ fec_account_client_lib = "Amazon-Kunden"
 fec_account_sales_lib = "Warenverkäufe"
 fec_account_vat_lib = "Erhobene MwSt"
 fec_entry_label = "{scenario} {country} {rate}% ({period}, {count} Verkäufe)"
-
-# OSS XML
 xml_validation_no_lxml = "Validierung ignoriert: Bibliothek 'lxml' nicht installiert."
 xml_validation_conform = "Konform mit {name}"
 xml_validation_error = "Fehler {name}: {error}"
@@ -1166,8 +1046,6 @@ xml_negative_unmatched_suffix = "\n\nEinige Gutschriften konnten nicht automatis
 xml_negative_detail_line = "  - {dep} → {arr} ({rate}%) : Netto={ht:.2f} €, MwSt={tva:.2f} €{matching}"
 xml_matching_success = " — {count} Gutschrift(en) automatisch verknüpft, {unmatched_count} Gutschrift(en) OHNE identifizierten Ursprung (Netto={unmatched_ht:.2f} €, MwSt={unmatched_vat:.2f} €) zur manuellen Bearbeitung"
 xml_matching_none = " — keine Gutschrift automatisch verknüpfbar (Ursprung in dieser Datei nicht gefunden)"
-
-# Amazon account <-> SIREN linking (anti-abuse)
 gate_account_link_blocked_err = "🔒 {label} — Download blockiert: das Amazon-Konto muss bestätigt oder dem SIREN zugeordnet werden (siehe Panel oben auf der Seite)."
 account_link_panel_intro = "🔗 Ein oder mehrere in dieser Datei erkannte Amazon-Konten erfordern eine Aktion, bevor Downloads freigeschaltet werden können."
 account_link_new_title = "**Neues Amazon-Konto erkannt: `{identifier}`**"
@@ -1179,8 +1057,6 @@ account_link_error = "Fehler beim Verknüpfen: {error}"
 account_link_conflict_title = "⚠️ Amazon-Konto `{identifier}` ist bereits mit einem anderen SIREN verknüpft"
 account_link_conflict_text = "Dieses Konto ist für **{other_label}** registriert, nicht für **{current_label}**. Wenn der aktuell ausgewählte SIREN ein Fehler ist, wechseln Sie zum richtigen Kunden."
 account_link_switch_btn = "🔀 Zu {other_label} wechseln"
-
-# VIES Tab (MIAS-Reiter)
 vies_tab_enable_info = "ℹ️ Aktivieren Sie die MIAS-Validierung in der Seitenleiste, um auf diesen Reiter zuzugreifen."
 vies_tab_no_b2b_info = "ℹ️ Keine B2B-Nummern in dieser Datei erkannt."
 vies_kpi_verified_nums = "MIAS / Steuernummern erkannt"
@@ -1235,6 +1111,8 @@ vies_expl_reverse_charge = "Inländisch {country} — Art. 194"
 vies_expl_already_taxed = "Inländisch — MwSt in beiden Fällen fällig"
 vies_expl_cross_border_departure = "Grenzüberschreitend — MwSt im Abgangsland ({country}) fällig, Steuerbefreiung vermieden"
 vies_expl_cross_border_destination = "Grenzüberschreitend — MwSt im Bestimmungsland ({country}) fällig, Steuerbefreiung vermieden"
+vies_expl_nif_departure = "Grenzüberschreitend — nationale Steuer-ID (keine USt-IdNr.), MwSt im Abgangsland ({country}) fällig"
+vies_expl_nif_destination = "Grenzüberschreitend — nationale Steuer-ID (keine USt-IdNr.), MwSt im Bestimmungsland ({country}) fällig"
 vies_col_id = "ID"
 vies_col_rejected_vat = "Abgelehnte MwSt-Nr."
 vies_col_origin = "Abgang"
@@ -1255,9 +1133,6 @@ vies_dl_btn = "⬇️ Bericht über abgelehnte MIAS- und Steuernummern exportier
 vies_dl_filename = "MIAS- und NIF-Auditbericht - {company} - {period}.csv"
 vies_info_no_invalid = "ℹ️ Momentan keine bestätigten ungültigen Nummern (einige müssen noch geprüft werden)."
 vies_success_all_valid = "✅ Alle B2B-MwSt-Nummern sind gültig."
-
-
-# Notes moteur fiscal (VatResult.note) - version generique minimale (hors francais)
 engine_note_monaco_home = "Verkauf nach Monaco aus französischem Lager: behandelt wie ein französischer Inlandsverkauf. MwSt {rate}% erhoben."
 engine_note_monaco_oss = "Verkauf nach Monaco aus Lager {stock}: behandelt wie ein OSS-Verkauf nach Frankreich. MwSt {rate}%."
 engine_note_export = "Export außerhalb der EU: MwSt-frei. Ausfuhrnachweis erforderlich."
@@ -1265,6 +1140,8 @@ engine_note_out_of_scope = "Außerhalb des MwSt-Bereichs: von Natur aus kein ste
 engine_note_ioss_direct = "Import ≤ EUR 150: MwSt {rate}% vom Verkäufer über eigene IOSS-Nummer ({ioss}) erhoben."
 engine_note_deemed_supplier = "{platform} erhebt MwSt ({rate}%) auf {country}."
 engine_note_b2b_reverse_charge = "Steuerfreie inner-EU B2B-Lieferung, Reverse Charge durch den Käufer angewendet."
+engine_note_b2b_nif_departure = "Grenzüberschreitender B2B-Verkauf {stock}→{buyer}: nationale Steuer-ID statt innergemeinschaftlicher USt-IdNr. angegeben (keine MIAS-Prüfung möglich). Steuerbefreiung verweigert (Art. 138 Richtlinie 2006/112/EG) — MwSt des Abgangslands ({stock}) zu {rate}%, vom Verkäufer erhoben."
+engine_note_b2b_nif_destination_oss = "Grenzüberschreitender B2B-Verkauf {stock}→{buyer}: nationale Steuer-ID statt innergemeinschaftlicher USt-IdNr. angegeben (keine MIAS-Prüfung möglich). Steuerbefreiung verweigert (Art. 138 Richtlinie 2006/112/EG) — als B2C umklassifiziert, MwSt des Bestimmungslands ({buyer}) zu {rate}% über OSS."
 engine_note_oss_b2c = "OSS-Verkauf nach {country} mit einem Satz von {rate}%."
 engine_note_b2b_domestic_rc = "Inländischer B2B-Verkauf in {country}: Reverse Charge durch den steuerpflichtigen Käufer angewendet."
 engine_note_domestic_home_foreign_stock = "Verkauf nach {country} (Herkunftsland des Verkäufers), versandt aus Lager {stock}: behandelt als inländischer {country}-Verkauf (lokale MwSt-Meldung, nicht OSS) — {rate}% MwSt."
@@ -1274,8 +1151,6 @@ engine_note_ddp_import = "Import > EUR 150, Verkäufer ist offizieller Importeur
 engine_note_import_standard = "Import > EUR 150 aus einem Drittland: Einfuhrumsatzsteuer in {country} ({rate}%) beim Zoll durch den Importeur fällig."
 engine_note_oss_under_threshold = "Unter der OSS-Schwelle ({cumulative}/{limit} {currency}). {country}-MwSt-Option angewendet."
 engine_note_oss_threshold_crossed = "OSS-Schwelle überschritten! Verkauf nach {country}."
-
-# ── MIAS-Validitätszertifikat (PDF) ─────────────────────────────────────────
 vies_certificate_expander = "📄 MIAS-Validitätszertifikat (PDF)"
 vies_certificate_caption = "Erstellen Sie ein PDF, das die vollständige Historie der MIAS-Prüfungen für Ihre B2B-Kunden zusammenfasst — bewahren Sie es als Nachweis des guten Glaubens für eine Betriebsprüfung auf."
 vies_certificate_btn = "Zertifikat generieren"
@@ -1305,10 +1180,7 @@ vies_certificate_traceability_header = "Rückverfolgbarkeit & Integrität"
 vies_certificate_scope_id = "Scope ID (Hash)"
 vies_certificate_content_hash = "Inhalts-Hash"
 vies_certificate_footer_desc = "Dieses Dokument wird unveränderlich aus der Historie der in Ihrer Datenbank gespeicherten MIAS-Anfragen generiert. Es dient als Beleg für Ihre Sorgfaltspflicht bei der Prüfung der Gültigkeit innergemeinschaftlicher MwSt-Nummern."
-# ── Hintergrundberechnung (große Dateien) ───────────────────────────────────
 calc_bg_running_caption = "📊 Große Datei ({rows} Zeilen) — die Berechnung wird im Hintergrund fortgesetzt. Sie können die Seitenleiste in der Zwischenzeit weiter nutzen."
-
-# ── MIAS-Zertifikat: Bereichsauswahl ────────────────────────────────────────
 vies_certificate_scope_label = "Zertifikatsumfang"
 vies_certificate_scope_file = "📄 Importierte Datei"
 vies_certificate_scope_account = "🗂️ Gesamtes Konto (volle Historie)"
@@ -1323,15 +1195,11 @@ vies_certificate_history_detail_desc = "Diese Tabelle listet jede durchgeführte
 vies_certificate_history_count = "Anzahl der gelisteten MIAS-Prüfungen:"
 vies_certificate_history_unique_count = "Anzahl der eindeutig geprüften MwSt-Nummern:"
 vies_certificate_history_empty_info = "Für diesen Bereich wurde noch keine MIAS-Prüfung registriert."
-
-# ── Steuerfelder sperren (IOSS / MwSt-Nummern) ──────────────────────────────
 fiscal_fields_lock_warning = "⚠️ Bitte prüfen Sie die untenstehenden Nummern sorgfältig vor dem Speichern: Sobald eine IOSS- oder MwSt-Nummer für diesen SIREN gespeichert ist, kann sie nicht mehr geändert werden (Sie können später nur neue hinzufügen — z. B. eine anfangs nicht gesetzte IOSS oder eine MwSt-Nummer für ein zusätzliches Land)."
 fiscal_fields_lock_warning_new = "⚠️ Bitte prüfen Sie diese Informationen vor dem Speichern sorgfältig: Sobald dieser SIREN erstellt ist, können der Unternehmensname, SIREN, IOSS und jede eingegebene MwSt-Nummer nicht mehr geändert werden (Sie können später nur eine IOSS- oder MwSt-Nummer hinzufügen, die hier nicht eingegeben wurde)."
 fiscal_fields_all_locked_caption = "🔒 Die IOSS- und alle MwSt-Nummern auf dieser Liste sind gespeichert und gesperrt."
 fiscal_fields_vat_locked_caption = "🔒 Alle MwSt-Nummern auf dieser Liste sind gespeichert und gesperrt (keine IOSS gesetzt — optional, Sie können jederzeit eine hinzufügen)."
 fiscal_field_locked_note = "gespeichert, kann nicht geändert werden"
-
-# ── Administration (Rollen & Organisation, 2026-08-23) ──────────────────────
 admin_module_header = "🛡️ Administration"
 admin_org_locked_caption = "Ihre Organisation ist gesperrt (aktives kostenpflichtiges Abonnement): Nur ein Admin kann neue Adressen hinzufügen, die zur Kontoerstellung berechtigt sind."
 admin_org_free_caption = "Noch kein kostenpflichtiges Abonnement aktiv: Jede Adresse Ihrer Domain kann frei ein Konto erstellen (Testmodus)."
@@ -1353,8 +1221,6 @@ admin_add_email_success = "{email} wurde zur autorisierten Liste hinzugefügt."
 admin_allowed_emails_title = "Autorisierte Adressen"
 admin_remove_allowed_email_btn = "🗑️"
 readonly_account_banner = "👁️ Ihr Konto ist schreibgeschützt — kontaktieren Sie den Administrator Ihrer Organisation, um diese Daten zu ändern."
-
-# --- Entrée #12 (audit i18n 2026-09-02) : clés manquantes ajoutées, symétrie 7 langues ---
 foreign_currency_warning = "⚠️ **Achtung** : Fremdwährungen erkannt ({currencies}). Die Beträge wurden für die Anzeige in EUR umgerechnet."
 col_vat_rate_amazon = "Amazon MwSt-Satz (%)"
 col_vat_rate_engine = "Engine MwSt-Satz (%)"
@@ -1365,8 +1231,6 @@ TOTAL = "GESAMT"
 "TOTAL HT" = "GESAMT NETTO"
 emebi_intrastat_desc = "EMEBI-Statistikerhebung {country} (Eingänge + Ausgänge, vorbehaltlich der Schwellenwerte — siehe dedizierten Tab)"
 xl_aic_col_asins_distinct = "Anzahl eindeutiger ASINs"
-
-# Taux historiques
 hist_title = "📅 Historische MwSt-Sätze erkannt — {count} Land/Länder betroffen"
 hist_multiple_rates = "⚡ Satzänderung mitten im Zeitraum erkannt für: {names}. Die Sätze wurden Verkauf für Verkauf gemäß dem Transaktionsdatum angewendet."
 hist_single_rate = "Die unten aufgeführten Länder haben kürzlich eine Änderung des MwSt-Satzes erfahren. Alle Ihre Verkäufe liegen innerhalb eines einzigen Zeitraums — der korrekte Satz wurde einheitlich angewendet."
@@ -1378,7 +1242,6 @@ hist_col_sales = "Betroffene Verkäufe"
 hist_sales_format = "{count} Verkauf/Verkäufe"
 hist_source = "Quelle: Europäische Kommission (Taxes in Europe Database). Umfang: Änderungen erkannt seit dem Jahr vor Ihren Verkäufen pro Land."
 today = "heute"
-
 csv_header_base_ht = "Netto-Basis"
 csv_header_rate_pct = "Satz (%)"
 csv_header_vat_amount = "MwSt"
@@ -1400,91 +1263,62 @@ vies_cert_suffix_account = "Konto"
 vies_cert_suffix_history = "Historie"
 auth_session_expired = "Sitzung abgelaufen"
 audit_col_id = "ID"
-audit_col_stock_dest = "Lager→Ziel"
 audit_col_dest = "Ziel"
-audit_col_scenario = "Szenario"
-
-# MwSt.-Glossar
 glossary_title = "MwSt.-Glossar"
 glossary_intro = "Die wichtigsten Konzepte, die von der Engine verwendet werden."
 glossary_help_tooltip = "MwSt.-Terminologie-Glossar anzeigen"
 glossary_footer = "Weitere Details finden Sie in der vollständigen Dokumentation auf unserer Website."
-
 glossary_terms_oss_title = "OSS (One Stop Shop)"
 glossary_terms_oss_definition = "Zentrale Anlaufstelle für die MwSt.-Erklärung von grenzüberschreitenden B2C-Verkäufen innerhalb der EU. Ersetzt individuelle MwSt.-Registrierungen in jedem Mitgliedstaat für Fernverkäufe."
 glossary_terms_oss_tooltip = "Zentrale MwSt.-Anlaufstelle für grenzüberschreitende B2C-Verkäufe"
-
 glossary_terms_ioss_title = "IOSS"
 glossary_terms_ioss_definition = "Zentrale Anlaufstelle für Importe geringen Werts (≤ 150 €) an EU-Verbraucher. Ermöglicht die Erklärung und Zahlung der Import-MwSt. in einem einzigen Mitgliedstaat."
 glossary_terms_ioss_tooltip = "Zentrale Anlaufstelle für Importe ≤ 150 €"
-
 glossary_terms_reverse_charge_title = "Reverse Charge (Umkehr der Steuerschuld)"
 glossary_terms_reverse_charge_definition = "Mechanismus, bei dem der Käufer die geschuldete MwSt. anstelle des Verkäufers erklärt. Gilt für innergemeinschaftliche B2B-Lieferungen und in einigen Ländern für inländische B2B-Verkäufe (Art. 194)."
 glossary_terms_reverse_charge_tooltip = "Käufer erklärt MwSt. anstelle des Verkäufers"
-
 glossary_terms_deemed_supplier_title = "Deemed Supplier"
 glossary_terms_deemed_supplier_definition = "Situation, in der der Marktplatz (z. B. Amazon) als MwSt.-Einzieher gilt, der Verkäufer befreit ist. Amazon erhebt und führt MwSt. für grenzüberschreitende B2C-Verkäufe seit Juli 2021 ab."
 glossary_terms_deemed_supplier_tooltip = "Marktplatz erhebt MwSt. im Namen des Verkäufers"
-
 glossary_terms_ca3_title = "CA3"
 glossary_terms_ca3_definition = "Französisches MwSt.-Erklärungsformular. Die Engine erstellt eine gebrauchsfertige Zusammenfassung mit den Zeilen 08 (Innergemeinschaftliche Erwerbe) und Aufschlüsselungen nach MwSt.-Satz."
 glossary_terms_ca3_tooltip = "Französische MwSt.-Erklärung"
-
 glossary_terms_oss_threshold_title = "10.000 €-Schwellenwert (OSS-Schwelle)"
 glossary_terms_oss_threshold_definition = "Einheitlicher jährlicher Umsatzschwellenwert für alle grenzüberschreitenden B2C-Verkäufe in der EU. Darunter können Sie den MwSt.-Satz Ihres Heimatlandes anwenden. Darüber ist OSS obligatorisch."
 glossary_terms_oss_threshold_tooltip = "Einheitliche 10.000 €-Schwelle für grenzüberschreitende B2C-Verkäufe"
-
 glossary_terms_excluded_territories_title = "Ausgeschlossenes Gebiet (Art. 6-Gebiete)"
 glossary_terms_excluded_territories_definition = "Geografische Gebiete, die einem Mitgliedstaat zugeordnet sind, aber vom MwSt.-Gebiet der EU ausgeschlossen sind (z. B. Kanarische Inseln, DOM-TOM, Athos). Ströme in diese Gebiete werden als Exporte behandelt."
 glossary_terms_excluded_territories_tooltip = "Gebiete außerhalb des EU-MwSt.-Gebiets (Kanarische Inseln, DOM-TOM...)"
-
 glossary_terms_emebi_intrastat_title = "EMEBI / Intrastat"
 glossary_terms_emebi_intrastat_definition = "Monatliche Erhebung über den innergemeinschaftlichen Warenverkehr. Obligatorische statistische Meldung ab bestimmten Schwellenwerten für Versendungen oder Eingänge von Waren."
 glossary_terms_emebi_intrastat_tooltip = "Statistische Meldung des innergemeinschaftlichen Warenverkehrs"
-
 glossary_terms_vies_title = "VIES"
 glossary_terms_vies_definition = "Europäisches System zum Austausch von MwSt.-Informationen. Ermöglicht die Überprüfung von MwSt.-Nummern für B2B-Befreiungen."
 glossary_terms_vies_tooltip = "System zur Validierung innergemeinschaftlicher MwSt.-Nummern"
-
 glossary_terms_nif_title = "NIF (Steueridentifikationsnummer)"
 glossary_terms_nif_definition = "Nationale Steueridentifikationsnummer (z. B. Codice Fiscale in Italien, NIF in Spanien). Hinweis: Eine NIF ist nicht unbedingt eine gültige innergemeinschaftliche MwSt.-Nummer für B2B-Befreiungen."
 glossary_terms_nif_tooltip = "Nationale Steueridentifikationsnummer"
-
 glossary_terms_eori_title = "EORI (Economic Operator Registration and Identification)"
 glossary_terms_eori_definition = "Einheitliche Gemeinschaftsnummer, die für die Erledigung von Zollformalitäten (Import/Export) in Europa erforderlich ist."
 glossary_terms_eori_tooltip = "Gemeinschaftsnummer für Zollformalitäten"
-
 glossary_terms_incoterms_title = "Incoterm (DDP / DDU)"
 glossary_terms_incoterms_definition = "Handelsbedingungen, die die Verantwortlichkeiten von Verkäufer und Käufer definieren (Gebühren, Zoll, MwSt.). DDP (Delivered Duty Paid): Verkäufer erledigt alles. DDU/DAP: Käufer zahlt Steuern bei Ankunft."
 glossary_terms_incoterms_tooltip = "Handelsbedingungen definieren Verkäufer-/Käuferverantwortlichkeiten"
-
 glossary_terms_import_150_title = "150-€-Freigrenze (Einfuhr)"
 glossary_terms_import_150_definition = "Schwelle, unterhalb derer bei Einfuhren in die EU keine Zölle erhoben werden. Die Umsatzsteuer bleibt geschuldet und kann über den IOSS oder durch den Beförderer erhoben werden. Oberhalb von 150 € fallen zusätzlich zur Umsatzsteuer Zölle an."
 glossary_terms_import_150_tooltip = "Zollfreigrenze für Einfuhren"
-
 glossary_terms_distance_selling_title = "Fernverkauf"
 glossary_terms_distance_selling_definition = "Verkauf von Waren, die von einem EU-Land an eine Privatperson in einem anderen EU-Land versandt werden. Diese Verkäufe unterliegen oberhalb der Schwelle von 10.000 € den OSS-Regeln."
 glossary_terms_distance_selling_tooltip = "Grenzüberschreitende Verkäufe an Privatpersonen"
-
 glossary_terms_vat_number_title = "USt-IdNr."
 glossary_terms_vat_number_definition = "Eindeutige, von der Finanzverwaltung vergebene Kennung. Bei innergemeinschaftlichen Verkäufen muss ihr der Ländercode vorangestellt werden (z. B. FR123456789); sie muss im VIES-System validiert sein, um die B2B-Befreiung zu ermöglichen."
 glossary_terms_vat_number_tooltip = "Steuerliche Kennung für die Umsatzsteuer"
-
-viz_data_ca_ht = "Netto-Umsatz"
-viz_data_vat_due = "Fällige MwSt."
-viz_data_refund_ht = "Netto-Erstattung"
-viz_data_vat_refund = "MwSt.-Erstattung"
-
-# Donation
 donation_header = "☕ Spenden"
 donation_help = "Wenn Sie dieses Tool nützlich finden, können Sie seine Entwicklung mit einer Spende unterstützen."
 donation_btn = "Über Stripe spenden"
 donation_paypal_btn = "Über PayPal spenden"
 donation_or = "oder"
-
 gate_period_missing_err = "Der Zeitraum für diesen Export konnte nicht ermittelt werden (kein verwertbares Verkaufsdatum gefunden). Bitte prüfen Sie die importierte Datei oder legen Sie den Zeitraum manuell fest."
-
-# CA3 EDI-TVA preparation export
 dl_generate_ca3_edi_btn = "⚙️ CA3 EDI-TVA-Vorbereitungsdatei erstellen (CSV)"
 dl_ca3_edi_btn = "📥 CA3 EDI-TVA-Vorbereitung (CSV — nicht übertragbar)"
 dl_ca3_edi_filename = "CA3_EDI_TVA_Vorbereitung_{company}_{period}.csv"
@@ -1494,3 +1328,44 @@ ca3_edi_regime_mensuel = "Monatlich"
 ca3_edi_regime_help = "Vom Finanzamt mitgeteilter Zeitraum (Art. 289 B CGI): monatlich oder vierteljährlich. Nicht aus den importierten Verkäufen ableitbar."
 ca3_edi_regime_mismatch_err = "Zeitraum „{regime}“ passt nicht zur erkannten Periode ({period}): Zeitraum oder importierte Datei korrigieren, bevor die CSV erstellt wird."
 ca3_edi_preparation_warning = "Diese CSV enthält ausgewählte CA3-Felder mit offiziellen EDI-Codes. Der erkannte Kalendermonat oder das Kalenderquartal wird vorausgefüllt und muss anhand Ihrer Steuerpflicht geprüft werden. Die Vorsteuer enthält den vom Modul geschätzten innergemeinschaftlichen Erwerb, ist aber ohne Einkaufsdaten unvollständig. Dies ist keine EDIFACT-Nachricht und nicht übertragungsbereit; ROF ergänzen und von einem zugelassenen EDI-Partner prüfen lassen."
+onboarding_demo_coming_soon = "Der Demomodus ist bald verfügbar! Bitte verwenden Sie vorerst Ihre eigenen Dateien."
+onboarding_demo_mode_info = "Sie erkunden das Tool mit Testdaten. Es werden keine echten Berechnungen gespeichert."
+onboarding_demo_mode_toggle = "🧪 Demomodus (Testdaten)"
+onboarding_finish_btn = "✓ Abschließen"
+onboarding_guide_audit = "### Leitfaden: Amazon-Audit\n\nDieser Tab identifiziert **Abweichungen** zwischen den Amazon-Berechnungen und der Engine."
+onboarding_guide_declarations = "### Leitfaden: Erklärungen\n\nDieser Tab zeigt **was Sie pro Steuerregelung abführen müssen**."
+onboarding_guide_detail = "### Leitfaden: Verkaufsdetails\n\nDieser Tab zeigt **jede Transaktion** mit ihrer steuerlichen Klassifizierung."
+onboarding_guide_downloads = "### Leitfaden: Downloads\n\nHier können Sie **Exporte für Ihre Erklärungen generieren**."
+onboarding_guide_vies = "### Leitfaden: VIES\n\nHier können Sie **USt-IdNrn. Ihrer B2B-Kunden prüfen**."
+onboarding_guide_viz = "### Leitfaden: Visualisierungen\n\nDieser Tab bietet **Diagramme** zur Analyse Ihrer Daten."
+onboarding_next_btn = "Weiter →"
+onboarding_prev_btn = "← Zurück"
+onboarding_skip_btn = "Überspringen"
+onboarding_step2_intro = "Konfigurieren wir nun Ihre Unternehmensdaten für die Erklärungen."
+onboarding_step2_skip_hint = "Sie können jederzeit über das Kontomenü zum Assistenten zurückkehren."
+onboarding_step2_skip_info = "⚠️ Überspringen Sie diesen Schritt vorerst und konfigurieren Sie Ihr Unternehmen später in der Seitenleiste."
+onboarding_step2_title = "Ihr Unternehmen konfigurieren"
+onboarding_step3_intro = "Laden Sie Ihren Amazon-Bericht hoch oder nutzen Sie den Demomodus."
+onboarding_step3_title = "Ihre erste Datei importieren"
+onboarding_step3_upload_info = "Laden Sie Ihren Amazon-Bericht (CSV/TSV/TXT) aus Seller Central hoch."
+onboarding_step4_intro = "Lernen Sie die verschiedenen Tabs der Anwendung zu verstehen."
+onboarding_step4_no_data = "⚠️ Importieren Sie zuerst eine Datei oder aktivieren Sie den Demomodus."
+onboarding_step4_title = "Ergebnisse interpretieren"
+onboarding_tab_tour_label = "Wählen Sie einen Tab zum Erkunden:"
+onboarding_tour_audit = "🔍 Amazon-Audit"
+onboarding_tour_declarations = "📋 Erklärungen"
+onboarding_tour_detail = "📊 Verkaufsdetails"
+onboarding_tour_downloads = "📥 Downloads"
+onboarding_tour_vies = "🛡️ VIES"
+onboarding_tour_viz = "📈 Visualisierungen"
+onboarding_wizard_progress = "Schritt {step}/{total}"
+siren_stepper_finish_btn = "Diese SIREN speichern"
+siren_stepper_next_btn = "Weiter"
+siren_stepper_prev_btn = "Zurück"
+siren_stepper_step1_help = "Diese Informationen identifizieren Ihr Unternehmen für Steuererklärungen."
+siren_stepper_step1_title = "Schritt 1/3: Basisinformationen"
+siren_stepper_step2_help = "Wählen Sie die Länder aus, in denen Sie für die USt registriert sind."
+siren_stepper_step2_title = "Schritt 2/3: USt-Registrierungen"
+siren_stepper_step3_help = "Diese Optionen sind optional, werden aber für bestimmte Fälle empfohlen."
+siren_stepper_step3_title = "Schritt 3/3: Erweiterte Optionen"
+siren_stepper_validation_siren_format = "Die SIREN muss genau 9 Ziffern enthalten."

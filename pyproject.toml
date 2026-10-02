@@ -27,6 +27,7 @@ web = [
     "streamlit>=1.30",
     "extra-streamlit-components>=0.1.60",
     "plotly>=5.0",
+    "kaleido>=0.2",
 ]
 
 [project.scripts]
