@@ -48,9 +48,6 @@ def _render_step_configure_company() -> None:
     """Étape 2 : Configurer son entreprise."""
     st.subheader(_("onboarding_step2_title"))
     st.markdown(_("onboarding_step2_intro"))
-    
-    st.info(_("onboarding_step2_skip_info"))
-    st.caption(_("onboarding_step2_skip_hint"))
 
 
 def _render_step_import_first_file() -> None:

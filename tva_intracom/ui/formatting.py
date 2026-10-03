@@ -455,7 +455,14 @@ def _gated_preview_table(
     
     if n_total > min_rows:
         # Le nombre de lignes masquées est le total moins les lignes affichées en clair (min_rows)
-        st.warning(_("gated_preview_warning", count=n_total - min_rows))
+        if lock_msg and _("locked_account_link") in lock_msg:
+            st.warning(_("gated_preview_warning_account_link", count=n_total - min_rows))
+        elif lock_msg and (_("locked_siren_missing") in lock_msg or _("locked_siren_mismatch") in lock_msg):
+            st.warning(_("gated_preview_warning_siren", count=n_total - min_rows))
+        elif lock_msg and _("locked_compliance") in lock_msg:
+            st.warning(_("gated_preview_warning_compliance", count=n_total - min_rows))
+        else:
+            st.warning(_("gated_preview_warning", count=n_total - min_rows))
 
 
 def render_oss_threshold_bar(oss_summary: Any) -> None:

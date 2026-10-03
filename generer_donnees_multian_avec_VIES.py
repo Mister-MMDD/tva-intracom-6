@@ -3,18 +3,24 @@
 Produit un fichier CSV au format Amazon VAT Transactions Report (Format 4)
 identique à source_vente.csv, couvrant plusieurs années civiles.
 
-Scénarios générés par année pour tester les cas limites OSS :
+Scénarios générés par année pour tester tous les cas de TVA :
   - Ventes B2C intra-UE cross-border (OSS) — réparties pour piloter le cumul
   - Ventes B2C domestiques France
-  - Ventes B2B cross-border (reverse charge)
+  - Ventes B2B cross-border (reverse charge avec VIES)
   - Ventes B2B avec NIF national ES/IT (autoliquidation art.194)
-  - Avoirs (RETURN)
+  - Avoirs/Remboursements (RETURN)
+  - Transferts de stock FBA (FC_TRANSFER)
+  - Import ≤ 150 EUR avec IOSS propre (IOSS_DIRECT)
+  - Import > 150 EUR DDP (IMPORT_SELLER_AS_IMPORTER)
+  - Import > 150 EUR standard (IMPORT_STANDARD)
+  - Deemed supplier (DEEMED_SUPPLIER)
+  - Produits hors champ TVA (OUT_OF_SCOPE)
   - Passage de seuil OSS en cours d'année (vente de franchissement)
   - Reset du cumul au 1er janvier
 
 Usage:
-    python generer_donnees_multian.py [--annees 2022 2023 2024] [--output fichier.csv]
-    python generer_donnees_multian.py  # produit data/ventes_multian_test.csv
+    python generer_donnees_multian_avec_VIES.py [--annees 2022 2023 2024] [--output fichier.csv]
+    python generer_donnees_multian_avec_VIES.py  # produit data/ventes_multian_test.csv
 """
 
 from __future__ import annotations
@@ -34,10 +40,14 @@ from typing import List, Optional
 # Constantes
 # ---------------------------------------------------------------------------
 SEUIL_OSS = Decimal("10000.00")
+IOSS_THRESHOLD = Decimal("150.00")
 
 # Pays UE disponibles pour les ventes cross-border B2C
 _EU_DEST = ["DE", "IT", "ES", "NL", "BE", "PL", "SE", "AT", "PT", "CZ",
             "HU", "RO", "GR", "DK", "FI", "SK", "HR", "LT", "LV", "BG"]
+
+# Pays hors UE pour les imports
+_NON_EU_DEST = ["US", "GB", "CH", "CN", "JP", "CA", "AU"]
 
 # Numéros TVA fictifs B2B valides par pays (format correct mais fictifs)
 _B2B_VAT_BY_COUNTRY = {
@@ -55,6 +65,9 @@ _NATIONAL_TAX_IDS = {
     "ES": ["B65885360", "F99091738", "51235746A"],
     "IT": ["03645930961", "12345678901"],
 }
+
+# Numéros IOSS fictifs pour le vendeur
+_IOSS_NUMBERS = ["IM123456789", "IM987654321"]
 
 # Taux TVA standard simplifiés (copie légère pour le générateur — pas d'import du moteur)
 _VAT_RATES = {
@@ -176,13 +189,16 @@ _COLUMNS = [
 class ScenarioSpec:
     """Décrit un scénario de vente à générer."""
     label: str
-    tx_type: str           # SHIPMENT ou RETURN
+    tx_type: str           # SHIPMENT, RETURN, FC_TRANSFER
     departure: str         # pays de départ (stock)
     arrival: str           # pays de destination (acheteur)
     amount_ht: Decimal
     buyer_vat: str = ""    # "" = B2C, valeur = B2B
     qty: int = 1
     note: str = ""         # pour le CSV commentaire humain (ITEM_DESCRIPTION)
+    ioss_number: str = ""   # Numéro IOSS du vendeur (cas IOSS_DIRECT)
+    seller_is_importer: bool = False  # DDP - vendeur importateur
+    product_tax_code: str = "A_GEN_STANDARD"  # Pour OUT_OF_SCOPE
 
 
 # ---------------------------------------------------------------------------
@@ -223,23 +239,68 @@ def _make_row(
     tx_date_str = _fmt_date(tx_date)
     activity_period = tx_date.strftime("%Y-%m")
 
-    amount_ht = spec.amount_ht
-    if spec.tx_type == "RETURN":
-        amount_ht = -abs(amount_ht)
+    # Cas spécial : FC_TRANSFER (transfert de stock FBA)
+    if spec.tx_type == "FC_TRANSFER":
+        amount_ht = Decimal("0.00")
+        vat_amt = Decimal("0.00")
+        amount_ttc = Decimal("0.00")
+        vat_rate = Decimal("0")
+    else:
+        amount_ht = spec.amount_ht
+        if spec.tx_type == "RETURN":
+            amount_ht = -abs(amount_ht)
 
-    vat_rate = _VAT_RATES.get(spec.arrival, Decimal("20"))
-    vat_amt = _vat_amt(abs(amount_ht), spec.arrival)
-    if amount_ht < 0:
-        vat_amt = -vat_amt
-    amount_ttc = amount_ht + vat_amt
+        vat_rate = _VAT_RATES.get(spec.arrival, Decimal("20"))
+        vat_amt = _vat_amt(abs(amount_ht), spec.arrival)
+        if amount_ht < 0:
+            vat_amt = -vat_amt
+        amount_ttc = amount_ht + vat_amt
 
     tx_id = f"EVT-{year}-{seq:06d}"
     activity_tx_id = f"ACT-{year}-{seq:06d}"
     sku = f"SKU-{seq % 50:04d}"
     asin = f"B{str(seq % 1000).zfill(9)}"
 
-    # Buyer VAT
-    buyer_vat_country = spec.buyer_vat[:2] if spec.buyer_vat and len(spec.buyer_vat) >= 2 else ""
+    # Buyer VAT - pour les NIF nationaux ES/IT, le pays n'est pas dans le numéro
+    if spec.buyer_vat and spec.buyer_vat[:2] in ["ES", "IT", "DE", "NL", "PL", "BE", "AT"]:
+        buyer_vat_country = spec.buyer_vat[:2]
+    elif spec.buyer_vat:
+        # NIF national sans préfixe - utiliser le pays d'arrivée
+        buyer_vat_country = spec.arrival
+    else:
+        buyer_vat_country = ""
+
+    # Détermination du schéma de taxation
+    tax_reporting_scheme = "DOMESTIC"
+    if spec.tx_type == "FC_TRANSFER":
+        tax_reporting_scheme = ""
+    elif spec.departure != spec.arrival:
+        if spec.arrival in _NON_EU_DEST:
+            # Import
+            if spec.amount_ht <= IOSS_THRESHOLD and spec.ioss_number:
+                tax_reporting_scheme = "IOSS"
+            else:
+                tax_reporting_scheme = "IMPORT"
+        else:
+            # Intra-UE
+            tax_reporting_scheme = "OSS" if not spec.buyer_vat else "DOMESTIC"
+
+    # Tax collection responsibility
+    tax_collection = "SELLER"
+    if spec.buyer_vat:
+        tax_collection = "BUYER"  # Reverse charge
+    elif spec.tx_type == "FC_TRANSFER":
+        tax_collection = ""
+    elif spec.departure != spec.arrival and spec.arrival in _NON_EU_DEST:
+        # Imports
+        if spec.amount_ht <= IOSS_THRESHOLD and spec.ioss_number:
+            tax_collection = "SELLER"  # IOSS direct
+        elif spec.amount_ht <= IOSS_THRESHOLD:
+            tax_collection = "AMAZON"  # Deemed supplier
+        elif spec.seller_is_importer:
+            tax_collection = "SELLER"  # DDP
+        else:
+            tax_collection = "BUYER"  # Import standard (douane)
 
     row = {col: "" for col in _COLUMNS}
     row.update({
@@ -323,14 +384,14 @@ def _make_row(
         "BUYER_VAT_NUMBER_COUNTRY":         buyer_vat_country,
         "BUYER_VAT_NUMBER":                 spec.buyer_vat,
         # Divers
-        "PRODUCT_TAX_CODE":                 "A_GEN_STANDARD",
+        "PRODUCT_TAX_CODE":                 spec.product_tax_code,
         "VAT_CALCULATION_IMPUTATION_COUNTRY": spec.arrival,
         "TAXABLE_JURISDICTION":             spec.arrival,
         "TAXABLE_JURISDICTION_LEVEL":       "COUNTRY",
         "VAT_INV_NUMBER":                   f"INV-{year}-{seq:06d}",
-        "EXPORT_OUTSIDE_EU":                "FALSE",
-        "TAX_REPORTING_SCHEME":             "OSS" if spec.departure != spec.arrival else "DOMESTIC",
-        "TAX_COLLECTION_RESPONSIBILITY":    "SELLER",
+        "EXPORT_OUTSIDE_EU":                "TRUE" if spec.arrival in _NON_EU_DEST else "FALSE",
+        "TAX_REPORTING_SCHEME":             tax_reporting_scheme,
+        "TAX_COLLECTION_RESPONSIBILITY":    tax_collection,
     })
     return row
 
@@ -355,11 +416,20 @@ def _build_scenarios_for_year(
     """
     specs: List[ScenarioSpec] = []
 
-    # Distribution approximative
-    n_b2b = max(1, int(target_count * 0.05))
-    n_oss = max(1, int(target_count * 0.40))
-    n_misc = max(2, int(target_count * 0.05))
-    n_dom = target_count - n_b2b - n_oss - n_misc
+    # Distribution approximative des types de transactions
+    n_b2b = max(1, int(target_count * 0.05))          # B2B reverse charge
+    n_oss = max(1, int(target_count * 0.30))          # OSS B2C intra-UE
+    n_import_ioss = max(1, int(target_count * 0.05))  # Import IOSS ≤ 150€
+    n_import_ddp = max(1, int(target_count * 0.05))   # Import DDP > 150€
+    n_import_std = max(1, int(target_count * 0.05))   # Import standard > 150€
+    n_deemed = max(1, int(target_count * 0.05))       # Deemed supplier
+    n_transfer = max(1, int(target_count * 0.05))     # FC_TRANSFER
+    n_nif = max(1, int(target_count * 0.03))          # NIF national ES/IT
+    n_out_scope = max(1, int(target_count * 0.02))    # OUT_OF_SCOPE
+    n_misc = max(2, int(target_count * 0.05))         # Avoirs/Exports
+    n_dom = target_count - (n_b2b + n_oss + n_import_ioss + n_import_ddp +
+                           n_import_std + n_deemed + n_transfer + n_nif +
+                           n_out_scope + n_misc)
 
     # --- 1. Ventes domestiques France (ne comptent pas dans le cumul OSS) ---
     for i in range(n_dom):
@@ -384,20 +454,37 @@ def _build_scenarios_for_year(
             departure="FR", arrival=country,
             amount_ht=amt,
             buyer_vat=vat,
-            note=f"B2B reverse charge vers {country}",
+            note=f"B2B reverse charge VIES vers {country}",
         ))
 
     # --- 3. B2B avec NIF national ES/IT (art.194) ---
-    # Inclus dans n_misc pour simplifier
-    
+    for i in range(n_nif):
+        country = rng.choice(["ES", "IT"])
+        nif = rng.choice(_NATIONAL_TAX_IDS[country])
+        amt = Decimal(str(rng.randint(100, 2000)))
+        specs.append(ScenarioSpec(
+            label="B2B_NIF",
+            tx_type="SHIPMENT",
+            departure="FR", arrival=country,
+            amount_ht=amt,
+            buyer_vat=nif,  # NIF sans préfixe
+            note=f"B2B NIF national {country} (art.194)",
+        ))
+
     # --- 4. Ventes B2C cross-border intra-UE (OSS) ---
     # Pilotage du cumul selon oss_target
     oss_amounts = []
     if oss_target == "below":
-        # Rester sous 10 000 €. Si n_oss est grand, on réduit le nombre de transactions OSS
-        # réelles et on bascule le surplus en domestique.
-        n_oss_real = min(n_oss, 50)
-        oss_amounts = [Decimal(str(rng.randint(100, 150))) for _ in range(n_oss_real)]
+        # Rester sous 10 000 €. On réduit drastiquement le nombre de ventes OSS
+        # et on compense avec du domestique pour garder le total de lignes
+        n_oss_real = max(1, min(n_oss, 5))  # Max 5 ventes OSS pour below
+        # Montants petits pour rester sous 10000
+        target_total = Decimal("8000")  # Cible 8000 pour rester sous le seuil
+        base_amt = target_total / n_oss_real
+        for _ in range(n_oss_real):
+            variation = Decimal(str(rng.randint(-50, 50)))
+            amt = (base_amt + variation).quantize(Decimal("0.01"))
+            oss_amounts.append(max(Decimal("100"), amt))
         # On compense le nombre de lignes en ajoutant du domestique
         for _ in range(n_oss - n_oss_real):
             specs.append(ScenarioSpec(
@@ -407,19 +494,27 @@ def _build_scenarios_for_year(
 
     elif oss_target == "cross":
         # Ventes juste sous le seuil + UNE vente de franchissement
-        if n_oss > 1:
-            # On veut sum(n_oss-1) = 9000
+        # Adapter au nombre de ventes OSS disponibles
+        if n_oss >= 2:
+            # On veut sum(n_oss-1) = 9000 pour être juste sous le seuil
             base_amt = Decimal("9000") / (n_oss - 1)
             for _ in range(n_oss - 1):
                 oss_amounts.append(base_amt.quantize(Decimal("0.01")))
             oss_amounts.append(Decimal("2000"))   # franchissement
         else:
+            # Si pas assez de ventes, faire une seule vente qui franchit
             oss_amounts.append(Decimal("11000"))
 
     else:  # "above"
-        # Bien au-dessus du seuil
-        for _ in range(n_oss):
-            oss_amounts.append(Decimal(str(rng.randint(50, 500))))
+        # Bien au-dessus du seuil - utiliser des montants importants
+        # Pour garantir > 10000 avec peu de ventes
+        if n_oss > 0:
+            target_total = Decimal("15000")  # Cible 15000 pour être bien au-dessus
+            base_amt = target_total / n_oss
+            for _ in range(n_oss):
+                variation = Decimal(str(rng.randint(-200, 200)))
+                amt = (base_amt + variation).quantize(Decimal("0.01"))
+                oss_amounts.append(max(Decimal("500"), amt))
 
     countries_pool = _EU_DEST.copy()
     for i, amt in enumerate(oss_amounts):
@@ -432,18 +527,97 @@ def _build_scenarios_for_year(
             note=f"OSS B2C vers {dest} (cible={oss_target})",
         ))
 
-    # --- 5. Avoir OSS & Exports ---
+    # --- 5. Import IOSS ≤ 150 EUR (numéro IOSS propre du vendeur) ---
+    for i in range(n_import_ioss):
+        dest = rng.choice(_NON_EU_DEST)
+        amt = Decimal(str(rng.randint(10, 149)))  # <= 150
+        ioss_num = rng.choice(_IOSS_NUMBERS)
+        specs.append(ScenarioSpec(
+            label="IMPORT_IOSS",
+            tx_type="SHIPMENT",
+            departure="FR", arrival=dest,
+            amount_ht=amt,
+            ioss_number=ioss_num,
+            note=f"Import IOSS <=150 EUR vers {dest} (n° {ioss_num})",
+        ))
+
+    # --- 6. Import DDP > 150 EUR (vendeur importateur) ---
+    for i in range(n_import_ddp):
+        dest = rng.choice(_NON_EU_DEST)
+        amt = Decimal(str(rng.randint(151, 1000)))  # > 150 EUR
+        specs.append(ScenarioSpec(
+            label="IMPORT_DDP",
+            tx_type="SHIPMENT",
+            departure="FR", arrival=dest,
+            amount_ht=amt,
+            seller_is_importer=True,
+            note=f"Import DDP >150 EUR vers {dest} (vendeur importateur)",
+        ))
+
+    # --- 7. Import standard > 150 EUR (douane) ---
+    for i in range(n_import_std):
+        dest = rng.choice(_NON_EU_DEST)
+        amt = Decimal(str(rng.randint(151, 1000)))  # > 150 EUR
+        specs.append(ScenarioSpec(
+            label="IMPORT_STD",
+            tx_type="SHIPMENT",
+            departure="FR", arrival=dest,
+            amount_ht=amt,
+            note=f"Import standard >150 EUR vers {dest} (douane)",
+        ))
+
+    # --- 8. Deemed supplier (Amazon assujetti présumé) ---
+    for i in range(n_deemed):
+        dest = rng.choice(_EU_DEST)
+        amt = Decimal(str(rng.randint(10, 149)))  # <= 150 pour deemed supplier
+        specs.append(ScenarioSpec(
+            label="DEEMED_SUPPLIER",
+            tx_type="SHIPMENT",
+            departure="US", arrival=dest,  # Vendeur hors UE
+            amount_ht=amt,
+            note=f"Deemed supplier Amazon vers {dest}",
+        ))
+
+    # --- 9. FC_TRANSFER (transferts de stock FBA) ---
+    for i in range(n_transfer):
+        dep = rng.choice(_EU_DEST)
+        arr = rng.choice([c for c in _EU_DEST if c != dep])
+        qty = rng.randint(10, 100)
+        specs.append(ScenarioSpec(
+            label="FC_TRANSFER",
+            tx_type="FC_TRANSFER",
+            departure=dep, arrival=arr,
+            amount_ht=Decimal("0.00"),
+            qty=qty,
+            note=f"Transfert stock FBA {dep}-{arr}",
+        ))
+
+    # --- 10. OUT_OF_SCOPE (produits hors champ TVA) ---
+    for i in range(n_out_scope):
+        amt = Decimal(str(rng.randint(10, 500)))
+        specs.append(ScenarioSpec(
+            label="OUT_OF_SCOPE",
+            tx_type="SHIPMENT",
+            departure="FR", arrival=rng.choice(_EU_DEST),
+            amount_ht=amt,
+            product_tax_code="A_GEN_NOTAX",
+            note=f"Produit hors champ TVA #{i+1}",
+        ))
+
+    # --- 11. Avoirs/Remboursements & Exports ---
     for i in range(n_misc // 2):
         specs.append(ScenarioSpec(
             label="AVOIR_OSS", tx_type="RETURN",
             departure="FR", arrival=rng.choice(_EU_DEST),
             amount_ht=Decimal(str(rng.randint(10, 100))),
+            note="Remboursement OSS",
         ))
     for i in range(n_misc - (n_misc // 2)):
         specs.append(ScenarioSpec(
             label="EXPORT_HUE", tx_type="SHIPMENT",
-            departure="FR", arrival="GB",
+            departure="FR", arrival=rng.choice(_NON_EU_DEST),
             amount_ht=Decimal(str(rng.randint(50, 300))),
+            note="Export hors UE",
         ))
 
     return specs
@@ -471,9 +645,9 @@ def generate(
 
     rows_per_year = total_count // len(years)
 
-    print(f"Génération de {total_count} ventes pour {len(years)} année(s) : {years}")
-    print(f"Cible par année : ~{rows_per_year} lignes")
-    print(f"Seuil OSS : {SEUIL_OSS} €\n")
+    print(f"Generation de {total_count} ventes pour {len(years)} annee(s) : {years}")
+    print(f"Cible par annee : ~{rows_per_year} lignes")
+    print(f"Seuil OSS : {SEUIL_OSS} EUR\n")
 
     for i, year in enumerate(years):
         strategy = oss_strategies[i % len(oss_strategies)]
@@ -493,8 +667,17 @@ def generate(
             year_rows.append(row)
             seq += 1
 
-            if spec.tx_type == "SHIPMENT" and spec.departure != spec.arrival \
-               and not spec.buyer_vat and spec.arrival in _VAT_RATES:
+            # Compte dans le cumul OSS uniquement si :
+            # - SHIPMENT (pas RETURN, pas FC_TRANSFER)
+            # - B2C (pas de buyer_vat)
+            # - Intra-UE (arrival dans _EU_DEST et pas dans _NON_EU_DEST)
+            # - Stock UE (departure dans _EU_DEST)
+            # - Pas OUT_OF_SCOPE
+            if (spec.tx_type == "SHIPMENT" and
+                not spec.buyer_vat and
+                spec.arrival in _EU_DEST and
+                spec.departure in _EU_DEST and
+                spec.product_tax_code != "A_GEN_NOTAX"):
                 # Compte dans le cumul OSS si B2C cross-border intra-UE
                 year_oss_total += spec.amount_ht
 
@@ -503,12 +686,12 @@ def generate(
         all_rows.extend(year_rows)
 
         oss_status = (
-            "✓ SOUS le seuil" if year_oss_total < SEUIL_OSS
-            else f"⚡ FRANCHISSEMENT" if strategy == "cross"
-            else "↑ AU-DESSUS du seuil"
+            "X SOUS le seuil" if year_oss_total < SEUIL_OSS
+            else f"! FRANCHISSEMENT" if strategy == "cross"
+            else "^ AU-DESSUS du seuil"
         )
         print(f"  {year} ({strategy:6s}) : {len(specs):3d} transactions, "
-              f"cumul OSS estimé ≈ {year_oss_total:>10,.2f} €  {oss_status}")
+              f"cumul OSS estime ~ {year_oss_total:>10,.2f} EUR  {oss_status}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as f:
@@ -516,13 +699,27 @@ def generate(
         writer.writeheader()
         writer.writerows(all_rows)
 
-    print(f"\n✅ Fichier généré : {output_path}")
-    print(f"   {len(all_rows)} lignes, {len(years)} années ({years[0]}–{years[-1]})")
+    print(f"\n[Fait] Fichier genere : {output_path}")
+    print(f"   {len(all_rows)} lignes, {len(years)} annees ({years[0]}-{years[-1]})")
     print()
-    print("Rappel des scénarios couverts par année :")
-    print("  Année 1 (below)  → cumul OSS < 10 000 €  → test option TVA FR sous seuil")
-    print("  Année 2 (cross)  → une vente franchit le seuil → test alerte franchissement")
-    print("  Année 3 (above)  → cumul OSS >> 10 000 € → test déclaration OSS normale")
+    print("Types de scenarios generes :")
+    print("  [X] B2C domestiques France")
+    print("  [X] B2B reverse charge (VIES)")
+    print("  [X] B2B NIF national ES/IT (art.194)")
+    print("  [X] B2C OSS intra-UE cross-border")
+    print("  [X] Import IOSS <= 150 EUR (numero propre)")
+    print("  [X] Import DDP > 150 EUR (vendeur importateur)")
+    print("  [X] Import standard > 150 EUR (douane)")
+    print("  [X] Deemed supplier (Amazon)")
+    print("  [X] FC_TRANSFER (transferts stock FBA)")
+    print("  [X] OUT_OF_SCOPE (produits hors champ)")
+    print("  [X] Avoirs/Remboursements (RETURN)")
+    print("  [X] Exports hors UE")
+    print()
+    print("Strategies OSS par annee :")
+    print("  Annee 1 (below)  -> cumul OSS < 10 000 EUR  -> test TVA FR sous seuil")
+    print("  Annee 2 (cross)  -> une vente franchit le seuil -> test alerte franchissement")
+    print("  Annee 3 (above)  -> cumul OSS >> 10 000 EUR -> test declaration OSS normale")
     print("  (cycle si > 3 ans)")
 
 
@@ -540,7 +737,7 @@ def main(argv: List[str] | None = None) -> int:
     )
     parser.add_argument(
         "--output",
-        default="data/ventes_multian_test_2.csv",
+        default="data/ventes_multian_test_new.csv",
         help="Chemin du fichier CSV de sortie (défaut : data/ventes_multian_test.csv).",
     )
     parser.add_argument(
@@ -552,7 +749,7 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument(
         "--count",
         type=int,
-        default=100000,
+        default=10000,
         help="Nombre total de lignes à générer (défaut : 100000).",
     )
     args = parser.parse_args(argv)

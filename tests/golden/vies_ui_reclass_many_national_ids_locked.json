@@ -137,10 +137,10 @@
    "value": "           ID  ...                        Explication\n0          N0  ...  Domestic — TVA due dans les 2 cas\n1          N1  ...  Domestic — TVA due dans les 2 cas\n2  LOCKED-MSG  ...                         LOCKED-MSG\n3  LOCKED-MSG  ...                         LOCKED-MSG\n4  LOCKED-MSG  ...                         LOCKED-MSG\n5  LOCKED-MSG  ...                         LOCKED-MSG\n6  LOCKED-MSG  ...                         LOCKED-MSG\n7  LOCKED-MSG  ...                         LOCKED-MSG\n\n[8 rows x 9 columns]"
   },
   {
-   "body": "Aperçu limité : 7 autres lignes sont masquées. Débloquez la période pour voir le détail complet.",
+   "body": "Aperçu limité : 7 autres lignes sont masquées. Rattachez les comptes pour voir le détail complet.",
    "depth": 1,
    "type": "warning",
-   "value": "Aperçu limité : 7 autres lignes sont masquées. Débloquez la période pour voir le détail complet."
+   "value": "Aperçu limité : 7 autres lignes sont masquées. Rattachez les comptes pour voir le détail complet."
   },
   {
    "depth": 0,
