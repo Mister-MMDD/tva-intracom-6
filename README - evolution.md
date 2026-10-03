@@ -8750,3 +8750,23 @@ Fichiers modifiés / ajoutés (en plus de ceux de l'entrée précédente) : `tva
 **Non vérifié** : rendu Streamlit réel du nouveau sous-onglet et de l'Excel sur un vrai fichier (pas d'AppTest dédié) ; à contrôler sur le jeu où les 2 NIF ES→IT apparaissaient (attendu : « Risque VIES (2) » aligné sur l'onglet VIES, « NIF sans n° TVA (2) »).
 
 Fichiers modifiés / ajoutés : `tva_intracom/models.py`, `tva_intracom/engine.py`, `tva_intracom/ui/tabs/audit.py`, `tva_intracom/ui/tabs/vies_ui.py`, `tva_intracom/excel_report.py`, `app.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`, `tests/test_nif_vies_alignment.py`, `tests/golden/compute_all_with_vies.json`, `README - evolution.md`.
+
+## 2026-10-02 (2) — Stepper de création de SIREN (« Le numéro SIREN est requis » à tort) et wizard d'onboarding (« Passer » ramenant à l'étape précédente) : 2 bugs corrigés
+
+**Symptômes** : (1) sidebar, nouveau SIREN : nom + SIREN saisis → pays/n° TVA saisis → validation → « Le numéro SIREN est requis » et retour à l'étape 1. (2) onboarding : le bouton « Passer » (et « Suivant ») ramenait à l'étape précédente ; impossible de passer la configuration entreprise.
+
+**Cause 1 (commune aux deux symptômes)** : `app.py` purge, à chaque run complet sans fichier uploadé, toute clé de `st.session_state` absente de `_WHITELIST` (pensé pour effacer l'état dérivé des fichiers retirés). Cette purge, exécutée après `render_sidebar()`, effaçait aussi `siren_stepper_step`/`siren_stepper_data`, les clés des widgets du stepper et `onboarding_wizard_step`. Or chaque changement d'étape fait un `st.rerun()` (run complet) : l'étape courante repartait à 0 juste après son rendu. Les tests AppTest existants n'exécutent pas ce code d'`app.py`, d'où des tests verts malgré le bug.
+
+**Cause 2 (« Passer »/« Terminer » du wizard)** : `onboarding_wizard._render_navigation_buttons` appelait `dismiss_onboarding(st.session_state.get("current_user"))` — clé jamais alimentée → `None` → `AttributeError` avalé par le `except Exception` de `dismiss_onboarding` → `onboarding_seen` jamais écrit, wizard réaffiché.
+
+**Correctif** :
+- Nouveau `tva_intracom/ui/session_guard.py` : `purge_stale_session_keys()` + `PROTECTED_KEY_PREFIXES` (stepper SIREN, wizard et checklist d'onboarding épargnés par la purge). `app.py` l'appelle à la place de la boucle inline (comportement inchangé pour toutes les autres clés).
+- `onboarding_wizard.py` : `current_user` transmis aux boutons de navigation (au lieu de `st.session_state.get("current_user")`).
+- `onboarding.py::dismiss_onboarding` : `current_user.onboarding_seen = True` posé avant l'écriture en base, conformément à la docstring (flag local à la session si la base est indisponible).
+- Aucun changement de calcul fiscal, aucun thread/polling/connexion persistante ajouté (scale-to-zero Railway non affecté).
+
+**Validation** : `py_compile` + `pyflakes` OK sur les fichiers modifiés ; nouveau `tests/test_session_guard.py` (6 tests, dont stepper et wizard soumis à la purge via `tests/_purge_flow_app_script.py`) ; bug reproduit avec l'ancienne boucle de purge (étape absente après `st.rerun()`), corrigé avec le helper. Suite complète : 823 passed / 7 skipped / 15 failed contre 817 / 7 / 15 sur le code d'origine dans le même bac à sable (mêmes 15 échecs : auth_flow ×8, sidebar golden ×5, `test_siren_stepper_full_flow` — appelle `register_siren` sans base —, `test_every_key_used_in_code_exists_in_fr`) ; aucune régression introduite.
+
+**Non vérifié** : parcours réel dans le navigateur (saisie → validation → enregistrement en base Supabase) ; les 15 échecs du bac à sable sont à recontrôler dans l'environnement de Matthieu (baseline précédente : 9 échecs). Observation non traitée : la purge efface aussi d'autres clés de widgets de la sidebar (ex. `siren_select_box`, brouillons `*_edit_*`) à chaque run sans fichier ; non modifié faute de symptôme rapporté.
+
+Fichiers modifiés / ajoutés : `app.py`, `tva_intracom/ui/session_guard.py`, `tva_intracom/ui/onboarding.py`, `tva_intracom/ui/onboarding_wizard.py`, `tests/test_session_guard.py`, `tests/_purge_flow_app_script.py`, `README - evolution.md`.

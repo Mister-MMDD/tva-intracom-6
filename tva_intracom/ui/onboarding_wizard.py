@@ -34,7 +34,7 @@ def render_onboarding_wizard(current_user) -> None:
         _render_step_interpret_results()
     
     # Boutons de navigation
-    _render_navigation_buttons(_step, len(ONBOARDING_STEPS))
+    _render_navigation_buttons(_step, len(ONBOARDING_STEPS), current_user)
 
 
 def _render_progress_bar(current_step: int, total_steps: int) -> None:
@@ -99,7 +99,7 @@ def _render_step_interpret_results() -> None:
     _render_tab_guide(_tab_tour)
 
 
-def _render_navigation_buttons(current_step: int, total_steps: int) -> None:
+def _render_navigation_buttons(current_step: int, total_steps: int, current_user) -> None:
     """Affiche les boutons de navigation du wizard."""
     col1, col2, col3 = st.columns([1, 1, 1])
     
@@ -112,7 +112,7 @@ def _render_navigation_buttons(current_step: int, total_steps: int) -> None:
     with col2:
         if st.button(_("onboarding_skip_btn"), key="wizard_skip"):
             from tva_intracom.ui.onboarding import dismiss_onboarding
-            dismiss_onboarding(st.session_state.get("current_user"))
+            dismiss_onboarding(current_user)
             st.rerun()
     
     with col3:
@@ -123,7 +123,7 @@ def _render_navigation_buttons(current_step: int, total_steps: int) -> None:
         else:
             if st.button(_("onboarding_finish_btn"), key="wizard_finish", type="primary"):
                 from tva_intracom.ui.onboarding import dismiss_onboarding
-                dismiss_onboarding(st.session_state.get("current_user"))
+                dismiss_onboarding(current_user)
                 st.rerun()
 
 

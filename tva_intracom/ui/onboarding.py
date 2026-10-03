@@ -68,9 +68,9 @@ def dismiss_onboarding(current_user) -> None:
     rien renseigner. Ne touche à aucun champ fiscal."""
     st.session_state["_onboarding_step"] = "done"
     st.session_state["_onboarding_restarted"] = False
+    current_user.onboarding_seen = True
     try:
         tva_auth.set_onboarding_seen(current_user.id, True)
-        current_user.onboarding_seen = True
     except Exception:
         # Non bloquant : si l'écriture échoue, le flag reste local à la
         # session (masqué ici et maintenant) et sera retenté au prochain

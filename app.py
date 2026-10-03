@@ -77,6 +77,7 @@ from tva_intracom.ui.sidebar import render_sidebar, render_sidebar_brand, _inval
 from tva_intracom.ui.files import _CachedUploadedFile, _upload_sig, sniff_upload_rejection_reason, validate_mime_type
 from tva_intracom.ui.calc_cache import CalcCacheState
 from tva_intracom.ui.display_mode import ensure_display_mode, is_detailed, render_mode_toggle
+from tva_intracom.ui.session_guard import purge_stale_session_keys
 from tva_intracom.ui.onboarding import (
     ensure_onboarding_state,
     render_onboarding_banner,
@@ -571,9 +572,9 @@ else:
         "display_mode", "_display_mode_widget",
         "_file_encoding_choice",
     }
-    for _stale_key in list(st.session_state.keys()):
-        if _stale_key not in _WHITELIST:
-            st.session_state.pop(_stale_key, None)
+    # Les formulaires multi-étapes (stepper SIREN, onboarding) sont épargnés :
+    # voir ui/session_guard.py (sinon leur étape est réinitialisée à chaque rerun).
+    purge_stale_session_keys(st.session_state, _WHITELIST)
 
     # Libération de la mémoire lors de la transition d'état "fichiers présents -> retirés".
     if _had_files_before:
