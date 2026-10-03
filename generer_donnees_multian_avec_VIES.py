@@ -50,24 +50,42 @@ _EU_DEST = ["DE", "IT", "ES", "NL", "BE", "PL", "SE", "AT", "PT", "CZ",
 _NON_EU_DEST = ["US", "GB", "CH", "CN", "JP", "CA", "AU"]
 
 # Numéros TVA fictifs B2B valides par pays (format correct mais fictifs)
-_B2B_VAT_BY_COUNTRY = {
-    "DE": "DE123456789",
-    "IT": "IT12345678901",
-    "ES": "ESB12345678",
-    "NL": "NL123456789B01",
-    "PL": "PL1234567890",
-    "BE": "BE0123456789",
-    "AT": "ATU12345678",
-}
+# Nous générons des numéros uniques pour chaque vente
+def _generate_vat_number(country: str, seq: int) -> str:
+    """Génère un numéro de TVA fictif unique pour un pays."""
+    if country == "DE":
+        return f"DE{str(seq % 999999999).zfill(9)}"
+    elif country == "IT":
+        return f"IT{str(seq % 99999999999).zfill(11)}"
+    elif country == "ES":
+        return f"ES{chr(65 + (seq % 26))}{str(seq % 99999999).zfill(8)}"
+    elif country == "NL":
+        return f"NL{str(seq % 999999999).zfill(9)}B01"
+    elif country == "PL":
+        return f"PL{str(seq % 9999999999).zfill(10)}"
+    elif country == "BE":
+        return f"BE0{str(seq % 999999999).zfill(9)}"
+    elif country == "AT":
+        return f"ATU{str(seq % 99999999).zfill(8)}"
+    else:
+        return f"{country}{str(seq).zfill(9)}"
 
 # NIF nationaux ES/IT (sans préfixe, pour tester la détection _is_national_tax_id)
-_NATIONAL_TAX_IDS = {
-    "ES": ["B65885360", "F99091738", "51235746A"],
-    "IT": ["03645930961", "12345678901"],
-}
+def _generate_nif_number(country: str, seq: int) -> str:
+    """Génère un NIF national fictif unique pour un pays."""
+    if country == "ES":
+        # Format NIF espagnol: 1 lettre + 8 chiffres
+        return f"{chr(65 + (seq % 26))}{str(seq % 99999999).zfill(8)}"
+    elif country == "IT":
+        # Format codice fiscale italien: 11 chiffres
+        return f"{str(seq % 99999999999).zfill(11)}"
+    else:
+        return f"{str(seq).zfill(11)}"
 
 # Numéros IOSS fictifs pour le vendeur
-_IOSS_NUMBERS = ["IM123456789", "IM987654321"]
+def _generate_ioss_number(seq: int) -> str:
+    """Génère un numéro IOSS fictif unique."""
+    return f"IM{str(seq % 999999999).zfill(9)}"
 
 # Taux TVA standard simplifiés (copie légère pour le générateur — pas d'import du moteur)
 _VAT_RATES = {
@@ -405,9 +423,12 @@ def _build_scenarios_for_year(
     oss_target: str,   # "below" | "cross" | "above"
     rng: random.Random,
     target_count: int = 30,
-) -> List[ScenarioSpec]:
+    seq_start: int = 0,  # Pour garantir l'unicité des numéros
+) -> tuple[List[ScenarioSpec], int]:
     """
     Construit la liste des scénarios pour une année selon l'objectif OSS.
+
+    Renvoie (specs, seq_counter_final) pour garantir l'unicité entre années.
 
     oss_target :
         "below"  → cumul OSS restera < 10 000 € (test TVA FR sous seuil)
@@ -415,6 +436,7 @@ def _build_scenarios_for_year(
         "above"  → cumul OSS > 10 000 € dès le début (test OSS normal)
     """
     specs: List[ScenarioSpec] = []
+    seq_counter = seq_start  # Compteur global pour l'unicité
 
     # Distribution approximative des types de transactions
     n_b2b = max(1, int(target_count * 0.05))          # B2B reverse charge
@@ -443,10 +465,11 @@ def _build_scenarios_for_year(
         ))
 
     # --- 2. Ventes B2B cross-border (reverse charge — ne comptent pas OSS) ---
-    countries = list(_B2B_VAT_BY_COUNTRY.keys())
+    countries = ["DE", "IT", "ES", "NL", "PL", "BE", "AT"]
     for i in range(n_b2b):
         country = rng.choice(countries)
-        vat = _B2B_VAT_BY_COUNTRY[country]
+        vat = _generate_vat_number(country, seq_counter)
+        seq_counter += 1
         amt = Decimal(str(rng.randint(100, 2000)))
         specs.append(ScenarioSpec(
             label="B2B_RC",
@@ -460,7 +483,8 @@ def _build_scenarios_for_year(
     # --- 3. B2B avec NIF national ES/IT (art.194) ---
     for i in range(n_nif):
         country = rng.choice(["ES", "IT"])
-        nif = rng.choice(_NATIONAL_TAX_IDS[country])
+        nif = _generate_nif_number(country, seq_counter)
+        seq_counter += 1
         amt = Decimal(str(rng.randint(100, 2000)))
         specs.append(ScenarioSpec(
             label="B2B_NIF",
@@ -531,7 +555,8 @@ def _build_scenarios_for_year(
     for i in range(n_import_ioss):
         dest = rng.choice(_NON_EU_DEST)
         amt = Decimal(str(rng.randint(10, 149)))  # <= 150
-        ioss_num = rng.choice(_IOSS_NUMBERS)
+        ioss_num = _generate_ioss_number(seq_counter)
+        seq_counter += 1
         specs.append(ScenarioSpec(
             label="IMPORT_IOSS",
             tx_type="SHIPMENT",
@@ -620,7 +645,7 @@ def _build_scenarios_for_year(
             note="Export hors UE",
         ))
 
-    return specs
+    return specs, seq_counter
 
 
 
@@ -642,6 +667,7 @@ def generate(
 
     all_rows: List[dict] = []
     seq = 1
+    seq_counter = 1  # Pour l'unicité des numéros TVA/NIF/IOSS
 
     rows_per_year = total_count // len(years)
 
@@ -653,8 +679,10 @@ def generate(
         strategy = oss_strategies[i % len(oss_strategies)]
         # On ajuste target_count pour la dernière année pour tomber juste sur total_count
         target_count = rows_per_year if i < len(years) - 1 else (total_count - len(all_rows))
-        
-        specs = _build_scenarios_for_year(year, strategy, rng, target_count=target_count)
+
+        specs, seq_counter = _build_scenarios_for_year(
+            year, strategy, rng, target_count=target_count, seq_start=seq_counter
+        )
 
         # Trier les specs dans un ordre aléatoire pour simuler l'ordre réel
         rng.shuffle(specs)

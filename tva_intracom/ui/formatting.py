@@ -269,6 +269,7 @@ def _smart_money_df(
     money_cols: Optional[list[str]] = None,
     pct_cols: Optional[list[str]] = None,
     note_cols: Optional[list[str]] = None,
+    count_cols: Optional[list[str]] = None,
     existing_config: Optional[dict] = None
 ) -> dict[str, Any]:
     """Génère un column_config Streamlit optimisé.
@@ -294,6 +295,7 @@ def _smart_money_df(
     m_cols = money_cols or []
     p_cols = pct_cols or []
     n_cols = note_cols or []
+    c_cols = count_cols or []
     
     # Récupération du taux une seule fois pour tout le tableau
     _target_curr, _rate = _get_conversion_rate()
@@ -320,7 +322,17 @@ def _smart_money_df(
             column_config[col] = st.column_config.TextColumn(col, width="medium")
             continue
 
-        # 1. Colonnes de notes (Texte long)
+        # 1. Colonnes de comptes (entiers)
+        if col in c_cols or "commande" in col_lower or "count" in col_lower:
+            column_config[col] = st.column_config.NumberColumn(
+                col,
+                format="%d",
+                width="small",
+                alignment="right"
+            )
+            continue
+
+        # 2. Colonnes de notes (Texte long)
         if col in n_cols or "note" in col_lower or "commentaire" in col_lower:
             column_config[col] = st.column_config.TextColumn(col)
             

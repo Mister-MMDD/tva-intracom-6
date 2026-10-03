@@ -596,13 +596,20 @@ def _render_existing_overrides(ctx: TabContext, vies_summary, existing_overrides
 
 def _render_true_rejections_table(true_rejections, can_export: bool, lock_msg: str) -> None:
     """Tableau « N° TVA rejeté » (filtrable, aperçu verrouillé tant que la période n'est pas débloquée)."""
+    # Regrouper par numéro de TVA pour compter les commandes impactées
+    vat_to_count = {}
+    for r in true_rejections:
+        vat = r.buyer_vat_number
+        vat_to_count[vat] = vat_to_count.get(vat, 0) + 1
+
     fraud_data = [{_("vies_col_id"): (getattr(r, "display_id", "") or r.sale_id), _("vies_col_rejected_vat"): r.buyer_vat_number,
         _("vies_col_origin"): country_label(getattr(r, "stock_country", "")),
         _("vies_col_dest"): country_label(r.buyer_country), _("vies_col_ht"): float(r.amount_ht),
         _("vies_col_recovered_vat"): float(r.vat_avoided),
         _("vies_col_status"): _vies_statut(r),
         _("col_scenario"): getattr(r, "scenario", ""),
-        _("vies_col_expl"): _vies_explication(r)}
+        _("vies_col_expl"): _vies_explication(r),
+        _("vies_col_orders_count"): vat_to_count.get(r.buyer_vat_number, 1)}
         for r in true_rejections]
 
     filtre = st.radio(_("vies_filter_label"), [_("vies_filter_all"), _("vies_filter_recovered"), _("vies_filter_reverse_charge"), _("vies_filter_zero_impact")], horizontal=True)
@@ -616,7 +623,8 @@ def _render_true_rejections_table(true_rejections, can_export: bool, lock_msg: s
 
     _fraud_cfg = _smart_money_df(_fraud_df_filt,
         money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
-        note_cols=[_("vies_col_rejected_vat"), _("vies_col_id"), _("col_scenario"), _("vies_col_expl")])
+        note_cols=[_("vies_col_rejected_vat"), _("vies_col_id"), _("col_scenario"), _("vies_col_expl")],
+        count_cols=[_("vies_col_orders_count")])
     _gated_preview_table(_fraud_df_filt, can_export, column_config=_fraud_cfg, total_count=len(_fraud_df_filt),
                          exclude_safe_cols=[_("vies_col_id"), _("vies_col_dest")], lock_msg=lock_msg)
 
@@ -624,6 +632,12 @@ def _render_true_rejections_table(true_rejections, can_export: bool, lock_msg: s
 def _render_national_ids_expander(national_ids, can_export: bool, lock_msg: str) -> None:
     """Expander des NIF / identifiants fiscaux nationaux (jamais soumis à VIES)."""
     with st.expander(_("vies_national_id_expander", count=len(national_ids))):
+        # Regrouper par NIF pour compter les commandes impactées
+        nif_to_count = {}
+        for r in national_ids:
+            nif = r.buyer_vat_number
+            nif_to_count[nif] = nif_to_count.get(nif, 0) + 1
+
         _nat_data = [{
             _("vies_col_id"): (getattr(r, "display_id", "") or r.sale_id),
             _("vies_col_national_id"): r.buyer_vat_number,
@@ -634,11 +648,13 @@ def _render_national_ids_expander(national_ids, can_export: bool, lock_msg: str)
             _("vies_col_status"): _vies_statut(r),
             _("col_scenario"): getattr(r, "scenario", ""),
             _("vies_col_expl"): _vies_explication(r),
+            _("vies_col_orders_count"): nif_to_count.get(r.buyer_vat_number, 1),
         } for r in national_ids]
         _nat_df = pd.DataFrame(_nat_data)
         _nat_cfg = _smart_money_df(_nat_df,
             money_cols=[_("vies_col_ht"), _("vies_col_recovered_vat")],
-            note_cols=[_("vies_col_national_id"), _("vies_col_id"), _("col_scenario"), _("vies_col_expl")])
+            note_cols=[_("vies_col_national_id"), _("vies_col_id"), _("col_scenario"), _("vies_col_expl")],
+            count_cols=[_("vies_col_orders_count")])
         # BUGFIX (2026-08-16) : ce tableau des identifiants nationaux NIF
         # (non soumis à VIES) était affiché en clair via st.dataframe, sans
         # passer par _gated_preview_table — contrairement au tableau
