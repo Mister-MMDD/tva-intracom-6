@@ -8770,3 +8770,54 @@ Fichiers modifiés / ajoutés : `tva_intracom/models.py`, `tva_intracom/engine.p
 **Non vérifié** : parcours réel dans le navigateur (saisie → validation → enregistrement en base Supabase) ; les 15 échecs du bac à sable sont à recontrôler dans l'environnement de Matthieu (baseline précédente : 9 échecs). Observation non traitée : la purge efface aussi d'autres clés de widgets de la sidebar (ex. `siren_select_box`, brouillons `*_edit_*`) à chaque run sans fichier ; non modifié faute de symptôme rapporté.
 
 Fichiers modifiés / ajoutés : `app.py`, `tva_intracom/ui/session_guard.py`, `tva_intracom/ui/onboarding.py`, `tva_intracom/ui/onboarding_wizard.py`, `tests/test_session_guard.py`, `tests/_purge_flow_app_script.py`, `README - evolution.md`.
+
+## 2026-10-03 — Audit Amazon : onglet « Hors Europe » (ex « Royaume-Uni ») + faux « Risque VIES » reclassés en écarts de taux
+
+**Symptômes** (jeu `ventes_multian_test_new2.csv`, rapport 2022-2024) : (1) les ventes hors UE (JP, US, CA, AU, CH, CN…) où le moteur exonère (export) alors qu'Amazon collecte une TVA locale tombaient dans « Écart de taux / Divers » (~120 k€ d'« écart » purement technique). (2) L'onglet « 🚨 Risque VIES » affichait 199 lignes « Cross-border — TVA due au pays de départ (FR), exonération évitée » alors qu'Amazon avait bien taxé (VIES invalide détecté) : le résidu n'était qu'un écart de taux (20 % FR moteur vs 21/22 % Amazon), pas une exonération à tort.
+
+**Correctif** :
+- Nouveau `tva_intracom/audit_classify.py` (source unique UI + Excel) : `is_non_eu_flow(dep, arr)` (départ ou arrivée hors UE, GB inclus) et `is_vies_risk_gap(in_vies_affected, tva_amazon)` (Risque VIES uniquement si Amazon a exonéré, `TVA Amazon == 0`).
+- `ui/tabs/audit.py` : le sous-onglet « Royaume-Uni » devient « 🌍 Hors Europe » et reçoit tous les flux hors UE ; le classement VIES exige `TVA Amazon == 0`, sinon la ligne retombe dans « Écart de taux ». Clé de cache de catégories passée à `nif_v2` (sinon l'ancien classement restait servi depuis `session_state`).
+- `excel_report.py` : même logique via le helper (l'Excel avait déjà la règle VIES `tva_amazon == 0`, l'UI divergeait) ; libellé de nature « GB — Flux post-Brexit » → « Hors Europe — Flux hors UE ».
+- i18n (7 langues) : `audit_tab_uk/audit_uk_info/audit_uk_metric/audit_uk_success` → `audit_tab_non_eu/audit_non_eu_info/audit_non_eu_metric/audit_non_eu_success` ; `xl_audit_nature_gb` → `xl_audit_nature_non_eu`.
+- Aucun changement de calcul fiscal ; aucun thread/polling ajouté (scale-to-zero Railway non affecté).
+
+**Validation** : `py_compile` OK ; 37 tests `i18n/audit/excel` verts ; nouveau `tests/test_audit_classify.py` (2 tests).
+
+**Non vérifié** : rendu réel de l'onglet et de l'Excel sur ton CSV (compte attendu : « Hors Europe » ≈ 241 GB + ~1 500 flux hors UE ; « Risque VIES » ≈ 0 ici puisque Amazon a taxé les 199 cas, qui passent en « Écart de taux »). Les cas hors-UE avec départ non-UE (imports) tombent aussi dans « Hors Europe ».
+
+Fichiers modifiés / ajoutés : `tva_intracom/audit_classify.py`, `tva_intracom/ui/tabs/audit.py`, `tva_intracom/excel_report.py`, `tva_intracom/i18n/{fr,en,de,es,it,pl,pt}.toml`, `tests/test_audit_classify.py`, `README - evolution.md`.
+
+## 2026-10-03 (suite) — Nouveaux canaux `MARKETPLACE` et `CUSTOMS` (fin du faux « EXONERATION » sur des ventes taxées)
+
+**Constat** : `DEEMED_SUPPLIER` (TVA calculée, collectée par Amazon) et `IMPORT_STANDARD` (TVA d'importation payée à la douane) portaient `channel=EXONERATION`, ce qui laissait croire à une vente exonérée alors que `vat_amount > 0`.
+
+**Correctif** :
+- `models.Channel` : ajout de `MARKETPLACE` (place de marché assujettie présumée, aucune déclaration vendeur) et `CUSTOMS` (TVA import payée à la douane). `EXONERATION` est désormais réservé aux ventes réellement exonérées/autoliquidées (export, B2B intra-UE…).
+- `engine.py` : `_deemed_supplier_result` → `MARKETPLACE` ; branche `IMPORT_STANDARD` → `CUSTOMS`. Aucune modification de montant, taux, pays ni collecteur.
+- Sans effet sur les déclarations : tous les consommateurs (CA3, OSS, IOSS, rapports locaux, FEC) filtrent sur des canaux précis ou sur `collector` ; aucun ne testait `EXONERATION` en positif.
+- Tests : `test_engine.py` (2 assertions), golden `compute_vat_grid.json` et `compute_all_with_vies.json` régénérés via `UPDATE_COMPUTE_VAT_GOLDEN=1` / `UPDATE_COMPUTE_ALL_VIES_GOLDEN=1` ; diff vérifié = uniquement `EXONERATION → MARKETPLACE (2 052) / CUSTOMS (663)`. README.md (tableau des scénarios) mis à jour.
+- Scale-to-zero Railway : aucun thread/polling ajouté.
+
+**Suite de tests** : 811 passés, 29 échecs préexistants (sans lien avec ce changement, traités ci-dessous).
+
+**Non vérifié** : affichage des nouvelles valeurs de canal dans Détail ventes / Excel sur ton CSV (valeur brute affichée, pas de libellé traduit).
+
+## 2026-10-04 — Tri des 29 échecs de tests préexistants : 1 vrai bug, 1 test dangereux, le reste = références périmées / artefact de harnais
+
+Diagnostic par bissection sur l'historique git (`59920ab` « nouveau onboarding avec bug », `d704808` « VIES nombre de ventes »). Résultat final : **840 passés, 0 échec**.
+
+| Échecs | Cause | Nature | Traitement |
+|---|---|---|---|
+| `test_every_key_used_in_code_exists_in_fr` (1) | `sidebar.py` utilise `reader_mode_create_siren`, clé jamais ajoutée aux .toml (nettoyage de clés « mortes » du commit `59920ab`) | **Vrai bug** : un compte « lecteur » voyait le nom brut de la clé | Clé ajoutée dans les 7 langues (`i18n/*.toml`) |
+| `test_siren_stepper_full_flow` (1) | `_sidebar_app_script.py` ne simulait pas `tva_billing.register_siren` : le test appelait la **vraie** base (`SUPABASE_DB_URL`) ; il aurait créé un vrai SIREN sur une machine configurée | **Test dangereux** | Doublure `register_siren` ajoutée au script AppTest (appel enregistré, aucune base touchée) |
+| `vies_ui` (14) | Nouvelle colonne « Nb commandes » dans les tableaux VIES/NIF (`d704808`) ; golden non régénérés | Références périmées — vérifié : seul écart = tableaux contenant « Nb commandes », sur les 14 scénarios | 14 golden régénérés (`UPDATE_VIES_UI_GOLDEN=1`) |
+| `sidebar` (4) | Formulaire unique de création de SIREN remplacé par un stepper en 3 étapes (`59920ab`) ; 1 seul golden mis à jour | Références périmées — vérifié : appels, résultat et exceptions identiques ; seuls la barre de progression, la légende, le bouton « Suivant » et les clés de session changent | 4 golden régénérés, ciblés (`UPDATE_SIDEBAR_GOLDEN=1 -k …`) |
+| `auth_flow` (8) + `sidebar::cancel_removal` (1) | Dans l'`AppTest` de Streamlit 1.58.0, les éléments rendus par la passe interrompue par `st.rerun()` restent dans l'arbre (Streamlit réel les supprime) ; champ texte périmé = valeur saisie conservée | **Artefact de harnais**, pas un bug : appels, contexte retourné, paramètres d'URL, clés de session et exceptions sont identiques aux golden | `tests/_apptest_snapshot.py::contains_in_order` : pour ces 9 scénarios l'arbre de référence doit être contained dans l'ordre dans l'arbre observé ; tout le reste reste comparé à l'identique. Golden inchangés |
+
+Pistes écartées : Streamlit 1.65.0 (l'AppTest y supprime bien les restes, mais ~190 autres tests cassent) ; un correctif global de `st.rerun` dans `conftest.py` (perd l'état des widgets non rendus dans la passe interrompue, casse d'autres tests).
+
+Aucun changement de code applicatif hors la clé i18n. Scale-to-zero Railway non affecté.
+
+**À surveiller** : à la prochaine montée de version de Streamlit, tester si les 9 scénarios repassent en égalité stricte, et retirer alors `_STALE_AFTER_RERUN`.
+

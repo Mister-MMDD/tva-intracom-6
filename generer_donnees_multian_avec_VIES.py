@@ -87,6 +87,15 @@ def _generate_ioss_number(seq: int) -> str:
     """Génère un numéro IOSS fictif unique."""
     return f"IM{str(seq % 999999999).zfill(9)}"
 
+# Devises disponibles pour les ventes
+_CURRENCIES = ["EUR", "USD", "GBP", "CHF"]
+_CURRENCY_RATES = {
+    "EUR": Decimal("1.00"),
+    "USD": Decimal("0.92"),
+    "GBP": Decimal("1.15"),
+    "CHF": Decimal("1.05"),
+}
+
 # Taux TVA standard simplifiés (copie légère pour le générateur — pas d'import du moteur)
 _VAT_RATES = {
     "FR": Decimal("20"), "DE": Decimal("19"), "IT": Decimal("22"),
@@ -217,6 +226,8 @@ class ScenarioSpec:
     ioss_number: str = ""   # Numéro IOSS du vendeur (cas IOSS_DIRECT)
     seller_is_importer: bool = False  # DDP - vendeur importateur
     product_tax_code: str = "A_GEN_STANDARD"  # Pour OUT_OF_SCOPE
+    currency: str = "EUR"  # Devise de la transaction
+    exchange_rate: Decimal = Decimal("1.00")  # Taux de change
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +267,10 @@ def _make_row(
     tx_date = _rnd_date(year)
     tx_date_str = _fmt_date(tx_date)
     activity_period = tx_date.strftime("%Y-%m")
+
+    # Gestion de la devise et du taux de change
+    currency = spec.currency
+    exchange_rate = spec.exchange_rate
 
     # Cas spécial : FC_TRANSFER (transfert de stock FBA)
     if spec.tx_type == "FC_TRANSFER":
@@ -377,9 +392,9 @@ def _make_row(
         "PROMO_GIFT_WRAP_AMT_VAT_INCL":     "0",
         "TOTAL_GIFT_WRAP_AMT_VAT_INCL":     "0",
         # Devise
-        "TRANSACTION_CURRENCY_CODE":        "EUR",
-        "VAT_INV_CURRENCY_CODE":            "EUR",
-        "VAT_INV_EXCHANGE_RATE":            "1",
+        "TRANSACTION_CURRENCY_CODE":        currency,
+        "VAT_INV_CURRENCY_CODE":            currency,
+        "VAT_INV_EXCHANGE_RATE":            str(exchange_rate),
         "VAT_INV_EXCHANGE_RATE_DATE":       tx_date_str,
         "VAT_INV_CONVERTED_AMT":            str(amount_ttc),
         # Géographie
@@ -439,8 +454,9 @@ def _build_scenarios_for_year(
     seq_counter = seq_start  # Compteur global pour l'unicité
 
     # Distribution approximative des types de transactions
-    n_b2b = max(1, int(target_count * 0.05))          # B2B reverse charge
-    n_oss = max(1, int(target_count * 0.30))          # OSS B2C intra-UE
+    n_b2b = max(1, int(target_count * 0.04))          # B2B reverse charge
+    n_b2b_domestic = max(1, int(target_count * 0.02)) # B2B domestique RC
+    n_oss = max(1, int(target_count * 0.25))          # OSS B2C intra-UE
     n_import_ioss = max(1, int(target_count * 0.05))  # Import IOSS ≤ 150€
     n_import_ddp = max(1, int(target_count * 0.05))   # Import DDP > 150€
     n_import_std = max(1, int(target_count * 0.05))   # Import standard > 150€
@@ -448,10 +464,11 @@ def _build_scenarios_for_year(
     n_transfer = max(1, int(target_count * 0.05))     # FC_TRANSFER
     n_nif = max(1, int(target_count * 0.03))          # NIF national ES/IT
     n_out_scope = max(1, int(target_count * 0.02))    # OUT_OF_SCOPE
+    n_fx = max(1, int(target_count * 0.08))           # Ventes en devises étrangères
     n_misc = max(2, int(target_count * 0.05))         # Avoirs/Exports
-    n_dom = target_count - (n_b2b + n_oss + n_import_ioss + n_import_ddp +
+    n_dom = target_count - (n_b2b + n_b2b_domestic + n_oss + n_import_ioss + n_import_ddp +
                            n_import_std + n_deemed + n_transfer + n_nif +
-                           n_out_scope + n_misc)
+                           n_out_scope + n_fx + n_misc)
 
     # --- 1. Ventes domestiques France (ne comptent pas dans le cumul OSS) ---
     for i in range(n_dom):
@@ -462,6 +479,24 @@ def _build_scenarios_for_year(
             departure="FR", arrival="FR",
             amount_ht=amt,
             note=f"Vente domestique France #{i+1}",
+        ))
+
+    # --- 1b. Ventes en devises étrangères (pour tester la conversion) ---
+    for i in range(n_fx):
+        currency = rng.choice(_CURRENCIES[1:])  # Exclure EUR
+        exchange_rate = _CURRENCY_RATES[currency]
+        amt = Decimal(str(rng.randint(10, 500)))
+        # Convertir en EUR pour le montant interne
+        amt_eur = (amt * exchange_rate).quantize(Decimal("0.01"))
+        dest = rng.choice(_EU_DEST + ["FR"])
+        specs.append(ScenarioSpec(
+            label="B2C_FX",
+            tx_type="SHIPMENT",
+            departure="FR", arrival=dest,
+            amount_ht=amt_eur,  # Toujours en EUR pour le calcul
+            currency=currency,
+            exchange_rate=exchange_rate,
+            note=f"Vente en {currency} vers {dest} (taux {exchange_rate})",
         ))
 
     # --- 2. Ventes B2B cross-border (reverse charge — ne comptent pas OSS) ---
@@ -478,6 +513,23 @@ def _build_scenarios_for_year(
             amount_ht=amt,
             buyer_vat=vat,
             note=f"B2B reverse charge VIES vers {country}",
+        ))
+
+    # --- 2b. Ventes B2B domestiques (autoliquidation nationale) ---
+    # Pays avec reverse charge domestique (Art. 194)
+    domestic_rc_countries = ["ES", "IT"]  # ES et IT ont l'art. 194
+    for i in range(n_b2b_domestic):
+        country = rng.choice(domestic_rc_countries)
+        vat = _generate_vat_number(country, seq_counter)
+        seq_counter += 1
+        amt = Decimal(str(rng.randint(100, 2000)))
+        specs.append(ScenarioSpec(
+            label="B2B_DOM_RC",
+            tx_type="SHIPMENT",
+            departure=country, arrival=country,  # Stock et acheteur dans le même pays
+            amount_ht=amt,
+            buyer_vat=vat,
+            note=f"B2B autoliquidation domestique {country} (art.194)",
         ))
 
     # --- 3. B2B avec NIF national ES/IT (art.194) ---
@@ -701,11 +753,13 @@ def generate(
             # - Intra-UE (arrival dans _EU_DEST et pas dans _NON_EU_DEST)
             # - Stock UE (departure dans _EU_DEST)
             # - Pas OUT_OF_SCOPE
+            # - En EUR (les ventes en devises étrangères ne comptent pas pour le seuil OSS)
             if (spec.tx_type == "SHIPMENT" and
                 not spec.buyer_vat and
                 spec.arrival in _EU_DEST and
                 spec.departure in _EU_DEST and
-                spec.product_tax_code != "A_GEN_NOTAX"):
+                spec.product_tax_code != "A_GEN_NOTAX" and
+                spec.currency == "EUR"):
                 # Compte dans le cumul OSS si B2C cross-border intra-UE
                 year_oss_total += spec.amount_ht
 
@@ -741,6 +795,7 @@ def generate(
     print("  [X] Deemed supplier (Amazon)")
     print("  [X] FC_TRANSFER (transferts stock FBA)")
     print("  [X] OUT_OF_SCOPE (produits hors champ)")
+    print("  [X] Ventes en devises etrangeres (USD, GBP, CHF)")
     print("  [X] Avoirs/Remboursements (RETURN)")
     print("  [X] Exports hors UE")
     print()
@@ -765,7 +820,7 @@ def main(argv: List[str] | None = None) -> int:
     )
     parser.add_argument(
         "--output",
-        default="data/ventes_multian_test_new.csv",
+        default="data/ventes_multian_test_new2.csv",
         help="Chemin du fichier CSV de sortie (défaut : data/ventes_multian_test.csv).",
     )
     parser.add_argument(

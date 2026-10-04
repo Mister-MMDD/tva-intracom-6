@@ -747,6 +747,9 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
 
 
 
+from tva_intracom.audit_classify import is_non_eu_flow, is_vies_risk_gap
+
+
 def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None,
                      display_currency: str = "EUR", refund_results: list | None = None) -> None:
     """Onglet Audit — deux sections :
@@ -786,11 +789,11 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
         sid = str(r.sale.sale_id)
         tva_amazon = float(getattr(r.sale, "amazon_vat_amount", Decimal("0")))
         tva_moteur = float(r.vat_amount)
-        if dep == "GB" or arr == "GB":
-            return i18n_("xl_audit_nature_gb")
+        if is_non_eu_flow(dep, arr):
+            return i18n_("xl_audit_nature_non_eu")
         if sid in nif_rc_sale_ids or (r.sale.sale_id, r.sale.amount_ht) in nif_affected_sale_ids:
             return i18n_("xl_audit_nature_nif")
-        if (r.sale.sale_id, r.sale.amount_ht) in vies_affected_sale_ids and tva_amazon == 0:
+        if is_vies_risk_gap((r.sale.sale_id, r.sale.amount_ht) in vies_affected_sale_ids, tva_amazon):
             return i18n_("xl_audit_nature_vies")
         if sid in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):
             return i18n_("xl_audit_nature_art194")

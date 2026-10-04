@@ -99,7 +99,13 @@ class Channel(enum.Enum):
     OSS = "OSS"                      # Guichet unique OSS (declare en France)
     IOSS = "IOSS"                    # Guichet unique IOSS (imports ≤ 150 EUR, propre numéro)
     LOCAL_REGISTRATION = "LOCAL"     # Immatriculation TVA locale dans le pays
-    EXONERATION = "EXONERATION"      # Aucun reversement par le vendeur (exclu du flux de taxation vendeur)
+    EXONERATION = "EXONERATION"      # Vente réellement exonérée / autoliquidée (export, B2B intra-UE...) : TVA nulle
+    # Ventes TAXÉES mais dont la TVA n'est PAS reversée par le vendeur (2026-10-03) :
+    # distincts d'EXONERATION (qui laissait croire à une vente exonérée alors que
+    # vat_amount > 0). Aucun consommateur ne les teste en positif : ils restent hors
+    # CA3/OSS/IOSS/rapports locaux, comme EXONERATION auparavant.
+    MARKETPLACE = "MARKETPLACE"      # Place de marché assujettie présumée (DEEMED_SUPPLIER) : Amazon collecte et reverse
+    CUSTOMS = "CUSTOMS"              # TVA d'importation payée à la douane par l'importateur (IMPORT_STANDARD)
     # Distinct d'EXONERATION : EXONERATION sert à des ventes réelles et
     # imposables par nature mais exonérées (export, B2B intra-UE...), qui
     # doivent être reportées comme telles sur d'autres déclarations (DEB/

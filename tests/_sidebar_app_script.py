@@ -62,6 +62,8 @@ patches = [
                  return_value=tuple(scn.get("can_add", (True, "")))),
     patch.object(sb.tva_billing, "request_siren_removal", side_effect=lambda *a: (calls.request_removal(*a), st.session_state.setdefault("_persist_pending", {}).__setitem__(a[2], scn.get("removal_eff", 1893499200)), scn.get("removal_eff", 1893499200))[2]),
     patch.object(sb.tva_billing, "cancel_siren_removal", side_effect=lambda *a: (calls.cancel_removal(*a), st.session_state.setdefault("_persist_pending", {}).__setitem__(a[2], None))),
+    # Création de SIREN via le stepper : ne jamais toucher une vraie base (SUPABASE_DB_URL) depuis un test.
+    patch.object(sb.tva_billing, "register_siren", side_effect=lambda *a, **k: calls.register_siren(*a, **k)),
     patch.object(sb.tva_billing, "is_payg_removal_over_quota", return_value=scn.get("payg_over", False)),
     patch.object(sb.tva_auth, "set_home_country", side_effect=lambda *a: (calls.set_home(*a), st.session_state.__setitem__("_persist_home", a[1]))),
     patch.object(sb.tva_auth, "set_display_currency", side_effect=lambda *a: (calls.set_cur(*a), st.session_state.__setitem__("_persist_cur", a[1]))),

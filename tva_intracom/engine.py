@@ -490,7 +490,7 @@ def _deemed_supplier_result(sale: Sale, marketplace_name: str, seller_eu: bool, 
             vat_rate=tax_rate,
             vat_amount=tax_amount,
             collector=Collector.AMAZON,
-            channel=Channel.EXONERATION,
+            channel=Channel.MARKETPLACE,
             note=_note(
                 f"{marketplace_name} collecte la TVA ({tax_rate}%) sur {sale.buyer_country}.",
                 "engine_note_deemed_supplier", lang=lang, platform=marketplace_name, rate=tax_rate, country=sale.buyer_country,
@@ -840,7 +840,7 @@ def _import_result(sale: Sale, tax_rate: Decimal, tax_amount: Decimal, lang: str
             vat_rate=tax_rate,
             vat_amount=tax_amount,
             collector=Collector.BUYER,
-            channel=Channel.EXONERATION,
+            channel=Channel.CUSTOMS,
             note=_note(
                 f"Import > {IOSS_THRESHOLD} EUR depuis pays tiers : TVA d'importation "
                 f"{sale.buyer_country} ({tax_rate}%) due a la douane par l'importateur "

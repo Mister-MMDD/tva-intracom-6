@@ -168,6 +168,18 @@
    "type": "BLOCK:flex_container"
   },
   {
+   "body": "<div class=\"siren-stepper-progress\">\n    <div class=\"siren-stepper-step active\">\n        <div class=\"siren-stepper-number\">1</div>\n        <span>Étape 1/3 : Informations de base</span>\n    </div>\n    <div class=\"siren-stepper-step \">\n        <div class=\"siren-stepper-number\">2</div>\n        <span>Étape 2/3 : Immatriculations TVA</span>\n    </div>\n    <div class=\"siren-stepper-step \">\n        <div class=\"siren-stepper-number\">3</div>\n        <span>Étape 3/3 : Options avancées</span>\n    </div>\n</div>",
+   "depth": 2,
+   "type": "markdown",
+   "value": "<div class=\"siren-stepper-progress\">\n    <div class=\"siren-stepper-step active\">\n        <div class=\"siren-stepper-number\">1</div>\n        <span>Étape 1/3 : Informations de base</span>\n    </div>\n    <div class=\"siren-stepper-step \">\n        <div class=\"siren-stepper-number\">2</div>\n        <span>Étape 2/3 : Immatriculations TVA</span>\n    </div>\n    <div class=\"siren-stepper-step \">\n        <div class=\"siren-stepper-number\">3</div>\n        <span>Étape 3/3 : Options avancées</span>\n    </div>\n</div>"
+  },
+  {
+   "body": "Ces informations identifient votre entreprise pour les déclarations.",
+   "depth": 2,
+   "type": "caption",
+   "value": "Ces informations identifient votre entreprise pour les déclarations."
+  },
+  {
    "depth": 2,
    "disabled": false,
    "key": "nom_new",
@@ -185,104 +197,32 @@
   },
   {
    "depth": 2,
+   "type": "BLOCK:flex_container"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
+   "type": "empty"
+  },
+  {
+   "depth": 3,
+   "label": null,
+   "type": "BLOCK:column"
+  },
+  {
+   "depth": 4,
    "disabled": false,
-   "key": "vat_countries_new",
-   "label": "Pays où vous avez un numéro TVA local",
-   "options": [
-    "AT",
-    "BE",
-    "BG",
-    "CY",
-    "CZ",
-    "DE",
-    "DK",
-    "EE",
-    "ES",
-    "FI",
-    "FR",
-    "GR",
-    "HR",
-    "HU",
-    "IE",
-    "IT",
-    "LT",
-    "LU",
-    "LV",
-    "MC",
-    "MT",
-    "NL",
-    "PL",
-    "PT",
-    "RO",
-    "SE",
-    "SI",
-    "SK",
-    "XI"
-   ],
-   "type": "multiselect",
-   "value": [
-    "FR"
-   ]
-  },
-  {
-   "body": "Numéros de TVA locaux (obligatoires) :",
-   "depth": 2,
-   "type": "caption",
-   "value": "Numéros de TVA locaux (obligatoires) :"
-  },
-  {
-   "depth": 2,
-   "disabled": false,
-   "key": "vat_num_new_FR",
-   "label": "Numéro de TVA FR",
-   "type": "text_input",
-   "value": ""
-  },
-  {
-   "body": "---",
-   "depth": 2,
-   "type": "markdown",
-   "value": "---"
-  },
-  {
-   "depth": 2,
-   "disabled": false,
-   "help": "Si renseigné, les imports B2C ≤ 150 € hors marketplace seront traités en IOSS_DIRECT.",
-   "key": "ioss_new",
-   "label": "Numéro IOSS propre (optionnel)",
-   "type": "text_input",
-   "value": ""
-  },
-  {
-   "depth": 2,
-   "disabled": false,
-   "key": "ddp_new",
-   "label": "Vendeur = importateur officiel (DDP)",
-   "type": "toggle",
-   "value": false
-  },
-  {
-   "depth": 2,
-   "disabled": false,
-   "key": "oss_thr_new",
-   "label": "Appliquer TVA FR sous le seuil OSS (10 000 €)",
-   "type": "toggle",
-   "value": false
-  },
-  {
-   "depth": 2,
-   "disabled": false,
-   "help": "Si coché, le régime « sous seuil » ne s'applique pas pour l'année en cours, même si le cumul recalculé par l'outil reste sous 10 000 € (CGI art. 258 B).",
-   "key": "oss_thr_prevyear_new",
-   "label": "Seuil de 10 000 € déjà dépassé l'année civile précédente",
-   "type": "toggle",
-   "value": false
-  },
-  {
-   "depth": 2,
-   "disabled": false,
-   "key": "btn_register_siren",
-   "label": "💾 Enregistrer ce SIREN",
+   "key": "stepper_next",
+   "label": "Suivant",
    "type": "button",
    "value": false
   },
@@ -334,18 +274,15 @@
  },
  "session_keys": [
   "btn_open_account_dialog",
-  "btn_register_siren",
-  "ddp_new",
   "display_currency_choice",
   "display_currency_select",
+  "home_country",
   "home_country_select",
-  "ioss_new",
   "nom_new",
-  "oss_thr_new",
-  "oss_thr_prevyear_new",
   "siren_new",
-  "vat_countries_new",
-  "vat_num_new_FR"
+  "siren_stepper_data",
+  "siren_stepper_step",
+  "stepper_next"
  ],
  "vies_stats_calls": [
   "call('scope1')"

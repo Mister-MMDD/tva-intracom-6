@@ -210,7 +210,7 @@
    "depth": 0,
    "disabled": false,
    "type": "dataframe",
-   "value": "   ID  ...                                        Explication\n0  S1  ...  Cross-border — TVA due au pays de départ (FR),...\n1  S2  ...  Cross-border — TVA due au pays de destination ...\n2  S9  ...  Cross-border — TVA due au pays de destination ...\n\n[3 rows x 9 columns]"
+   "value": "   ID  ... Nb commandes\n0  S1  ...            1\n1  S2  ...            1\n2  S9  ...            1\n\n[3 rows x 10 columns]"
   },
   {
    "depth": 0,

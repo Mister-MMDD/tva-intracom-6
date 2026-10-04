@@ -207,7 +207,7 @@
    "depth": 0,
    "disabled": false,
    "type": "dataframe",
-   "value": "           ID  ...                                        Explication\n0          R0  ...  Cross-border — TVA due au pays de destination ...\n1          R1  ...  Cross-border — TVA due au pays de destination ...\n2  LOCKED-MSG  ...                                         LOCKED-MSG\n3  LOCKED-MSG  ...                                         LOCKED-MSG\n4  LOCKED-MSG  ...                                         LOCKED-MSG\n5  LOCKED-MSG  ...                                         LOCKED-MSG\n6  LOCKED-MSG  ...                                         LOCKED-MSG\n7  LOCKED-MSG  ...                                         LOCKED-MSG\n\n[8 rows x 9 columns]"
+   "value": "           ID  ... Nb commandes\n0          R0  ...            1\n1          R1  ...            1\n2  LOCKED-MSG  ...   LOCKED-MSG\n3  LOCKED-MSG  ...   LOCKED-MSG\n4  LOCKED-MSG  ...   LOCKED-MSG\n5  LOCKED-MSG  ...   LOCKED-MSG\n6  LOCKED-MSG  ...   LOCKED-MSG\n7  LOCKED-MSG  ...   LOCKED-MSG\n\n[8 rows x 10 columns]"
   },
   {
    "body": "Aperçu limité : 7 autres lignes sont masquées. Rattachez les comptes pour voir le détail complet.",

@@ -134,7 +134,7 @@
    "depth": 1,
    "disabled": false,
    "type": "dataframe",
-   "value": "           ID  ...                        Explication\n0          N0  ...  Domestic — TVA due dans les 2 cas\n1          N1  ...  Domestic — TVA due dans les 2 cas\n2  LOCKED-MSG  ...                         LOCKED-MSG\n3  LOCKED-MSG  ...                         LOCKED-MSG\n4  LOCKED-MSG  ...                         LOCKED-MSG\n5  LOCKED-MSG  ...                         LOCKED-MSG\n6  LOCKED-MSG  ...                         LOCKED-MSG\n7  LOCKED-MSG  ...                         LOCKED-MSG\n\n[8 rows x 9 columns]"
+   "value": "           ID  ... Nb commandes\n0          N0  ...            1\n1          N1  ...            1\n2  LOCKED-MSG  ...   LOCKED-MSG\n3  LOCKED-MSG  ...   LOCKED-MSG\n4  LOCKED-MSG  ...   LOCKED-MSG\n5  LOCKED-MSG  ...   LOCKED-MSG\n6  LOCKED-MSG  ...   LOCKED-MSG\n7  LOCKED-MSG  ...   LOCKED-MSG\n\n[8 rows x 10 columns]"
   },
   {
    "body": "Aperçu limité : 7 autres lignes sont masquées. Rattachez les comptes pour voir le détail complet.",

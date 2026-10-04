@@ -51,3 +51,24 @@ def walk(block, depth: int = 0) -> list[dict]:
             e["depth"] = depth
             out.append(e)
     return out
+
+
+# ── Éléments périmés après st.rerun() ────────────────────────────────────────
+# Dans l'AppTest de Streamlit 1.58, les éléments rendus par la passe INTERROMPUE par
+# `st.rerun()` restent dans l'arbre (Streamlit réel les supprime), et un champ texte
+# périmé garde la valeur saisie. Pour les scénarios concernés, l'arbre de référence
+# (celui de la dernière passe) doit donc être CONTENU, dans l'ordre, dans l'arbre observé ;
+# tout le reste du snapshot (appels, contexte, paramètres, session) reste comparé à l'identique.
+_TEXT_INPUTS = ("text_input", "text_area")
+
+
+def _without_typed_value(e: dict) -> dict:
+    if e.get("type") in _TEXT_INPUTS:
+        return {k: v for k, v in e.items() if k != "value"}
+    return e
+
+
+def contains_in_order(expected: list, actual: list) -> bool:
+    """Vrai si tous les éléments de `expected` figurent dans `actual`, dans le même ordre."""
+    it = iter(_without_typed_value(e) for e in actual)
+    return all(any(_without_typed_value(x) == a for a in it) for x in expected)

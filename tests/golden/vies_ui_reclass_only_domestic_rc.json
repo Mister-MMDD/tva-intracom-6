@@ -207,7 +207,7 @@
    "depth": 0,
    "disabled": false,
    "type": "dataframe",
-   "value": "   ID  N° TVA rejeté  ... Scénario            Explication\n0  S3  FR33333333333  ...        C  Domestic FR — Art.194\n\n[1 rows x 9 columns]"
+   "value": "   ID  N° TVA rejeté  Départ  ... Scénario            Explication  Nb commandes\n0  S3  FR33333333333  France  ...        C  Domestic FR — Art.194             1\n\n[1 rows x 10 columns]"
   },
   {
    "depth": 0,

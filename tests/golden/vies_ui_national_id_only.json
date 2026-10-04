@@ -134,7 +134,7 @@
    "depth": 1,
    "disabled": false,
    "type": "dataframe",
-   "value": "   ID Identifiant national NIF  ... Scénario                        Explication\n0  S5                12345678Z  ...        E  Domestic — TVA due dans les 2 cas\n\n[1 rows x 9 columns]"
+   "value": "   ID Identifiant national NIF  ...                        Explication Nb commandes\n0  S5                12345678Z  ...  Domestic — TVA due dans les 2 cas            1\n\n[1 rows x 10 columns]"
   },
   {
    "depth": 0,

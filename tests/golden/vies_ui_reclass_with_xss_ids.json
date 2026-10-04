@@ -207,7 +207,7 @@
    "depth": 0,
    "disabled": false,
    "type": "dataframe",
-   "value": "                   ID  ...                                        Explication\n0  <script>x</script>  ...  Cross-border — TVA due au pays de destination ...\n\n[1 rows x 9 columns]"
+   "value": "                   ID  ... Nb commandes\n0  <script>x</script>  ...            1\n\n[1 rows x 10 columns]"
   },
   {
    "depth": 0,

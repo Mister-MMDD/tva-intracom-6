@@ -21,10 +21,10 @@ en France opérant sur des places de marché (Amazon FBA, formats 1 à 5).
 |---|---|---|---|---|
 | **DOMESTIC** | Stock et acheteur dans le même pays UE (y compris **Monaco**) **ou** B2B cross-border avec n° TVA acheteur invalide vers un pays couvert par l'art. 194 (ES, IT, PL, CZ, SK, HU, RO, BG, HR, LT, LV) | TVA locale du pays (départ si cross-border) | Vendeur | CA3 (FR) ou immatriculation locale |
 | **OSS_B2C** | B2C intra-UE transfrontalier, stock EU, acheteur EU différent **ou** B2B cross-border avec n° TVA acheteur invalide vers un pays non couvert par l'art. 194 (reclassifiée B2C) | TVA du pays de **destination** | Vendeur | Guichet **OSS** (déclaré en France) |
-| **DEEMED_SUPPLIER** | Vendeur hors UE, ou import ≤ 150 € marketplace B2C | Amazon collecte et reverse | **Amazon** | EXONERATION (collecté par tiers) |
+| **DEEMED_SUPPLIER** | Vendeur hors UE, ou import ≤ 150 € marketplace B2C | Amazon collecte et reverse | **Amazon** | MARKETPLACE (collecté par la place de marché) |
 | **B2B_REVERSE_CHARGE** | B2B intra-UE avec n° TVA VIES valide | Exonération, autoliquidation acheteur | Acheteur | EXONERATION (autoliquidation) |
 | **EXPORT** | Acheteur hors UE | Exonéré | — | EXONERATION (export) |
-| **IMPORT_STANDARD** | Import > 150 € hors UE, B2C | TVA d'importation (douane) | Importateur | EXONERATION (douane) |
+| **IMPORT_STANDARD** | Import > 150 € hors UE, B2C | TVA d'importation (douane) | Importateur | CUSTOMS (douane) |
 | **IOSS_DIRECT** | Import ≤ 150 €, vendeur ayant explicitement activé son propre numéro IOSS (`ioss_own_number_active`, sinon `DEEMED_SUPPLIER` par défaut — voir audit 08/2026) | Vendeur collecte via IOSS | Vendeur | Guichet **IOSS** (mensuel, déclaration et export **séparés** de l'OSS depuis l'audit 08/2026) |
 | **IMPORT_SELLER_AS_IMPORTER** | Import > 150 €, vendeur = importateur officiel (DDP) | Vente domestique dans le pays de destination | Vendeur | CA3 (FR) ou immatriculation locale |
 | **OUT_OF_SCOPE** | Produit hors du champ de la TVA par nature (ex. `PRODUCT_TAX_CODE` Amazon `A_GEN_NOTAX`) | Aucun calcul, aucune déclaration nulle part (ni CA3, ni OSS/IOSS, ni DEB/EMEBI) — à ne pas confondre avec EXPORT/B2B_REVERSE_CHARGE (opérations réelles mais exonérées, à déclarer comme telles) | — | Aucun (`Collector.NONE`) |

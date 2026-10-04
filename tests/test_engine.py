@@ -182,7 +182,7 @@ class TestDeemedSupplier:
         res = compute_vat(sale)
         assert res.scenario == Scenario.DEEMED_SUPPLIER
         assert res.collector == Collector.AMAZON
-        assert res.channel == Channel.EXONERATION
+        assert res.channel == Channel.MARKETPLACE
 
     def test_seller_non_eu_intra_eu_stock_b2c(self):
         """Vendeur non-UE, stock UE, acheteur UE, B2C → deemed supplier."""
@@ -431,7 +431,7 @@ class TestImportStandard:
         res = compute_vat(sale)
         assert res.scenario == Scenario.IMPORT_STANDARD
         assert res.collector == Collector.BUYER
-        assert res.channel == Channel.EXONERATION
+        assert res.channel == Channel.CUSTOMS
         assert res.vat_country == "FR"
 
     def test_import_standard_vat_rate(self):

@@ -213,7 +213,7 @@
    "depth": 0,
    "disabled": false,
    "type": "dataframe",
-   "value": "   ID  ...                                        Explication\n0  S1  ...  Cross-border — TVA due au pays de départ (FR),...\n1  S2  ...  Cross-border — TVA due au pays de destination ...\n2  S3  ...                              Domestic FR — Art.194\n3  S4  ...                  Domestic — TVA due dans les 2 cas\n\n[4 rows x 9 columns]"
+   "value": "   ID  ... Nb commandes\n0  S1  ...            1\n1  S2  ...            1\n2  S3  ...            1\n3  S4  ...            1\n\n[4 rows x 10 columns]"
   },
   {
    "depth": 0,
@@ -224,7 +224,7 @@
    "depth": 1,
    "disabled": false,
    "type": "dataframe",
-   "value": "   ID Identifiant national NIF  ... Scénario                        Explication\n0  S5                12345678Z  ...        E  Domestic — TVA due dans les 2 cas\n\n[1 rows x 9 columns]"
+   "value": "   ID Identifiant national NIF  ...                        Explication Nb commandes\n0  S5                12345678Z  ...  Domestic — TVA due dans les 2 cas            1\n\n[1 rows x 10 columns]"
   },
   {
    "depth": 0,

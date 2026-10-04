@@ -18,6 +18,9 @@ from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _r
 from tva_intracom.ui.tabs.context import TabContext
 
 
+from tva_intracom.audit_classify import is_non_eu_flow, is_vies_risk_gap
+
+
 def _has_audit_gaps(results: list) -> bool:
     """Détecte s'il y a des écarts TVA significatifs dans les résultats.
     
@@ -142,12 +145,12 @@ def render_audit() -> None:
             # coûteux à refaire à chaque interaction sans rapport (filtre,
             # changement de sous-onglet FBA...).
             _lang = st.session_state.get("language", "fr")
-            _audit_cache_key = (ctx.calc_key, _target_currency, enable_vies, _lang, "nif_v1")
+            _audit_cache_key = (ctx.calc_key, _target_currency, enable_vies, _lang, "nif_v2")
             if ctx.calc_key is not None and st.session_state.get("_audit_cats_cache_key") == _audit_cache_key:
-                (ecarts_vies_tab, ecarts_nif_tab, ecarts_b2b_dom_tab, ecarts_gb_tab,
+                (ecarts_vies_tab, ecarts_nif_tab, ecarts_b2b_dom_tab, ecarts_non_eu_tab,
                  ecarts_autres_tab, ecarts_amz_manquante_tab, nb_arrondis) = st.session_state["_audit_cats_cache_val"]
             else:
-                ecarts_vies_tab, ecarts_nif_tab, ecarts_b2b_dom_tab, ecarts_gb_tab, ecarts_autres_tab, ecarts_amz_manquante_tab = [], [], [], [], [], []
+                ecarts_vies_tab, ecarts_nif_tab, ecarts_b2b_dom_tab, ecarts_non_eu_tab, ecarts_autres_tab, ecarts_amz_manquante_tab = [], [], [], [], [], []
                 nb_arrondis = 0
                 for r in results:
                     tva_amazon = float(getattr(r.sale,"amazon_vat_amount",Decimal("0")))
@@ -178,16 +181,16 @@ def render_audit() -> None:
                     }
                     _dep = r.sale.stock_country; _arr = r.sale.buyer_country; _sid = str(r.sale.sale_id)
                     _is_b2b = (r.sale.buyer_type == _BT_APP.B2B)
-                    if _dep == "GB" or _arr == "GB": ecarts_gb_tab.append(row_d)
+                    if is_non_eu_flow(_dep, _arr): ecarts_non_eu_tab.append(row_d)
                     elif _sid in _nif_rc_ids_app or (_sid, r.sale.amount_ht) in _nif_affected_ids: ecarts_nif_tab.append(row_d)
-                    elif _sid in _vies_rc_ids_app or (_sid, r.sale.amount_ht) in _vies_affected_ids: ecarts_vies_tab.append(row_d)
+                    elif is_vies_risk_gap(_sid in _vies_rc_ids_app or (_sid, r.sale.amount_ht) in _vies_affected_ids, tva_amazon): ecarts_vies_tab.append(row_d)
                     elif _sid in _dom_rc_ids_app or (_is_b2b and _arr in _DRC_APP and tva_moteur == 0 and tva_amazon > 0): ecarts_b2b_dom_tab.append(row_d)
                     elif tva_amazon == 0 and tva_moteur > 0: ecarts_amz_manquante_tab.append(row_d)
                     else: ecarts_autres_tab.append(row_d)
                 if ctx.calc_key is not None:
                     st.session_state["_audit_cats_cache_key"] = _audit_cache_key
                     st.session_state["_audit_cats_cache_val"] = (
-                        ecarts_vies_tab, ecarts_nif_tab, ecarts_b2b_dom_tab, ecarts_gb_tab,
+                        ecarts_vies_tab, ecarts_nif_tab, ecarts_b2b_dom_tab, ecarts_non_eu_tab,
                         ecarts_autres_tab, ecarts_amz_manquante_tab, nb_arrondis)
 
             # Amélioration 4 : helper formatage uniforme pour tous les sous-onglets audit
@@ -222,7 +225,7 @@ def render_audit() -> None:
                 _("audit_tab_rate_gaps", count=len(ecarts_autres_tab)),
                 _("audit_tab_vies_risk", count=len(ecarts_vies_tab)),
                 _("audit_tab_nif", count=len(ecarts_nif_tab)),
-                _("audit_tab_uk", count=len(ecarts_gb_tab)),
+                _("audit_tab_non_eu", count=len(ecarts_non_eu_tab)),
                 _("audit_tab_art194", count=len(ecarts_b2b_dom_tab)),
                 _("audit_tab_missing_amz", count=len(ecarts_amz_manquante_tab)),
             ]
@@ -254,12 +257,12 @@ def render_audit() -> None:
                 else:
                     st.success(_("audit_nif_success"))
             if _active_inner == 3:
-                st.caption(_("audit_uk_info"))
-                if ecarts_gb_tab:
-                    st.metric(_("audit_uk_metric"), _fmt(sum(r[_lbl_gap] for r in ecarts_gb_tab)))
-                    _audit_df(ecarts_gb_tab, "audit_gb")
+                st.caption(_("audit_non_eu_info"))
+                if ecarts_non_eu_tab:
+                    st.metric(_("audit_non_eu_metric"), _fmt(sum(r[_lbl_gap] for r in ecarts_non_eu_tab)))
+                    _audit_df(ecarts_non_eu_tab, "audit_non_eu")
                 else:
-                    st.success(_("audit_uk_success"))
+                    st.success(_("audit_non_eu_success"))
             if _active_inner == 4:
                 st.caption(_("audit_art194_info"))
                 if ecarts_b2b_dom_tab:

@@ -134,7 +134,7 @@
    "depth": 1,
    "disabled": false,
    "type": "dataframe",
-   "value": "   ID Identifiant national NIF  ... Scénario                        Explication\n0  N0                     NIF0  ...        E  Domestic — TVA due dans les 2 cas\n1  N1                     NIF1  ...        E  Domestic — TVA due dans les 2 cas\n2  N2                     NIF2  ...        E  Domestic — TVA due dans les 2 cas\n3  N3                     NIF3  ...        E  Domestic — TVA due dans les 2 cas\n4  N4                     NIF4  ...        E  Domestic — TVA due dans les 2 cas\n5  N5                     NIF5  ...        E  Domestic — TVA due dans les 2 cas\n6  N6                     NIF6  ...        E  Domestic — TVA due dans les 2 cas\n7  N7                     NIF7  ...        E  Domestic — TVA due dans les 2 cas\n\n[8 rows x 9 columns]"
+   "value": "   ID Identifiant national NIF  ...                        Explication Nb commandes\n0  N0                     NIF0  ...  Domestic — TVA due dans les 2 cas            1\n1  N1                     NIF1  ...  Domestic — TVA due dans les 2 cas            1\n2  N2                     NIF2  ...  Domestic — TVA due dans les 2 cas            1\n3  N3                     NIF3  ...  Domestic — TVA due dans les 2 cas            1\n4  N4                     NIF4  ...  Domestic — TVA due dans les 2 cas            1\n5  N5                     NIF5  ...  Domestic — TVA due dans les 2 cas            1\n6  N6                     NIF6  ...  Domestic — TVA due dans les 2 cas            1\n7  N7                     NIF7  ...  Domestic — TVA due dans les 2 cas            1\n\n[8 rows x 10 columns]"
   },
   {
    "depth": 0,
