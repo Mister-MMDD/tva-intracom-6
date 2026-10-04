@@ -70,6 +70,61 @@ def _generate_vat_number(country: str, seq: int) -> str:
     else:
         return f"{country}{str(seq).zfill(9)}"
 
+# Numéros VIES réels (fournis par l'utilisateur depuis le certificat)
+# Ces numéros seront utilisés pour simuler des VIES valides réels
+_REAL_VIES_NUMBERS = {
+    "ES": [
+        "ESB08266009", "ESB17259458", "ESB18987685", "ESB21527999", "ESB22182745",
+        "ESB29074010", "ESB29186475", "ESB30708556", "ESB40536377", "ESB40621179",
+        "ESB41580309", "ESB45821675", "ESB54223391", "ESB54294160", "ESB56462856",
+        "ESB57226102", "ESB57601692", "ESB58369679", "ESB60204880", "ESB60779337",
+        "ESB61284535", "ESB64536212", "ESB64587876", "ESB66124843", "ESB66274887",
+        "ESB67795088", "ESB72504913", "ESB73927022", "ESB80553373", "ESB80853237",
+        "ESB83648931", "ESB85503100", "ESB87960936", "ESB90140609", "ESB91352955",
+        "ESB97882377", "ESB99222598",
+    ],
+    "FR": [
+        "FR06920678505", "FR08511672412", "FR09950620369", "FR10951316215", "FR12422146910",
+        "FR12523272805", "FR16484718572", "FR16494705692", "FR16829410885", "FR17434224705",
+        "FR19884148180", "FR21819378209", "FR24825078900", "FR25829491398", "FR26407749043",
+        "FR28935006932", "FR30850309378", "FR30907756464", "FR32838991354", "FR32898740832",
+        "FR33840144943", "FR33994327898", "FR34102213337", "FR34935085019", "FR35403882723",
+        "FR35432009231", "FR35843115601", "FR35994530467", "FR38752480160", "FR38901730374",
+        "FR39344685144", "FR39987654688", "FR43535123855", "FR43818067811", "FR45817350044",
+        "FR47477943294", "FR49793311473", "FR50927761783", "FR52491684445", "FR52924922917",
+        "FR53883875783", "FR54432958932", "FR56799492186", "FR58808891907", "FR63933873531",
+        "FR64799211503", "FR64809889942", "FR67101275261", "FR68908915853", "FR70529848616",
+        "FR72429667728", "FR72494315609", "FR75411517477", "FR76511980054", "FR77492888482",
+        "FR77909222861", "FR77912266236", "FR78843272238", "FR78922308614", "FR82492404389",
+        "FR83692713043", "FR84789144979", "FR85479685653", "FR85505001198", "FR87917775322",
+        "FR89102234275",
+    ],
+    "IT": [
+        "IT02168380398", "IT02432960207", "IT02681150351", "IT02788370167", "IT03164051207",
+        "IT03185900267", "IT03428700128", "IT03562540967", "IT03658330042", "IT04329530986",
+        "IT04399420985", "IT04630310235", "IT05726780967", "IT06441840821", "IT06907830829",
+        "IT08685551007", "IT09704470013", "IT10982090150", "IT12002220015", "IT13146961001",
+        "IT13397910962", "IT14672160968", "IT14984171000",
+    ],
+}
+
+# Numéros VIES invalides (format correct mais invalides pour le test)
+_INVALID_VIES_NUMBERS = {
+    "DE": ["DE999999999"],
+    "IT": ["IT99999999999"],
+    "ES": ["ESX99999999"],
+    "NL": ["NL999999999B01"],
+    "PL": ["PL9999999999"],
+    "BE": ["BE0999999999"],
+    "AT": ["ATU99999999"],
+    "SE": ["SE999999999901"],
+    "DK": ["DK99999999"],
+    "CZ": ["CZ99999999"],
+    "HU": ["HU99999999"],
+    "RO": ["RO99999999"],
+    "BG": ["BG999999999"],
+}
+
 # NIF nationaux ES/IT (sans préfixe, pour tester la détection _is_national_tax_id)
 def _generate_nif_number(country: str, seq: int) -> str:
     """Génère un NIF national fictif unique pour un pays."""
@@ -88,12 +143,43 @@ def _generate_ioss_number(seq: int) -> str:
     return f"IM{str(seq % 999999999).zfill(9)}"
 
 # Devises disponibles pour les ventes
-_CURRENCIES = ["EUR", "USD", "GBP", "CHF"]
+_CURRENCIES = ["EUR", "USD", "GBP", "PLN", "CZK", "HUF", "SEK", "DKK", "RON", "BGN", "CAD", "AUD", "JPY", "NOK", "CNY", "INR", "BRL"]
+
+# Taux de change fictifs (1 devise = X EUR)
+# NOTE: Ces taux sont uniquement pour la génération de données de test.
+# L'application TVA doit utiliser l'API BCE pour les taux de change réels.
 _CURRENCY_RATES = {
     "EUR": Decimal("1.00"),
     "USD": Decimal("0.92"),
     "GBP": Decimal("1.15"),
-    "CHF": Decimal("1.05"),
+    "PLN": Decimal("0.23"),
+    "CZK": Decimal("0.025"),
+    "HUF": Decimal("0.0025"),
+    "SEK": Decimal("0.095"),
+    "DKK": Decimal("0.135"),
+    "RON": Decimal("0.20"),
+    "BGN": Decimal("0.51"),
+    "CAD": Decimal("0.67"),
+    "AUD": Decimal("0.62"),
+    "JPY": Decimal("0.0062"),
+    "NOK": Decimal("0.087"),
+    "CNY": Decimal("0.13"),
+    "INR": Decimal("0.011"),
+    "BRL": Decimal("0.17"),
+}
+
+# Devise par pays (logique réaliste)
+_COUNTRY_CURRENCY = {
+    # Zone Euro
+    "FR": "EUR", "DE": "EUR", "IT": "EUR", "ES": "EUR", "NL": "EUR", "BE": "EUR",
+    "AT": "EUR", "PT": "EUR", "GR": "EUR", "IE": "EUR", "LU": "EUR", "FI": "EUR",
+    "CY": "EUR", "MT": "EUR", "SI": "EUR", "SK": "EUR",
+    # UE non-euro
+    "PL": "PLN", "CZ": "CZK", "HU": "HUF", "SE": "SEK", "DK": "DKK",
+    "RO": "RON", "BG": "BGN", "HR": "EUR", "LT": "EUR", "LV": "EUR",
+    # Hors UE - principales devises
+    "GB": "GBP", "US": "USD", "CH": "CHF", "CA": "CAD", "AU": "AUD",
+    "JP": "JPY", "NO": "NOK", "CN": "CNY", "IN": "INR", "BR": "BRL",
 }
 
 # Taux TVA standard simplifiés (copie légère pour le générateur — pas d'import du moteur)
@@ -295,7 +381,7 @@ def _make_row(
     asin = f"B{str(seq % 1000).zfill(9)}"
 
     # Buyer VAT - pour les NIF nationaux ES/IT, le pays n'est pas dans le numéro
-    if spec.buyer_vat and spec.buyer_vat[:2] in ["ES", "IT", "DE", "NL", "PL", "BE", "AT"]:
+    if spec.buyer_vat and spec.buyer_vat[:2] in ["ES", "IT", "DE", "NL", "PL", "BE", "AT", "SE", "DK", "CZ", "HU", "RO", "BG"]:
         buyer_vat_country = spec.buyer_vat[:2]
     elif spec.buyer_vat:
         # NIF national sans préfixe - utiliser le pays d'arrivée
@@ -483,12 +569,17 @@ def _build_scenarios_for_year(
 
     # --- 1b. Ventes en devises étrangères (pour tester la conversion) ---
     for i in range(n_fx):
-        currency = rng.choice(_CURRENCIES[1:])  # Exclure EUR
-        exchange_rate = _CURRENCY_RATES[currency]
-        amt = Decimal(str(rng.randint(10, 500)))
+        # Choisir une destination qui a une devise différente de l'EUR
+        fx_countries = ["PL", "CZ", "HU", "SE", "DK", "RO", "BG", "GB", "US", "CH"]
+        dest = rng.choice(fx_countries)
+        currency = _COUNTRY_CURRENCY.get(dest, "USD")
+        exchange_rate = _CURRENCY_RATES.get(currency, Decimal("1.00"))
+        
+        # Montant dans la devise locale
+        amt_local = Decimal(str(rng.randint(10, 500)))
         # Convertir en EUR pour le montant interne
-        amt_eur = (amt * exchange_rate).quantize(Decimal("0.01"))
-        dest = rng.choice(_EU_DEST + ["FR"])
+        amt_eur = (amt_local * exchange_rate).quantize(Decimal("0.01"))
+        
         specs.append(ScenarioSpec(
             label="B2C_FX",
             tx_type="SHIPMENT",
@@ -500,11 +591,33 @@ def _build_scenarios_for_year(
         ))
 
     # --- 2. Ventes B2B cross-border (reverse charge — ne comptent pas OSS) ---
-    countries = ["DE", "IT", "ES", "NL", "PL", "BE", "AT"]
+    # Pays avec VIES réels disponibles (priorité)
+    countries_with_real = ["ES", "FR", "IT"]
+    # Autres pays UE
+    countries_other = ["DE", "NL", "PL", "BE", "AT", "SE", "DK", "CZ", "HU", "RO", "BG"]
+    
     for i in range(n_b2b):
-        country = rng.choice(countries)
-        vat = _generate_vat_number(country, seq_counter)
-        seq_counter += 1
+        # 50% de chance de choisir un pays avec VIES réels
+        if rng.random() < 0.5 and countries_with_real:
+            country = rng.choice(countries_with_real)
+        else:
+            country = rng.choice(countries_other)
+        
+        # Utiliser des VIES réels pour 30% des cas, invalides pour 20%, sinon générés
+        use_real = rng.random() < 0.3
+        use_invalid = not use_real and rng.random() < 0.2857  # 20% du total
+        
+        if use_real and country in _REAL_VIES_NUMBERS:
+            vat = rng.choice(_REAL_VIES_NUMBERS[country])
+            note = f"B2B reverse charge VIES (VALIDE) vers {country}"
+        elif use_invalid and country in _INVALID_VIES_NUMBERS:
+            vat = rng.choice(_INVALID_VIES_NUMBERS[country])
+            note = f"B2B reverse charge VIES (INVALIDE) vers {country}"
+        else:
+            vat = _generate_vat_number(country, seq_counter)
+            seq_counter += 1
+            note = f"B2B reverse charge VIES (GENERE) vers {country}"
+        
         amt = Decimal(str(rng.randint(100, 2000)))
         specs.append(ScenarioSpec(
             label="B2B_RC",
@@ -512,7 +625,7 @@ def _build_scenarios_for_year(
             departure="FR", arrival=country,
             amount_ht=amt,
             buyer_vat=vat,
-            note=f"B2B reverse charge VIES vers {country}",
+            note=note,
         ))
 
     # --- 2b. Ventes B2B domestiques (autoliquidation nationale) ---
@@ -606,40 +719,62 @@ def _build_scenarios_for_year(
     # --- 5. Import IOSS ≤ 150 EUR (numéro IOSS propre du vendeur) ---
     for i in range(n_import_ioss):
         dest = rng.choice(_NON_EU_DEST)
-        amt = Decimal(str(rng.randint(10, 149)))  # <= 150
+        currency = _COUNTRY_CURRENCY.get(dest, "USD")
+        exchange_rate = _CURRENCY_RATES.get(currency, Decimal("1.00"))
+        
+        # Montant dans la devise locale (<= 150 EUR converti)
+        amt_local = Decimal(str(rng.randint(10, 149)))
+        amt_eur = (amt_local * exchange_rate).quantize(Decimal("0.01"))
+        
         ioss_num = _generate_ioss_number(seq_counter)
         seq_counter += 1
         specs.append(ScenarioSpec(
             label="IMPORT_IOSS",
             tx_type="SHIPMENT",
             departure="FR", arrival=dest,
-            amount_ht=amt,
+            amount_ht=amt_eur,
+            currency=currency,
+            exchange_rate=exchange_rate,
             ioss_number=ioss_num,
-            note=f"Import IOSS <=150 EUR vers {dest} (n° {ioss_num})",
+            note=f"Import IOSS <=150 EUR vers {dest} en {currency} (n° {ioss_num})",
         ))
 
     # --- 6. Import DDP > 150 EUR (vendeur importateur) ---
     for i in range(n_import_ddp):
         dest = rng.choice(_NON_EU_DEST)
-        amt = Decimal(str(rng.randint(151, 1000)))  # > 150 EUR
+        currency = _COUNTRY_CURRENCY.get(dest, "USD")
+        exchange_rate = _CURRENCY_RATES.get(currency, Decimal("1.00"))
+        
+        amt_local = Decimal(str(rng.randint(151, 1000)))
+        amt_eur = (amt_local * exchange_rate).quantize(Decimal("0.01"))
+        
         specs.append(ScenarioSpec(
             label="IMPORT_DDP",
             tx_type="SHIPMENT",
             departure="FR", arrival=dest,
-            amount_ht=amt,
+            amount_ht=amt_eur,
+            currency=currency,
+            exchange_rate=exchange_rate,
             seller_is_importer=True,
-            note=f"Import DDP >150 EUR vers {dest} (vendeur importateur)",
+            note=f"Import DDP >150 EUR vers {dest} en {currency} (vendeur importateur)",
         ))
 
     # --- 7. Import standard > 150 EUR (douane) ---
     for i in range(n_import_std):
         dest = rng.choice(_NON_EU_DEST)
-        amt = Decimal(str(rng.randint(151, 1000)))  # > 150 EUR
+        currency = _COUNTRY_CURRENCY.get(dest, "USD")
+        exchange_rate = _CURRENCY_RATES.get(currency, Decimal("1.00"))
+        
+        amt_local = Decimal(str(rng.randint(151, 1000)))
+        amt_eur = (amt_local * exchange_rate).quantize(Decimal("0.01"))
+        
         specs.append(ScenarioSpec(
             label="IMPORT_STD",
             tx_type="SHIPMENT",
             departure="FR", arrival=dest,
-            amount_ht=amt,
+            amount_ht=amt_eur,
+            currency=currency,
+            exchange_rate=exchange_rate,
             note=f"Import standard >150 EUR vers {dest} (douane)",
         ))
 
@@ -795,7 +930,7 @@ def generate(
     print("  [X] Deemed supplier (Amazon)")
     print("  [X] FC_TRANSFER (transferts stock FBA)")
     print("  [X] OUT_OF_SCOPE (produits hors champ)")
-    print("  [X] Ventes en devises etrangeres (USD, GBP, CHF)")
+    print("  [X] Ventes en devises etrangeres (PLN, CZK, HUF, SEK, DKK, RON, BGN, GBP, USD, CHF)")
     print("  [X] Avoirs/Remboursements (RETURN)")
     print("  [X] Exports hors UE")
     print()
