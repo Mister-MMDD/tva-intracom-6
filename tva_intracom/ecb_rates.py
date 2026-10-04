@@ -323,6 +323,49 @@ _ssl_broken_lock = threading.Lock()
 _ssl_permanently_broken = False
 
 
+# BUGFIX (2026-10-04) : disjoncteur sur indisponibilité RÉSEAU de la BCE
+# (timeout / erreur HTTP persistante), complémentaire au drapeau SSL ci-dessus.
+# Constat : prefetch_closing_rates() requête UNE devise à la fois et chaque
+# requête en échec coûte ~48 s (3 tentatives x timeout 15 s + backoff 1+2 s).
+# Avec N devises sur un fichier multi-années, l'UI restait bloquée N x 48 s.
+# Après _NET_BREAKER_THRESHOLD échecs définitifs CONSÉCUTIFS (aucun succès
+# entre-temps), on coupe tout appel BCE pendant _NET_BREAKER_COOLDOWN_SECONDS :
+# les appelants retombent immédiatement sur leur repli habituel (alertes
+# "repli BCE" déjà en place). Un seul succès réarme le compteur. Dict/float en
+# mémoire uniquement : aucun thread, aucune connexion -> scale-to-zero intact.
+_NET_BREAKER_THRESHOLD = 2
+_NET_BREAKER_COOLDOWN_SECONDS = 120
+_net_breaker_lock = threading.Lock()
+_net_consecutive_failures = 0
+_net_open_until = 0.0  # time.monotonic() jusqu'auquel les appels sont court-circuités
+
+
+def _net_breaker_is_open() -> bool:
+    with _net_breaker_lock:
+        return time.monotonic() < _net_open_until
+
+
+def _net_breaker_record_success() -> None:
+    global _net_consecutive_failures
+    with _net_breaker_lock:
+        _net_consecutive_failures = 0
+
+
+def _net_breaker_record_failure() -> None:
+    global _net_consecutive_failures, _net_open_until
+    with _net_breaker_lock:
+        _net_consecutive_failures += 1
+        if _net_consecutive_failures < _NET_BREAKER_THRESHOLD:
+            return
+        _net_open_until = time.monotonic() + _NET_BREAKER_COOLDOWN_SECONDS
+        _net_consecutive_failures = 0
+    logger.warning(
+        "ECB API : %d échecs réseau consécutifs — appels ECB suspendus %d s "
+        "(repli immédiat pour les taux manquants).",
+        _NET_BREAKER_THRESHOLD, _NET_BREAKER_COOLDOWN_SECONDS,
+    )
+
+
 def _mark_ssl_broken() -> None:
     global _ssl_permanently_broken
     with _ssl_broken_lock:
@@ -398,11 +441,18 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
             "process) : %s", description,
         )
         return None
+    if _net_breaker_is_open():
+        logger.debug(
+            "ECB API : appel ignoré (disjoncteur réseau ouvert) : %s", description,
+        )
+        return None
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(req, timeout=15, context=_SSL_CONTEXT) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                _payload = json.loads(resp.read().decode("utf-8"))
+            _net_breaker_record_success()
+            return _payload
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
             if _is_permanent_ssl_error(exc):
                 logger.warning(
@@ -420,6 +470,7 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
                     "ECB API indisponible (%s) après %d tentative(s) : %s",
                     description, attempt, exc,
                 )
+                _net_breaker_record_failure()
                 return None
             delay = _FETCH_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
             logger.debug(
@@ -533,7 +584,12 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
         key = (currency, d)
         with _cache_lock:
             _cached = key in _forward_rate_cache
-        if not _cached and key not in seen:
+        # BUGFIX (2026-10-04) : ignorer les paires déjà marquées en échec
+        # (TTL 5 min) — prefetch_closing_rates() est appelée plusieurs fois
+        # par export (_aggregate_by_scenario + export détail, par scénario) et
+        # relançait à chaque fois le cycle complet de tentatives BCE.
+        if (not _cached and key not in seen
+                and not _is_permanently_failed("closing", currency, d)):
             requested.append(key)
             seen.add(key)
 
