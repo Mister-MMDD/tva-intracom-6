@@ -184,9 +184,10 @@ def _build_fig_bar(
 @heavy_cache_data(show_spinner=False, ttl=1800, max_entries=20)
 def _build_fig_pie(
     total_you_owe: float, amazon_vat: float, import_vat: float,
+    import_ddp_vat: float, b2b_domestic_rc_vat: float,
     rate: float, currency_symbol: str, platform_name: str, lang: str, calc_key=None,
 ) -> "go.Figure | None":
-    """Construit le camembert Vous/Plateforme/Douane."""
+    """Construit le camembert Vous/Plateforme/Douane/DDP/Autoliquidation."""
     pie_l, pie_v, pie_c = [], [], []
     if total_you_owe > 0:
         pie_l.append(_("viz_you")); pie_v.append(round(total_you_owe * rate, 2)); pie_c.append("#d97706")
@@ -194,6 +195,10 @@ def _build_fig_pie(
         pie_l.append(platform_name); pie_v.append(round(amazon_vat * rate, 2)); pie_c.append("#1f4e79")
     if import_vat > 0:
         pie_l.append(_("viz_customs")); pie_v.append(round(import_vat * rate, 2)); pie_c.append("#9467bd")
+    if import_ddp_vat > 0:
+        pie_l.append(_("viz_import_ddp")); pie_v.append(round(import_ddp_vat * rate, 2)); pie_c.append("#e377c2")
+    if b2b_domestic_rc_vat > 0:
+        pie_l.append(_("viz_b2b_domestic_rc")); pie_v.append(round(b2b_domestic_rc_vat * rate, 2)); pie_c.append("#8c564b")
     if not pie_v:
         return None
 
@@ -391,6 +396,8 @@ def render_visualisations() -> None:
             float(summary.total_you_owe),
             float(summary.amazon_vat + summary.refund_amazon_vat),
             float(summary.import_vat + summary.refund_import_vat),
+            float(getattr(summary, "import_ddp_vat", 0) + getattr(summary, "refund_import_ddp_vat", 0)),
+            float(getattr(summary, "b2b_domestic_rc_vat", 0) + getattr(summary, "refund_b2b_domestic_rc_vat", 0)),
             _rate, _currency_symbol, platform_name, _lang, ctx.calc_key,
         )
         if fig_pie is not None:

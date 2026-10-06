@@ -36,6 +36,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import List, Optional
 
+from tva_intracom.ecb_rates import get_rate
+
 # ---------------------------------------------------------------------------
 # Constantes
 # ---------------------------------------------------------------------------
@@ -145,29 +147,6 @@ def _generate_ioss_number(seq: int) -> str:
 # Devises disponibles pour les ventes
 _CURRENCIES = ["EUR", "USD", "GBP", "PLN", "CZK", "HUF", "SEK", "DKK", "RON", "BGN", "CAD", "AUD", "JPY", "NOK", "CNY", "INR", "BRL"]
 
-# Taux de change fictifs (1 devise = X EUR)
-# NOTE: Ces taux sont uniquement pour la génération de données de test.
-# L'application TVA doit utiliser l'API BCE pour les taux de change réels.
-_CURRENCY_RATES = {
-    "EUR": Decimal("1.00"),
-    "USD": Decimal("0.92"),
-    "GBP": Decimal("1.15"),
-    "PLN": Decimal("0.23"),
-    "CZK": Decimal("0.025"),
-    "HUF": Decimal("0.0025"),
-    "SEK": Decimal("0.095"),
-    "DKK": Decimal("0.135"),
-    "RON": Decimal("0.20"),
-    "BGN": Decimal("0.51"),
-    "CAD": Decimal("0.67"),
-    "AUD": Decimal("0.62"),
-    "JPY": Decimal("0.0062"),
-    "NOK": Decimal("0.087"),
-    "CNY": Decimal("0.13"),
-    "INR": Decimal("0.011"),
-    "BRL": Decimal("0.17"),
-}
-
 # Devise par pays (logique réaliste)
 _COUNTRY_CURRENCY = {
     # Zone Euro
@@ -182,8 +161,26 @@ _COUNTRY_CURRENCY = {
     "JP": "JPY", "NO": "NOK", "CN": "CNY", "IN": "INR", "BR": "BRL",
 }
 
-# Taux TVA standard simplifiés (copie légère pour le générateur — pas d'import du moteur)
-_VAT_RATES = {
+# Taux TVA standard avec changements historiques
+# Format: (date_debut, taux) - None pour taux avant la date la plus ancienne
+_VAT_RATE_CHANGES = {
+    "FI": [
+        (date(2024, 9, 1), Decimal("25.5")),  # 01/09/2024 : 24% -> 25.5%
+        (None, Decimal("24")),  # Avant 01/09/2024 : 24%
+    ],
+}
+
+def _get_vat_rate(country: str, tx_date: date) -> Decimal:
+    """Retourne le taux de TVA applicable pour un pays à une date donnée."""
+    if country in _VAT_RATE_CHANGES:
+        for date_start, rate in _VAT_RATE_CHANGES[country]:
+            if date_start is None or tx_date >= date_start:
+                return rate
+    # Taux par défaut (sans changement historique)
+    return _DEFAULT_VAT_RATES.get(country, Decimal("20"))
+
+# Taux TVA standard par défaut (actuels)
+_DEFAULT_VAT_RATES = {
     "FR": Decimal("20"), "DE": Decimal("19"), "IT": Decimal("22"),
     "ES": Decimal("21"), "NL": Decimal("21"), "BE": Decimal("21"),
     "PL": Decimal("23"), "SE": Decimal("25"), "AT": Decimal("20"),
@@ -337,8 +334,8 @@ def _fmt_date(d: date) -> str:
     return d.strftime("%Y-%m-%d")
 
 
-def _vat_amt(ht: Decimal, country: str) -> Decimal:
-    rate = _VAT_RATES.get(country, Decimal("20"))
+def _vat_amt(ht: Decimal, country: str, tx_date: date) -> Decimal:
+    rate = _get_vat_rate(country, tx_date)
     return (ht * rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
@@ -350,13 +347,29 @@ def _make_row(
 ) -> dict:
     """Construit un dict complet prêt à écrire en CSV."""
 
-    tx_date = _rnd_date(year)
+    # Gestion spéciale pour les changements de taux TVA
+    if spec.label == "VAT_CHANGE" and year == 2024:
+        if "avant 01/09/2024" in spec.note:
+            # Date avant le 01/09/2024 (janvier à août)
+            tx_date = _rnd_date(year, month_start=1, month_end=8)
+        elif "apres 01/09/2024" in spec.note:
+            # Date après le 01/09/2024 (septembre à décembre)
+            tx_date = _rnd_date(year, month_start=9, month_end=12)
+        else:
+            tx_date = _rnd_date(year)
+    else:
+        tx_date = _rnd_date(year)
+
     tx_date_str = _fmt_date(tx_date)
     activity_period = tx_date.strftime("%Y-%m")
 
     # Gestion de la devise et du taux de change
     currency = spec.currency
-    exchange_rate = spec.exchange_rate
+    if currency and currency.upper() != "EUR":
+        rate = get_rate(currency, tx_date)
+        exchange_rate = rate if rate is not None else Decimal("1.00")
+    else:
+        exchange_rate = Decimal("1.00")
 
     # Cas spécial : FC_TRANSFER (transfert de stock FBA)
     if spec.tx_type == "FC_TRANSFER":
@@ -369,8 +382,8 @@ def _make_row(
         if spec.tx_type == "RETURN":
             amount_ht = -abs(amount_ht)
 
-        vat_rate = _VAT_RATES.get(spec.arrival, Decimal("20"))
-        vat_amt = _vat_amt(abs(amount_ht), spec.arrival)
+        vat_rate = _get_vat_rate(spec.arrival, tx_date)
+        vat_amt = _vat_amt(abs(amount_ht), spec.arrival, tx_date)
         if amount_ht < 0:
             vat_amt = -vat_amt
         amount_ttc = amount_ht + vat_amt
@@ -552,9 +565,10 @@ def _build_scenarios_for_year(
     n_out_scope = max(1, int(target_count * 0.02))    # OUT_OF_SCOPE
     n_fx = max(1, int(target_count * 0.08))           # Ventes en devises étrangères
     n_misc = max(2, int(target_count * 0.05))         # Avoirs/Exports
+    n_vat_change = max(1, int(target_count * 0.02))   # Changements de taux TVA (ex: FI)
     n_dom = target_count - (n_b2b + n_b2b_domestic + n_oss + n_import_ioss + n_import_ddp +
                            n_import_std + n_deemed + n_transfer + n_nif +
-                           n_out_scope + n_fx + n_misc)
+                           n_out_scope + n_fx + n_misc + n_vat_change)
 
     # --- 1. Ventes domestiques France (ne comptent pas dans le cumul OSS) ---
     for i in range(n_dom):
@@ -573,22 +587,49 @@ def _build_scenarios_for_year(
         fx_countries = ["PL", "CZ", "HU", "SE", "DK", "RO", "BG", "GB", "US", "CH"]
         dest = rng.choice(fx_countries)
         currency = _COUNTRY_CURRENCY.get(dest, "USD")
-        exchange_rate = _CURRENCY_RATES.get(currency, Decimal("1.00"))
-        
+
         # Montant dans la devise locale
         amt_local = Decimal(str(rng.randint(10, 500)))
-        # Convertir en EUR pour le montant interne
-        amt_eur = (amt_local * exchange_rate).quantize(Decimal("0.01"))
-        
+
         specs.append(ScenarioSpec(
             label="B2C_FX",
             tx_type="SHIPMENT",
             departure="FR", arrival=dest,
-            amount_ht=amt_eur,  # Toujours en EUR pour le calcul
+            amount_ht=amt_local,
             currency=currency,
-            exchange_rate=exchange_rate,
-            note=f"Vente en {currency} vers {dest} (taux {exchange_rate})",
+            note=f"Vente en {currency} vers {dest}",
         ))
+
+    # --- 1c. Ventes pour tester les changements de taux TVA ---
+    # Finlande : changement de 24% à 25.5% le 01/09/2024
+    # Pour 2024, on génère des ventes avant et après cette date
+    if year == 2024:
+        # Ventefore et après le changement
+        for i in range(n_vat_change):
+            amt = Decimal(str(rng.randint(100, 500)))
+            # Moitié avant, moitié après
+            if i % 2 == 0:
+                note = "FI - taux 24% (avant 01/09/2024)"
+            else:
+                note = "FI - taux 25.5% (apres 01/09/2024)"
+            specs.append(ScenarioSpec(
+                label="VAT_CHANGE",
+                tx_type="SHIPMENT",
+                departure="FR", arrival="FI",
+                amount_ht=amt,
+                note=note,
+            ))
+    else:
+        # Pour les autres années, ventes FI standard
+        for i in range(n_vat_change):
+            amt = Decimal(str(rng.randint(100, 500)))
+            specs.append(ScenarioSpec(
+                label="VAT_CHANGE",
+                tx_type="SHIPMENT",
+                departure="FR", arrival="FI",
+                amount_ht=amt,
+                note=f"Vente FI {year}",
+            ))
 
     # --- 2. Ventes B2B cross-border (reverse charge — ne comptent pas OSS) ---
     # Pays avec VIES réels disponibles (priorité)
@@ -720,11 +761,9 @@ def _build_scenarios_for_year(
     for i in range(n_import_ioss):
         dest = rng.choice(_NON_EU_DEST)
         currency = _COUNTRY_CURRENCY.get(dest, "USD")
-        exchange_rate = _CURRENCY_RATES.get(currency, Decimal("1.00"))
         
-        # Montant dans la devise locale (<= 150 EUR converti)
+        # Montant dans la devise locale (<= 150 EUR)
         amt_local = Decimal(str(rng.randint(10, 149)))
-        amt_eur = (amt_local * exchange_rate).quantize(Decimal("0.01"))
         
         ioss_num = _generate_ioss_number(seq_counter)
         seq_counter += 1
@@ -732,9 +771,8 @@ def _build_scenarios_for_year(
             label="IMPORT_IOSS",
             tx_type="SHIPMENT",
             departure="FR", arrival=dest,
-            amount_ht=amt_eur,
+            amount_ht=amt_local,
             currency=currency,
-            exchange_rate=exchange_rate,
             ioss_number=ioss_num,
             note=f"Import IOSS <=150 EUR vers {dest} en {currency} (n° {ioss_num})",
         ))
@@ -743,18 +781,15 @@ def _build_scenarios_for_year(
     for i in range(n_import_ddp):
         dest = rng.choice(_NON_EU_DEST)
         currency = _COUNTRY_CURRENCY.get(dest, "USD")
-        exchange_rate = _CURRENCY_RATES.get(currency, Decimal("1.00"))
         
         amt_local = Decimal(str(rng.randint(151, 1000)))
-        amt_eur = (amt_local * exchange_rate).quantize(Decimal("0.01"))
         
         specs.append(ScenarioSpec(
             label="IMPORT_DDP",
             tx_type="SHIPMENT",
             departure="FR", arrival=dest,
-            amount_ht=amt_eur,
+            amount_ht=amt_local,
             currency=currency,
-            exchange_rate=exchange_rate,
             seller_is_importer=True,
             note=f"Import DDP >150 EUR vers {dest} en {currency} (vendeur importateur)",
         ))
@@ -763,18 +798,15 @@ def _build_scenarios_for_year(
     for i in range(n_import_std):
         dest = rng.choice(_NON_EU_DEST)
         currency = _COUNTRY_CURRENCY.get(dest, "USD")
-        exchange_rate = _CURRENCY_RATES.get(currency, Decimal("1.00"))
         
         amt_local = Decimal(str(rng.randint(151, 1000)))
-        amt_eur = (amt_local * exchange_rate).quantize(Decimal("0.01"))
         
         specs.append(ScenarioSpec(
             label="IMPORT_STD",
             tx_type="SHIPMENT",
             departure="FR", arrival=dest,
-            amount_ht=amt_eur,
+            amount_ht=amt_local,
             currency=currency,
-            exchange_rate=exchange_rate,
             note=f"Import standard >150 EUR vers {dest} (douane)",
         ))
 
@@ -931,6 +963,7 @@ def generate(
     print("  [X] FC_TRANSFER (transferts stock FBA)")
     print("  [X] OUT_OF_SCOPE (produits hors champ)")
     print("  [X] Ventes en devises etrangeres (PLN, CZK, HUF, SEK, DKK, RON, BGN, GBP, USD, CHF)")
+    print("  [X] Changements de taux TVA (ex: FI 24%->25.5% le 01/09/2024)")
     print("  [X] Avoirs/Remboursements (RETURN)")
     print("  [X] Exports hors UE")
     print()

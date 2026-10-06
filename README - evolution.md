@@ -8821,3 +8821,89 @@ Aucun changement de code applicatif hors la clé i18n. Scale-to-zero Railway non
 
 **À surveiller** : à la prochaine montée de version de Streamlit, tester si les 9 scénarios repassent en égalité stricte, et retirer alors `_STALE_AFTER_RERUN`.
 
+
+## 2026-10-04 (2) — Audit `ecb_rates.py` (taux BCE) : 3 correctifs (taux du jour figé en L2, HTTP 404 retenté, BGN en taux fixe)
+
+**Contexte** : vérification de code demandée par Matthieu, démarrée sur les points jamais testés (taux BCE). Code récupéré depuis GitHub (`dev`), jamais déduit. Baseline avant : 840 passed / 7 skipped / 0 failed. Les 3 points relevés sont clos.
+
+**1. Taux du jour figé dans le cache Postgres L2** (`get_rate`, `prefetch_rates`). Pour une date égale à aujourd'hui, avant la publication BCE (~16h CET), la recherche arrière renvoyait le taux de la VEILLE, écrit sous la date du jour avec `ON CONFLICT DO NOTHING` : jamais corrigé, et partagé par tous les comptes (rétention 10 ans). Correctif : écriture L2 uniquement si `target_date < date.today()` (le cache mémoire L1 reste alimenté, le calcul du jour n'est pas dégradé). Reproduit avant correctif, tests ajoutés.
+
+**2. HTTP 404 traité comme panne réseau** (`_request_ecb`). L'API SDMX renvoie 404 « No results found » quand la fenêtre n'a aucune observation (clôture pas encore publiée, devise sans données) : 3 tentatives + 3 s de backoff par paire (devise, date). Correctif : 404 = « aucune donnée », sans retry (les autres erreurs HTTP, dont 429/5xx, gardent le backoff). Reproduit avec un 404 simulé.
+
+**3. BGN** : la Bulgarie ayant adopté l'euro au 01/01/2026, `BGN` n'avait plus de cours BCE. Nouvelle constante `ecb_rates.FIXED_EUR_RATES` (HRK 7,53450, BGN 1,95583) utilisée par `convert_to_eur`, `convert_to_currency`, `prefetch_rates` et `rates_evidence.py` ; source `fixed_eur_bgn`. Le taux BGN fixe est identique au cours historiquement publié (caisse d'émission), donc aucun effet sur les périodes passées. `SUPPORTED_CURRENCIES` (code mort, aucun usage) : BGN retiré.
+
+**Non traité, à valider avec le cabinet** : le taux fixe HRK est appliqué à TOUTES les dates, y compris avant le 01/01/2023 où la BCE publiait un cours (légèrement fluctuant) — comportement conservé, décision fiscale non prise. Nettoyage éventuel des lignes déjà polluées en base (à lancer par Matthieu, après sauvegarde) : `DELETE FROM ecb_rate_cache WHERE rate_date >= (fetched_at AT TIME ZONE 'UTC')::date;` — supprime les taux écrits le jour même de leur date (potentiellement ceux de la veille) ; ils seront recalculés proprement à la demande.
+
+**Vérifié, sans anomalie** : recherche en avant du taux de clôture (art. 5 bis Règl. 2020/194) et `bisect`, conversion croisée sans double arrondi, repli `fallback_rate` d'`oss_export`, variables « inutilisées » de `sidebar.py` (faux positifs : fonctions de rendu de widgets). Pas encore audités : `audit_classify.py`, canaux `MARKETPLACE`/`CUSTOMS`, `session_guard.py`, `vat_rates_db.py`, `vies_engine.py`.
+
+**Validation** : `py_compile` + `pyflakes` OK ; 6 nouveaux tests dans `tests/test_ecb_rates.py` ; suite complète **846 passed / 7 skipped / 0 failed** (nouvelle baseline). Aucun thread, connexion ni polling ajouté : scale-to-zero non affecté.
+
+Fichiers modifiés : `tva_intracom/ecb_rates.py`, `tva_intracom/rates_evidence.py`, `tests/test_ecb_rates.py`, `README - evolution.md`.
+
+## 2026-10-04 (3) — Suite de l'audit : taux TVA TEDB hérité au-delà d'un changement de taux (cache L2), 1 bug corrigé
+
+**Contexte** : suite de l'audit du jour (entrée précédente). Revus sans anomalie : `audit_classify.py`, `session_guard.py` (le stepper SIREN nettoie bien ses clés via `_reset_stepper_data`), consommateurs des canaux `MARKETPLACE`/`CUSTOMS` (`report.py` classe par `collector`/`scenario`, pas par `EXONERATION` ; aucun oubli).
+
+**Bug confirmé (repro avant correctif)** : `vat_rates_db._db_get_rate` résout un taux par recherche dichotomique dans l'historique des « jalons » (dates déjà interrogées sur TEDB), en héritant du jalon le plus récent ≤ date demandée. Si un jalon ancien existait (ex. FI 24 % au 2024-08-10), toute date postérieure en héritait SANS jamais interroger TEDB, y compris après un changement légal (FI 25,5 % au 2024-09-01) : `get_vat_rate("FI","STANDARD",2024-10-05)` renvoyait 24 au lieu de 25,5, et `prefetch_standard_rates` ne tentait même pas TEDB. Le repli statique (`rates.py`) donnait pourtant 25,5. Erreur silencieuse, durable (valeur ensuite répétée dans toutes les exécutions) ; touche tout pays ayant changé de taux entre deux jalons (FI, EE, SK, RO, LV…).
+
+**Correctif** : un jalon n'est hérité que si AUCUNE date de début de période de l'historique statique (`rates.rate_periods_for_country`) ne tombe entre le jalon et la date demandée ; sinon `_db_get_rate` renvoie `None` et TEDB est interrogé pour la date exacte (puis devient un nouveau jalon). Nouveau helper `_static_change_dates` (cache de données statiques, aucune requête, aucun thread). Le gain perf du chargement en UNE requête reste intact (`test_single_postgres_query_for_many_distinct_dates` vert) ; seules les dates situées après un changement connu déclenchent un appel TEDB supplémentaire.
+
+**Limite assumée** : le garde-fou ne connaît que les changements présents dans `VAT_RATE_HISTORY` ; un changement absent de l'historique statique reste hérité (comportement antérieur). À garder à jour avec `scripts/update_rates_history.py`.
+
+**Test existant adapté** : `test_perf_regression_guards.py::test_db_get_rate_semantics` utilisait un historique synthétique DE (19 → 20 → 21) qui traversait les vrais changements DE de 2020-07-01 et 2021-01-01, donc elle validait l'héritage fautif ; elle isole maintenant la sémantique du bisect (`_static_change_dates` neutralisé) et le garde-fou est testé à part.
+
+**Validation** : `py_compile` + `pyflakes` OK ; 3 nouveaux tests dans `tests/test_vat_rates_db.py` ; suite complète **849 passed / 7 skipped / 0 failed** (nouvelle baseline). Scale-to-zero non affecté.
+
+**Observation, non traitée** : `report.py::_aggregate_result` contient une ligne résiduelle `... # rest of the function remains same but uses lang if needed` (Ellipsis sans effet) ; cosmétique. **Non audités** : `vies_engine.py`.
+
+Fichiers modifiés : `tva_intracom/vat_rates_db.py`, `tests/test_vat_rates_db.py`, `tests/test_perf_regression_guards.py`, `README - evolution.md`.
+
+## 2026-10-04 (4) — Fin de l'audit : `vies_engine.py` (erreurs HTTP 403/408/429 prises pour « n° invalide »), script de diagnostic VIES
+
+**Contexte** : dernière zone de l'audit du jour (entrées (2) et (3) ci-dessus). Code relu : normalisation, `check_vat`, retry, cascade de cache scope → global → API, validation parallèle, `_is_downgrade`. Dédoublonnage des numéros avant `validate_vat_numbers_parallel` vérifié (`_collect_vies_targets` déduplique sur le n° normalisé) : pas de numéro perdu.
+
+**Bug confirmé (repro avant correctif)** : `check_vat` renvoie `error="Erreur HTTP <code>"` pour toute erreur HTTP sans message JSON, mais `_TRANSIENT_ERRORS` ne listait que 500/502/503/504. Les codes 403 (accès refusé / IP bloquée), 408 (timeout) et 429 (trop de requêtes) étaient donc classés « réponse fiable : invalide » : pas de retry, écriture dans le cache global ET scope (TTL 7 jours, partagé entre comptes) + historique d'audit, puis n° traité comme invalide (autoliquidation B2B refusée, TVA facturée à tort). Scénario réaliste : limitation de débit VIES sous les 25 workers, ou blocage du proxy sortant.
+
+**Correctif** : 403, 408 et 429 ajoutés à `_TRANSIENT_ERRORS` (non concluant, retry avec backoff, jamais promu en cache, repli `stale_fallback` si une entrée existe). **400 volontairement conservé comme définitif** (entrée malformée côté VIES). Aucun thread ni polling ajouté.
+
+**À confirmer avec une réponse réelle (non corrigé, volontairement)** : `check_vat` ne lit pas la clé `userError` et ne reconnaît pas un placeholder `"---"` dans `name`/`address`. Si VIES renvoie ces éléments, une panne d'État membre pourrait être lue comme « invalide » et un invalide comme « non vide » pour `_is_downgrade`. Je n'ai pas pu interroger VIES depuis le bac à sable (hôte bloqué) : nouveau script `scripts/diag_vies_response.py` à lancer depuis un poste normal (`python scripts/diag_vies_response.py <un n° valide> <un n° invalide>`) et à renvoyer tel quel avant toute modification de `check_vat`.
+
+**Point resté ouvert, décision métier** : divergence de définition de la catégorie « Art. 194 / autoliquidation domestique » entre l'onglet Audit (B2B + pays d'arrivée dans `DOMESTIC_REVERSE_CHARGE_COUNTRIES`) et l'Excel (`départ == arrivée`, TVA moteur 0, TVA Amazon > 0) — à unifier dans `audit_classify.py` une fois la règle retenue.
+
+**Validation** : `py_compile` + `pyflakes` OK ; 9 nouveaux tests dans `tests/test_vies.py` ; suite complète **858 passed / 7 skipped / 0 failed** (nouvelle baseline).
+
+Fichiers modifiés : `tva_intracom/vies_engine.py`, `tests/test_vies.py`, `scripts/diag_vies_response.py` (nouveau), `README - evolution.md`.
+
+## 2026-10-05 — Suite de l'audit : HRK/BGN dynamiques avant l'euro, règle Art. 194 unifiée UI/Excel, format réel des réponses VIES
+
+**Contexte** : retours de Matthieu sur l'audit du 2026-10-04 (entrées (2) à (4)). Les 3 points ci-dessous sont clos ; la liste d'audit complète est maintenant terminée.
+
+**1. HRK/BGN : taux BCE dynamique avant l'adoption de l'euro, taux fixe après** (`ecb_rates.py`, `rates_evidence.py`). Correction de mon correctif du 2026-10-04, qui appliquait le taux fixe à TOUTES les dates. Nouveaux `EURO_ADOPTION_DATES` (HRK 2023-01-01, BGN 2026-01-01) et `fixed_eur_rate(currency, date)` (None avant adoption). Avant : taux BCE (recherche arrière/avant habituelle, source `ecb`/`ecb_closing`) ; à partir de la date : taux fixe (HRK 7,53450 ; BGN 1,95583), source `fixed_eur_*`, aucun appel réseau. Appliqué dans `get_rate`, `get_closing_rate` (donc aussi le seuil OSS d'`engine.py` et les affichages), `convert_to_eur`, `convert_to_currency`, `prefetch_rates`, `prefetch_closing_rates` et la feuille de preuves de taux. La date prise en compte pour l'OSS/IOSS est la date de clôture de la période (art. 5 bis Règl. 2020/194). `SUPPORTED_CURRENCIES` (code mort) commentaire mis à jour.
+
+**2. Art. 194 : UI et Excel alignés sur l'Excel** (`audit_classify.py`, `ui/tabs/audit.py`, `excel_report.py`). Règle retenue (validée par Matthieu) : un flux transfrontalier n'est jamais de l'art. 194 ; un acheteur pro enregistré par NIF local sur flux domestique (non typé B2B) en relève. Nouvelle fonction unique `is_domestic_reverse_charge_gap(in_domestic_rc, stock, buyer, tva_moteur, tva_amazon)` = reclassification domestique du moteur OU (TVA moteur 0, TVA Amazon > 0, départ == arrivée). Supprimé côté UI : le critère `buyer_type == B2B` et l'appartenance à `DOMESTIC_REVERSE_CHARGE_COUNTRIES` (imports devenus inutiles retirés). Effet attendu : certaines lignes basculent de « Art. 194 » vers « Écart de taux / VIES » (cross-border) et inversement (local NIF) dans l'onglet Audit ; les totaux Audit et Excel doivent désormais coïncider.
+
+**3. VIES : format réel des réponses relevé** (`scripts/diag_vies_response.py` lancé par Matthieu, HTTP 200). Valide : `valid: true`, name/address renseignés. Invalide : `valid: false` avec `name` et `address` = `"---"`. Aucune clé `userError`. Conclusion : **aucune modification de `check_vat()`** — la crainte levée. Un invalide réel n'est pas « vide » (`_is_empty_response` faux) : réponse définitive, sans retry inutile, et une vraie désinscription (valide → invalide) n'est pas neutralisée en `stale_fallback`. Il ne faut surtout pas normaliser `"---"` en chaîne vide (retries sur tous les invalides + masquage des désinscriptions). Documenté dans `check_vat()` et verrouillé par 2 tests sur les formes réelles. Le timeout observé sur le 2e numéro (NL) est correctement classé transitoire (`_is_unreliable` vrai).
+
+**Validation** : `py_compile` + `pyflakes` OK ; nouveaux tests (`test_ecb_rates.py`, `test_audit_classify.py`, `test_vies.py`) ; suite complète **866 passed / 7 skipped / 0 failed** (nouvelle baseline). Aucun thread ni polling ajouté : scale-to-zero non affecté.
+
+**Reste ouvert (mineur)** : l'Excel (`_nature`) ne teste pas `reclassifications` pour la catégorie VIES alors que l'UI le fait (UI : `sid in _vies_rc_ids_app OR affected`, Excel : `affected` seul) ; à vérifier sur un fichier réel si les totaux Audit/Excel divergent encore sur la ligne VIES.
+
+Fichiers modifiés : `tva_intracom/ecb_rates.py`, `tva_intracom/rates_evidence.py`, `tva_intracom/audit_classify.py`, `tva_intracom/ui/tabs/audit.py`, `tva_intracom/excel_report.py`, `tva_intracom/vies_engine.py` (commentaire), `tests/test_ecb_rates.py`, `tests/test_audit_classify.py`, `tests/test_vies.py`, `README - evolution.md`.
+
+## 2026-10-05 (2) — Alignement VIES Audit UI / Excel + perf de l'étape « Téléchargement des taux de change (BCE) »
+
+**Contexte** : deux demandes de Matthieu après l'audit du jour : (a) aligner la catégorie VIES de l'Excel sur l'UI en tenant compte des reclassifications ; (b) vérifier la performance du préchargement des taux BCE, jugé long sur l'étape « Téléchargement des taux de change (BCE)... ». Les deux points sont clos côté code ; la mesure réelle de (b) reste à faire par Matthieu (voir ci-dessous).
+
+**1. VIES : Excel aligné sur l'UI** (`excel_report.py::_write_audit_tab`). La catégorie « Risque VIES » de l'Excel ne regardait que `(sale_id, amount_ht) in vies_affected_sale_ids` ; l'UI testait en plus l'appartenance aux reclassifications « pures » (ni autoliquidation domestique ni NIF). L'Excel construit maintenant `vies_rc_sale_ids` de la même façon et applique `is_vies_risk_gap(sid in vies_rc_sale_ids or affecté, tva_amazon)` — mêmes ensembles, même règle que l'onglet Audit. 2 tests (`test_audit_classify.py`) exécutent réellement `_write_audit_tab`.
+
+**2. Perf BCE — analyse du code** (`ecb_rates.py::prefetch_rates`, `loader.py`). Le libellé « Téléchargement des taux de change (BCE)... » reste affiché tant que `done == 0`, c'est-à-dire pendant TOUTE la requête HTTP batch (un seul appel multi-devises sur la fenêtre min→max des dates manquantes). Le temps affiché là est donc le temps réseau BCE. Constats :
+- Le corps JSON SDMX d'un lot multi-devises / multi-années est volumineux et n'était pas compressé (`Accept-Encoding` absent). Correctif : `_request_ecb` demande `gzip` et décompresse si `Content-Encoding: gzip` (repli transparent sans compression).
+- Un échec réseau sur ce lot unique coûte jusqu'à 15 s × 3 tentatives + 3 s de backoff ≈ 48 s, et toutes les paires sont alors marquées en échec (comportement conservé : pas de donnée de latence réelle pour justifier un changement).
+- Hors libellé (avant/après l'affichage) : `_db_get_rates_batch` et `_db_upsert_batch` utilisaient `execute_values` avec `page_size=100` par défaut, soit 1 aller-retour Postgres distant par tranche de 100 paires (3000 paires = 30 allers-retours, lecture ET écriture). Passé à `page_size=2000` (2 allers-retours maximum). Test dédié.
+- Instrumentation : `prefetch_rates` logge maintenant `Prefetch BCE durées : lecture_L2=… http_BCE=… écriture_L2=… total=…` (INFO) pour trancher sur des données réelles.
+
+**À mesurer par Matthieu** (le bac à sable ne joint pas la BCE) : `python scripts/diag_bce_perf.py` (option `--db` pour la lecture Postgres) — durée du batch avec/sans gzip, taille du corps, durée par devise ; et les lignes de log « Prefetch BCE durées » d'une exécution réelle. Si `http_BCE` domine : piste suivante = requêtes par devise en parallèle (HTTP seul, sans DB dans les threads, comme VIES) ; non faite sans mesure.
+
+**Validation** : `py_compile` + `pyflakes` OK sur les fichiers modifiés ; suite complète **871 passed / 7 skipped / 0 failed** (nouvelle baseline). Aucun thread ni polling ajouté : scale-to-zero non affecté.
+
+Fichiers modifiés : `tva_intracom/ecb_rates.py`, `tva_intracom/excel_report.py`, `tests/test_ecb_rates.py`, `tests/test_audit_classify.py`, `scripts/diag_bce_perf.py` (nouveau), `README - evolution.md`.

@@ -61,6 +61,7 @@ import psycopg2.extras
 from .config import get_secret
 from .database import NonPoolingConnectionPool, get_shared_pool, close_idle_connections as _database_close_idle
 from .rates import vat_rate_at_date as _static_vat_rate_at_date
+from .rates import rate_periods_for_country as _static_rate_periods_for_country
 from .rates import STANDARD_VAT_RATES as _STATIC_STANDARD_RATES
 from .rates import REDUCED_VAT_RATES as _STATIC_REDUCED_RATES
 
@@ -372,7 +373,41 @@ def _db_get_rate(country: str, rate_type: str, target_date: date) -> Optional[De
     idx = bisect.bisect_right(dates, target_date) - 1
     if idx < 0:
         return None  # target_date antérieure au premier milestone connu
-    return history[idx][1]
+    milestone_date, milestone_rate = history[idx]
+    # BUGFIX (2026-10-04) : un jalon n'est hérité que si AUCUN changement de
+    # taux connu (historique statique rates.py) ne s'est produit entre ce
+    # jalon et la date demandée. Avant ce garde-fou, un jalon ancien (ex. FI
+    # 24 % au 2024-08-10) était servi pour toute date postérieure sans jamais
+    # interroger TEDB, y compris APRÈS un changement légal (FI 25,5 % au
+    # 2024-09-01) : taux erroné, silencieux, et persistant dans toutes les
+    # exécutions suivantes (TEDB jamais rappelé pour cette date).
+    if milestone_date != target_date:
+        changes = _static_change_dates(country, rate_type)
+        j = bisect.bisect_right(changes, milestone_date)
+        if j < len(changes) and changes[j] <= target_date:
+            return None  # changement connu entre le jalon et la date : TEDB doit trancher
+    return milestone_rate
+
+
+# Dates de début de période de l'historique statique (rates.py) par
+# (pays, type de taux) : sert uniquement à borner l'héritage d'un jalon
+# (voir _db_get_rate). Donnée statique (jamais invalidée).
+_static_change_dates_cache: dict[tuple[str, str], list[date]] = {}
+
+
+def _static_change_dates(country: str, rate_type: str) -> list[date]:
+    key = (country, rate_type)
+    with _cache_lock:
+        cached = _static_change_dates_cache.get(key)
+    if cached is not None:
+        return cached
+    dates = sorted({
+        p.date_from for p in _static_rate_periods_for_country(country)
+        if p.category == rate_type
+    })
+    with _cache_lock:
+        _static_change_dates_cache[key] = dates
+    return dates
 
 
 def _db_upsert_batch(entries: list[tuple[str, str, date, Decimal]]) -> None:

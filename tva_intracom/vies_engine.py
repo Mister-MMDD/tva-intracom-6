@@ -1421,6 +1421,15 @@ _TRANSIENT_ERRORS = {
     "ms_unavailable", "service_unavailable", "ms_max_concurrent_req",
     "global_max_concurrent_req", "timeout", "erreur de connexion",
     "erreur http 500", "erreur http 502", "erreur http 503", "erreur http 504",
+    # BUGFIX (2026-10-04) : 408 (timeout), 429 (trop de requêtes) et 403
+    # (accès refusé / IP bloquée côté VIES ou proxy) ne disent RIEN sur la
+    # validité du n° TVA. Absents de cette liste, ils étaient classés comme
+    # réponse FIABLE « invalide » : écrits 7 jours dans le cache global ET
+    # scope (donc pour tous les comptes), historisés, puis le numéro était
+    # traité comme invalide (autoliquidation refusée, TVA facturée à tort).
+    # 400 volontairement NON ajouté : VIES l'utilise pour une entrée
+    # réellement malformée (réponse définitive sur le numéro).
+    "erreur http 403", "erreur http 408", "erreur http 429",
     "non concluante",
     # Coupures réseau/DB brutes (ex: connexion Supabase/Postgres fermée par le
     # serveur en cours d'écriture cache, sous forte concurrence des 25 workers
@@ -1609,6 +1618,14 @@ def check_vat(country_code: str, vat_number: str, timeout: int = DEFAULT_TIMEOUT
     Returns:
         ViesResult avec statut valid/invalid et détails.
     """
+    # FORMAT RÉEL de la réponse (relevé par scripts/diag_vies_response.py,
+    # 2026-10-05, HTTP 200) : numéro valide -> `valid: true` + `name`/`address`
+    # renseignés ; numéro INVALIDE -> `valid: false` avec `name` et `address`
+    # valant le placeholder "---" (jamais vides). Aucune clé `userError`.
+    # Les champs `trader*` valent "---" / NOT_PROCESSED (non utilisés).
+    # NE PAS normaliser "---" en "" : `_is_empty_response()` deviendrait vrai
+    # pour tout invalide réel (retries inutiles) et `_is_downgrade()` pourrait
+    # masquer une vraie désinscription (valide -> invalide) en stale_fallback.
     payload = {
         "countryCode": country_code.upper(),
         "vatNumber": vat_number.upper()
@@ -1784,7 +1801,7 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
                 # sécurité "pas de repli sur cache périmé pour les calculs"
                 # (décision d'origine) reste donc intacte ; seule l'info
                 # affichée à l'utilisateur est restaurée.
-                logger.warning(
+                logger.debug(
                     "VIES : %s expiré (TTL dépassé) et service VIES "
                     "indisponible — reclassé en non-vérifié (stale_fallback), "
                     "dernière validation automatique connue conservée pour "
@@ -1797,7 +1814,7 @@ def check_vat_raw(scope_id: str, raw: str, timeout: int = DEFAULT_TIMEOUT) -> Vi
             return res
 
         if cached is not None and _is_downgrade(cached, res):
-            logger.warning(
+            logger.debug(
                 "VIES : %s précédemment VALIDE reçoit une réponse vide — "
                 "reclassé en non-vérifié (stale_fallback), dernière validation "
                 "automatique connue conservée pour information.", norm,
@@ -1994,7 +2011,7 @@ def validate_vat_numbers_parallel(
                 # jamais vérifié, comportement inchangé dans ce cas précis).
                 prev_unreliable = fallback_cache.get(norm_id)
                 if prev_unreliable is not None:
-                    logger.warning(
+                    logger.debug(
                         "VIES : %s expiré (TTL dépassé) et service VIES "
                         "indisponible — reclassé en non-vérifié (stale_fallback), "
                         "dernière validation automatique connue conservée pour "
@@ -2014,7 +2031,7 @@ def validate_vat_numbers_parallel(
 
             prev = fallback_cache.get(norm_id)
             if prev is not None and _is_downgrade(prev, result):
-                logger.warning(
+                logger.debug(
                     "VIES : %s précédemment VALIDE reçoit une réponse vide — "
                     "reclassé en non-vérifié (stale_fallback), dernière validation "
                     "automatique connue conservée pour information.", norm_id,

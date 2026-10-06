@@ -40,7 +40,9 @@ class ReportSummary:
 
     # TVA geree par d'autres / sans reversement de votre part.
     amazon_vat: Decimal = _ZERO                           # deemed supplier
-    import_vat: Decimal = _ZERO                           # due en douane par l'importateur
+    import_vat: Decimal = _ZERO                           # due en douane par l'importateur (standard)
+    import_ddp_vat: Decimal = _ZERO                        # import > 150 EUR DDP (vendeur importateur)
+    b2b_domestic_rc_vat: Decimal = _ZERO                  # autoliquidation domestique B2B
 
     # Remboursements (montants négatifs, ventilés par canal).
     refund_total_ht: Decimal = _ZERO                      # CA HT remboursé (négatif)
@@ -58,6 +60,8 @@ class ReportSummary:
     refund_local_by_country: Dict[str, Decimal] = field(default_factory=dict)
     refund_amazon_vat: Decimal = _ZERO                    # TVA Amazon remboursée
     refund_import_vat: Decimal = _ZERO
+    refund_import_ddp_vat: Decimal = _ZERO                # TVA DDP remboursée
+    refund_b2b_domestic_rc_vat: Decimal = _ZERO           # TVA autoliquidation domestique remboursée
     refund_ioss_vat: Decimal = _ZERO
     refund_count: int = 0
 
@@ -250,6 +254,11 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
         if r.scenario == Scenario.IMPORT_STANDARD:
             summary.refund_import_ht += ht
             summary.refund_import_vat += r.vat_amount
+        if r.scenario == Scenario.IMPORT_SELLER_AS_IMPORTER:
+            summary.refund_import_ht += ht
+            summary.refund_import_ddp_vat += r.vat_amount
+        if r.scenario == Scenario.B2B_REVERSE_CHARGE:
+            summary.refund_b2b_domestic_rc_vat += r.vat_amount
     else:
         summary.total_ht += ht
         stock = r.sale.stock_country
@@ -296,6 +305,15 @@ def _aggregate_result(summary: ReportSummary, r: "VatResult", is_refund: bool = 
         if r.scenario == Scenario.IMPORT_STANDARD:
             summary.import_ht += ht
             summary.import_vat += r.vat_amount
+        if r.scenario == Scenario.IMPORT_SELLER_AS_IMPORTER:
+            # Import DDP > 150 EUR : TVA due par le vendeur (immatriculation locale)
+            # Comptabilisé comme local_vat dans le pays de destination
+            summary.import_ht += ht
+            summary.import_ddp_vat += r.vat_amount
+        if r.scenario == Scenario.B2B_REVERSE_CHARGE:
+            # Autoliquidation domestique (art.194) - TVA collectée mais autoliquidée par l'acheteur
+            # Dans certains pays, le vendeur doit quand même déclarer cette TVA
+            summary.b2b_domestic_rc_vat += r.vat_amount
 
 
 def build_report(

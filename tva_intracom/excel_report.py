@@ -747,7 +747,7 @@ def _write_details_tab(ws, tab_title: str, results_list: List, is_refund_tab: bo
 
 
 
-from tva_intracom.audit_classify import is_non_eu_flow, is_vies_risk_gap
+from tva_intracom.audit_classify import is_domestic_reverse_charge_gap, is_non_eu_flow, is_vies_risk_gap
 
 
 def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = None, vies_summary=None,
@@ -776,12 +776,17 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
     nif_affected_sale_ids: set = set(getattr(vies_summary, "nif_affected_sale_ids", set()) if vies_summary else set())
     domestic_rc_sale_ids: set[str] = set()
     nif_rc_sale_ids: set[str] = set()
+    # Reclassifications VIES « pures » (ni autoliquidation domestique ni NIF) :
+    # prises en compte comme dans l'onglet Audit de l'UI (alignement 2026-10-05).
+    vies_rc_sale_ids: set[str] = set()
     if vies_summary and hasattr(vies_summary, "reclassifications"):
         for rc in vies_summary.reclassifications:
             if getattr(rc, "is_domestic_reverse_charge", False):
                 domestic_rc_sale_ids.add(rc.sale_id)
             elif getattr(rc, "is_national_tax_id", False):
                 nif_rc_sale_ids.add(rc.sale_id)
+            else:
+                vies_rc_sale_ids.add(rc.sale_id)
 
     def _nature(r) -> str:
         dep = getattr(r.sale, "stock_country", "")
@@ -793,9 +798,9 @@ def _write_audit_tab(ws, results: list, vies_affected_sale_ids: set | None = Non
             return i18n_("xl_audit_nature_non_eu")
         if sid in nif_rc_sale_ids or (r.sale.sale_id, r.sale.amount_ht) in nif_affected_sale_ids:
             return i18n_("xl_audit_nature_nif")
-        if is_vies_risk_gap((r.sale.sale_id, r.sale.amount_ht) in vies_affected_sale_ids, tva_amazon):
+        if is_vies_risk_gap(sid in vies_rc_sale_ids or (r.sale.sale_id, r.sale.amount_ht) in vies_affected_sale_ids, tva_amazon):
             return i18n_("xl_audit_nature_vies")
-        if sid in domestic_rc_sale_ids or (tva_moteur == 0 and tva_amazon > 0 and dep == arr):
+        if is_domestic_reverse_charge_gap(sid in domestic_rc_sale_ids, dep, arr, tva_moteur, tva_amazon):
             return i18n_("xl_audit_nature_art194")
         return i18n_("xl_audit_nature_taux")
 

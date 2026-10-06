@@ -18,7 +18,7 @@ from tva_intracom.ui.formatting import _gated_preview_table, _smart_money_df, _r
 from tva_intracom.ui.tabs.context import TabContext
 
 
-from tva_intracom.audit_classify import is_non_eu_flow, is_vies_risk_gap
+from tva_intracom.audit_classify import is_domestic_reverse_charge_gap, is_non_eu_flow, is_vies_risk_gap
 
 
 def _has_audit_gaps(results: list) -> bool:
@@ -129,8 +129,6 @@ def render_audit() -> None:
                     if getattr(_rc, "is_domestic_reverse_charge", False): _dom_rc_ids_app.add(_rc.sale_id)
                     elif getattr(_rc, "is_national_tax_id", False): _nif_rc_ids_app.add(_rc.sale_id)
                     else: _vies_rc_ids_app.add(_rc.sale_id)
-            from tva_intracom.rates import DOMESTIC_REVERSE_CHARGE_COUNTRIES as _DRC_APP
-            from tva_intracom.models import BuyerType as _BT_APP
 
             # Libellés de colonnes dynamiques (devise cible) : voir en-tête de fonction.
             _lbl_ht = _("col_ht_eur", currency=_target_currency)
@@ -180,11 +178,10 @@ def render_audit() -> None:
                         _("col_channel"): r.channel.value
                     }
                     _dep = r.sale.stock_country; _arr = r.sale.buyer_country; _sid = str(r.sale.sale_id)
-                    _is_b2b = (r.sale.buyer_type == _BT_APP.B2B)
                     if is_non_eu_flow(_dep, _arr): ecarts_non_eu_tab.append(row_d)
                     elif _sid in _nif_rc_ids_app or (_sid, r.sale.amount_ht) in _nif_affected_ids: ecarts_nif_tab.append(row_d)
                     elif is_vies_risk_gap(_sid in _vies_rc_ids_app or (_sid, r.sale.amount_ht) in _vies_affected_ids, tva_amazon): ecarts_vies_tab.append(row_d)
-                    elif _sid in _dom_rc_ids_app or (_is_b2b and _arr in _DRC_APP and tva_moteur == 0 and tva_amazon > 0): ecarts_b2b_dom_tab.append(row_d)
+                    elif is_domestic_reverse_charge_gap(_sid in _dom_rc_ids_app, _dep, _arr, tva_moteur, tva_amazon): ecarts_b2b_dom_tab.append(row_d)
                     elif tva_amazon == 0 and tva_moteur > 0: ecarts_amz_manquante_tab.append(row_d)
                     else: ecarts_autres_tab.append(row_d)
                 if ctx.calc_key is not None:

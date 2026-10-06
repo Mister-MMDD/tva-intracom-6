@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterable
 
-from .ecb_rates import get_closing_rate, get_ioss_rate_date, get_oss_rate_date
+from .ecb_rates import fixed_eur_rate, get_closing_rate, get_ioss_rate_date, get_oss_rate_date
 from .i18n import _
 from .models import Scenario, VatResult
 
@@ -86,8 +86,8 @@ def extract_rates_evidence_records(
         ))
 
     for (regime, currency, closing_date), rate_results in sorted(closing_rates.items()):
-        if currency == "HRK":
-            closing_rate = Decimal("7.53450")
+        closing_rate = fixed_eur_rate(currency, closing_date)
+        if closing_rate is not None:
             source = "fixed_eu"
         else:
             closing_rate = get_closing_rate(currency, closing_date)

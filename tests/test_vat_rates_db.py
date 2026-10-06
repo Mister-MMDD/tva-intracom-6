@@ -475,3 +475,59 @@ def test_permanently_failed_window_skips_l2_lookup_too(tedb_enabled_no_db):
         m.get_vat_rate("FR", "STANDARD", date(2025, 7, 1))
 
     mocked_db.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-10-04 : un jalon L2 ne doit pas être hérité au-delà d'un
+# changement de taux connu (FI 24 % -> 25,5 % au 2024-09-01)
+# ---------------------------------------------------------------------------
+def _seed_history(v, country, rate_type, entries):
+    v._country_history_cache.clear()
+    v._country_history_dates_cache.clear()
+    v._country_history_loaded.clear()
+    v._vat_memory_cache.clear()
+    v._country_history_cache[(country, rate_type)] = list(entries)
+    v._country_history_dates_cache[(country, rate_type)] = [d for d, _ in entries]
+    v._country_history_loaded.add((country, rate_type))
+
+
+def test_db_get_rate_inherits_milestone_when_no_known_change():
+    from datetime import date
+    from decimal import Decimal
+    from tva_intracom import vat_rates_db as v
+    _seed_history(v, "FI", "STANDARD", [(date(2024, 9, 5), Decimal("25.5"))])
+    # aucun changement FI après 2024-09-01 : héritage valide
+    assert v._db_get_rate("FI", "STANDARD", date(2025, 3, 1)) == Decimal("25.5")
+    assert v._db_get_rate("FI", "STANDARD", date(2024, 9, 5)) == Decimal("25.5")
+
+
+def test_db_get_rate_does_not_inherit_across_known_change():
+    from datetime import date
+    from decimal import Decimal
+    from tva_intracom import vat_rates_db as v
+    _seed_history(v, "FI", "STANDARD", [(date(2024, 8, 10), Decimal("24"))])
+    # jalon avant le changement du 2024-09-01 : dates avant -> héritage, après -> None (TEDB tranche)
+    assert v._db_get_rate("FI", "STANDARD", date(2024, 8, 31)) == Decimal("24")
+    assert v._db_get_rate("FI", "STANDARD", date(2024, 9, 1)) is None
+    assert v._db_get_rate("FI", "STANDARD", date(2024, 10, 5)) is None
+
+
+def test_prefetch_queries_tedb_after_known_change_despite_older_milestone():
+    from datetime import date
+    from decimal import Decimal
+    from unittest.mock import patch
+    from tva_intracom import vat_rates_db as v
+    _seed_history(v, "FI", "STANDARD", [(date(2024, 8, 10), Decimal("24"))])
+    v._failed_pairs.clear()
+    fetched = []
+
+    def fake_fetch(country, d):
+        fetched.append((country, d))
+        return ({"STANDARD": Decimal("25.5")}, b"<xml/>")
+
+    with patch.object(v, "_dynamic_tedb_enabled", return_value=True), \
+         patch.object(v, "_fetch_tedb_rates", side_effect=fake_fetch), \
+         patch.object(v, "_db_upsert_batch"):
+        v.prefetch_standard_rates([("FI", date(2024, 10, 5))])
+        assert fetched == [("FI", date(2024, 10, 5))]
+        assert v.get_vat_rate("FI", "STANDARD", date(2024, 10, 5)) == Decimal("25.5")

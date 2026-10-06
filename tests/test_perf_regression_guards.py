@@ -187,7 +187,14 @@ class TestCountryHistoryDatesCache:
 
     def test_db_get_rate_semantics(self):
         self._load()
-        with patch.object(vdb, "_get_pool", return_value=None):
+        # Historique synthétique (19 -> 20 -> 21) : on isole ici la sémantique
+        # pure de la recherche dichotomique. Le garde-fou « pas d'héritage
+        # au-delà d'un changement statique connu » (audit 2026-10-04) est
+        # testé à part dans test_vat_rates_db.py — DE a réellement changé de
+        # taux le 2020-07-01 et le 2021-01-01, ce qui court-circuiterait
+        # ces assertions.
+        with patch.object(vdb, "_get_pool", return_value=None), \
+             patch.object(vdb, "_static_change_dates", return_value=[]):
             assert vdb._db_get_rate("DE", "STANDARD", date(2019, 12, 31)) is None   # avant le 1er milestone
             assert vdb._db_get_rate("DE", "STANDARD", date(2020, 1, 1)) == Decimal("19.00")
             assert vdb._db_get_rate("DE", "STANDARD", date(2023, 6, 30)) == Decimal("19.00")

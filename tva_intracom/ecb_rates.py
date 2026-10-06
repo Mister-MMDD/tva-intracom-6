@@ -24,6 +24,7 @@ Optimisations :
 from __future__ import annotations
 
 import bisect
+import gzip
 import json
 import logging
 import re
@@ -60,14 +61,40 @@ _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 SUPPORTED_CURRENCIES = {
     "USD", "GBP", "JPY", "CHF", "SEK", "DKK", "NOK", "PLN", "CZK",
-    "HUF", "RON", "BGN", "TRY", "AUD", "CAD", "CNY", "INR",
+    "HUF", "RON", "TRY", "AUD", "CAD", "CNY", "INR",
     "BRL", "MXN", "SGD", "KRW", "THB", "ZAR",
-    # HRK (kuna croate) retiré : la Croatie a rejoint la zone euro le 01/01/2023.
-    # Pour les fichiers historiques antérieurs à 2023 contenant des HRK,
-    # le taux de conversion fixe officiel est 1 EUR = 7,53450 HRK (Règl. UE 2022/1540).
+    # HRK / BGN : taux BCE avant l'adoption de l'euro, taux fixe après
+    # (voir FIXED_EUR_RATES / fixed_eur_rate).
 }
 
 _CENT = Decimal("0.01")
+
+# Devises dont le taux de conversion vers l'EUR devient FIXE et irrévocable à
+# l'adoption de l'euro. HRK : euro au 01/01/2023 (Règl. UE 2022/1540).
+# BGN : euro au 01/01/2026.
+#   - AVANT la date d'adoption : taux BCE dynamique (cours publiés par la
+#     BCE, recherche arrière/avant comme toute autre devise) — la BCE est la
+#     source légale pour l'OSS/IOSS (Règl. UE 2020/194 art. 5 bis).
+#   - À PARTIR de la date d'adoption : taux fixe, la BCE ne publie plus de
+#     cours pour ces devises.
+FIXED_EUR_RATES: dict[str, Decimal] = {
+    "HRK": Decimal("7.53450"),
+    "BGN": Decimal("1.95583"),
+}
+EURO_ADOPTION_DATES: dict[str, date] = {
+    "HRK": date(2023, 1, 1),
+    "BGN": date(2026, 1, 1),
+}
+
+
+def fixed_eur_rate(currency: str, on_date: date) -> Optional[Decimal]:
+    """Taux fixe officiel (unités de devise pour 1 EUR) si `currency` a déjà
+    adopté l'euro à `on_date`, sinon None (→ taux BCE dynamique)."""
+    ccy = (currency or "").upper()
+    adoption = EURO_ADOPTION_DATES.get(ccy)
+    if adoption is None or on_date is None or on_date < adoption:
+        return None
+    return FIXED_EUR_RATES.get(ccy)
 
 # ------------------------------------------------------------------
 # Cache deux niveaux : mémoire (process) + Postgres global (persistant)
@@ -202,6 +229,10 @@ def _db_get_rates_batch(currency_dates: list[tuple[str, date]]) -> dict[tuple[st
                     ON r.currency = c.currency AND r.rate_date = c.rate_date
                 """,
                 pairs,
+                # page_size=100 (défaut psycopg2) = 1 aller-retour réseau par
+                # tranche de 100 paires vers Postgres (Supabase distant) :
+                # 3000 paires = 30 allers-retours. 2000 = 2 maximum.
+                page_size=2000,
                 fetch=True,
             )
             for ccy, d, rate in rows:
@@ -261,6 +292,7 @@ def _db_upsert_batch(entries: list[tuple[str, date, Decimal]]) -> None:
                 ON CONFLICT (currency, rate_date) DO NOTHING
                 """,
                 [(ccy, d, rate, now) for ccy, d, rate in entries],
+                page_size=2000,  # voir _db_get_rates_batch (allers-retours réseau)
             )
     except Exception as exc:
         logger.warning("Cache BCE : écriture Postgres échouée (%d entrées) : %s", len(entries), exc)
@@ -321,49 +353,6 @@ _failed_pairs: dict[tuple[str, str, date], float] = {}  # (kind, ccy, date) -> t
 # _is_permanent_ssl_error ci-dessous.
 _ssl_broken_lock = threading.Lock()
 _ssl_permanently_broken = False
-
-
-# BUGFIX (2026-10-04) : disjoncteur sur indisponibilité RÉSEAU de la BCE
-# (timeout / erreur HTTP persistante), complémentaire au drapeau SSL ci-dessus.
-# Constat : prefetch_closing_rates() requête UNE devise à la fois et chaque
-# requête en échec coûte ~48 s (3 tentatives x timeout 15 s + backoff 1+2 s).
-# Avec N devises sur un fichier multi-années, l'UI restait bloquée N x 48 s.
-# Après _NET_BREAKER_THRESHOLD échecs définitifs CONSÉCUTIFS (aucun succès
-# entre-temps), on coupe tout appel BCE pendant _NET_BREAKER_COOLDOWN_SECONDS :
-# les appelants retombent immédiatement sur leur repli habituel (alertes
-# "repli BCE" déjà en place). Un seul succès réarme le compteur. Dict/float en
-# mémoire uniquement : aucun thread, aucune connexion -> scale-to-zero intact.
-_NET_BREAKER_THRESHOLD = 2
-_NET_BREAKER_COOLDOWN_SECONDS = 120
-_net_breaker_lock = threading.Lock()
-_net_consecutive_failures = 0
-_net_open_until = 0.0  # time.monotonic() jusqu'auquel les appels sont court-circuités
-
-
-def _net_breaker_is_open() -> bool:
-    with _net_breaker_lock:
-        return time.monotonic() < _net_open_until
-
-
-def _net_breaker_record_success() -> None:
-    global _net_consecutive_failures
-    with _net_breaker_lock:
-        _net_consecutive_failures = 0
-
-
-def _net_breaker_record_failure() -> None:
-    global _net_consecutive_failures, _net_open_until
-    with _net_breaker_lock:
-        _net_consecutive_failures += 1
-        if _net_consecutive_failures < _NET_BREAKER_THRESHOLD:
-            return
-        _net_open_until = time.monotonic() + _NET_BREAKER_COOLDOWN_SECONDS
-        _net_consecutive_failures = 0
-    logger.warning(
-        "ECB API : %d échecs réseau consécutifs — appels ECB suspendus %d s "
-        "(repli immédiat pour les taux manquants).",
-        _NET_BREAKER_THRESHOLD, _NET_BREAKER_COOLDOWN_SECONDS,
-    )
 
 
 def _mark_ssl_broken() -> None:
@@ -441,19 +430,30 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
             "process) : %s", description,
         )
         return None
-    if _net_breaker_is_open():
-        logger.debug(
-            "ECB API : appel ignoré (disjoncteur réseau ouvert) : %s", description,
-        )
-        return None
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    # Accept-Encoding: gzip : le JSON SDMX d'un lot multi-devises / multi-années
+    # est volumineux et très compressible (gain de transfert typique x5-x10 sur
+    # le temps passé à l'étape « Téléchargement des taux de change (BCE) »).
+    # Repli transparent : si le serveur ne compresse pas, le corps est lu tel quel.
+    req = urllib.request.Request(
+        url, headers={"Accept": "application/json", "Accept-Encoding": "gzip"}
+    )
     for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(req, timeout=15, context=_SSL_CONTEXT) as resp:
-                _payload = json.loads(resp.read().decode("utf-8"))
-            _net_breaker_record_success()
-            return _payload
+                raw = resp.read()
+                _hdrs = getattr(resp, "headers", None)
+                if _hdrs is not None and (_hdrs.get("Content-Encoding") or "").lower() == "gzip":
+                    raw = gzip.decompress(raw)
+                return json.loads(raw.decode("utf-8"))
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
+                # L'API SDMX de la BCE répond 404 "No results found" quand la
+                # fenêtre demandée ne contient aucune observation (date de
+                # clôture pas encore publiée, devise sans données). Ce n'est
+                # pas une panne : la retenter ne change rien (3 tentatives +
+                # backoff gaspillés par paire).
+                logger.debug("ECB API : aucune donnée publiée (HTTP 404) : %s", description)
+                return None
             if _is_permanent_ssl_error(exc):
                 logger.warning(
                     "ECB API : certificat SSL non vérifiable (%s) — "
@@ -470,7 +470,6 @@ def _request_ecb(url: str, description: str) -> Optional[dict]:
                     "ECB API indisponible (%s) après %d tentative(s) : %s",
                     description, attempt, exc,
                 )
-                _net_breaker_record_failure()
                 return None
             delay = _FETCH_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
             logger.debug(
@@ -579,17 +578,12 @@ def prefetch_closing_rates(pairs: list[tuple[str, date]]) -> None:
     seen: set[tuple[str, date]] = set()
     for currency, d in pairs:
         currency = currency.upper()
-        if currency == "EUR":
+        if currency == "EUR" or fixed_eur_rate(currency, d) is not None:
             continue
         key = (currency, d)
         with _cache_lock:
             _cached = key in _forward_rate_cache
-        # BUGFIX (2026-10-04) : ignorer les paires déjà marquées en échec
-        # (TTL 5 min) — prefetch_closing_rates() est appelée plusieurs fois
-        # par export (_aggregate_by_scenario + export détail, par scénario) et
-        # relançait à chaque fois le cycle complet de tentatives BCE.
-        if (not _cached and key not in seen
-                and not _is_permanently_failed("closing", currency, d)):
+        if not _cached and key not in seen:
             requested.append(key)
             seen.add(key)
 
@@ -650,6 +644,9 @@ def get_closing_rate(currency: str, closing_date: date) -> Optional[Decimal]:
     currency = currency.upper()
     if currency == "EUR":
         return Decimal("1")
+    _fx = fixed_eur_rate(currency, closing_date)
+    if _fx is not None:
+        return _fx
     key = (currency, closing_date)
     with _cache_lock:
         if key in _forward_rate_cache:
@@ -745,6 +742,9 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     currency = currency.upper()
     if currency == "EUR":
         return Decimal("1")
+    _fx = fixed_eur_rate(currency, target_date)
+    if _fx is not None:
+        return _fx
 
     key = _cache_key(currency, target_date)
 
@@ -767,7 +767,11 @@ def get_rate(currency: str, target_date: date) -> Optional[Decimal]:
     if rate is not None:
         with _cache_lock:
             _rate_cache[key] = rate
-        _db_upsert_rate(currency, target_date, rate)
+        # Jamais de persistance L2 pour aujourd'hui/futur : avant la
+        # publication BCE (~16h CET) la fenêtre de recherche arrière renvoie
+        # le taux de la VEILLE, qui serait figé (DO NOTHING) pour tous.
+        if target_date < date.today():
+            _db_upsert_rate(currency, target_date, rate)
     else:
         _mark_failed("rate", currency, target_date)
 
@@ -791,13 +795,12 @@ def prefetch_rates(
         max_workers: (obsolète pour le mode batch, conservé pour compatibilité).
         progress_callback: optionnel, callable(done: int, total: int).
     """
-    _FIXED_RATE_CURRENCIES = {"EUR", "HRK"}
     requested: list[tuple[str, date]] = []
     seen: set[tuple[str, date]] = set()
 
     for currency, d in currency_dates:
         currency = currency.upper()
-        if currency in _FIXED_RATE_CURRENCIES:
+        if currency == "EUR" or fixed_eur_rate(currency, d) is not None:
             continue
         key = _cache_key(currency, d)
         if key not in _rate_cache and (currency, d) not in seen:
@@ -811,9 +814,11 @@ def prefetch_rates(
         return
 
     total_requested = len(requested)
+    _t_start = time.perf_counter()
     
     # 1. Vérification du cache de la base de données (L2) en lot
     db_hits = _db_get_rates_batch(requested)
+    _t_db_read = time.perf_counter() - _t_start
     if db_hits:
         loaded_from_db = 0
         for (ccy, d), rate in db_hits.items():
@@ -858,7 +863,9 @@ def prefetch_rates(
         except Exception:
             pass
 
+    _t_http0 = time.perf_counter()
     batch_results = _fetch_ecb_batch(currencies, min_date, max_date)
+    _t_http = time.perf_counter() - _t_http0
 
     loaded = 0
     to_persist: list[tuple[str, date, Decimal]] = []
@@ -881,7 +888,10 @@ def prefetch_rates(
             key = _cache_key(ccy, target_date)
             with _cache_lock:
                 _rate_cache[key] = rate
-            to_persist.append((ccy, target_date, rate))
+            # Voir get_rate() : pas de L2 pour aujourd'hui/futur (taux de la
+            # veille possible tant que la BCE n'a pas publié).
+            if target_date < date.today():
+                to_persist.append((ccy, target_date, rate))
             loaded += 1
         else:
             # BUGFIX 2026-09-11 : sans ce marquage, un appel individuel
@@ -899,10 +909,20 @@ def prefetch_rates(
                 pass
 
     # Une seule transaction Postgres pour tout le lot
+    _t_up0 = time.perf_counter()
     if to_persist:
         _db_upsert_batch(to_persist)
+    _t_upsert = time.perf_counter() - _t_up0
         
     logger.info("Prefetch BCE terminé : %d/%d taux mis en cache via API batch.", loaded, total)
+    # Durées par phase (diagnostic perf « Téléchargement des taux (BCE) ») :
+    # lecture L2 Postgres / requête HTTP BCE / écriture L2 Postgres.
+    logger.info(
+        "Prefetch BCE durées : lecture_L2=%.2fs http_BCE=%.2fs écriture_L2=%.2fs "
+        "total=%.2fs (%d paires demandées, %d à télécharger)",
+        _t_db_read, _t_http, _t_upsert, time.perf_counter() - _t_start,
+        total_requested, total,
+    )
 
 
 def convert_to_eur(
@@ -926,13 +946,13 @@ def convert_to_eur(
     if currency == "EUR":
         return amount, Decimal("1"), "eur"
 
-    # HRK (kuna croate) : taux de conversion fixe et irrévocable depuis le 01/01/2023
-    # (Règlement UE 2022/1540, art. 1). L'API BCE ne publie plus de cours pour HRK.
-    if currency == "HRK":
-        _HRK_FIXED = Decimal("7.53450")
-        eur_amount = (amount / _HRK_FIXED).quantize(_CENT, rounding=ROUND_HALF_UP)
-        logger.debug("HRK converti au taux fixe UE : 1 EUR = 7,53450 HRK")
-        return eur_amount, _HRK_FIXED, "fixed_eur_hrk"
+    # Taux fixe et irrévocable à partir de l'adoption de l'euro (HRK 2023,
+    # BGN 2026) ; avant, taux BCE dynamique via _rate_fn (voir fixed_eur_rate).
+    _fixed = fixed_eur_rate(currency, target_date)
+    if _fixed is not None:
+        eur_amount = (amount / _fixed).quantize(_CENT, rounding=ROUND_HALF_UP)
+        logger.debug("%s converti au taux fixe UE : 1 EUR = %s %s", currency, _fixed, currency)
+        return eur_amount, _fixed, f"fixed_eur_{currency.lower()}"
 
     rate = _rate_fn(currency, target_date)
     if rate is not None:
@@ -991,11 +1011,10 @@ def convert_to_currency(
         eur_amount_precise = amount
         rate_source = Decimal("1")
         source_info = "eur"
-    elif source_currency == "HRK":
-        _HRK_FIXED = Decimal("7.53450")
-        eur_amount_precise = amount / _HRK_FIXED
-        rate_source = _HRK_FIXED
-        source_info = "fixed_eur_hrk"
+    elif fixed_eur_rate(source_currency, target_date) is not None:
+        rate_source = fixed_eur_rate(source_currency, target_date)
+        eur_amount_precise = amount / rate_source
+        source_info = f"fixed_eur_{source_currency.lower()}"
     else:
         rate_source = _rate_fn(source_currency, target_date)
         if rate_source is None:

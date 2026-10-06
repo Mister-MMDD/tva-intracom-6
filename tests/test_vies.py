@@ -397,3 +397,104 @@ def test_reclassification_post_processing_fields(mock_check):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-10-04 : erreurs HTTP 403/408/429 = transitoires, jamais « invalide »
+# ---------------------------------------------------------------------------
+import io as _io_v
+import urllib.error as _urlerr_v
+
+import pytest as _pytest_v
+
+
+@_pytest_v.mark.parametrize("code", [403, 408, 429, 500, 502, 503, 504])
+def test_http_errors_not_validity_verdict_are_transient(code):
+    from unittest.mock import patch
+    from tva_intracom import vies_engine as v
+    err = _urlerr_v.HTTPError("u", code, "x", {}, _io_v.BytesIO(b"Too many requests"))
+    with patch.object(v.urllib.request, "urlopen", side_effect=err):
+        res = v.check_vat("DE", "123456789")
+    assert res.valid is False
+    assert v._is_unreliable(res) and v.is_inconclusive_result(res)
+
+
+def test_http_400_remains_definitive_for_malformed_input():
+    from unittest.mock import patch
+    from tva_intracom import vies_engine as v
+    err = _urlerr_v.HTTPError("u", 400, "x", {}, _io_v.BytesIO(b""))
+    with patch.object(v.urllib.request, "urlopen", side_effect=err):
+        res = v.check_vat("DE", "123")
+    assert not v._is_unreliable(res)
+
+
+def test_http_429_is_not_written_to_cache_by_check_vat_with_retry_path():
+    """429 épuisé après retries : résultat non fiable, donc jamais promu en cache."""
+    from unittest.mock import patch
+    from tva_intracom import vies_engine as v
+    err = _urlerr_v.HTTPError("u", 429, "x", {}, _io_v.BytesIO(b""))
+    with patch.object(v.urllib.request, "urlopen", side_effect=err), \
+         patch.object(v.time, "sleep") as slept:
+        res = v.check_vat_with_retry("DE", "123456789", max_attempts=3, base_delay=0.01)
+    assert v._is_unreliable(res)
+    assert slept.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Formes RÉELLES de réponse VIES (relevées le 2026-10-05, HTTP 200)
+# ---------------------------------------------------------------------------
+import json as _json_v
+
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._b = _json_v.dumps(payload).encode()
+
+    def read(self):
+        return self._b
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+_REAL_TRADER = {
+    "traderName": "---", "traderStreet": "---", "traderPostalCode": "---",
+    "traderCity": "---", "traderCompanyType": "---",
+    "traderNameMatch": "NOT_PROCESSED", "traderStreetMatch": "NOT_PROCESSED",
+    "traderPostalCodeMatch": "NOT_PROCESSED", "traderCityMatch": "NOT_PROCESSED",
+    "traderCompanyTypeMatch": "NOT_PROCESSED", "requestIdentifier": "",
+    "requestDate": "2026-10-05T11:25:00.639Z",
+}
+
+
+def test_real_vies_valid_response_shape():
+    from unittest.mock import patch
+    from tva_intracom import vies_engine as v
+    body = {"countryCode": "IT", "vatNumber": "02681150351", "valid": True,
+            "name": "AUTORICAMBI STOP AND GO SAS DI APREA LUIGI",
+            "address": "VIA BENASSI 2/A \n42124 REGGIO NELL'EMILIA RE\n", **_REAL_TRADER}
+    with patch.object(v.urllib.request, "urlopen", return_value=_FakeResp(body)):
+        res = v.check_vat("IT", "02681150351")
+    assert res.valid is True and res.error == ""
+    assert not v._is_unreliable(res) and not v._is_empty_response(res)
+
+
+def test_real_vies_invalid_response_shape_is_definitive_not_empty():
+    """Invalide réel : name/address == "---" => réponse DÉFINITIVE (pas de retry),
+    et un ancien valide qui devient invalide n'est PAS neutralisé en stale_fallback."""
+    from unittest.mock import patch
+    from tva_intracom import vies_engine as v
+    body = {"countryCode": "NL", "vatNumber": "000000001B01", "valid": False,
+            "name": "---", "address": "---", **_REAL_TRADER}
+    with patch.object(v.urllib.request, "urlopen", return_value=_FakeResp(body)), \
+         patch.object(v.time, "sleep") as slept:
+        res = v.check_vat_with_retry("NL", "000000001B01")
+    assert res.valid is False
+    assert not v._is_unreliable(res) and not v._is_empty_response(res)
+    slept.assert_not_called()
+    previous_valid = v.ViesResult(valid=True, country_code="NL", vat_number="000000001B01",
+                                  name="ACME BV", address="AMSTERDAM")
+    assert v._is_downgrade(previous_valid, res) is False
